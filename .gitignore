@@ -1,4 +1,5 @@
 data/
+webwright_run/
 backend/.venv/
 backend/.python-version
 frontend/node_modules/
