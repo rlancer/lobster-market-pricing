@@ -1,0 +1,22 @@
+step 1 action: open app; combobox count=5 placeholder='Search ticker or name…'
+  -> CP1: PASS placeholder='Search ticker or name…'
+step 2 action: type 'apple'; first_item='AAPL\nAPPLE INC.\nINFORMATION TECHNOLOGY' symbols_req=True
+  -> CP2: PASS first_item='AAPL\nAPPLE INC.\nINFORMATION TECHNOLOGY' req=True
+step 3 action: ArrowDown; active_count=1 active_text='AAPL\nAPPLE INC.\nINFORMATION TECHNOLOGY' after Enter input_value='AAPL'
+  -> CP3: PASS active=1 value='AAPL'
+step 4 action: rows=100 first_cells_unique=['AAPL']
+  -> CP4: PASS rows=100 unique_syms=['AAPL']
+step 6 action: strikes select idx=2 tag=SELECT vals=['10', '25', '50', '100', '200', '0'] texts=['10', '25', '50', '100', '200', 'All'] selected=50
+  -> CP6: PASS 
+step 7 action: band50 screen_req='http://localhost:5173/api/screen?symbol=AAPL&near_spot_strikes=50&sort=volume&order=desc&limit=100' total=1211
+step 7 action: All screen_req='http://localhost:5173/api/screen?symbol=AAPL&near_spot_strikes=0&sort=volume&order=desc&limit=100' total=2817 rose=True (1211 -> 2817)
+  -> CP7: PASS 50:True all:True 1211->2817
+step 8 action: 10 screen_req='http://localhost:5173/api/screen?symbol=AAPL&near_spot_strikes=10&sort=volume&order=desc&limit=100' total=252 dropped=True (2817 -> 252)
+  -> CP8: PASS 10:True 2817->252
+step 5 action: type 'msf'; first_item='MSFT\nMICROSOFT\nINFORMATION TECHNOLOGY'
+  -> CP5: PASS first_item='MSFT\nMICROSOFT\nINFORMATION TECHNOLOGY'
+step 9 action: Escape; typeahead-list count before=1 after=0
+  -> CP9: PASS before=1 after=0
+
+RESULTS: {'CP1': True, 'CP2': True, 'CP3': True, 'CP4': True, 'CP6': True, 'CP7': True, 'CP8': True, 'CP5': True, 'CP9': True}
+ALL_CRITICAL_POINTS_PASS: True

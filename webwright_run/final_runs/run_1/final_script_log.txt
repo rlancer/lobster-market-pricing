@@ -1,0 +1,17 @@
+step 1 action: open app; tabs visible: Screener, Data Explorer
+  -> CP1: PASS tabs=['Screener', 'Data Explorer']
+step 2 action: switch to Data Explorer; Tables heading=1, table rows=3, textboxes=1
+  -> CP2: PASS 
+step 3 action: tables: [('download_log', '503'), ('option_contracts', '369,661'), ('underlyings', '503')]
+  -> CP3: PASS names=['download_log', 'option_contracts', 'underlyings'] counts=['503', '369,661', '503']
+step 4 action: option_contracts columns: [('symbol', 'VARCHAR'), ('expiration', 'DATE'), ('type', 'VARCHAR'), ('strike', 'DOUBLE'), ('last', 'DOUBLE'), ('bid', 'DOUBLE'), ('ask', 'DOUBLE'), ('volume', 'BIGINT'), ('open_interest', 'BIGINT'), ('implied_vol', 'DOUBLE'), ('delta', 'DOUBLE'), ('gamma', 'DOUBLE'), ('theta', 'DOUBLE'), ('vega', 'DOUBLE'), ('rho', 'DOUBLE'), ('in_the_money', 'BOOLEAN'), ('fetched_at', 'TIMESTAMP')]
+  -> CP4: PASS n_cols=17
+step 5 action: sample query run; meta='50 rows · 85 ms · 5 columns' rows=50 cols=5
+  -> CP5: PASS 
+step 6 action: agg query; headers=['#', 'SYMBOL', 'N'] first_row=['1', 'SNDK', '10,754'] meta='5 rows · 100 ms · 2 columns'
+  -> CP6: PASS first_row=['1', 'SNDK', '10,754']
+step 7 action: rejected query; meta='Error: Only read-only queries (SELECT/WITH/DESCRIBE/SHOW/EXPLAIN/PRAGMA) are allowed'
+  -> CP7: PASS 
+
+ALL_CRITICAL_POINTS_PASS: True
+RESULTS: {'CP1': True, 'CP2': True, 'CP3': True, 'CP4': True, 'CP5': True, 'CP6': True, 'CP7': True}

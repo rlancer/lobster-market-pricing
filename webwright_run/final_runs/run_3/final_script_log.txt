@@ -1,0 +1,12 @@
+step 1 action: opened NVDA detail
+step 2 action: select present=1; old exp-tab buttons=0; options=22
+  -> CP1_select_is_dropdown: PASS 
+step 3 action: first option label='0 DTE (today) · 2026-08-05 · 0 d'; any DTE=True; sample options=['0 DTE (today) · 2026-08-05 · 0 d', '+2 DTE · 2026-08-07 · 2 d', '+5 DTE · 2026-08-10 · 5 d']
+  -> CP2_options_have_DTE: PASS 
+step 4 action: dte-pill='0 DTE (today)'
+  -> CP3_dte_pill_shows_relative: PASS 
+step 5 action: changed to last exp; pill='+2.4 yr'; meta_before='2026-08-05 (0 DTE (today)) · 52 strikes · 49 calls / 42 puts' meta_after='2028-12-15 (+2.4 yr) · 76 strikes · 76 calls / 76 puts · vol'; rows 52->76
+  -> CP4_dropdown_updates_chain: PASS 
+
+ALL_CRITICAL_POINTS_PASS: True
+RESULTS: {'CP1_select_is_dropdown': True, 'CP2_options_have_DTE': True, 'CP3_dte_pill_shows_relative': True, 'CP4_dropdown_updates_chain': True}

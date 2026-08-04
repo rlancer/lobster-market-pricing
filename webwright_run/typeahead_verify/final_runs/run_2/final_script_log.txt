@@ -1,0 +1,8 @@
+step 1 action: load screener
+step 2 action: CP1 'Strikes around spot' control present, default='50'
+step 3 action: CP2 selected AAPL; table rows=100, all AAPL=True
+step 4 action: CP3 API: distinct strikes=50 (<=50), below spot=22 above=28, spot=309.38
+step 5 action: CP3 PASS: band wraps spot (below=22, above=28)
+step 6 action: CP4 band ON total=1211, band OFF total=2817
+
+VERIFIED: default 50 strikes around spot wraps spot (<=50, both sides), 0 disables.

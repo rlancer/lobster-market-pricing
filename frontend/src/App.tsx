@@ -1,0 +1,334 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import './App.css';
+import Explorer from './Explorer';
+import SymbolDetail from './SymbolDetail';
+import SymbolTypeahead from './SymbolTypeahead';
+import { api, type OptionRow, type SectorRow, type Stats } from './api';
+
+type SortKey =
+  | 'volume' | 'open_interest' | 'strike' | 'implied_vol' | 'delta'
+  | 'theta' | 'vega' | 'gamma' | 'bid' | 'ask' | 'last' | 'expiration' | 'moneyness_pct';
+
+const fmtNum = (v: number | null | undefined, d = 2): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '–';
+  return v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+};
+const fmtInt = (v: number | null | undefined): string =>
+  v === null || v === undefined || Number.isNaN(v) ? '–' : v.toLocaleString();
+
+const fmtPct = (v: number | null | undefined): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '–';
+  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+};
+
+const fmtDate = (s: string): string => {
+  if (!s) return '–';
+  const d = new Date(s);
+  return d.toISOString().slice(0, 10);
+};
+
+function App() {
+  const [view, setView] = useState<'screener' | 'explorer'>('screener');
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [sectors, setSectors] = useState<SectorRow[]>([]);
+  const [rows, setRows] = useState<OptionRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // filters
+  const [symbol, setSymbol] = useState('');
+  const [type, setType] = useState<'' | 'call' | 'put'>('');
+  const [sector, setSector] = useState('');
+  const [minVolume, setMinVolume] = useState('');
+  const [minOI, setMinOI] = useState('');
+  const [minIV, setMinIV] = useState('');
+  const [maxIV, setMaxIV] = useState('');
+  const [minDelta, setMinDelta] = useState('');
+  const [maxDelta, setMaxDelta] = useState('');
+  const [maxMoneyness, setMaxMoneyness] = useState(''); // % OTM cap
+  const [nearSpot, setNearSpot] = useState('50'); // strikes around spot
+  const [sort, setSort] = useState<SortKey>('volume');
+  const [order, setOrder] = useState<'asc' | 'desc'>('desc');
+  const [limit, setLimit] = useState(100);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const [s, sec] = await Promise.all([api.stats(), api.sectors()]);
+      setStats(s); setSectors(sec);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  const runScreen = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      // moneyness filter: only include contracts within maxMoneyness% of spot
+      // (implemented server-side via strike range when spot known is complex;
+      //  we approximate client-side after fetch when maxMoneyness set)
+      const res = await api.screen({
+        symbol: symbol.toUpperCase() || undefined,
+        type: type || undefined,
+        sector: sector || undefined,
+        min_volume: minVolume ? Number(minVolume) : undefined,
+        min_open_interest: minOI ? Number(minOI) : undefined,
+        min_iv: minIV ? Number(minIV) : undefined,
+        max_iv: maxIV ? Number(maxIV) : undefined,
+        min_delta: minDelta ? Number(minDelta) : undefined,
+        max_delta: maxDelta ? Number(maxDelta) : undefined,
+        near_spot_strikes: nearSpot !== '' ? Number(nearSpot) : undefined,
+        sort, order, limit,
+      });
+      let items = res.items;
+      if (maxMoneyness !== '') {
+        const cap = Math.abs(Number(maxMoneyness));
+        items = items.filter(
+          (r) => r.moneyness_pct !== null && Math.abs(r.moneyness_pct) <= cap
+        );
+      }
+      setRows(items);
+      setTotal(res.total);
+    } catch (e) {
+      setError(String(e));
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol, type, sector, minVolume, minOI, minIV, maxIV, minDelta, maxDelta,
+      maxMoneyness, nearSpot, sort, order, limit]);
+
+  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { const t = setTimeout(runScreen, 250); return () => clearTimeout(t); }, [runScreen]);
+
+  // ----- URL route sync -----------------------------------------------------
+  // The current view is encoded in the query string so any state is shareable:
+  //   ?symbol=NVDA  -> open NVIDIA's option-chain detail page
+  //   ?tab=explorer -> open the Data Explorer
+  // On first mount, restore state from the URL (so a shared route loads right).
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const sym = sp.get('symbol');
+    const tab = sp.get('tab');
+    if (tab === 'explorer') setView('explorer');
+    else if (tab === 'screener') setView('screener');
+    if (sym && sym.trim()) setSelectedSymbol(sym.trim().toUpperCase());
+  }, []); // run once
+
+  // Reflect current view/symbol into the URL. Opening a symbol pushes a new
+  // history entry (so the browser Back button closes the detail page); other
+  // transitions (tab switch, closing a symbol) just replace the current entry.
+  const prevRouteSym = useRef<string | null>(selectedSymbol);
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (selectedSymbol) sp.set('symbol', selectedSymbol); else sp.delete('symbol');
+    if (view === 'explorer') sp.set('tab', 'explorer'); else sp.delete('tab');
+    const qs = sp.toString();
+    const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    const openedSymbol = !!selectedSymbol && !prevRouteSym.current;
+    if (openedSymbol) window.history.pushState(null, '', next);
+    else window.history.replaceState(null, '', next);
+    prevRouteSym.current = selectedSymbol;
+  }, [selectedSymbol, view]);
+
+  // Respond to browser back/forward (popstate) by restoring state from the URL.
+  useEffect(() => {
+    const onPop = () => {
+      const sp = new URLSearchParams(window.location.search);
+      const sym = sp.get('symbol');
+      const tab = sp.get('tab');
+      setView(tab === 'explorer' ? 'explorer' : 'screener');
+      setSelectedSymbol(sym && sym.trim() ? sym.trim().toUpperCase() : null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const columns: { key: SortKey | 'type' | 'symbol' | 'name'; label: string; align?: 'right' | 'left' }[] = [
+    { key: 'symbol', label: 'Symbol' },
+    { key: 'name', label: 'Name' },
+    { key: 'type', label: 'Type' },
+    { key: 'expiration', label: 'Expiry' },
+    { key: 'strike', label: 'Strike', align: 'right' },
+    { key: 'moneyness_pct', label: 'Moneyness', align: 'right' },
+    { key: 'last', label: 'Last', align: 'right' },
+    { key: 'bid', label: 'Bid', align: 'right' },
+    { key: 'ask', label: 'Ask', align: 'right' },
+    { key: 'volume', label: 'Vol', align: 'right' },
+    { key: 'open_interest', label: 'OI', align: 'right' },
+    { key: 'implied_vol', label: 'IV', align: 'right' },
+    { key: 'delta', label: 'Δ', align: 'right' },
+    { key: 'gamma', label: 'Γ', align: 'right' },
+    { key: 'theta', label: 'Θ', align: 'right' },
+    { key: 'vega', label: 'ν', align: 'right' },
+  ];
+
+  const handleSort = (key: SortKey) => {
+    if (sort === key) setOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+    else { setSort(key); setOrder('desc'); }
+  };
+
+  const reset = () => {
+    setSymbol(''); setType(''); setSector(''); setMinVolume(''); setMinOI('');
+    setMinIV(''); setMaxIV(''); setMinDelta(''); setMaxDelta(''); setMaxMoneyness('');
+    setNearSpot('50');
+    setSort('volume'); setOrder('desc'); setLimit(100);
+  };
+
+  const sectorList = useMemo(() => sectors.map((s) => s.sector).sort(), [sectors]);
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1>S&P 500 Options Screener</h1>
+        <div className="stats">
+          <span><b>{stats?.underlyings ?? '–'}</b> underlyings</span>
+          <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
+          <span><b>{stats?.calls?.toLocaleString() ?? '–'}</b> calls</span>
+          <span><b>{stats?.puts?.toLocaleString() ?? '–'}</b> puts</span>
+          <span className="updated">updated {stats?.last_updated?.slice(0, 19) ?? '–'}</span>
+        </div>
+      </header>
+
+      <nav className="tabs">
+        <button className={`tab ${view === 'screener' ? 'active' : ''}`} onClick={() => setView('screener')}>Screener</button>
+        <button className={`tab ${view === 'explorer' ? 'active' : ''}`} onClick={() => setView('explorer')}>Data Explorer</button>
+      </nav>
+
+      {view === 'explorer' ? <Explorer /> : (
+        selectedSymbol ? (
+          <SymbolDetail symbol={selectedSymbol} onBack={() => setSelectedSymbol(null)} />
+        ) : (
+          <>
+      <section className="filters">
+        <div className="filter-row">
+          <label>Symbol
+            <SymbolTypeahead
+              value={symbol}
+              onChange={setSymbol}
+              onSelect={(s) => setSymbol(s)}
+            />
+          </label>
+          <label>Type
+            <select value={type} onChange={(e) => setType(e.target.value as '' | 'call' | 'put')}>
+              <option value="">All</option>
+              <option value="call">Calls</option>
+              <option value="put">Puts</option>
+            </select>
+          </label>
+          <label>Sector
+            <select value={sector} onChange={(e) => setSector(e.target.value)}>
+              <option value="">All</option>
+              {sectorList.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label>Min Vol
+            <input type="number" value={minVolume} onChange={(e) => setMinVolume(e.target.value)} placeholder="0" />
+          </label>
+          <label>Min OI
+            <input type="number" value={minOI} onChange={(e) => setMinOI(e.target.value)} placeholder="0" />
+          </label>
+          <label>Min IV
+            <input type="number" step="0.05" value={minIV} onChange={(e) => setMinIV(e.target.value)} placeholder="0.2" />
+          </label>
+          <label>Max IV
+            <input type="number" step="0.05" value={maxIV} onChange={(e) => setMaxIV(e.target.value)} placeholder="1.0" />
+          </label>
+        </div>
+        <div className="filter-row">
+          <label>Min Δ
+            <input type="number" step="0.05" value={minDelta} onChange={(e) => setMinDelta(e.target.value)} placeholder="-1" />
+          </label>
+          <label>Max Δ
+            <input type="number" step="0.05" value={maxDelta} onChange={(e) => setMaxDelta(e.target.value)} placeholder="1" />
+          </label>
+          <label>Max |Moneyness| %
+            <input type="number" value={maxMoneyness} onChange={(e) => setMaxMoneyness(e.target.value)} placeholder="15" />
+          </label>
+          <label>Strikes around spot
+            <select value={nearSpot} onChange={(e) => setNearSpot(e.target.value)}>
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="0">All</option>
+            </select>
+          </label>
+          <label>Rows
+            <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+              {[50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <div className="actions">
+            <button onClick={runScreen} disabled={loading}>{loading ? 'Screening…' : 'Screen'}</button>
+            <button className="ghost" onClick={reset}>Reset</button>
+          </div>
+        </div>
+      </section>
+
+      {error && <div className="error">Error: {error}</div>}
+
+      <section className="table-wrap">
+        <div className="table-meta">
+          Showing <b>{rows.length}</b> of <b>{total.toLocaleString()}</b> matching contracts
+          · sorted by <b>{sort}</b> ({order})
+        </div>
+        <table className="screener">
+          <thead>
+            <tr>
+              {columns.map((c) => (
+                <th key={c.key} className={c.align === 'right' ? 'right' : 'left'}>
+                  {(c.key === 'type' || c.key === 'symbol' || c.key === 'name')
+                    ? c.label
+                    : (
+                      <button className="sort-btn" onClick={() => handleSort(c.key as SortKey)}>
+                        {c.label}{sort === c.key ? (order === 'asc' ? ' ▲' : ' ▼') : ''}
+                      </button>
+                    )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className={r.type === 'call' ? 'row-call' : 'row-put'}
+                  onClick={() => setSelectedSymbol(r.symbol)}
+                  title={`Click to explore ${r.symbol} option chain`}>
+                <td><b>{r.symbol}</b></td>
+                <td className="muted">{r.name ?? '–'}</td>
+                <td><span className={`badge ${r.type}`}>{r.type}</span></td>
+                <td>{fmtDate(r.expiration)}</td>
+                <td className="right">{fmtNum(r.strike, 0)}</td>
+                <td className="right moneyness">{fmtPct(r.moneyness_pct)}</td>
+                <td className="right">{fmtNum(r.last)}</td>
+                <td className="right">{fmtNum(r.bid)}</td>
+                <td className="right">{fmtNum(r.ask)}</td>
+                <td className="right">{fmtInt(r.volume)}</td>
+                <td className="right">{fmtInt(r.open_interest)}</td>
+                <td className="right">{fmtNum(r.implied_vol, 3)}</td>
+                <td className="right">{fmtNum(r.delta, 3)}</td>
+                <td className="right">{fmtNum(r.gamma, 4)}</td>
+                <td className="right">{fmtNum(r.theta, 3)}</td>
+                <td className="right">{fmtNum(r.vega, 3)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && !loading && (
+              <tr><td colSpan={16} className="empty">No contracts match the current filters.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </section>
+      </>
+        )
+      )}
+
+      <footer className="app-footer">
+        Data: Yahoo Finance via yfinance · Storage: DuckDB · UI: React + Vite · managed with mise
+      </footer>
+    </div>
+  );
+}
+
+export default App;

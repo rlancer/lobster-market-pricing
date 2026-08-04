@@ -1,0 +1,194 @@
+.symbol-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.detail-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.back-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.back-btn:hover { border-color: var(--accent); }
+.detail-title { flex: 1 1 auto; min-width: 0; }
+.detail-title h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+.detail-title h2 .muted { font-size: 14px; font-weight: 400; }
+.detail-meta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+.detail-meta b { color: var(--text); }
+.detail-meta .chip {
+  background: rgba(79, 140, 255, 0.14);
+  color: var(--accent);
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.detail-meta .small { font-size: 11px; }
+
+/* ---- expiration selector ---- */
+.expirations {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  flex-wrap: wrap;
+}
+.expirations .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.exp-select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  outline: none;
+  min-width: 240px;
+}
+.exp-select:focus { border-color: var(--accent); }
+.exp-select option { background: var(--panel-2); color: var(--text); }
+.dte-pill {
+  background: rgba(56, 217, 169, 0.14);
+  color: var(--accent-2);
+  border: 1px solid rgba(56, 217, 169, 0.35);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.exp-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+.exp-meta b { color: var(--text); }
+
+/* ---- chain table ---- */
+.chain-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.chain {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chain th, .chain td {
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.chain thead th {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.chain .grp { text-align: center; font-weight: 700; letter-spacing: 1px; }
+.chain .call-grp { color: var(--call); background: rgba(22, 199, 132, 0.10); }
+.chain .put-grp { color: var(--put); background: rgba(255, 82, 82, 0.10); }
+.chain .strike-h { background: var(--panel-2); color: var(--text); text-align: center; }
+.chain .sub-head th { top: 28px; font-size: 10px; }
+.chain tbody tr:hover { background: rgba(79, 140, 255, 0.06); }
+
+.chain .num { color: var(--text); }
+.chain .right { text-align: right; }
+.chain .call-col { color: var(--call); font-weight: 600; }
+.chain .put-col { color: var(--put); font-weight: 600; }
+.chain .itm {
+  background: rgba(255, 209, 102, 0.10);
+  color: #ffd166;
+}
+
+.chain .strike-cell {
+  text-align: center;
+  font-weight: 700;
+  background: var(--panel-2);
+  color: var(--text);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  cursor: help;
+}
+.chain td.num.itm { font-weight: 600; }
+
+/* at-the-money row: strike nearest to current spot price */
+.chain tbody tr.atm-row {
+  background: rgba(79, 140, 255, 0.14);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.chain tbody tr.atm-row:hover { background: rgba(79, 140, 255, 0.20); }
+.chain .strike-cell.strike-atm {
+  color: var(--accent);
+  background: rgba(79, 140, 255, 0.18);
+}
+
+.chain-legend {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chain-legend .dot {
+  width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+  background: rgba(255, 209, 102, 0.35);
+}
+
+.empty { text-align: center; padding: 28px; color: var(--muted); }
+.error {
+  background: rgba(255, 82, 82, 0.1);
+  border: 1px solid var(--put);
+  color: var(--put);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+
+/* ---- make screener rows look clickable ---- */
+.screener tbody tr {
+  cursor: pointer;
+}
+.screener tbody tr:hover {
+  background: rgba(79, 140, 255, 0.12);
+}

@@ -1,0 +1,184 @@
+:root {
+  --bg: #0b1020;
+  --panel: #131a2e;
+  --panel-2: #1a2240;
+  --border: #283156;
+  --text: #e6ecff;
+  --muted: #8c97bf;
+  --accent: #4f8cff;
+  --accent-2: #38d9a9;
+  --call: #16c784;
+  --put: #ff5252;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.app {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 20px 24px 60px;
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stats {
+  display: flex;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.stats b { color: var(--text); }
+.stats .updated { color: var(--accent-2); }
+
+.filters {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.filter-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.filter-row label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  gap: 5px;
+}
+.filter-row input, .filter-row select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  width: 130px;
+  outline: none;
+}
+.filter-row input:focus, .filter-row select:focus {
+  border-color: var(--accent);
+}
+.actions { display: flex; gap: 8px; margin-left: auto; }
+.actions button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+.actions button:disabled { opacity: 0.6; cursor: wait; }
+.actions button.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.table-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.table-meta b { color: var(--text); }
+
+.table-wrap { overflow-x: auto; }
+.screener {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.screener th, .screener td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.screener thead th {
+  background: var(--panel-2);
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  position: sticky;
+  top: 0;
+}
+.screener th.right, .screener td.right { text-align: right; }
+.screener th.left, .screener td.left { text-align: left; }
+.screener tbody tr:hover { background: rgba(79, 140, 255, 0.06); }
+.sort-btn {
+  background: none; border: none; color: inherit;
+  cursor: pointer; font: inherit; padding: 0;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.sort-btn:hover { color: var(--accent); }
+.muted { color: var(--muted); font-size: 12px; }
+.row-call td:first-child { border-left: 3px solid var(--call); }
+.row-put td:first-child { border-left: 3px solid var(--put); }
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.badge.call { color: var(--call); background: rgba(22, 199, 132, 0.12); }
+.badge.put { color: var(--put); background: rgba(255, 82, 82, 0.12); }
+.moneyness { color: var(--muted); }
+.empty {
+  text-align: center;
+  padding: 28px;
+  color: var(--muted);
+}
+.error {
+  background: rgba(255, 82, 82, 0.1);
+  border: 1px solid var(--put);
+  color: var(--put);
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.app-footer {
+  margin-top: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 11px;
+}

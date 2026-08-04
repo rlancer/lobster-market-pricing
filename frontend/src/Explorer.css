@@ -1,0 +1,272 @@
+.explorer {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  background: transparent;
+}
+
+/* ---- sidebar ------------------------------------------------------------- */
+.explorer-sidebar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 140px);
+  overflow: hidden;
+}
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-head h2 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+.ghost-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.ghost-btn:hover { color: var(--accent); border-color: var(--accent); }
+.sidebar-error { color: var(--put); padding: 10px 14px; font-size: 12px; }
+
+.table-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.table-list li { margin: 0; }
+.table-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+.table-btn:hover { background: rgba(79, 140, 255, 0.08); }
+.table-list li.active .table-btn {
+  background: rgba(79, 140, 255, 0.16);
+  color: var(--accent);
+}
+.table-name { font-weight: 600; }
+.table-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.columns-panel {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  max-height: 40%;
+  overflow: hidden;
+}
+.columns-head {
+  padding: 10px 14px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.columns-head code { text-transform: none; color: var(--accent-2); }
+.column-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.col-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.col-btn:hover { background: rgba(79, 140, 255, 0.08); }
+.col-name { color: var(--text); }
+.col-type { color: var(--muted); font-size: 10.5px; }
+.preview-btn {
+  margin: 8px 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.preview-btn:hover { border-color: var(--accent); }
+
+/* ---- main / editor ------------------------------------------------------- */
+.explorer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  border-bottom: none;
+  padding: 8px 12px;
+}
+.editor-bar .hint { color: var(--muted); font-size: 12px; }
+.editor-bar kbd {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+}
+.samples { display: flex; gap: 4px; margin-left: auto; }
+.sample-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sample-btn:hover { color: var(--accent); border-color: var(--accent); }
+.run-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+.run-btn:disabled { opacity: 0.6; cursor: wait; }
+
+.sql-editor {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
+  color: var(--accent-2);
+  font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  outline: none;
+  tab-size: 2;
+}
+.sql-editor:focus { border-color: var(--accent); }
+
+.result-meta {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.result-meta b { color: var(--text); }
+.result-meta .err { color: var(--put); }
+
+.result-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 440px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.result-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.result-table th, .result-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+.result-table thead th {
+  background: var(--panel-2);
+  text-align: left;
+  position: sticky;
+  top: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.result-table tbody tr:hover { background: rgba(79, 140, 255, 0.06); }
+.result-table td.row-idx,
+.result-table th.row-idx {
+  color: var(--muted);
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+  background: var(--panel-2);
+  position: sticky;
+  left: 0;
+}
+.result-table .empty { text-align: center; padding: 24px; color: var(--muted); }
+
+/* ---- tabs (rendered in App) --------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px 8px 0 0;
+  padding: 8px 18px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: none;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  background: var(--panel);
+  color: var(--accent);
+  border-color: var(--border);
+}

@@ -1,0 +1,39 @@
+[tools]
+python = "3.12"
+node = "22"
+uv = "latest"
+
+[env]
+PYTHONUNBUFFERED = "1"
+
+# ---------------------------------------------------------------------------
+# Tasks (run with: mise run <task>)
+# We use `uv run python` so the backend venv interpreter is used reliably
+# (avoids the Windows "Python was not found" Store stub when calling bare `python`).
+# ---------------------------------------------------------------------------
+[tasks.sync]
+description = "Install Python (uv) and Node (npm) dependencies"
+run = """
+  cd backend && uv sync
+  cd ../frontend && npm install
+"""
+
+[tasks.download]
+description = "Download S&P 500 option chains into DuckDB. Extra args are appended, e.g. mise run download -- --fresh --limit 25"
+run = "cd backend && uv run python -m screener.download"
+
+[tasks.backend]
+description = "Run the FastAPI backend on http://127.0.0.1:8001"
+run = "cd backend && uv run python -m screener.server"
+
+[tasks.frontend]
+description = "Run the Vite dev server on http://127.0.0.1:5173 (proxies /api -> backend)"
+run = "cd frontend && npm run dev"
+
+[tasks.greeks]
+description = "Recompute Black-Scholes Greeks in DuckDB. e.g. mise run greeks -- --rate 0.043"
+run = "cd backend && uv run python -m screener.greeks"
+
+[tasks.build]
+description = "Build the production frontend bundle"
+run = "cd frontend && npm run build"
