@@ -18,9 +18,9 @@ description = "Install Python (uv) and Node (npm) dependencies"
 # script, so multi-step tasks must be chained on a single line with `&&`.
 run = "cd backend && uv sync && cd ../frontend && npm install"
 
-[tasks.download]
-description = "Download S&P 500 option chains into DuckDB. Extra args are appended, e.g. mise run download -- --fresh --limit 25"
-run = "cd backend && uv run python -m screener.download"
+[tasks.download-cboe]
+description = "Download S&P 500 option chains from CBOE into DuckDB (replaces the Yahoo path). Extra args appended, e.g. mise run download-cboe -- --limit 25"
+run = "cd backend && uv run python -m screener.download_cboe"
 
 [tasks.backend]
 description = "Run the FastAPI backend on http://127.0.0.1:8001"
@@ -30,9 +30,9 @@ run = "cd backend && uv run python -m screener.server"
 description = "Run the Vite dev server on http://127.0.0.1:5173 (zero-backend; reads Parquet from R2 via VITE_R2_BASE)"
 run = "cd frontend && npm run dev"
 
-[tasks.greeks]
-description = "Recompute Black-Scholes Greeks in DuckDB. e.g. mise run greeks -- --rate 0.043"
-run = "cd backend && uv run python -m screener.greeks"
+[tasks.refresh]
+description = "One-shot ETL: download-cboe -> export-parquet -> upload-r2"
+run = "mise run download-cboe && mise run export-parquet && mise run upload-r2"
 
 [tasks.export-parquet]
 description = "Export DuckDB tables to Parquet (data/parquet/*.parquet + manifest.json) for R2 serving"

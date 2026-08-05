@@ -1,0 +1,62 @@
+name: Refresh options data
+
+# Nightly ETL for the CBOE options dataset, mirroring `mise run refresh`:
+#   download-cboe (fetch 503 S&P 500 symbols from CBOE -> DuckDB)
+#     -> export-parquet (DuckDB -> data/parquet/*.parquet + manifest.json)
+#     -> upload-r2 (wrangler r2 object put -> robs-options-slop-data/options)
+#
+# Runs after US market close (01:00 UTC Mon-Fri) on GitHub-hosted runners
+# (GitHub/Azure IP range) to sidestep CBOE throttling of cloud-VPN IPs.
+# This does NOT touch the deploy workflow (deploy.yml).
+#
+# Failure policy: steps run top-to-bottom, so a failed download/export stops
+# the job before the R2 upload — the last-good Parquet in R2 is preserved.
+# Re-run manually via workflow_dispatch to retry.
+
+on:
+  schedule:
+    - cron: "0 1 * * 1-5"   # 01:00 UTC, Mon–Fri (after US market close)
+  workflow_dispatch:         # manual trigger for testing / retries
+
+# Never cancel an in-flight refresh; serialise them so two runs don't race
+# writing to the same R2 keys.
+concurrency:
+  group: data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Data refresh (CBOE -> Parquet -> R2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools (mise)
+        run: |
+          curl -LsSf https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          mise install
+
+      - name: Install Python deps
+        run: |
+          cd backend && uv sync
+
+      - name: Download CBOE chains into DuckDB
+        run: mise run download-cboe
+
+      - name: Export Parquet + manifest
+        run: mise run export-parquet
+
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: mise run upload-r2
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "::error::Data refresh failed. Last-good Parquet in R2 left intact; re-run via workflow_dispatch."
