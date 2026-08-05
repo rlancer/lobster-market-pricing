@@ -69,6 +69,19 @@ function Explorer() {
 
   const insertName = (name: string) => setSql((s) => (s ? `${s}\n${name}` : name));
 
+  // Accept a SQL payload pushed from the AI copilot ("Open in SQL Lab").
+  useEffect(() => {
+    const onAiSql = (e: Event) => {
+      const detail = (e as CustomEvent<{ sql?: string }>).detail;
+      if (detail?.sql) {
+        setSql(detail.sql);
+        run();
+      }
+    };
+    window.addEventListener('ai:load-sql', onAiSql);
+    return () => window.removeEventListener('ai:load-sql', onAiSql);
+  }, [run]);
+
   return (
     <div className="explorer">
       <aside className="explorer-sidebar">
