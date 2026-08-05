@@ -1,0 +1,112 @@
+name: Deploy
+
+# Branches  → dev  (Cloudflare Pages project: robs-options-slop-dev)
+# main       → prod (Cloudflare Pages project: robs-options-slop)
+#
+# Deploys the static frontend (frontend/dist) via `wrangler pages deploy`.
+# No build secrets are needed beyond the Cloudflare API token + account id,
+# which are set as GitHub Actions secrets (CLOUDFLARE_API_TOKEN,
+# CLOUDFLARE_ACCOUNT_ID).
+
+on:
+  push:
+    branches: [main, "**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref so we don't pile up deploys.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Build
+        run: cd frontend && npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy-prod:
+    name: Deploy → production
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: frontend/dist
+
+      - name: Deploy to Cloudflare Pages (prod)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: 'pages deploy frontend/dist --project-name robs-options-slop --branch main --commit-hash ${{ github.sha }} --commit-message "deploy(prod): ${{ github.sha }}"'
+
+  deploy-dev:
+    name: Deploy → dev
+    needs: build
+    # Run for any non-main push, any PR targeting main, or manual dispatch
+    # (unless manually dispatched on main, where deploy-prod handles it).
+    if: >
+      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: frontend/dist
+
+      - name: Resolve branch name
+        id: br
+        run: |
+          # For PRs use the head branch; otherwise the pushed branch name.
+          if [ -n "${{ github.head_ref }}" ]; then
+            echo "branch=${{ github.head_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=${GITHUB_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Cloudflare Pages (dev)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >
+            pages deploy frontend/dist
+            --project-name robs-options-slop-dev
+            --branch ${{ steps.br.outputs.branch }}
+            --commit-hash ${{ github.sha }}
+            --commit-message "deploy(dev): ${{ github.sha }}"
