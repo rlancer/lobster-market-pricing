@@ -73,7 +73,7 @@ function Explorer() {
     <div className="explorer">
       <aside className="explorer-sidebar">
         <div className="sidebar-head">
-          <h2>Tables</h2>
+          <h2>Schema</h2>
           <button className="ghost-btn" onClick={loadTables} title="Refresh">⟳</button>
         </div>
         {tablesError && <div className="sidebar-error">{tablesError}</div>}
@@ -96,7 +96,7 @@ function Explorer() {
         {activeTable && (
           <div className="columns-panel">
             <div className="columns-head">
-              Columns · <code>{activeTable}</code>
+              Fields · <code>{activeTable}</code>
             </div>
             <ul className="column-list">
               {activeCols.map((c) => (
@@ -124,7 +124,7 @@ function Explorer() {
 
       <main className="explorer-main">
         <div className="editor-bar">
-          <span className="hint">SQL · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
+          <span className="hint"><b>Query editor</b> · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run</span>
           <div className="samples">
             {SAMPLES.map((_, i) => (
               <button key={i} className="sample-btn" onClick={() => setSql(SAMPLES[i])}>
@@ -133,7 +133,7 @@ function Explorer() {
             ))}
           </div>
           <button className="run-btn" onClick={run} disabled={running}>
-            {running ? 'Running…' : 'Run ▸'}
+            {running ? 'Running…' : 'Run query'}
           </button>
         </div>
         <textarea
@@ -157,7 +157,7 @@ function Explorer() {
               <b>{result.columns.length}</b> columns
             </span>
           ) : (
-            <span className="muted">Run a query to see results.</span>
+            <span className="muted">Results will appear here.</span>
           )}
         </div>
 

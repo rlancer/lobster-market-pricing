@@ -41,7 +41,7 @@ export default function LiquidityFilter({ checked, onChange }: Props) {
     <div className="liq-filter" ref={wrapRef}>
       <label className="liq-toggle">
         <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <span className="liq-label">Liquid only</span>
+        <span className="liq-label">Tradable names only</span>
       </label>
       <button
         type="button"
@@ -49,14 +49,14 @@ export default function LiquidityFilter({ checked, onChange }: Props) {
         aria-label="Liquidity criteria"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        title="What does ‘liquid only’ mean?"
+        title="How is tradability determined?"
       >
         i
       </button>
       {open && (
         <div className="liq-popover" role="dialog" aria-label="Liquidity criteria">
           <div className="liq-popover-title">
-            Tradability filter
+            Tradability rules
             <button className="liq-close" onClick={() => setOpen(false)} aria-label="Close">×</button>
           </div>
           {loading && !info && <div className="liq-popover-body muted">Loading…</div>}

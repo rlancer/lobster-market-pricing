@@ -127,7 +127,7 @@ function SymbolDetail({ symbol, onBack }: Props) {
   return (
     <div className="symbol-detail">
       <div className="detail-bar">
-        <button className="back-btn" onClick={onBack}>← Back to screener</button>
+        <button className="back-btn" onClick={onBack}>← Back to market</button>
         {u && (
           <div className="detail-title">
             <h2><b>{u.symbol}</b> <span className="muted">{u.name}</span></h2>
@@ -154,7 +154,7 @@ function SymbolDetail({ symbol, onBack }: Props) {
       {detail?.expirations.length ? (
         <>
           <div className="expirations">
-            <label className="label" htmlFor="exp-select">Expiration</label>
+            <label className="label" htmlFor="exp-select">Expiration cycle</label>
             <select
               id="exp-select"
               className="exp-select"
@@ -173,7 +173,7 @@ function SymbolDetail({ symbol, onBack }: Props) {
             {expiration && (
               <span className="dte-pill">{dteLabel(daysTo(expiration))}</span>
             )}
-            <label className="label" htmlFor="nearspot-select">Strikes around spot</label>
+            <label className="label" htmlFor="nearspot-select">Strike window</label>
             <select
               id="nearspot-select"
               className="exp-select"

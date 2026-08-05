@@ -7,7 +7,7 @@ type NotebookId = 'premium-45d';
 const NOTEBOOKS: { id: NotebookId; name: string; description: string }[] = [
   {
     id: 'premium-45d',
-    name: '45-Day Premium Leaders',
+    name: '45 DTE premium scan',
     description:
       'For each S&P 500 name, the expiration closest to 45 DTE is selected. ' +
       'Within a ±moneyness band of spot, the single call and single put with ' +
@@ -184,8 +184,8 @@ function Notebooks({ onPickSymbol, liquidOnly }: NotebooksProps) {
   return (
     <div className="notebooks">
       <aside className="nb-sidebar">
-        <h2>Notebooks</h2>
-        <p className="muted">Saved, parameterized screens.</p>
+        <h2>Research</h2>
+        <p className="muted">Repeatable, parameterized studies.</p>
         <ul className="nb-list">
           {NOTEBOOKS.map((n) => (
             <li key={n.id}>
@@ -207,22 +207,22 @@ function Notebooks({ onPickSymbol, liquidOnly }: NotebooksProps) {
           <label>Target DTE
             <input type="number" value={targetDte} onChange={(e) => setTargetDte(Number(e.target.value))} />
           </label>
-          <label>± DTE tolerance
+          <label>DTE tolerance (±)
             <input type="number" value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} />
           </label>
-          <label>Moneyness band %
+          <label>Distance from spot %
             <input type="number" value={band} onChange={(e) => setBand(Number(e.target.value))} />
           </label>
           <label>Min volume
             <input type="number" value={minVolume} onChange={(e) => setMinVolume(Number(e.target.value))} />
           </label>
-          <label>Top N / side
+          <label>Results per side
             <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
               {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
           <div className="actions">
-            <button onClick={run} disabled={loading}>{loading ? 'Running…' : 'Run'}</button>
+            <button onClick={run} disabled={loading}>{loading ? 'Running study…' : 'Refresh study'}</button>
           </div>
         </div>
 
@@ -239,8 +239,8 @@ function Notebooks({ onPickSymbol, liquidOnly }: NotebooksProps) {
         <div className="nb-grid">
           {data && (
             <>
-              <PremiumTable title="Highest-premium calls" rows={data.calls} kind="call" onPickSymbol={onPickSymbol} />
-              <PremiumTable title="Highest-premium puts" rows={data.puts} kind="put" onPickSymbol={onPickSymbol} />
+              <PremiumTable title="Call premium leaders" rows={data.calls} kind="call" onPickSymbol={onPickSymbol} />
+              <PremiumTable title="Put premium leaders" rows={data.puts} kind="put" onPickSymbol={onPickSymbol} />
             </>
           )}
           {!data && !error && <div className="empty">Loading…</div>}

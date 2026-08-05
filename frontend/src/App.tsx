@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '@astryxdesign/core/Button';
+import { StatusDot } from '@astryxdesign/core/StatusDot';
 import './App.css';
 import Explorer from './Explorer';
 import LiquidityFilter from './LiquidityFilter';
@@ -157,7 +159,7 @@ function App() {
     { key: 'symbol', label: 'Symbol' },
     { key: 'name', label: 'Name' },
     { key: 'type', label: 'Type' },
-    { key: 'expiration', label: 'Expiry' },
+    { key: 'expiration', label: 'Expiration' },
     { key: 'strike', label: 'Strike', align: 'right' },
     { key: 'moneyness_pct', label: 'Moneyness', align: 'right' },
     { key: 'last', label: 'Last', align: 'right' },
@@ -186,14 +188,21 @@ function App() {
   };
 
   const sectorList = useMemo(() => sectors.map((s) => s.sector).sort(), [sectors]);
+  const activeFilterCount = [symbol, type, sector, minVolume, minOI, minIV, maxIV,
+    minDelta, maxDelta, maxMoneyness].filter(Boolean).length + (!liquidOnly ? 1 : 0);
+  const updatedAt = stats?.last_updated
+    ? new Date(stats.last_updated.replace(' ', 'T')).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : '–';
 
   if (!db.ready) {
     return (
       <div className="app">
         <div className="db-loading">
-          {db.error
-            ? `Failed to load options dataset: ${db.error}`
-            : 'Loading options dataset (initialising DuckDB-WASM)…'}
+          <span className="loading-mark" aria-hidden="true" />
+          <b>{db.error ? 'Dataset unavailable' : 'Opening market data'}</b>
+          <span>{db.error ? db.error : 'Loading the options chain into your browser…'}</span>
         </div>
       </div>
     );
@@ -202,21 +211,30 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>S&P 500 Options Screener</h1>
-        <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-        <div className="stats">
-          <span><b>{stats?.underlyings ?? '–'}</b> underlyings</span>
-          <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
-          <span><b>{stats?.calls?.toLocaleString() ?? '–'}</b> calls</span>
-          <span><b>{stats?.puts?.toLocaleString() ?? '–'}</b> puts</span>
-          <span className="updated">updated {stats?.last_updated?.slice(0, 19) ?? '–'}</span>
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">O</span>
+          <span>
+            <h1>Open Interest</h1>
+            <small>S&amp;P 500 options workspace</small>
+          </span>
+        </div>
+        <div className="header-tools">
+          <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
+          <span className="data-status"><StatusDot variant="success" label="Dataset ready" /> Dataset ready</span>
+          <span className="updated">As of {updatedAt}</span>
         </div>
       </header>
 
-      <nav className="tabs">
-        <button className={`tab ${view === 'screener' ? 'active' : ''}`} onClick={() => setView('screener')}>Screener</button>
-        <button className={`tab ${view === 'notebooks' ? 'active' : ''}`} onClick={() => setView('notebooks')}>Notebooks</button>
-        <button className={`tab ${view === 'explorer' ? 'active' : ''}`} onClick={() => setView('explorer')}>Data Explorer</button>
+      <nav className="tabs" aria-label="Workspace">
+        <button className={`tab ${view === 'screener' ? 'active' : ''}`} onClick={() => setView('screener')}>Market</button>
+        <button className={`tab ${view === 'notebooks' ? 'active' : ''}`} onClick={() => setView('notebooks')}>Research</button>
+        <button className={`tab ${view === 'explorer' ? 'active' : ''}`} onClick={() => setView('explorer')}>SQL Lab</button>
+        <div className="stats" aria-label="Dataset summary">
+          <span><b>{stats?.underlyings ?? '–'}</b> symbols</span>
+          <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
+          <span><b>{stats?.calls?.toLocaleString() ?? '–'}</b> calls</span>
+          <span><b>{stats?.puts?.toLocaleString() ?? '–'}</b> puts</span>
+        </div>
       </nav>
 
       {view === 'explorer' ? <Explorer /> : view === 'notebooks' ? (
@@ -231,8 +249,17 @@ function App() {
         ) : (
           <>
       <section className="filters">
+        <div className="filter-heading">
+          <div>
+            <h2>Contract finder</h2>
+            <p>Narrow the chain. Results refresh as you work.</p>
+          </div>
+          <span className={`filter-count ${activeFilterCount ? 'active' : ''}`}>
+            {activeFilterCount ? `${activeFilterCount} filters applied` : 'No custom filters'}
+          </span>
+        </div>
         <div className="filter-row">
-          <label>Symbol
+          <label>Underlying
             <SymbolTypeahead
               value={symbol}
               onChange={setSymbol}
@@ -240,7 +267,7 @@ function App() {
               liquidOnly={liquidOnly}
             />
           </label>
-          <label>Type
+          <label>Contract
             <select value={type} onChange={(e) => setType(e.target.value as '' | 'call' | 'put')}>
               <option value="">All</option>
               <option value="call">Calls</option>
@@ -253,30 +280,30 @@ function App() {
               {sectorList.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
-          <label>Min Vol
+          <label>Min volume
             <input type="number" value={minVolume} onChange={(e) => setMinVolume(e.target.value)} placeholder="0" />
           </label>
-          <label>Min OI
+          <label>Min open interest
             <input type="number" value={minOI} onChange={(e) => setMinOI(e.target.value)} placeholder="0" />
           </label>
-          <label>Min IV
+          <label>IV floor
             <input type="number" step="0.05" value={minIV} onChange={(e) => setMinIV(e.target.value)} placeholder="0.2" />
           </label>
-          <label>Max IV
+          <label>IV ceiling
             <input type="number" step="0.05" value={maxIV} onChange={(e) => setMaxIV(e.target.value)} placeholder="1.0" />
           </label>
         </div>
         <div className="filter-row">
-          <label>Min Δ
+          <label>Delta floor
             <input type="number" step="0.05" value={minDelta} onChange={(e) => setMinDelta(e.target.value)} placeholder="-1" />
           </label>
-          <label>Max Δ
+          <label>Delta ceiling
             <input type="number" step="0.05" value={maxDelta} onChange={(e) => setMaxDelta(e.target.value)} placeholder="1" />
           </label>
-          <label>Max |Moneyness| %
+          <label>Distance from spot %
             <input type="number" value={maxMoneyness} onChange={(e) => setMaxMoneyness(e.target.value)} placeholder="15" />
           </label>
-          <label>Strikes around spot
+          <label>Strike window
             <select value={nearSpot} onChange={(e) => setNearSpot(e.target.value)}>
               <option value="10">10</option>
               <option value="25">25</option>
@@ -286,14 +313,14 @@ function App() {
               <option value="0">All</option>
             </select>
           </label>
-          <label>Rows
+          <label>Result size
             <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
               {[50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
           <div className="actions">
-            <button onClick={runScreen} disabled={loading}>{loading ? 'Screening…' : 'Screen'}</button>
-            <button className="ghost" onClick={reset}>Reset</button>
+            <Button label="Refresh results" variant="primary" size="sm" onClick={runScreen} isLoading={loading} />
+            <Button label="Clear filters" variant="ghost" size="sm" onClick={reset} />
           </div>
         </div>
       </section>
@@ -302,8 +329,8 @@ function App() {
 
       <section className="table-wrap">
         <div className="table-meta">
-          Showing <b>{rows.length}</b> of <b>{total.toLocaleString()}</b> matching contracts
-          · sorted by <b>{sort}</b> ({order})
+          <span><b>{rows.length.toLocaleString()}</b> shown <span className="meta-separator">/</span> <b>{total.toLocaleString()}</b> matches</span>
+          <span>Sorted by <b>{sort.replaceAll('_', ' ')}</b> · {order === 'desc' ? 'high to low' : 'low to high'}</span>
         </div>
         <table className="screener">
           <thead>
@@ -355,7 +382,8 @@ function App() {
       )}
 
       <footer className="app-footer">
-        Data: Yahoo Finance via yfinance · Storage: DuckDB · UI: React + Vite · managed with mise
+        <span>Market data for research only. Quotes may be delayed.</span>
+        <span>Yahoo Finance · DuckDB · Runs locally in your browser</span>
       </footer>
     </div>
   );

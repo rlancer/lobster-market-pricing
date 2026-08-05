@@ -16,11 +16,29 @@
   white-space: nowrap;
 }
 .liq-toggle input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--accent);
+  appearance: none;
+  width: var(--size-element-md);
+  height: calc(var(--spacing-5));
+  border-radius: var(--radius-full);
+  background: var(--color-border-emphasized);
   cursor: pointer;
+  position: relative;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
+.liq-toggle input::after {
+  content: '';
+  position: absolute;
+  width: var(--spacing-4);
+  height: var(--spacing-4);
+  left: var(--spacing-0-5);
+  top: var(--spacing-0-5);
+  border-radius: var(--radius-full);
+  background: var(--color-on-accent);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.liq-toggle input:checked { background: var(--accent); }
+.liq-toggle input:checked::after { transform: translateX(var(--spacing-3)); }
+.liq-toggle input:focus-visible { outline: var(--spacing-0-5) solid var(--accent); outline-offset: var(--spacing-0-5); }
 .liq-label { line-height: 1; }
 
 .liq-info-btn {
@@ -55,7 +73,7 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-high);
   overflow: hidden;
 }
 .liq-popover-title {

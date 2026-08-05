@@ -327,10 +327,10 @@ export async function screen(p: ScreenParams = {}): Promise<ScreenResponse> {
       : `c.${sortCol}`;
 
   const countSql =
-    `${cte}SELECT COUNT(*) FROM option_contracts c ` +
+    `${cte}SELECT COUNT(*) AS n FROM option_contracts c ` +
     `LEFT JOIN underlyings u ON u.symbol = c.symbol ${clause}`;
   const { rows: countRows } = await query(countSql, params);
-  const total = Number(countRows[0].n);
+  const total = Number(countRows[0]?.['count_star()'] ?? countRows[0]?.n ?? 0);
 
   const qparams = [...params, limit, offset];
   const dataSql =

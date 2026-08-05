@@ -12,7 +12,7 @@
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 13px;
-  width: 200px;
+  width: 100%;
   outline: none;
 }
 .typeahead-input:focus { border-color: var(--accent); }
@@ -29,7 +29,7 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-high);
   margin: 0;
   padding: 4px;
   list-style: none;
