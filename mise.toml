@@ -14,10 +14,9 @@ PYTHONUNBUFFERED = "1"
 # ---------------------------------------------------------------------------
 [tasks.sync]
 description = "Install Python (uv) and Node (npm) dependencies"
-run = """
-  cd backend && uv sync
-  cd ../frontend && npm install
-"""
+# NOTE: mise on Windows only executes the first line of a multi-line `run`
+# script, so multi-step tasks must be chained on a single line with `&&`.
+run = "cd backend && uv sync && cd ../frontend && npm install"
 
 [tasks.download]
 description = "Download S&P 500 option chains into DuckDB. Extra args are appended, e.g. mise run download -- --fresh --limit 25"
@@ -28,7 +27,7 @@ description = "Run the FastAPI backend on http://127.0.0.1:8001"
 run = "cd backend && uv run python -m screener.server"
 
 [tasks.frontend]
-description = "Run the Vite dev server on http://127.0.0.1:5173 (proxies /api -> backend)"
+description = "Run the Vite dev server on http://127.0.0.1:5173 (zero-backend; reads Parquet from R2 via VITE_R2_BASE)"
 run = "cd frontend && npm run dev"
 
 [tasks.greeks]
@@ -45,11 +44,8 @@ run = "cd frontend && npm run build"
 
 [tasks.upload-r2]
 description = "Upload Parquet files + manifest to the R2 bucket (robs-options-slop-data). Requires wrangler logged in."
-run = """
-  set -e
-  mise exec -- wrangler r2 object put robs-options-slop-data/options/underlyings.parquet      --file data/parquet/underlyings.parquet      --remote --content-type application/octet-stream --cache-control "public, max-age=3600"
-  mise exec -- wrangler r2 object put robs-options-slop-data/options/option_contracts.parquet --file data/parquet/option_contracts.parquet --remote --content-type application/octet-stream --cache-control "public, max-age=3600"
-  mise exec -- wrangler r2 object put robs-options-slop-data/options/download_log.parquet     --file data/parquet/download_log.parquet     --remote --content-type application/octet-stream --cache-control "public, max-age=3600"
-  mise exec -- wrangler r2 object put robs-options-slop-data/options/manifest.json            --file data/parquet/manifest.json            --remote --content-type application/json        --cache-control "public, max-age=60, must-revalidate"
-  echo "Uploaded. Bucket: robs-options-slop-data/options/"
-"""
+# NOTE: mise on Windows only executes the first line of a multi-line `run`
+# script, so all four uploads (+ the closing echo) are chained on one line
+# with `&&`. `wrangler r2 object put/get` default to LOCAL — `--remote` is
+# required to hit the real bucket.
+run = "mise exec -- wrangler r2 object put robs-options-slop-data/options/underlyings.parquet --file data/parquet/underlyings.parquet --remote --content-type application/octet-stream --cache-control \"public, max-age=3600\" && mise exec -- wrangler r2 object put robs-options-slop-data/options/option_contracts.parquet --file data/parquet/option_contracts.parquet --remote --content-type application/octet-stream --cache-control \"public, max-age=3600\" && mise exec -- wrangler r2 object put robs-options-slop-data/options/download_log.parquet --file data/parquet/download_log.parquet --remote --content-type application/octet-stream --cache-control \"public, max-age=3600\" && mise exec -- wrangler r2 object put robs-options-slop-data/options/manifest.json --file data/parquet/manifest.json --remote --content-type application/json --cache-control \"public, max-age=60, must-revalidate\" && echo \"Uploaded. Bucket: robs-options-slop-data/options/\""
