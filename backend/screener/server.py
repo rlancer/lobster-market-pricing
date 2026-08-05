@@ -1,6 +1,7 @@
 """FastAPI server exposing the DuckDB-backed option screener API."""
 from __future__ import annotations
 
+import time
 from datetime import date
 from typing import Any
 
@@ -17,6 +18,89 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Global liquidity filter (underlying-level)
+# ---------------------------------------------------------------------------
+# Liquidity is assessed per *underlying*, not per contract: a stock is either
+# "tradable" (has a real option market around the money) or it isn't, and the
+# whole name is kept or dropped everywhere. This avoids cluttering screens
+# with deep-OTM phantom quotes on illiquid tickers.
+#
+# Definition (data-driven from the S&P 500 dataset):
+#   An underlying is LIQUID iff it has >= LIQ_MIN_ATM_CONTRACTS contracts that
+#   (a) lie within +/- LIQ_ATM_BAND of spot, and
+#   (b) individually pass the per-contract gate:
+#         - two-sided quote: bid > 0 AND ask > 0 AND ask >= bid
+#         - tight spread:    (ask - bid) / mid <= LIQ_MAX_SPREAD
+#         - demonstrated interest: volume >= LIQ_MIN_VOLUME OR OI >= LIQ_MIN_OI
+#
+# Empirical distributions used to pick defaults:
+#   volume:        median ~3,   p90 ~56   -> gate at 10
+#   open_interest: median ~34,  p90 ~823  -> gate at 100
+#   rel. spread:   median ~12%, p75 ~35%  -> gate at 15%
+#   near-ATM liquid contract count per name: p25 ~3, p50 ~16 -> gate at 5
+#   -> ~351 of 503 underlyings qualify (~70%).
+LIQ_MIN_VOLUME = 10
+LIQ_MIN_OI = 100
+LIQ_MAX_SPREAD = 0.15
+LIQ_ATM_BAND = 0.10
+LIQ_MIN_ATM_CONTRACTS = 5
+
+_LIQUID_CACHE: dict[tuple, tuple[list[str], float]] = {}
+_LIQUID_TTL = 60.0  # seconds; the option snapshot only changes on a full refresh
+
+
+def liquid_underlying_symbols(
+    con: duckdb.DuckDBPyConnection,
+    min_volume: int = LIQ_MIN_VOLUME,
+    min_oi: int = LIQ_MIN_OI,
+    max_spread: float = LIQ_MAX_SPREAD,
+    atm_band: float = LIQ_ATM_BAND,
+    min_atm_contracts: int = LIQ_MIN_ATM_CONTRACTS,
+) -> list[str]:
+    """Return the sorted list of tradable (liquid) underlying symbols.
+
+    Memoized for `_LIQUID_TTL` seconds keyed on the threshold signature so it
+    is cheap to call from every endpoint. Refreshed automatically after the TTL
+    (and after any data refresh, which just waits out the TTL)."""
+    key = (min_volume, min_oi, max_spread, atm_band, min_atm_contracts)
+    now = time.time()
+    cached = _LIQUID_CACHE.get(key)
+    if cached and cached[1] > now:
+        return cached[0]
+    rows = con.execute(
+        """
+        SELECT c.symbol
+        FROM option_contracts c
+        JOIN underlyings u ON u.symbol = c.symbol
+        WHERE u.spot > 0
+          AND c.bid > 0 AND c.ask > 0 AND c.ask >= c.bid
+          AND (c.ask - c.bid) / ((c.bid + c.ask) / 2.0) <= ?
+          AND (COALESCE(c.volume, 0) >= ? OR COALESCE(c.open_interest, 0) >= ?)
+          AND ABS((c.strike - u.spot) / u.spot) <= ?
+        GROUP BY c.symbol
+        HAVING COUNT(*) >= ?
+        ORDER BY c.symbol
+        """,
+        [max_spread, min_volume, min_oi, atm_band, min_atm_contracts],
+    ).fetchall()
+    syms = sorted(r[0] for r in rows)
+    _LIQUID_CACHE[key] = (syms, now + _LIQUID_TTL)
+    return syms
+
+
+def _in_clause(symbols: list[str]) -> tuple[str, list[Any]]:
+    """Build a `(?, ?, ...)` IN-list + params; returns ('FALSE', []) if empty."""
+    if not symbols:
+        return "(FALSE)", []
+    return "(" + ",".join("?" for _ in symbols) + ")", list(symbols)
+
+
+def invalidate_liquidity_cache() -> None:
+    """Drop the cached liquid-symbol set (call after a data refresh)."""
+    _LIQUID_CACHE.clear()
 
 
 def _rows(con, sql: str, params: list[Any] | None = None) -> list[dict]:
@@ -39,13 +123,58 @@ def health() -> dict:
     return {"ok": True}
 
 
-@app.get("/api/stats")
-def stats() -> dict:
+@app.get("/api/liquidity")
+def liquidity() -> dict:
+    """Describe the global liquidity filter and report how many underlyings
+    currently qualify. Powers the header info popover."""
     con = connect(read_only=True)
-    n_sym = con.execute("SELECT COUNT(*) FROM underlyings").fetchone()[0]
-    n_con = con.execute("SELECT COUNT(*) FROM option_contracts").fetchone()[0]
-    n_calls = con.execute("SELECT COUNT(*) FROM option_contracts WHERE type='call'").fetchone()[0]
-    n_puts = con.execute("SELECT COUNT(*) FROM option_contracts WHERE type='put'").fetchone()[0]
+    total = con.execute("SELECT COUNT(*) FROM underlyings").fetchone()[0]
+    liquid = liquid_underlying_symbols(con)
+    return {
+        "enabled_defaults": {
+            "min_volume": LIQ_MIN_VOLUME,
+            "min_open_interest": LIQ_MIN_OI,
+            "max_spread": LIQ_MAX_SPREAD,
+            "atm_band": LIQ_ATM_BAND,
+            "min_atm_contracts": LIQ_MIN_ATM_CONTRACTS,
+        },
+        "total_underlyings": total,
+        "liquid_underlyings": len(liquid),
+        "description": (
+            "An underlying is tradable iff it has >= "
+            f"{LIQ_MIN_ATM_CONTRACTS} contracts within +/-"
+            f" {int(LIQ_ATM_BAND*100)}% of spot that each have a two-sided quote "
+            f"(bid>0, ask>=bid), a relative bid-ask spread <= "
+            f"{int(LIQ_MAX_SPREAD*100)}%, and demonstrated interest "
+            f"(volume >= {LIQ_MIN_VOLUME} OR open interest >= {LIQ_MIN_OI})."
+        ),
+    }
+
+
+@app.get("/api/stats")
+def stats(liquid_only: bool = False) -> dict:
+    con = connect(read_only=True)
+    if liquid_only:
+        syms = liquid_underlying_symbols(con)
+        in_clause, in_params = _in_clause(syms)
+        n_sym = len(syms)
+        n_con = con.execute(
+            f"SELECT COUNT(*) FROM option_contracts WHERE symbol IN {in_clause}",
+            in_params,
+        ).fetchone()[0]
+        n_calls = con.execute(
+            f"SELECT COUNT(*) FROM option_contracts WHERE type='call' AND symbol IN {in_clause}",
+            in_params,
+        ).fetchone()[0]
+        n_puts = con.execute(
+            f"SELECT COUNT(*) FROM option_contracts WHERE type='put' AND symbol IN {in_clause}",
+            in_params,
+        ).fetchone()[0]
+    else:
+        n_sym = con.execute("SELECT COUNT(*) FROM underlyings").fetchone()[0]
+        n_con = con.execute("SELECT COUNT(*) FROM option_contracts").fetchone()[0]
+        n_calls = con.execute("SELECT COUNT(*) FROM option_contracts WHERE type='call'").fetchone()[0]
+        n_puts = con.execute("SELECT COUNT(*) FROM option_contracts WHERE type='put'").fetchone()[0]
     last = con.execute(
         "SELECT COALESCE(MAX(fetched_at)::VARCHAR, '') FROM option_contracts"
     ).fetchone()[0]
@@ -59,21 +188,35 @@ def stats() -> dict:
 
 
 @app.get("/api/sectors")
-def sectors() -> list[dict]:
+def sectors(liquid_only: bool = False) -> list[dict]:
     con = connect(read_only=True)
+    extra = ""
+    params: list[Any] = []
+    if liquid_only:
+        syms = liquid_underlying_symbols(con)
+        in_clause, in_params = _in_clause(syms)
+        extra = f"WHERE symbol IN {in_clause}"
+        params = in_params
     return _rows(
         con,
-        """SELECT sector, COUNT(*) AS symbols, AVG(spot) AS avg_spot
-           FROM underlyings GROUP BY sector ORDER BY sector""",
+        f"""SELECT sector, COUNT(*) AS symbols, AVG(spot) AS avg_spot
+           FROM underlyings {extra} GROUP BY sector ORDER BY sector""",
+        params,
     )
 
 
 @app.get("/api/underlyings")
 def underlyings(sector: str | None = None, q: str | None = None,
+                liquid_only: bool = False,
                 limit: int = 50, offset: int = 0) -> dict:
     con = connect(read_only=True)
     where = []
     params: list[Any] = []
+    if liquid_only:
+        syms = liquid_underlying_symbols(con)
+        in_clause, in_params = _in_clause(syms)
+        where.append(f"u.symbol IN {in_clause}")
+        params += in_params
     if sector:
         where.append("u.sector = ?")
         params.append(sector)
@@ -114,6 +257,7 @@ def screen(
     in_the_money: bool | None = None,
     expiration_before: str | None = None,
     expiration_after: str | None = None,
+    liquid_only: bool = True,
     near_spot_strikes: int | None = 50,
     sort: str = "volume",
     order: str = Query("desc", pattern="^(asc|desc)$"),
@@ -154,6 +298,11 @@ def screen(
         where.append("c.expiration <= ?"); params.append(expiration_before)
     if expiration_after:
         where.append("c.expiration >= ?"); params.append(expiration_after)
+    if liquid_only:
+        syms = liquid_underlying_symbols(con)
+        in_clause, in_params = _in_clause(syms)
+        where.append(f"c.symbol IN {in_clause}")
+        params += in_params
 
     # Limit each underlying to its N strikes nearest spot (ATM band). Off when
     # 0/None. Implemented as a CTE over DISTINCT (symbol, strike) ranked by
@@ -218,7 +367,10 @@ def screen(
 @app.get("/api/symbol/{symbol}")
 def symbol_detail(symbol: str) -> dict:
     """Return one underlying's info plus all its option contracts,
-    ordered by expiration, strike, type (for chain grouping client-side)."""
+    ordered by expiration, strike, type (for chain grouping client-side).
+    `liquid` reports whether the underlying currently passes the global
+    liquidity filter (so the UI can flag illiquid names); the chain is still
+    returned in full since the user opened it deliberately."""
     con = connect(read_only=True)
     sym = symbol.upper()
     u = con.execute(
@@ -226,11 +378,12 @@ def symbol_detail(symbol: str) -> dict:
         [sym],
     ).fetchone()
     if not u:
-        return {"underlying": None, "contracts": [], "expirations": []}
+        return {"underlying": None, "contracts": [], "expirations": [], "liquid": False}
     underlying = {
         "symbol": u[0], "name": u[1], "sector": u[2], "spot": u[3],
         "fetched_at": u[4].isoformat() if u[4] else None,
     }
+    liquid = sym in liquid_underlying_symbols(con)
     rows = _rows(
         con,
         """SELECT expiration, type, strike, last, bid, ask,
@@ -246,28 +399,37 @@ def symbol_detail(symbol: str) -> dict:
         "contracts": rows,
         "expirations": expirations,
         "n_contracts": len(rows),
+        "liquid": liquid,
     }
 
 
 @app.get("/api/symbols")
-def symbols(q: str | None = None, limit: int = 50) -> list[dict]:
+def symbols(q: str | None = None, liquid_only: bool = False, limit: int = 50) -> list[dict]:
     """Ticker typeahead. Matches on symbol prefix first, then name substring,
     so users can search by company name (e.g. "Apple" -> AAPL).
-    Returns [{symbol, name, sector}, ...]."""
+    Returns [{symbol, name, sector}, ...]. When `liquid_only` is set, results
+    are restricted to underlyings passing the global liquidity filter."""
     con = connect(read_only=True)
+    liq_filter = ""
+    liq_params: list[Any] = []
+    if liquid_only:
+        in_clause, in_params = _in_clause(liquid_underlying_symbols(con))
+        liq_filter = f"AND symbol IN {in_clause}"
+        liq_params = in_params
     if not q:
         return _rows(
             con,
-            """SELECT symbol, name, sector FROM underlyings
-               ORDER BY symbol LIMIT ?""",
-            [limit],
+            f"""SELECT symbol, name, sector FROM underlyings
+               WHERE TRUE {liq_filter} ORDER BY symbol LIMIT ?""",
+            liq_params + [limit],
         )
     like = f"%{q.upper()}%"
     # rank: exact > symbol prefix > symbol substring > name match
     return _rows(
         con,
-        """SELECT symbol, name, sector FROM underlyings
-           WHERE UPPER(symbol) LIKE ? OR UPPER(COALESCE(name, '')) LIKE ?
+        f"""SELECT symbol, name, sector FROM underlyings
+           WHERE (UPPER(symbol) LIKE ? OR UPPER(COALESCE(name, '')) LIKE ?)
+           {liq_filter}
            ORDER BY
              CASE
                WHEN UPPER(symbol) = ? THEN 0
@@ -276,7 +438,7 @@ def symbols(q: str | None = None, limit: int = 50) -> list[dict]:
              END,
              symbol
            LIMIT ?""",
-        [like, like, q.upper(), f"{q.upper()}%", limit],
+        [like, like] + liq_params + [q.upper(), f"{q.upper()}%", limit],
     )
 
 
@@ -382,6 +544,106 @@ def query(body: dict = Body(...)) -> dict:
         "row_count": len(rows),
         "truncated": len(rows) >= limit,
         "limit": limit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Notebooks: saved, parameterized screens
+# ---------------------------------------------------------------------------
+
+@app.get("/api/notebook/premium")
+def notebook_premium(
+    target_dte: int = 45,
+    tolerance: int = Query(7, ge=0),
+    moneyness_band: float = Query(0.15, ge=0, le=1),
+    min_volume: int = 0,
+    liquid_only: bool = True,
+    limit: int = Query(25, ge=1, le=200),
+) -> dict:
+    """"45-day premium leaders" notebook.
+
+    For each underlying, pick the expiration whose DTE is closest to
+    `target_dte` (within `tolerance` days). Among the contracts at that
+    expiry whose strike is within `moneyness_band` (fraction of spot) of the
+    money, take the single call and the single put with the highest option
+    price as a proportion of the underlying spot (premium richness). Returns
+    the top-N calls and top-N puts independently, ranked by that ratio.
+    """
+    con = connect(read_only=True)
+    if liquid_only:
+        in_clause, liq_params = _in_clause(liquid_underlying_symbols(con))
+        liq_clause = f"AND c.symbol IN {in_clause}"
+    else:
+        liq_clause = ""
+        liq_params = []
+    sql = f"""
+    WITH exp AS (
+        SELECT symbol, expiration,
+               (expiration - CURRENT_DATE) AS dte,
+               ROW_NUMBER() OVER (
+                   PARTITION BY symbol
+                   ORDER BY ABS((expiration - CURRENT_DATE) - ?)
+               ) AS rn
+        FROM (SELECT DISTINCT symbol, expiration FROM option_contracts) e
+        WHERE (expiration - CURRENT_DATE) BETWEEN ? AND ?
+    ),
+    ranked AS (
+        SELECT c.symbol, u.name, u.sector, u.spot,
+               c.expiration, c.type, c.strike,
+               c.last, c.bid, c.ask,
+               c.volume, c.open_interest, c.implied_vol,
+               c.delta, c.in_the_money,
+               COALESCE(c.last, (c.bid + c.ask) / 2.0) AS premium,
+               CASE WHEN u.spot IS NOT NULL AND u.spot > 0
+                    THEN (c.strike - u.spot) / u.spot END AS moneyness,
+               CASE WHEN u.spot IS NOT NULL AND u.spot > 0
+                    THEN COALESCE(c.last, (c.bid + c.ask) / 2.0) / u.spot
+                    END AS premium_ratio,
+               ROW_NUMBER() OVER (
+                   PARTITION BY c.symbol, c.type
+                   ORDER BY
+                     (CASE WHEN u.spot IS NOT NULL AND u.spot > 0
+                           THEN COALESCE(c.last, (c.bid + c.ask) / 2.0) / u.spot
+                           END) DESC NULLS LAST,
+                     COALESCE(c.volume, 0) DESC
+               ) AS prn
+        FROM option_contracts c
+        JOIN exp e ON e.symbol = c.symbol AND e.expiration = c.expiration
+        JOIN underlyings u ON u.symbol = c.symbol
+        WHERE e.rn = 1
+          AND u.spot IS NOT NULL AND u.spot > 0
+          AND COALESCE(c.last, (c.bid + c.ask) / 2.0) IS NOT NULL
+          AND COALESCE(c.last, (c.bid + c.ask) / 2.0) > 0
+          AND COALESCE(c.volume, 0) >= ?
+          AND ABS((c.strike - u.spot) / u.spot) <= ?
+          {liq_clause}
+    ),
+    calls_ranked AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY type ORDER BY premium_ratio DESC NULLS LAST) AS trn
+        FROM ranked WHERE prn = 1
+    )
+    SELECT symbol, name, sector, spot, expiration, type, strike,
+           last, bid, ask, volume, open_interest, implied_vol, delta,
+           in_the_money, premium, moneyness, premium_ratio
+    FROM calls_ranked
+    WHERE trn <= ?
+    ORDER BY type, premium_ratio DESC NULLS LAST
+    """
+    rows = _rows(
+        con, sql,
+        [target_dte, max(target_dte - tolerance, 0),
+         target_dte + tolerance, min_volume, moneyness_band, *liq_params, limit],
+    )
+    calls = [r for r in rows if r["type"] == "call"]
+    puts = [r for r in rows if r["type"] == "put"]
+    return {
+        "notebook": "45-day-premium-leaders",
+        "target_dte": target_dte,
+        "tolerance": tolerance,
+        "moneyness_band": moneyness_band,
+        "min_volume": min_volume,
+        "calls": calls,
+        "puts": puts,
     }
 
 

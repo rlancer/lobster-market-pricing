@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import Explorer from './Explorer';
+import LiquidityFilter from './LiquidityFilter';
+import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
 import SymbolTypeahead from './SymbolTypeahead';
 import { api, type OptionRow, type SectorRow, type Stats } from './api';
@@ -28,7 +30,7 @@ const fmtDate = (s: string): string => {
 };
 
 function App() {
-  const [view, setView] = useState<'screener' | 'explorer'>('screener');
+  const [view, setView] = useState<'screener' | 'explorer' | 'notebooks'>('screener');
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sectors, setSectors] = useState<SectorRow[]>([]);
@@ -48,6 +50,7 @@ function App() {
   const [minDelta, setMinDelta] = useState('');
   const [maxDelta, setMaxDelta] = useState('');
   const [maxMoneyness, setMaxMoneyness] = useState(''); // % OTM cap
+  const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [nearSpot, setNearSpot] = useState('50'); // strikes around spot
   const [sort, setSort] = useState<SortKey>('volume');
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
@@ -55,12 +58,12 @@ function App() {
 
   const loadStats = useCallback(async () => {
     try {
-      const [s, sec] = await Promise.all([api.stats(), api.sectors()]);
+      const [s, sec] = await Promise.all([api.stats(liquidOnly), api.sectors(liquidOnly)]);
       setStats(s); setSectors(sec);
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+  }, [liquidOnly]);
 
   const runScreen = useCallback(async () => {
     setLoading(true); setError(null);
@@ -79,6 +82,7 @@ function App() {
         min_delta: minDelta ? Number(minDelta) : undefined,
         max_delta: maxDelta ? Number(maxDelta) : undefined,
         near_spot_strikes: nearSpot !== '' ? Number(nearSpot) : undefined,
+        liquid_only: liquidOnly,
         sort, order, limit,
       });
       let items = res.items;
@@ -97,7 +101,7 @@ function App() {
       setLoading(false);
     }
   }, [symbol, type, sector, minVolume, minOI, minIV, maxIV, minDelta, maxDelta,
-      maxMoneyness, nearSpot, sort, order, limit]);
+      maxMoneyness, liquidOnly, nearSpot, sort, order, limit]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { const t = setTimeout(runScreen, 250); return () => clearTimeout(t); }, [runScreen]);
@@ -112,6 +116,7 @@ function App() {
     const sym = sp.get('symbol');
     const tab = sp.get('tab');
     if (tab === 'explorer') setView('explorer');
+    else if (tab === 'notebooks') setView('notebooks');
     else if (tab === 'screener') setView('screener');
     if (sym && sym.trim()) setSelectedSymbol(sym.trim().toUpperCase());
   }, []); // run once
@@ -123,7 +128,9 @@ function App() {
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     if (selectedSymbol) sp.set('symbol', selectedSymbol); else sp.delete('symbol');
-    if (view === 'explorer') sp.set('tab', 'explorer'); else sp.delete('tab');
+    if (view === 'explorer') sp.set('tab', 'explorer');
+    else if (view === 'notebooks') sp.set('tab', 'notebooks');
+    else sp.delete('tab');
     const qs = sp.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     const openedSymbol = !!selectedSymbol && !prevRouteSym.current;
@@ -138,7 +145,7 @@ function App() {
       const sp = new URLSearchParams(window.location.search);
       const sym = sp.get('symbol');
       const tab = sp.get('tab');
-      setView(tab === 'explorer' ? 'explorer' : 'screener');
+      setView(tab === 'explorer' ? 'explorer' : tab === 'notebooks' ? 'notebooks' : 'screener');
       setSelectedSymbol(sym && sym.trim() ? sym.trim().toUpperCase() : null);
     };
     window.addEventListener('popstate', onPop);
@@ -172,6 +179,7 @@ function App() {
   const reset = () => {
     setSymbol(''); setType(''); setSector(''); setMinVolume(''); setMinOI('');
     setMinIV(''); setMaxIV(''); setMinDelta(''); setMaxDelta(''); setMaxMoneyness('');
+    setLiquidOnly(true);
     setNearSpot('50');
     setSort('volume'); setOrder('desc'); setLimit(100);
   };
@@ -182,6 +190,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>S&P 500 Options Screener</h1>
+        <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
         <div className="stats">
           <span><b>{stats?.underlyings ?? '–'}</b> underlyings</span>
           <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
@@ -193,10 +202,17 @@ function App() {
 
       <nav className="tabs">
         <button className={`tab ${view === 'screener' ? 'active' : ''}`} onClick={() => setView('screener')}>Screener</button>
+        <button className={`tab ${view === 'notebooks' ? 'active' : ''}`} onClick={() => setView('notebooks')}>Notebooks</button>
         <button className={`tab ${view === 'explorer' ? 'active' : ''}`} onClick={() => setView('explorer')}>Data Explorer</button>
       </nav>
 
-      {view === 'explorer' ? <Explorer /> : (
+      {view === 'explorer' ? <Explorer /> : view === 'notebooks' ? (
+        selectedSymbol ? (
+          <SymbolDetail symbol={selectedSymbol} onBack={() => setSelectedSymbol(null)} />
+        ) : (
+          <Notebooks onPickSymbol={(s) => setSelectedSymbol(s)} liquidOnly={liquidOnly} />
+        )
+      ) : (
         selectedSymbol ? (
           <SymbolDetail symbol={selectedSymbol} onBack={() => setSelectedSymbol(null)} />
         ) : (
@@ -208,6 +224,7 @@ function App() {
               value={symbol}
               onChange={setSymbol}
               onSelect={(s) => setSymbol(s)}
+              liquidOnly={liquidOnly}
             />
           </label>
           <label>Type

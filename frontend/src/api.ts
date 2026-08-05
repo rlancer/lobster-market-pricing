@@ -5,7 +5,6 @@ export interface Stats {
   puts: number;
   last_updated: string;
 }
-
 export interface Underlying {
   symbol: string;
   name: string;
@@ -40,6 +39,21 @@ export interface OptionRow {
 export interface ScreenResponse {
   total: number;
   items: OptionRow[];
+}
+
+export interface LiquidityCriteria {
+  min_volume: number;
+  min_open_interest: number;
+  max_spread: number;
+  atm_band: number;
+  min_atm_contracts: number;
+}
+
+export interface LiquidityInfo {
+  enabled_defaults: LiquidityCriteria;
+  total_underlyings: number;
+  liquid_underlyings: number;
+  description: string;
 }
 
 export interface SymbolSuggestion {
@@ -103,6 +117,38 @@ export interface SymbolDetail {
   contracts: ChainContract[];
   expirations: string[];
   n_contracts: number;
+  liquid: boolean;
+}
+
+export interface PremiumNotebookRow {
+  symbol: string;
+  name: string | null;
+  sector: string | null;
+  spot: number | null;
+  expiration: string;
+  type: 'call' | 'put';
+  strike: number;
+  last: number | null;
+  bid: number | null;
+  ask: number | null;
+  volume: number | null;
+  open_interest: number | null;
+  implied_vol: number | null;
+  delta: number | null;
+  in_the_money: boolean | null;
+  premium: number | null;
+  moneyness: number | null;
+  premium_ratio: number | null;
+}
+
+export interface PremiumNotebook {
+  notebook: string;
+  target_dte: number;
+  tolerance: number;
+  moneyness_band: number;
+  min_volume: number;
+  calls: PremiumNotebookRow[];
+  puts: PremiumNotebookRow[];
 }
 
 const apiBase = ''; // proxied via vite dev server
@@ -124,9 +170,17 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  stats: () => getJson<Stats>('/api/stats'),
-  sectors: () => getJson<SectorRow[]>('/api/sectors'),
-  symbols: (q: string) => getJson<SymbolSuggestion[]>(`/api/symbols?q=${encodeURIComponent(q)}`),
+  stats: (liquid_only?: boolean) =>
+    getJson<Stats>(`/api/stats${liquid_only ? '?liquid_only=true' : ''}`),
+  sectors: (liquid_only?: boolean) =>
+    getJson<SectorRow[]>(`/api/sectors${liquid_only ? '?liquid_only=true' : ''}`),
+  symbols: (q: string, liquid_only?: boolean) => {
+    const qs = new URLSearchParams();
+    if (q) qs.set('q', q);
+    if (liquid_only) qs.set('liquid_only', 'true');
+    return getJson<SymbolSuggestion[]>(`/api/symbols?${qs.toString()}`);
+  },
+  liquidity: () => getJson<LiquidityInfo>('/api/liquidity'),
   screen: (params: Record<string, string | number | boolean | undefined>) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
@@ -140,5 +194,20 @@ export const api = {
   query: (sql: string, limit?: number) =>
     postJson<QueryResult>('/api/query', { sql, limit }),
   symbolDetail: (symbol: string) =>
-    getJson<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
+    getJson<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),  notebookPremium: (params: {
+    target_dte?: number;
+    tolerance?: number;
+    moneyness_band?: number;
+    min_volume?: number;
+    liquid_only?: boolean;
+    limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isNaN(v))) {
+        qs.set(k, String(v));
+      }
+    }
+    return getJson<PremiumNotebook>(`/api/notebook/premium?${qs.toString()}`);
+  },
 };

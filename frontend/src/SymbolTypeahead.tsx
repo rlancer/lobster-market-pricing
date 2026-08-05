@@ -6,9 +6,10 @@ interface Props {
   value: string;
   onSelect: (symbol: string) => void;
   onChange: (raw: string) => void;
+  liquidOnly?: boolean;
 }
 
-export default function SymbolTypeahead({ value, onSelect, onChange }: Props) {
+export default function SymbolTypeahead({ value, onSelect, onChange, liquidOnly }: Props) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<SymbolSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,7 @@ export default function SymbolTypeahead({ value, onSelect, onChange }: Props) {
   const search = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const res = await api.symbols(q);
+      const res = await api.symbols(q, liquidOnly);
       setItems(res);
       setActive(res.length ? 0 : -1);
     } catch {
@@ -30,7 +31,7 @@ export default function SymbolTypeahead({ value, onSelect, onChange }: Props) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [liquidOnly]);
 
   useEffect(() => {
     if (!open) return;

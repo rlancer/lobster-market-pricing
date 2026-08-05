@@ -46,6 +46,11 @@
   font-weight: 600;
 }
 .detail-meta .small { font-size: 11px; }
+.detail-meta .chip.illiquid {
+  background: rgba(255, 82, 82, 0.14);
+  color: var(--put);
+  border: 1px solid rgba(255, 82, 82, 0.4);
+}
 
 /* ---- expiration selector ---- */
 .expirations {

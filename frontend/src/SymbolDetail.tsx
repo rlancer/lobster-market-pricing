@@ -135,6 +135,9 @@ function SymbolDetail({ symbol, onBack }: Props) {
               <span>Spot <b>{fmtNum(spot, 2)}</b></span>
               <span>{detail?.n_contracts.toLocaleString() ?? '–'} contracts</span>
               <span>{detail?.expirations.length ?? 0} expirations</span>
+              {detail?.liquid === false && (
+                <span className="chip illiquid" title="This underlying does not pass the global liquidity filter.">illiquid</span>
+              )}
               {u.fetched_at && <span className="muted small">updated {u.fetched_at.slice(0, 19)}</span>}
             </div>
           </div>
