@@ -71,44 +71,110 @@ async function init(): Promise<void> {
   _conn = conn;
 }
 
-// Errors considered transient in this DuckDB-WASM dev build (complex
-// multi-window queries over HTTP parquet occasionally trap the WASM with
-// `RuntimeError: index out of bounds`, sometimes leaving a dangling
-// transaction). Retrying (and on later attempts re-opening the connection)
-// reliably recovers — the same query succeeds on the next attempt.
-// Transient WASM/transaction hiccups in this dev build. Note `memory access
-// out of bounds` (the eh-build ASYNCIFY stack overflow on Chrome) is included
+// Transient errors in this DuckDB-WASM dev build. Complex multi-window
+// queries over HTTP parquet occasionally trap the WASM (`RuntimeError:
+// ... out of bounds`) or leave a dangling transaction. `memory access out
+// of bounds` (the eh-build ASYNCIFY stack overflow on Chrome) is included
 // even though we now ship the mvp bundle — kept as defense in case a future
 // bundle swap reintroduces it.
 const TRANSIENT = /out of bounds|cannot start a transaction|TransactionContext|out of memory/i;
 
-async function runOnce(sql: string, params?: unknown[]) {
-  const c = _conn!;
-  if (params && params.length) {
-    const stmt = await c.prepare(sql);
-    try {
-      return await stmt.query(...params);
-    } finally {
-      await stmt.close();
-    }
+/** Render a JS value as a safe, self-contained SQL literal. We inline params
+ * as literals instead of using prepared statements: on this DuckDB-WASM dev
+ * build, `conn.prepare()` + `stmt.query(...params)` is markedly flakier than
+ * `conn.query(sql)` with inlined literals, and — critically — a prepared
+ * statement is invalidated if the shared connection is reset by a *concurrent*
+ * query's retry (surfacing as `No prepared statement found with ID`). Inlining
+ * removes that whole class of failure: there are no statement handles to
+ * invalidate. All params originate in `server.ts` as already-validated
+ * numbers, booleans, or UI strings, so the only injection surface is the
+ * string-escaping here, which doubles single quotes (standard SQL). */
+function lit(v: unknown): string {
+  if (v === null || v === undefined) return 'NULL';
+  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return 'NULL';
+    return String(v);
   }
-  return await c.query(sql);
+  if (typeof v === 'bigint') return String(v);
+  // string — escape single quotes by doubling them (SQL standard).
+  return "'" + String(v).replace(/'/g, "''") + "'";
 }
 
-/** Reopen the connection (used to recover from WASM traps that leave the
- * current connection in a bad state). */
+/** Substitute `?` placeholders in `sql` with inlined literals. Only `?`
+ * tokens *outside* single-quoted string literals are replaced, so a literal
+ * `'?'` inside the SQL text is left untouched. */
+function inlineParams(sql: string, params: unknown[]): string {
+  if (!params.length) return sql;
+  let out = '';
+  let inStr = false;
+  let pi = 0;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (ch === "'") {
+      out += ch;
+      // a doubled single quote inside a string literal is an escaped quote,
+      // not the end of the string — skip the next quote if it's also `'`.
+      if (inStr && sql[i + 1] === "'") { out += "'"; i++; }
+      else inStr = !inStr;
+      continue;
+    }
+    if (!inStr && ch === '?') {
+      out += pi < params.length ? lit(params[pi++]) : '?';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+async function runOnce(sql: string, params?: unknown[]) {
+  const c = _conn!;
+  const finalSql = params && params.length ? inlineParams(sql, params) : sql;
+  return await c.query(finalSql);
+}
+
+// The mvp (non-ASYNCIFY) build cannot run concurrent queries on a single
+// connection — overlapping `conn.query()` calls contend inside DuckDB, error
+// out, and the no-exceptions build can't propagate the error (surfacing as
+// `_setThrew is not defined`). The app fires concurrent queries (stats +
+// sectors + screen, each preceded by a liquidUnderlyingSymbols lookup), so we
+// serialize ALL queries through one promise chain: only one `runOnce` is ever
+// in flight at a time. The dataset is tiny (sub-100ms scans), so the added
+// latency is negligible and this keeps the no-header mvp bundle viable (no
+// COOP/COEP needed for the R2 step).
+let _chain: Promise<unknown> = Promise.resolve();
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = _chain.then(fn, fn); // run after the previous completes (ok or err)
+  _chain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run as Promise<T>;
+}
+
+/** Swap to a fresh connection to recover from a WASM trap that left the
+ * current connection in a bad state. We DON'T close the old connection
+ * synchronously: another in-flight query may still be holding it (queries run
+ * concurrently from the UI). Instead we open a new connection and detach the
+ * old one for async cleanup, so a concurrent query finishing on the old
+ * connection isn't yanked out from under it. */
 async function reconnect(): Promise<void> {
   if (!_db) return;
-  try { await _conn?.close(); } catch { /* ignore */ }
+  const stale = _conn;
   try { _conn = await _db.connect(); } catch { /* ignore */ }
+  // best-effort close of the stale connection on the next tick
+  if (stale) { try { await stale.close(); } catch { /* ignore */ } }
 }
 
 /**
  * Run SQL with optional `?` placeholders (same binding style as Python duckdb).
- * Returns `{columns, rows}` with the same value coercion server.py's `_rows()`
- * performs: temporal columns -> ISO strings, BIGINT -> Number. Transient
- * WASM/transaction hiccups are retried (with a connection reset on later
- * attempts) so flaky complex queries self-heal.
+ * Params are inlined as safe literals (see `lit`) — no prepared statements —
+ * so a concurrent query's retry/reconnect can't invalidate this query's
+ * statement handle. Returns `{columns, rows}` with the same value coercion
+ * server.py's `_rows()` performs: temporal columns -> ISO strings, BIGINT ->
+ * Number. Transient WASM/transaction hiccups are retried (with a fresh
+ * connection on later attempts) so flaky complex queries self-heal.
  */
 export async function query(
   sql: string,
@@ -118,7 +184,9 @@ export async function query(
   let lastErr: unknown;
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      const table = await runOnce(sql, params);
+      // Serialized so concurrent callers don't overlap on the single
+      // connection (see `serialized`).
+      const table = await serialized(() => runOnce(sql, params));
       return materialize(table);
     } catch (e) {
       lastErr = e;
