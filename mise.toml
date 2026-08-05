@@ -35,6 +35,21 @@ run = "cd frontend && npm run dev"
 description = "Recompute Black-Scholes Greeks in DuckDB. e.g. mise run greeks -- --rate 0.043"
 run = "cd backend && uv run python -m screener.greeks"
 
+[tasks.export-parquet]
+description = "Export DuckDB tables to Parquet (data/parquet/*.parquet + manifest.json) for R2 serving"
+run = "cd backend && uv run python -m screener.export_parquet"
+
 [tasks.build]
 description = "Build the production frontend bundle"
 run = "cd frontend && npm run build"
+
+[tasks.upload-r2]
+description = "Upload Parquet files + manifest to the R2 bucket (robs-options-slop-data). Requires wrangler logged in."
+run = """
+  set -e
+  mise exec -- wrangler r2 object put robs-options-slop-data/options/underlyings.parquet      --file data/parquet/underlyings.parquet      --remote --content-type application/octet-stream --cache-control "public, max-age=3600"
+  mise exec -- wrangler r2 object put robs-options-slop-data/options/option_contracts.parquet --file data/parquet/option_contracts.parquet --remote --content-type application/octet-stream --cache-control "public, max-age=3600"
+  mise exec -- wrangler r2 object put robs-options-slop-data/options/download_log.parquet     --file data/parquet/download_log.parquet     --remote --content-type application/octet-stream --cache-control "public, max-age=3600"
+  mise exec -- wrangler r2 object put robs-options-slop-data/options/manifest.json            --file data/parquet/manifest.json            --remote --content-type application/json        --cache-control "public, max-age=60, must-revalidate"
+  echo "Uploaded. Bucket: robs-options-slop-data/options/"
+"""
