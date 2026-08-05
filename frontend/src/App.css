@@ -61,8 +61,8 @@ button, select { cursor: pointer; }
   border: var(--border-width) solid var(--color-border-blue);
   border-radius: var(--radius-element);
   color: var(--accent);
-  font-family: var(--font-family-code);
-  font-weight: var(--font-weight-bold);
+  font-size: 1.35rem;
+  line-height: 1;
   box-shadow: inset 0 0 0 var(--spacing-1) var(--color-background-blue);
 }
 .app-header h1 {

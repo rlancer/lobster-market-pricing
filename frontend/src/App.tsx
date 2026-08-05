@@ -3,11 +3,13 @@ import { Button } from '@astryxdesign/core/Button';
 import { StatusDot } from '@astryxdesign/core/StatusDot';
 import './App.css';
 import Explorer from './Explorer';
+import AiChat from './AiChat';
 import LiquidityFilter from './LiquidityFilter';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
 import SymbolTypeahead from './SymbolTypeahead';
 import { api, useDbReady, type OptionRow, type SectorRow, type Stats } from './api';
+import { handleOAuthCallback, isOAuthCallback } from './ai';
 
 type SortKey =
   | 'volume' | 'open_interest' | 'strike' | 'implied_vol' | 'delta'
@@ -33,7 +35,7 @@ const fmtDate = (s: string): string => {
 
 function App() {
   const db = useDbReady();
-  const [view, setView] = useState<'screener' | 'explorer' | 'notebooks'>('screener');
+  const [view, setView] = useState<'screener' | 'explorer' | 'notebooks' | 'ai'>('screener');
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sectors, setSectors] = useState<SectorRow[]>([]);
@@ -109,6 +111,19 @@ function App() {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { const t = setTimeout(runScreen, 250); return () => clearTimeout(t); }, [runScreen]);
 
+  // ----- OpenRouter OAuth callback ----------------------------------------
+  // If the page loaded via ?oauth_callback=1&code=…, exchange the code for an
+  // API key before rendering the rest of the app.
+  useEffect(() => {
+    if (!isOAuthCallback()) return;
+    handleOAuthCallback()
+      .then(() => {
+        // Landing on Copilot with the key set is the most useful default.
+        setView('ai');
+      })
+      .catch((e) => console.error('[ai] OAuth callback failed:', e));
+  }, []);
+
   // ----- URL route sync -----------------------------------------------------
   // The current view is encoded in the query string so any state is shareable:
   //   ?symbol=NVDA  -> open NVIDIA's option-chain detail page
@@ -120,6 +135,7 @@ function App() {
     const tab = sp.get('tab');
     if (tab === 'explorer') setView('explorer');
     else if (tab === 'notebooks') setView('notebooks');
+    else if (tab === 'ai') setView('ai');
     else if (tab === 'screener') setView('screener');
     if (sym && sym.trim()) setSelectedSymbol(sym.trim().toUpperCase());
   }, []); // run once
@@ -133,6 +149,7 @@ function App() {
     if (selectedSymbol) sp.set('symbol', selectedSymbol); else sp.delete('symbol');
     if (view === 'explorer') sp.set('tab', 'explorer');
     else if (view === 'notebooks') sp.set('tab', 'notebooks');
+    else if (view === 'ai') sp.set('tab', 'ai');
     else sp.delete('tab');
     const qs = sp.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
@@ -148,7 +165,7 @@ function App() {
       const sp = new URLSearchParams(window.location.search);
       const sym = sp.get('symbol');
       const tab = sp.get('tab');
-      setView(tab === 'explorer' ? 'explorer' : tab === 'notebooks' ? 'notebooks' : 'screener');
+      setView(tab === 'explorer' ? 'explorer' : tab === 'notebooks' ? 'notebooks' : tab === 'ai' ? 'ai' : 'screener');
       setSelectedSymbol(sym && sym.trim() ? sym.trim().toUpperCase() : null);
     };
     window.addEventListener('popstate', onPop);
@@ -212,10 +229,10 @@ function App() {
     <div className="app">
       <header className="app-header">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">O</span>
+          <span className="brand-mark" aria-hidden="true">🦞</span>
           <span>
-            <h1>Open Interest</h1>
-            <small>S&amp;P 500 options workspace</small>
+            <h1>Lobster MP</h1>
+            <small>S&amp;P 500 options screener</small>
           </span>
         </div>
         <div className="header-tools">
@@ -229,6 +246,7 @@ function App() {
         <button className={`tab ${view === 'screener' ? 'active' : ''}`} onClick={() => setView('screener')}>Market</button>
         <button className={`tab ${view === 'notebooks' ? 'active' : ''}`} onClick={() => setView('notebooks')}>Research</button>
         <button className={`tab ${view === 'explorer' ? 'active' : ''}`} onClick={() => setView('explorer')}>SQL Lab</button>
+        <button className={`tab ${view === 'ai' ? 'active' : ''}`} onClick={() => setView('ai')}>Copilot</button>
         <div className="stats" aria-label="Dataset summary">
           <span><b>{stats?.underlyings ?? '–'}</b> symbols</span>
           <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
@@ -237,7 +255,7 @@ function App() {
         </div>
       </nav>
 
-      {view === 'explorer' ? <Explorer /> : view === 'notebooks' ? (
+      {view === 'explorer' ? <Explorer /> : view === 'ai' ? <AiChat /> : view === 'notebooks' ? (
         selectedSymbol ? (
           <SymbolDetail symbol={selectedSymbol} onBack={() => setSelectedSymbol(null)} />
         ) : (
