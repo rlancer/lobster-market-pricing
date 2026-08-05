@@ -5,7 +5,7 @@ import LiquidityFilter from './LiquidityFilter';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
 import SymbolTypeahead from './SymbolTypeahead';
-import { api, type OptionRow, type SectorRow, type Stats } from './api';
+import { api, useDbReady, type OptionRow, type SectorRow, type Stats } from './api';
 
 type SortKey =
   | 'volume' | 'open_interest' | 'strike' | 'implied_vol' | 'delta'
@@ -30,6 +30,7 @@ const fmtDate = (s: string): string => {
 };
 
 function App() {
+  const db = useDbReady();
   const [view, setView] = useState<'screener' | 'explorer' | 'notebooks'>('screener');
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -185,6 +186,18 @@ function App() {
   };
 
   const sectorList = useMemo(() => sectors.map((s) => s.sector).sort(), [sectors]);
+
+  if (!db.ready) {
+    return (
+      <div className="app">
+        <div className="db-loading">
+          {db.error
+            ? `Failed to load options dataset: ${db.error}`
+            : 'Loading options dataset (initialising DuckDB-WASM)…'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">

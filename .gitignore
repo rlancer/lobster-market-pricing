@@ -11,3 +11,6 @@ final_runs/
 
 # Cloudflare wrangler local state
 .wrangler/
+
+# Temporary local-dev Parquet (served by Vite; real data lives in R2)
+frontend/public/options/

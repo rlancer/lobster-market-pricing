@@ -151,63 +151,71 @@ export interface PremiumNotebook {
   puts: PremiumNotebookRow[];
 }
 
-const apiBase = ''; // proxied via vite dev server
-
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(apiBase + url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
-
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(apiBase + url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
+// The API layer now runs entirely in-browser: each method delegates to the
+// corresponding function in `server.ts` (a 1:1 port of backend/screener/server.py)
+// which executes the same SQL against the DuckDB-WASM instance in `db.ts`.
+// The exported types above are unchanged, so the UI components need no edits.
+import { ready as dbReady } from './db';
+import * as server from './server';
 
 export const api = {
-  stats: (liquid_only?: boolean) =>
-    getJson<Stats>(`/api/stats${liquid_only ? '?liquid_only=true' : ''}`),
-  sectors: (liquid_only?: boolean) =>
-    getJson<SectorRow[]>(`/api/sectors${liquid_only ? '?liquid_only=true' : ''}`),
-  symbols: (q: string, liquid_only?: boolean) => {
-    const qs = new URLSearchParams();
-    if (q) qs.set('q', q);
-    if (liquid_only) qs.set('liquid_only', 'true');
-    return getJson<SymbolSuggestion[]>(`/api/symbols?${qs.toString()}`);
-  },
-  liquidity: () => getJson<LiquidityInfo>('/api/liquidity'),
-  screen: (params: Record<string, string | number | boolean | undefined>) => {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== '' && v !== null && !(typeof v === 'number' && Number.isNaN(v))) {
-        qs.set(k, String(v));
-      }
-    }
-    return getJson<ScreenResponse>(`/api/screen?${qs.toString()}`);
-  },
-  tables: () => getJson<TableInfo[]>('/api/tables'),
-  query: (sql: string, limit?: number) =>
-    postJson<QueryResult>('/api/query', { sql, limit }),
-  symbolDetail: (symbol: string) =>
-    getJson<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),  notebookPremium: (params: {
+  /** Resolves once DuckDB-WASM has loaded the dataset views. */
+  ready: () => dbReady,
+  stats: (liquid_only?: boolean) => server.stats(!!liquid_only),
+  sectors: (liquid_only?: boolean) => server.sectors(!!liquid_only),
+  symbols: (q: string, liquid_only?: boolean) =>
+    server.symbols({ q: q || undefined, liquid_only: !!liquid_only }),
+  liquidity: () => server.liquidity(),
+  screen: (params: Record<string, string | number | boolean | undefined>) =>
+    server.screen({
+      symbol: params.symbol as string | undefined,
+      type: params.type as 'call' | 'put' | undefined,
+      sector: params.sector as string | undefined,
+      min_strike: params.min_strike as number | undefined,
+      max_strike: params.max_strike as number | undefined,
+      min_volume: params.min_volume as number | undefined,
+      min_open_interest: params.min_open_interest as number | undefined,
+      min_iv: params.min_iv as number | undefined,
+      max_iv: params.max_iv as number | undefined,
+      min_delta: params.min_delta as number | undefined,
+      max_delta: params.max_delta as number | undefined,
+      in_the_money: params.in_the_money as boolean | undefined,
+      expiration_before: params.expiration_before as string | undefined,
+      expiration_after: params.expiration_after as string | undefined,
+      liquid_only: params.liquid_only as boolean | undefined,
+      near_spot_strikes: params.near_spot_strikes as number | undefined,
+      sort: params.sort as string | undefined,
+      order: params.order as 'asc' | 'desc' | undefined,
+      limit: params.limit as number | undefined,
+      offset: params.offset as number | undefined,
+    }),
+  tables: () => server.tables(),
+  query: (sql: string, limit?: number) => server.runQuery({ sql, limit }),
+  symbolDetail: (symbol: string) => server.symbolDetail(symbol.toUpperCase()),
+  notebookPremium: (params: {
     target_dte?: number;
     tolerance?: number;
     moneyness_band?: number;
     min_volume?: number;
     liquid_only?: boolean;
     limit?: number;
-  }) => {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isNaN(v))) {
-        qs.set(k, String(v));
-      }
-    }
-    return getJson<PremiumNotebook>(`/api/notebook/premium?${qs.toString()}`);
-  },
+  }) => server.notebookPremium(params),
 };
+
+import { useState, useEffect } from 'react';
+
+/** React hook that exposes the DuckDB-WASM readiness state for a loading gate. */
+export function useDbReady(): { ready: boolean; error: string | null } {
+  const [state, setState] = useState<{ ready: boolean; error: string | null }>({
+    ready: false,
+    error: null,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    dbReady
+      .then(() => !cancelled && setState({ ready: true, error: null }))
+      .catch((e) => !cancelled && setState({ ready: false, error: String(e) }));
+    return () => { cancelled = true; };
+  }, []);
+  return state;
+}
