@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import './SymbolDetail.css';
 import { api, type ChainContract, type SymbolDetail as Detail } from './api';
+import StrategiesPanel from './StrategiesPanel';
 
 const fmtNum = (v: number | null | undefined, d = 2): string => {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
@@ -266,6 +267,15 @@ function SymbolDetail({ symbol, onBack }: Props) {
             <span className="dot call-dot" /> in-the-money cells shaded · strike center column ·
             hover a strike for moneyness vs spot
           </div>
+
+          {spot != null && expiration && (
+            <StrategiesPanel
+              contracts={detail.contracts.filter((c) => c.expiration === expiration)}
+              spot={spot}
+              expiration={expiration}
+              compact
+            />
+          )}
         </>
       ) : (detail && !loading && (
         <div className="empty">No option contracts for {symbol}.</div>

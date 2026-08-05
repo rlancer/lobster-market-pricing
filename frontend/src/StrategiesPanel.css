@@ -1,0 +1,277 @@
+/* Reusable options-strategy pricing panel.
+ * Tokens (var(--accent), var(--panel), ...) are defined globally in App.css
+ * so this matches the rest of the app without importing its own palette. */
+
+.strategies-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.sp-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sp-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.sp-title .muted.small { font-size: 12px; }
+
+.qty-pick {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  gap: 5px;
+}
+.qty-pick input {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 80px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.qty-pick input:focus { border-color: var(--accent); }
+
+.sp-groups { display: flex; flex-direction: column; gap: 14px; }
+.sp-group { display: flex; flex-direction: column; gap: 6px; }
+.sp-cat {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.sp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
+}
+
+/* ---- per-strategy card ---- */
+.strategy-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.strategy-card.undefined { border-left: 3px solid var(--put); }
+.strategy-card.defined { border-left: 3px solid var(--accent-2); }
+
+.strat-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  font-size: 13px;
+}
+.strat-head:hover { background: rgba(79, 140, 255, 0.06); }
+.strat-name { font-weight: 700; }
+.strat-bias {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.strat-bias.bias-bullish { color: var(--call); background: rgba(22,199,132,0.12); }
+.strat-bias.bias-bearish { color: var(--put); background: rgba(255,82,82,0.12); }
+.strat-bias.bias-neutral,
+.strat-bias.bias-capital-preserving { color: var(--muted); background: rgba(140,151,191,0.14); }
+.strat-bias.bias-volatile { color: #ffd166; background: rgba(255,209,102,0.14); }
+
+.strat-risk {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+.strat-risk.def { color: var(--accent-2); }
+.strat-risk.undef { color: var(--put); }
+.strat-chev { color: var(--muted); font-size: 11px; }
+
+.strat-quick {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  padding: 8px 10px;
+}
+.strat-quick .qp {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.strat-quick .qp label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.strat-quick .qp b {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.strat-quick .pos { color: var(--call); }
+.strat-quick .neg { color: var(--put); }
+.strat-quick .unbounded { color: #ffd166; }
+
+/* ---- expanded detail ---- */
+.strat-detail {
+  border-top: 1px solid var(--border);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(19, 26, 46, 0.5);
+}
+.strat-cols {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.strat-block {
+  flex: 1 1 280px;
+  min-width: 240px;
+}
+.strat-block h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+/* payoff SVG */
+.payoff-chart {
+  width: 100%;
+  height: 96px;
+  display: block;
+  background: rgba(11, 16, 32, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.payoff-chart .po-axis { stroke: var(--border); stroke-width: 1; }
+.payoff-chart .po-spot {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+.payoff-chart .po-bep { fill: var(--accent-2); }
+.payoff-chart .po-curve {
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.chart-legend span {
+  width: 10px; height: 2px; display: inline-block; margin-right: 3px;
+  vertical-align: middle;
+}
+.chart-legend .lg-spot { background: var(--accent); }
+.chart-legend .lg-bep { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-2); }
+.chart-legend .lg-zero { background: var(--border); }
+
+.blurb {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* legs table */
+.legs-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.legs-tbl th, .legs-tbl td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.legs-tbl th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.legs-tbl .r { text-align: right; }
+.legs-tbl .long { color: var(--call); font-weight: 600; }
+.legs-tbl .short { color: var(--put); font-weight: 600; }
+
+/* margin explainer */
+.margin-note {
+  background: rgba(11, 16, 32, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.margin-note h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+}
+.margin-note p {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.margin-note .margin-disclaimer {
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 0;
+}
+
+.sp-footer { font-size: 11px; color: var(--muted); }
+.sp-footer .muted.small { font-size: 11px; line-height: 1.4; }
+
+.empty { text-align: center; padding: 28px; color: var(--muted); font-size: 13px; }
+
+/* compact embed (symbol page): slightly tighter spacing */
+.strategies-panel.compact { padding: 12px; }
