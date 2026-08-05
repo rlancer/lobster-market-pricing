@@ -1,7 +1,7 @@
 name: Deploy
 
+# main       → prod (Cloudflare Pages project: robs-options-slop, custom domain: lobster.mp)
 # Branches  → dev  (Cloudflare Pages project: robs-options-slop-dev)
-# main       → prod (Cloudflare Pages project: robs-options-slop)
 #
 # Deploys the static frontend (frontend/dist) via `wrangler pages deploy`.
 # No build secrets are needed beyond the Cloudflare API token + account id,
