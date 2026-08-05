@@ -247,3 +247,16 @@
   left: 0;
 }
 .result-table .empty { text-align: center; padding: 24px; color: var(--muted); }
+
+/* ---- responsive ---- */
+@media (max-width: 900px) {
+  .explorer { grid-template-columns: 1fr; }
+  .explorer-sidebar { max-height: none; }
+  .table-list { max-height: 220px; }
+}
+@media (max-width: 640px) {
+  .editor-bar { flex-wrap: wrap; }
+  .editor-bar .hint { flex: 1 1 100%; order: 3; }
+  .samples { margin-left: 0; }
+  .run-btn { flex: 1; }
+}

@@ -136,3 +136,13 @@
 .nb-table table { width: 100%; }
 
 .nb-table td.ratio { font-weight: 700; color: var(--accent-2); }
+
+/* ---- responsive ---- */
+@media (max-width: 900px) {
+  .notebooks { grid-template-columns: 1fr; }
+  .nb-params { flex-direction: column; align-items: stretch; }
+  .nb-params label { width: 100%; }
+  .nb-params input, .nb-params select { width: 100%; }
+  .nb-params .actions { margin-left: 0; }
+  .nb-params .actions button { width: 100%; }
+}

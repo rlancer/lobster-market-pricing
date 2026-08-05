@@ -80,3 +80,7 @@
   color: var(--muted);
   margin-top: 4px;
 }
+
+@media (max-width: 640px) {
+  .typeahead-list { width: min(320px, calc(100vw - 48px)); }
+}
