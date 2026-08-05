@@ -19,8 +19,26 @@ import { Type } from 'apache-arrow';
 // The `coi`/pthreads build is more robust still but requires cross-origin
 // isolation headers (COOP/COEP) plus CORP on cross-origin R2 parquet, which is
 // more than this app needs. If a future query needs async streaming, revisit.
+//
+// Worker `.js` (~828 kB) is well under the 25 MiB Pages limit, so it stays
+// bundled via the `?worker` import below (Vite wraps it into a Worker). Only
+// the `.wasm` is fetched remotely (see the `wasmUrl` const below).
 import workerUrl from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?worker';
-import wasmUrl from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url';
+
+// The DuckDB-WASM `.wasm` (~39.4 MiB) exceeds Cloudflare Pages' 25 MiB
+// per-asset limit, so importing it via Vite's `?url` (which hashes + emits
+// it into dist/assets/) breaks the Pages deploy:
+//   "Pages only supports files up to 25 MiB in size — assets/duckdb-mvp-*.wasm
+//    is 39.4 MiB"
+// Instead we fetch the wasm by URL from the jsDelivr CDN, which mirrors npm
+// 1:1 and serves it with `Access-Control-Allow-Origin: *`,
+// `Content-Type: application/wasm`, `Accept-Ranges: bytes`, and a 1-year
+// immutable cache — so DuckDB-WASM's instantiate() can stream it over HTTP
+// range requests cross-origin. The version here MUST match the
+// @duckdb/duckdb-wasm pin in frontend/package.json (currently
+// 1.33.1-dev57.0); bump both together on upgrade.
+const wasmUrl =
+  'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.33.1-dev57.0/dist/duckdb-mvp.wasm';
 
 export interface QueryResult {
   columns: string[];
