@@ -86,6 +86,9 @@ export class CboeContinuousLoader {
     if (url.pathname === "/loop/status") {
       return json(await this.status());
     }
+    if (url.pathname === "/loop/symbols") {
+      return json(await this.symbols(url));
+    }
     // Any other DO request (e.g. the worker's auto-arm ping): make sure the
     // loop is armed.
     await this.ensureArmed();
@@ -283,6 +286,87 @@ export class CboeContinuousLoader {
       last_pass: lastPassRow ? JSON.parse(lastPassRow.value) : null,
       next_alarm: await this.ctx.storage.getAlarm(),
       passing: !!(await this.ctx.storage.get("passing")),
+    };
+  }
+
+  // Read-only per-symbol listing for the Loading Status monitor. Never writes
+  // to D1; every predicate is a single indexed scan of symbol_state. Supports
+  // filter (all|enabled|disabled|failing|retrying|due|stale), q= symbol
+  // substring, limit (default 100, max 1000), offset, and a whitelisted sort
+  // (symbol|last_success_at|consecutive_failures) with optional order.
+  async symbols(url) {
+    const now = Date.now();
+    const cadenceMs = Math.floor(num(this.env, "LOADER_CADENCE_SECONDS", 900) * 1000);
+
+    const q = (url.searchParams.get("q") || "").trim();
+    let filter = (url.searchParams.get("filter") || "all").toLowerCase();
+    if (!["all", "failing", "due", "enabled", "disabled", "retrying", "stale"].includes(filter)) filter = "all";
+    let sort = (url.searchParams.get("sort") || "symbol").toLowerCase();
+    if (!["symbol", "last_success_at", "consecutive_failures"].includes(sort)) sort = "symbol";
+    let order = (url.searchParams.get("order") || "asc").toLowerCase();
+    if (order !== "desc") order = "asc";
+    let limit = Math.floor(Number(url.searchParams.get("limit")));
+    if (!Number.isFinite(limit)) limit = 100;
+    limit = Math.max(1, Math.min(1000, limit));
+    let offset = Math.floor(Number(url.searchParams.get("offset")));
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+    const clauses = [];
+    const params = [];
+    switch (filter) {
+      case "enabled": clauses.push("enabled = 1"); break;
+      case "disabled": clauses.push("enabled = 0"); break;
+      case "failing": clauses.push("enabled = 1 AND consecutive_failures > 0"); break;
+      case "retrying": clauses.push("consecutive_failures > 0"); break;
+      case "due":
+        clauses.push("enabled = 1 AND next_attempt_after <= ?");
+        params.push(now);
+        break;
+      case "stale":
+        // Enabled, not actively backing off, and data older than the cadence
+        // (or never loaded). Matches the UI "Stale"/"Never loaded" semantics.
+        clauses.push(
+          "enabled = 1 AND consecutive_failures = 0 AND " +
+          "(last_success_at IS NULL OR last_success_at < ?)"
+        );
+        params.push(now - cadenceMs);
+        break;
+    }
+    if (q) {
+      clauses.push("symbol LIKE ?");
+      params.push(`%${q.toUpperCase()}%`);
+    }
+    const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
+
+    const countRow = await this.env.LOADER_DB
+      .prepare(`SELECT COUNT(*) AS c FROM symbol_state ${where}`)
+      .bind(...params)
+      .first();
+    const rows = await this.env.LOADER_DB
+      .prepare(
+        `SELECT symbol, enabled, last_success_at, last_attempt_at, consecutive_failures,
+                next_attempt_after, backoff_seconds, last_error
+         FROM symbol_state ${where}
+         ORDER BY ${sort} ${order}, symbol ASC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(...params, limit, offset)
+      .all();
+
+    return {
+      ok: true,
+      filter,
+      total: countRow ? countRow.c : 0,
+      items: rows.results.map((r) => ({
+        symbol: r.symbol,
+        enabled: r.enabled,
+        last_success_at: r.last_success_at,
+        last_attempt_at: r.last_attempt_at,
+        consecutive_failures: r.consecutive_failures,
+        next_attempt_after: r.next_attempt_after,
+        backoff_seconds: r.backoff_seconds,
+        last_error: r.last_error,
+      })),
     };
   }
 }

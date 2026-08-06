@@ -30,6 +30,9 @@ export interface Env {
   R2_SQL_BUCKET: string;
   R2_SQL_TOKEN: string; // secret
   CORS_ORIGIN?: string;
+  // Non-secret base URL of the continuous CBOE loader worker, used by the
+  // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
+  LOADER_BASE_URL?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +482,25 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Continuous-loader pass-through (read-only /loop endpoints)
+// ---------------------------------------------------------------------------
+const LOADER_BASE_DEFAULT = "https://cboe-to-r2.robertlancer.workers.dev";
+// Short in-isolate cache so the UI's polling doesn't hammer the loader DO.
+const LOADER_TTL_MS = 5 * 1000;
+
+// Forwards a read-only /loop/* request to the continuous loader worker. The
+// loader only Bearer-guards /loop/trigger and /loop/arm, so /loop/status and
+// /loop/symbols are safe to proxy without a token.
+async function loaderGet(env: Env, path: string, cacheKey: string): Promise<unknown> {
+  const base = (env.LOADER_BASE_URL || LOADER_BASE_DEFAULT).replace(/\/+$/, "");
+  return cached<unknown>(cacheKey, LOADER_TTL_MS, async () => {
+    const r = await fetch(base + path);
+    if (!r.ok) throw new Error(`loader ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    return r.json();
+  });
+}
+
 function cors(env: Env, resp: Response): Response {
   resp.headers.set("Access-Control-Allow-Origin", env.CORS_ORIGIN ?? "*");
   resp.headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -501,6 +523,12 @@ async function handle(env: Env, req: Request): Promise<Response> {
 
   if (path === "/api/health") return json(env, { ok: true });
   if (path === "/api/liquidity") return json(env, await liquidity(env));
+
+  // Read-only pass-through to the continuous loader's live /loop state.
+  if (path === "/loader/status")
+    return json(env, await loaderGet(env, "/loop/status", "loader:status"));
+  if (path === "/loader/symbols")
+    return json(env, await loaderGet(env, "/loop/symbols" + url.search, "loader:symbols:" + url.search));
 
   if (path === "/api/stats") return json(env, await stats(env, q.get("liquid_only") === "true"));
   if (path === "/api/runs") return json(env, await runs(env, num(q.get("limit") ?? 5)));

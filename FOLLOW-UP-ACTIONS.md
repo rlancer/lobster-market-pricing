@@ -93,12 +93,11 @@ The CRITICAL finding is resolved. These are the remaining findings from
 
 ## 4. Loader full-universe validation
 
-After the container deploy succeeds and `LOADER_TOKEN` is rotated, follow
-`loader/NEXT_STEPS.md` to run the full S&P 500 load (503 symbols). The
-Pipeline streams, sinks, and pipelines are already created and running
-with authentication enabled.
+After the container deploy succeeds and `LOADER_TOKEN` is rotated, run the
+full S&P 500 load (503 symbols). The Pipeline streams, sinks, and pipelines
+are already created and running with authentication enabled.
 
-Key steps from NEXT_STEPS.md:
+Load procedure:
 1. Run a 2-symbol smoke test (1 valid + 1 invalid) to validate failure publication.
 2. Run the full 503-symbol refresh via the protected `/run` endpoint.
 3. Validate completeness via R2 SQL (status, symbol counts, contract counts).

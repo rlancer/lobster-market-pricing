@@ -12,8 +12,8 @@ This package (the `loader/` directory of the `options-db` monorepo) loads the 50
 - NVR is intentionally recorded in `symbols/sp500-load-exceptions.json`.
 - Latest observed catalog counts included synthetic `ZZZ` smoke-test data; exclude `ZZZ` from S&P counts.
 - Pipeline HTTP authentication is DISABLED for the experiment. Do not treat this
-  as production-ready until authenticated (see NEXT_STEPS — the loaders' real
-  containers DO use authenticated streams via `PIPELINE_AUTH_TOKEN`).
+  as production-ready until authenticated (the loaders' real containers DO use
+  authenticated streams via `PIPELINE_AUTH_TOKEN`).
 
 ## Continuous background loader
 
@@ -132,4 +132,4 @@ Validate both checkpoint and catalog. At minimum query contract and underlying c
 - Pipeline records use the loader User-Agent and idempotency keys.
 - The checkpoint is atomically written after each symbol.
 
-Human-facing procedure: `README.md`. Staged production hardening: `NEXT_STEPS.md`.
+Human-facing procedure: `README.md`.

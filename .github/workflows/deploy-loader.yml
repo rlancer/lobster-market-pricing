@@ -2,8 +2,13 @@ name: Deploy loader (Worker + container)
 
 # Deploys the `cboe-to-r2` loader Worker and its Cloudflare Container
 # (CBOE → Pipelines → R2 Data Catalog Iceberg tables). Lives in the
-# monorepo under `loader/`. Kept manual until full-refresh validation is
-# complete (see loader/NEXT_STEPS.md); do not add a schedule before then.
+# monorepo under `loader/`.
+#
+# Auto-deploys on every push to `main` (matching the screener/frontend
+# `deploy.yml`). DEPRECATION NOTE: this was previously manual until
+# full-refresh validation; auto-deploy now ships any loader change to prod on
+# commit — review carefully before pushing behavior changes. There is no dev
+# instance for the loader container, so only `main` deploys (no branch/PR).
 #
 # Required GitHub secrets:
 #   CLOUDFLARE_API_TOKEN — Worker + Container deploy permissions
@@ -20,7 +25,14 @@ name: Deploy loader (Worker + container)
 #   npx wrangler secret put PIPELINE_ERRORS_URL        # empty to disable
 #   npx wrangler secret put PIPELINE_AUTH_TOKEN        # required (streams are authenticated)
 
+# Cancel superseded runs on the same ref so we don't pile up deploys.
+concurrency:
+  group: deploy-loader-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:

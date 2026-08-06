@@ -1,0 +1,137 @@
+.loader-status { padding: 8px 0; }
+
+.ls-head h2 { margin: 0 0 2px; }
+.ls-head p { margin: 0 0 14px; }
+
+/* Offline / error banner — never a silent empty state. */
+.ls-error {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: color-mix(in srgb, var(--danger, #ff5c5c) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger, #ff5c5c) 40%, transparent);
+  color: var(--danger, #ff5c5c);
+  padding: 10px 12px;
+  border-radius: var(--radius-element, 8px);
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.ls-error span { color: var(--text); }
+
+.ls-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ls-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ls-card-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.ls-card b {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ls-card-wide b { font-size: 15px; }
+.ls-card .muted { font-size: 12.5px; font-weight: normal; }
+.ls-danger { color: var(--danger, #ff5c5c); }
+
+.ls-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.ls-dot.ok { background: var(--success, #34c759); }
+.ls-dot.run { background: var(--accent); animation: ls-pulse 1.6s infinite; }
+@keyframes ls-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.ls-lastpass { font-size: 13px; color: var(--text); margin-bottom: 14px; }
+.ls-lastpass code {
+  font-family: var(--font-family-mono, monospace);
+  color: var(--muted);
+}
+
+.ls-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.ls-toolbar label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.ls-filter select,
+.ls-search {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-element, 6px);
+  padding: 5px 8px;
+}
+.ls-search { width: 180px; }
+.ls-autorefresh { white-space: nowrap; }
+.ls-refresh {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: var(--radius-element, 6px);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.ls-refresh:hover { border-color: var(--accent); }
+.ls-refresh:disabled { opacity: 0.6; cursor: default; }
+.ls-updated { margin-left: auto; }
+
+.ls-meta { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.ls-meta b { color: var(--text); }
+
+.ls-table-wrap { overflow-x: auto; }
+.ls-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ls-table th {
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--muted);
+  font-weight: var(--font-weight-medium, 500);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+}
+.ls-table td {
+  padding: 6px 8px;
+  color: var(--text);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  white-space: nowrap;
+}
+.ls-table tbody tr:last-child td { border-bottom: 0; }
+.ls-table tbody tr:hover td { background: var(--panel-2); }
+.ls-table .empty { text-align: center; color: var(--muted); padding: 20px; }
+.ls-err { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+
+.ls-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-full, 999px);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ls-badge.fresh { background: color-mix(in srgb, var(--success, #34c759) 16%, transparent); color: var(--success, #34c759); }
+.ls-badge.stale { background: color-mix(in srgb, #ff9f0a 16%, transparent); color: #ff9f0a; }
+.ls-badge.retrying { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.ls-badge.disabled { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); }
+.ls-badge.never { background: color-mix(in srgb, #ff9f0a 16%, transparent); color: #ff9f0a; }

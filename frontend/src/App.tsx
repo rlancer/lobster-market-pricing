@@ -6,6 +6,7 @@ import Explorer from './Explorer';
 import AiChat from './AiChat';
 import LiquidityFilter from './LiquidityFilter';
 import RefreshRuns from './RefreshRuns';
+import LoaderStatus from './LoaderStatus';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
 import SymbolTypeahead from './SymbolTypeahead';
@@ -36,7 +37,7 @@ const fmtDate = (s: string): string => {
 
 function App() {
   const db = useDbReady();
-  const [view, setView] = useState<'screener' | 'explorer' | 'notebooks' | 'ai'>('screener');
+  const [view, setView] = useState<'screener' | 'explorer' | 'notebooks' | 'ai' | 'loader'>('screener');
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sectors, setSectors] = useState<SectorRow[]>([]);
@@ -137,6 +138,7 @@ function App() {
     if (tab === 'explorer') setView('explorer');
     else if (tab === 'notebooks') setView('notebooks');
     else if (tab === 'ai') setView('ai');
+    else if (tab === 'loader') setView('loader');
     else if (tab === 'screener') setView('screener');
     if (sym && sym.trim()) setSelectedSymbol(sym.trim().toUpperCase());
   }, []); // run once
@@ -151,6 +153,7 @@ function App() {
     if (view === 'explorer') sp.set('tab', 'explorer');
     else if (view === 'notebooks') sp.set('tab', 'notebooks');
     else if (view === 'ai') sp.set('tab', 'ai');
+    else if (view === 'loader') sp.set('tab', 'loader');
     else sp.delete('tab');
     const qs = sp.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
@@ -166,7 +169,7 @@ function App() {
       const sp = new URLSearchParams(window.location.search);
       const sym = sp.get('symbol');
       const tab = sp.get('tab');
-      setView(tab === 'explorer' ? 'explorer' : tab === 'notebooks' ? 'notebooks' : tab === 'ai' ? 'ai' : 'screener');
+      setView(tab === 'explorer' ? 'explorer' : tab === 'notebooks' ? 'notebooks' : tab === 'ai' ? 'ai' : tab === 'loader' ? 'loader' : 'screener');
       setSelectedSymbol(sym && sym.trim() ? sym.trim().toUpperCase() : null);
     };
     window.addEventListener('popstate', onPop);
@@ -249,6 +252,7 @@ function App() {
         <button className={`tab ${view === 'notebooks' ? 'active' : ''}`} onClick={() => setView('notebooks')}>Research</button>
         <button className={`tab ${view === 'explorer' ? 'active' : ''}`} onClick={() => setView('explorer')}>SQL Lab</button>
         <button className={`tab ${view === 'ai' ? 'active' : ''}`} onClick={() => setView('ai')}>Copilot</button>
+        <button className={`tab ${view === 'loader' ? 'active' : ''}`} onClick={() => setView('loader')}>Monitor</button>
         <div className="stats" aria-label="Dataset summary">
           <span><b>{stats?.underlyings ?? '–'}</b> symbols</span>
           <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
@@ -257,7 +261,7 @@ function App() {
         </div>
       </nav>
 
-      {view === 'explorer' ? <Explorer /> : view === 'ai' ? <AiChat /> : view === 'notebooks' ? (
+      {view === 'explorer' ? <Explorer /> : view === 'loader' ? <LoaderStatus /> : view === 'ai' ? <AiChat /> : view === 'notebooks' ? (
         selectedSymbol ? (
           <SymbolDetail symbol={selectedSymbol} onBack={() => setSelectedSymbol(null)} />
         ) : (

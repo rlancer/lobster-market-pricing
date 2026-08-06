@@ -6,7 +6,8 @@
   "vars": {
     "R2_SQL_ACCOUNT_ID": "3315bb3e7d2e3556bfea6fb3947a890e",
     "R2_SQL_BUCKET": "cboe-options-data",
-    "CORS_ORIGIN": "*"
+    "CORS_ORIGIN": "*",
+    "LOADER_BASE_URL": "https://cboe-to-r2.robertlancer.workers.dev"
   },
   "observability": {
     "enabled": true,

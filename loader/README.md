@@ -33,8 +33,8 @@ previously manual/scheduled refresh pattern.
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `schemas/` — Pipeline input schemas
 - `wrangler.jsonc` — Worker, Container, D1, DO, and Pipeline endpoint configuration
-- `.github/workflows/deploy-loader.yml` — manual container deployment
-- `NEXT_STEPS.md` — controlled full-dataset population runbook
+- `.github/workflows/deploy-loader.yml` — container deployment (auto on push to `main`)
+- `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure
 
 ## Continuous background loader
 
@@ -102,6 +102,15 @@ Migrations in `migrations/` are also applied automatically on deploy.
 - `GET /loop/status` — counts (total / enabled / due / failing), the last pass
   summary (`last_pass`), the next alarm time, and whether a pass is in flight.
   Read-only; safe to expose to the consumer without waking the container.
+- `GET /loop/symbols?filter=&q=&limit=&offset=&sort=&order=` — paginated,
+  read-only per-symbol listing of `symbol_state`. Read-only; never writes to
+  D1. `filter` ∈ `all|enabled|disabled|failing|retrying|due|stale` (default
+  `all`); `q` is a symbol-substring `LIKE`; `limit` defaults 100 (max 1000),
+  `offset` for paging; `sort` ∈ `symbol|last_success_at|consecutive_failures`
+  with `order` ∈ `asc|desc` (default `asc`). Returns
+  `{ ok, filter, total, items:[{ symbol, enabled, last_success_at,
+  last_attempt_at, consecutive_failures, next_attempt_after, backoff_seconds,
+  last_error }] }` (epoch-ms timestamps; `null` when never recorded).
 - `POST /loop/trigger` (Bearer `LOADER_TOKEN`) — run one pass now (still
   serialized against the alarm).
 - Each pass logs a single newline-delimited JSON `pass_completed` event
@@ -179,7 +188,9 @@ Invoke-RestMethod `
 
 The response must contain a `run_id`; do not start another refresh until this run has been validated in R2 SQL. A failed run returns HTTP 502 and must not be treated as the active dataset.
 
-For the initial full load, deploy the Worker/container manually and keep the refresh unscheduled. See [`NEXT_STEPS.md`](NEXT_STEPS.md) for failure testing, deployment, and completeness checks.
+For the initial full load, keep the refresh unscheduled and validate each run
+in R2 SQL before proceeding. See [`FOLLOW-UP-ACTIONS.md`](../FOLLOW-UP-ACTIONS.md)
+for failure testing and completeness checks.
 
 Inspect live progress while a refresh is running:
 
@@ -288,7 +299,7 @@ ORDER BY started_at DESC
 LIMIT 10;
 ```
 
-See [`NEXT_STEPS.md`](NEXT_STEPS.md) for the staged full-dataset procedure and production hardening checklist.
+See [`FOLLOW-UP-ACTIONS.md`](../FOLLOW-UP-ACTIONS.md) for the staged full-dataset procedure and production hardening checklist.
 
 ## Security
 

@@ -3,3 +3,6 @@
 # Deploy the secret once with: cd worker && npx wrangler secret put R2_SQL_TOKEN
 
 R2_SQL_TOKEN=
+
+# Optional override for local dev; defaults to the production loader.
+LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev

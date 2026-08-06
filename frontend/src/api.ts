@@ -175,6 +175,48 @@ export interface PremiumNotebook {
 }
 
 // ---------------------------------------------------------------------------
+// Continuous loader live state (via the /loader/* screener pass-through).
+// Timestamps are epoch-ms D1 INTEGERs; null when never recorded.
+// ---------------------------------------------------------------------------
+export interface LoaderStatus {
+  ok: boolean;
+  driver: string;
+  counts: { total: number; enabled: number; due: number; failing: number };
+  last_pass: {
+    at: number;
+    finished_at: number;
+    run_id: string | null;
+    attempted: number;
+    succeeded: number;
+    failed: number;
+    batch: string[];
+    transport_error: string | null;
+    duration_ms: number;
+  } | null;
+  next_alarm: number | null;
+  passing: boolean;
+}
+
+export type LoaderFilter = 'all' | 'failing' | 'retrying' | 'stale' | 'disabled';
+
+export interface LoaderSymbol {
+  symbol: string;
+  enabled: number;
+  last_success_at: number | null;
+  last_attempt_at: number | null;
+  consecutive_failures: number;
+  next_attempt_after: number;
+  backoff_seconds: number;
+  last_error: string | null;
+}
+
+export interface LoaderSymbolsResponse {
+  ok: boolean;
+  total: number;
+  items: LoaderSymbol[];
+}
+
+// ---------------------------------------------------------------------------
 // API client — fetches the screener-api Cloudflare Worker (R2 SQL backend).
 // The exported types above are unchanged from the in-browser DuckDB-WASM era,
 // so the UI components need no edits. `VITE_API_BASE` (frontend/.env) points at
@@ -230,6 +272,15 @@ export const api = {
     liquid_only?: boolean;
     limit?: number;
   }) => get<PremiumNotebook>(`/api/notebook/premium${qs(params)}`),
+  loaderStatus: () => get<LoaderStatus>('/loader/status'),
+  loaderSymbols: (params?: {
+    filter?: LoaderFilter;
+    q?: string;
+    limit?: number;
+    offset?: number;
+    sort?: 'symbol' | 'last_success_at' | 'consecutive_failures';
+    order?: 'asc' | 'desc';
+  }) => get<LoaderSymbolsResponse>(`/loader/symbols${qs(params ?? {})}`),
 };
 
 import { useState, useEffect } from 'react';
