@@ -19,16 +19,123 @@ Infrastructure:
 - Worker: `cboe-to-r2`
 - Deployment: manual GitHub Actions workflow
 
-The Pipeline HTTP streams are currently unauthenticated for the initial experiment. The Worker `/run` endpoint remains protected by `LOADER_TOKEN`. Do not use this configuration for unrestricted production ingestion.
+The Pipeline HTTP streams are authenticated (Bearer, `PIPELINE_AUTH_TOKEN`)
+after the 2026-08-06 security fix — the ingest URLs are rotated and held only
+as Wrangler secrets. The Worker `/run` endpoint is protected by `LOADER_TOKEN`.
+The continuous loader (see below) is the intended replacement for the
+previously manual/scheduled refresh pattern.
 
 ## Package layout
 
 - `container/loader.py` — CBOE fetch, OCC normalization, batching, retries, and refresh publication
-- `src/index.js` — Worker endpoint and Container routing
+- `src/index.js` — Worker endpoint, Container routing, and `/loop/*` driver routing
+- `src/continuous-loader.js` — the `CboeContinuousLoader` Durable Object (the continuous background driver)
+- `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `schemas/` — Pipeline input schemas
-- `wrangler.jsonc` — Worker and Pipeline endpoint configuration
+- `wrangler.jsonc` — Worker, Container, D1, DO, and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — manual container deployment
 - `NEXT_STEPS.md` — controlled full-dataset population runbook
+
+## Continuous background loader
+
+Replaces the one-shot/scheduled refresh with a **self-sustaining loop that never
+stops**. No cron, no schedule.
+
+### How it works
+
+A single Durable Object instance (`CboeContinuousLoader`) runs a self-rescheduling
+**alarm loop**. Each alarm pass:
+
+1. Seeds `symbol_state` from `symbols/sp500.json` on first run (every symbol,
+   `enabled=1`, due immediately).
+2. Picks the due batch: `WHERE enabled = 1 AND next_attempt_after <= now`
+   ordered by `priority` then stalest-first (`last_success_at`), `LIMIT` the
+   batch size.
+3. Calls the existing container `/run` with that batch, reusing the same
+   authenticated pipeline-headers as the public endpoint — the CBOE fetch,
+   normalization, and Iceberg publication logic in `container/loader.py` is
+   untouched.
+4. Updates D1 per symbol: **success** resets failures and reschedules the next
+   reload at the cadence; **failure** increments `consecutive_failures`, doubles
+   `backoff_seconds` from 60s → 5m → 30m (capped), and sets `next_attempt_after`
+   accordingly. NVR's persistent CBOE 403 is just a failed symbol — it retries
+   with the normal backoff, no special-casing.
+5. Re-arms the alarm, so the cycle repeats indefinitely.
+
+### Why a Durable Object alarm loop
+
+- **Cheapest on the free tier.** Each pass is one small indexed D1 read, one
+  container HTTP call, and a handful of D1 writes — negligible CPU. The real
+  spend (CBOE fetches → Pipeline/R2 writes) lives in the container and grows
+  only with refresh volume. A Workflow would bill every `step.do`/`step.sleep`
+  in an infinite loop for no benefit here.
+- **Durable across restarts.** Alarm state is stored durably, and D1 holds
+  per-symbol progress, so nothing is lost on redeploy.
+- **Single-flight for free.** A DO runs one `alarm()` at a time; the next alarm
+  is armed only after the pass returns. A `passing` storage flag additionally
+  guards manual `/loop/trigger` against an in-flight pass, so overlapping runs
+  and duplicate run publication are impossible.
+
+### Bootstrap
+
+The loop arms itself: the first request to the Worker (any of `/run`, `/status`,
+`/health`, or a `/loop/*` route) arms the driver via `ctx.waitUntil(ensureArmed())`
+— one alarm schedules the next forever. Set `CONTINUOUS_LOADER_ENABLED=false`
+to disable the loop entirely.
+
+### One-time setup
+
+Create the D1 database and point the binding at it (the committed
+`database_id` is a placeholder):
+
+```powershell
+cd loader
+npx wrangler d1 create cboe-loader-state   # copy the returned id
+# paste that id into wrangler.jsonc `d1_databases[0].database_id`,
+# then `npx wrangler d1 migrations apply cboe-loader-state`
+```
+
+Migrations in `migrations/` are also applied automatically on deploy.
+
+### Observability
+
+- `GET /loop/status` — counts (total / enabled / due / failing), the last pass
+  summary (`last_pass`), the next alarm time, and whether a pass is in flight.
+  Read-only; safe to expose to the consumer without waking the container.
+- `POST /loop/trigger` (Bearer `LOADER_TOKEN`) — run one pass now (still
+  serialized against the alarm).
+- Each pass logs a single newline-delimited JSON `pass_completed` event
+  (`attempted`, `succeeded`, `failed`, `run_id`, `error`).
+
+### Safe defaults and tuning
+
+CBOE data refreshes ~every 15 min. To honor the *"no schedule until full-refresh
+validation"* gate, the loop ships with **modest, cost-conscious defaults** — it
+will be slow to fully cycle until tuned. All are `vars` in `wrangler.jsonc`:
+
+| Var | Default | Meaning |
+|---|---|---|
+| `LOADER_BATCH_SIZE` | 10 | symbols per `/run` pass (bounds pass duration + per-cycle writes) |
+| `LOADER_POLL_INTERVAL_SECONDS` | 60 | seconds between passes |
+| `LOADER_CADENCE_SECONDS` | 900 | reload every ~15 min after a success |
+| `LOADER_BACKOFF_BASE_SECONDS` | 60 | first failure backoff |
+| `LOADER_BACKOFF_CAP_SECONDS` | 1800 | max backoff (30 min) |
+| `LOADER_RUN_TIMEOUT_SECONDS` | 300 | abort a stuck container `/run`; that batch is backed off and retried |
+
+To reach the ~15-min full cadence, raise `LOADER_BATCH_SIZE` so the container
+can cycle ~503 symbols within ~15 min (e.g. 34+ per minute given the container's
+per-symbol fetch + delay). Validate the full refresh (see below) before tuning
+up. The loop remains safe at any setting because `next_attempt_after` and the
+single-flight guard prevent overlap.
+
+### Local dry-run note
+
+`wrangler deploy --dry-run` validates config + bundle (both DOs, D1 binding,
+vars). The **Docker image build step fails locally** when Docker/Podman is
+unavailable — that is expected. Use `--containers-rollout=none` to dry-run the
+config/bundle alone; the container image builds on the GitHub-hosted runner.
+
+
 
 ## Deployment
 

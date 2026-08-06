@@ -11,7 +11,34 @@ This package (the `loader/` directory of the `options-db` monorepo) loads the 50
 - Latest load: 502 complete symbols; NVR failed with CBOE HTTP 403.
 - NVR is intentionally recorded in `symbols/sp500-load-exceptions.json`.
 - Latest observed catalog counts included synthetic `ZZZ` smoke-test data; exclude `ZZZ` from S&P counts.
-- Pipeline HTTP authentication is disabled for the experiment. Do not enable schedules or call this production-ready until ingestion is authenticated and alerting/retention exist.
+- Pipeline HTTP authentication is DISABLED for the experiment. Do not treat this
+  as production-ready until authenticated (see NEXT_STEPS — the loaders' real
+  containers DO use authenticated streams via `PIPELINE_AUTH_TOKEN`).
+
+## Continuous background loader
+
+Runs via the `CboeContinuousLoader` Durable Object alarm loop
+(`src/continuous-loader.js`). Key invariants when editing it:
+
+- **Single-flight.** The loop must never run two refresh passes at once. Alarm
+  re-arm happens only in `alarm()`'s `finally`; the `passing` storage flag also
+  guards manual `/loop/trigger`. Preserve both.
+- **D1 is the source of truth.** Per-symbol progress lives in `symbol_state`
+  (`loader/migrations/0001_initial.sql`): `next_attempt_after <= now` = due
+  (epoch ms); `consecutive_failures`/`backoff_seconds` drive exponential backoff
+  (60s → 5m → 30m capped). Success resets and re-schedules at the cadence.
+  Never lose progress on restart — re-seed only when the table is empty.
+- **Reuse, don't rewrite.** CBOE fetch / normalization / Iceberg publication
+  stays in `container/loader.py`; the driver only calls the existing container
+  `/run` via `buildRunRequest()` (same authenticated pipeline headers).
+- **NVR's CBOE 403** is an expected persistent failure — retry with the normal
+  backoff; never special-case-crash on it.
+- **Secrets.** `LOADER_TOKEN` and `PIPELINE_*_URL`/`PIPELINE_AUTH_TOKEN` stay as
+  Wrangler secrets; never log or commit them. `database_id` in `wrangler.jsonc`
+  is a placeholder — real D1 id is provisioned via the dashboard/`wrangler d1`.
+- **Safety before tuning.** Defaults are modest (`LOADER_BATCH_SIZE=10`,
+  `LOADER_CADENCE_SECONDS=900`); tune up only after the full-refresh validation
+  passes. See README "Safe defaults and tuning".
 
 ## Required operating gates
 

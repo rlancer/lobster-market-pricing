@@ -1,6 +1,12 @@
 import { Container, getContainer } from "@cloudflare/containers";
+import {
+  CboeContinuousLoader,
+  DRIVER_ID,
+  LOADER_ID,
+  buildRunRequest,
+} from "./continuous-loader.js";
 
-const LOADER_ID = "cboe-loader-v3";
+export { CboeContinuousLoader };
 
 export class CboeLoaderContainer extends Container {
   defaultPort = 8080;
@@ -22,10 +28,48 @@ function authorized(request, env) {
   return request.headers.get("authorization") === `Bearer ${configured}`;
 }
 
+function driverStub(env) {
+  return env.CBOE_CONTINUOUS_LOADER.get(
+    env.CBOE_CONTINUOUS_LOADER.idFromName(DRIVER_ID),
+  );
+}
+
+function loopEnabled(env) {
+  return !!(env.CBOE_CONTINUOUS_LOADER && env.CONTINUOUS_LOADER_ENABLED !== "false");
+}
+
+// The loop bootstraps itself: the first request to the Worker arms the driver
+// DO (one alarm -> next alarm -> ... forever). Arming is idempotent and cheap —
+// it does not wake the 10-minute container.
+function armDriver(env, ctx) {
+  if (!loopEnabled(env)) return;
+  ctx.waitUntil(driverStub(env).ensureArmed().catch(() => {}));
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Continuous-loader driver routes. /loop/trigger and /loop/arm are
+    // write-like and protected by LOADER_TOKEN; /loop/status is read-only.
+    if (url.pathname.startsWith("/loop/")) {
+      if (!loopEnabled(env)) {
+        return new Response("Continuous loader disabled\n", { status: 404 });
+      }
+      if (
+        (url.pathname === "/loop/trigger" || url.pathname === "/loop/arm") &&
+        !authorized(request, env)
+      ) {
+        return new Response("Unauthorized\n", {
+          status: 401,
+          headers: { "www-authenticate": "Bearer" },
+        });
+      }
+      return driverStub(env).fetch(request);
+    }
+
     if (url.pathname === "/health" || url.pathname === "/status") {
+      armDriver(env, ctx);
       return getContainer(env.CBOE_LOADER, LOADER_ID).fetch(request);
     }
     if (url.pathname !== "/run" || request.method !== "POST") {
@@ -38,19 +82,12 @@ export default {
       });
     }
     const forwarded = new Request(request);
-    const endpointHeaders = {
-      "x-pipeline-runs-url": env.PIPELINE_RUNS_URL,
-      "x-pipeline-contracts-url": env.PIPELINE_CONTRACTS_URL,
-      "x-pipeline-underlyings-url": env.PIPELINE_UNDERLYINGS_URL,
-      "x-pipeline-errors-url": env.PIPELINE_ERRORS_URL,
-      // Forward the Pipeline auth token (env.PIPELINE_AUTH_TOKEN secret) so the
-      // loader attaches `Authorization: Bearer <token>` to every ingest POST.
-      // Without this the ingest URLs are unauthenticated write endpoints.
-      "x-pipeline-auth-token": env.PIPELINE_AUTH_TOKEN,
-    };
-    for (const [name, value] of Object.entries(endpointHeaders)) {
-      if (value) forwarded.headers.set(name, value);
+    for (const [name, value] of Object.entries(buildRunRequest([], env).headers)) {
+      if (name !== "content-type") forwarded.headers.set(name, value);
     }
+    // Keep the existing one-shot /run behavior fully intact and backward
+    // compatible, and arm the continuous loop on the way through.
+    armDriver(env, ctx);
     return getContainer(env.CBOE_LOADER, LOADER_ID).fetch(forwarded);
   },
 };

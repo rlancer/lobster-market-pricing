@@ -8,6 +8,23 @@
     // (`wrangler secret put`). The ingest URLs are unauthenticated write
     // endpoints whose subdomain IS the credential, so they must never be
     // committed. See SECURITY-AUDIT.md (CRITICAL) and loader/.dev.vars.example.
+
+    // Continuous-loader tuning (safe, cost-conscious defaults — see README).
+    // Master switch for the background loop; "false" disables arming entirely.
+    "CONTINUOUS_LOADER_ENABLED": "true",
+    // Symbols per /run batch. Kept modest: bounds each pass duration and the
+    // number of CBOE/Pipeline writes per cycle (free-tier cost driver).
+    "LOADER_BATCH_SIZE": 10,
+    // Seconds between passes (alarm fires, picks the due batch, re-arms).
+    "LOADER_POLL_INTERVAL_SECONDS": 60,
+    // Seconds after a successful reload before a symbol is due again (~15 min).
+    "LOADER_CADENCE_SECONDS": 900,
+    // Exponential backoff on failure: base seconds, doubled up to the cap.
+    "LOADER_BACKOFF_BASE_SECONDS": 60,
+    "LOADER_BACKOFF_CAP_SECONDS": 1800,
+    // Abort timeout (s) for the internal container /run call. On timeout the
+    // whole batch is backed off and retried — the loop stays healthy.
+    "LOADER_RUN_TIMEOUT_SECONDS": 300
   },
   "containers": [
     {
@@ -16,11 +33,26 @@
       "max_instances": 1
     }
   ],
+  "d1_databases": [
+    {
+      // Per-symbol state + loader meta. Create the database in the dashboard
+      // (or `wrangler d1 create cboe-loader-state`) and replace database_id
+      // below. Migrations in ./migrations are applied on deploy.
+      "binding": "LOADER_DB",
+      "database_name": "cboe-loader-state",
+      "database_id": "103bff64-1009-4733-8d3a-a396d0051523",
+      "migrations_dir": "./migrations"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {
         "name": "CBOE_LOADER",
         "class_name": "CboeLoaderContainer"
+      },
+      {
+        "name": "CBOE_CONTINUOUS_LOADER",
+        "class_name": "CboeContinuousLoader"
       }
     ]
   },
@@ -28,6 +60,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["CboeLoaderContainer"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["CboeContinuousLoader"]
     }
   ],
   "observability": {

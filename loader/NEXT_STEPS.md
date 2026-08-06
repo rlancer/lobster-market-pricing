@@ -162,7 +162,11 @@ Before enabling recurring refreshes:
 - Add refresh retention and snapshot-expiration policy.
 - Decide whether to retain an independent raw or normalized backup.
 - Add alerting for failed or incomplete runs.
-- Add a schedule only after manual full refreshes are stable.
+- Enable the continuous background loader (DO alarm loop — the intended
+  replacement for a cron schedule) only after manual full refreshes are stable.
+  Start with the modest defaults in `wrangler.jsonc` (`LOADER_BATCH_SIZE=10`,
+  `LOADER_CADENCE_SECONDS=900`) and tune up with validation; see
+  `README.md` → "Continuous background loader".
 - Keep the previous complete refresh available during every new refresh.
 
 R2 Data Catalog and R2 SQL are currently beta products. Keep a recoverable copy until several complete refresh cycles have been validated.
