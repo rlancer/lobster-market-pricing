@@ -83,8 +83,8 @@ export default function LoaderStatus() {
     ])
       .then(([st, res]) => {
         setStatus(st);
-        setSymbols(res.items);
-        setTotal(res.total);
+        setSymbols(res.items ?? []);
+        setTotal(res.total ?? 0);
         setError(null);
         setLastUpdated(new Date());
       })
