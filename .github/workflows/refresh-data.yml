@@ -1,0 +1,69 @@
+name: Refresh options data
+
+# Nightly ETL for the options dataset. The data source of truth is now the
+# CBOE Iceberg lake maintained by the cboe-to-r2 project (CBOE -> Cloudflare
+# Pipelines -> R2 Data Catalog). This workflow hydrates the local DuckDB from
+# that lake, then exports to Parquet and uploads to the public R2 bucket that
+# the DuckDB-WASM frontend reads:
+#   hydrate-lake (Iceberg -> DuckDB)
+#     -> export-parquet (DuckDB -> data/parquet/*.parquet + manifest.json)
+#     -> upload-r2 (wrangler r2 object put -> robs-options-slop-data/options)
+#
+# Runs after US market close (01:00 UTC Mon-Fri) on GitHub-hosted runners.
+# This does NOT touch the deploy workflow (deploy.yml).
+#
+# Failure policy: steps run top-to-bottom, so a failed hydrate/export stops
+# the job before the R2 upload — the last-good Parquet in R2 is preserved.
+# Re-run manually via workflow_dispatch to retry.
+
+on:
+  schedule:
+    - cron: "0 1 * * 1-5"   # 01:00 UTC, Mon–Fri (after US market close)
+  workflow_dispatch:         # manual trigger for testing / retries
+
+# Never cancel an in-flight refresh; serialise them so two runs don't race
+# writing to the same R2 keys.
+concurrency:
+  group: data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Data refresh (Iceberg lake -> Parquet -> R2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools (mise)
+        run: |
+          curl -LsSf https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          mise install
+
+      - name: Install Python deps
+        run: |
+          cd backend && uv sync
+
+      - name: Hydrate DuckDB from CBOE Iceberg lake (R2 SQL)
+        env:
+          R2_SQL_ACCOUNT_ID: ${{ secrets.R2_SQL_ACCOUNT_ID }}
+          R2_SQL_BUCKET: ${{ secrets.R2_SQL_BUCKET }}
+          R2_SQL_TOKEN: ${{ secrets.R2_SQL_TOKEN }}
+        run: mise run hydrate-lake
+
+      - name: Export Parquet + manifest
+        run: mise run export-parquet
+
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: mise run upload-r2
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "::error::Data refresh failed. Last-good Parquet in R2 left intact; re-run via workflow_dispatch."

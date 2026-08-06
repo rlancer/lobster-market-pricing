@@ -1,6 +1,6 @@
 """Export DuckDB tables to Parquet for static (Cloudflare R2) serving.
 
-This is the bridge between the local data pipeline (download.py -> DuckDB)
+This is the bridge between the local data pipeline (download_cboe.py -> DuckDB)
 and the static frontend, which reads Parquet over HTTP from R2 via
 DuckDB-WASM (see DEPLOYMENT-CLOUDFLARE.md).
 

@@ -1,8 +1,7 @@
 # S&P 500 Options Screener
 
 A free, end-to-end options screener for the S&P 500:
-
-- **Data source:** Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) (free, no API key)
+- **Data source:** CBOE delayed quotes (official exchange data, includes Greeks) loaded into a Cloudflare-hosted Apache Iceberg lake by the [cboe-to-r2](../cboe-to-r2) project (CBOE → Cloudflare Pipelines → R2 Data Catalog). This project consumes that lake over R2 SQL to hydrate the local DuckDB
 - **Storage / indexing:** [DuckDB](https://duckdb.org) — a single embedded `data/options.duckdb` file
 - **Backend:** FastAPI that queries DuckDB
 - **Frontend:** React + TypeScript (Vite)
@@ -15,8 +14,9 @@ screener_glm52/
 │   ├── pyproject.toml
 │   └── screener/
 │       ├── db.py             # DuckDB schema + connection
-│       ├── sp500.py          # Wikipedia S&P 500 constituent list
-│       ├── download.py       # fetch underlyings + option chains -> DuckDB
+│       ├── sp500.py          # Wikipedia S&P 500 constituent list (name/sector fallback)
+│       ├── hydrate_lake.py   # hydrate DuckDB from the CBOE Iceberg lake (R2 SQL)
+│       ├── download_cboe.py  # LEGACY: direct CBOE -> DuckDB (replaced by hydrate_lake)
 │       └── server.py         # FastAPI screener API
 ├── frontend/                 # Vite + React + TS UI
 │   └── src/{App.tsx, api.ts, App.css}
@@ -34,20 +34,35 @@ mise install      # install pinned tools
 mise run sync     # uv sync (backend) + npm install (frontend)
 ```
 
-## 1. Download options data
+## 1. Hydrate from the Iceberg lake (R2 SQL)
+
+The screener's dataset is hydrated from the CBOE Iceberg lake maintained by the
+sibling `cboe-to-r2` project. `mise run hydrate-lake` reads the latest
+per-symbol snapshot from the lake over the Cloudflare R2 SQL REST API and
+writes it into `data/options.duckdb` in the schema the API expects. No direct
+CBOE calls are made from this project.
 
 ```bash
-# Quick smoke test (first 25 symbols, 3 expirations each):
-mise run download -- --fresh --limit 25 --max-expirations 3
+# Quick smoke test (first 25 symbols):
+mise run hydrate-lake -- --limit 25
 
-# Full S&P 500 (takes a while — rate-limited to ~5 req/s by Yahoo):
-mise run download -- --fresh
+# Full S&P 500 (~503 symbols, concurrent R2 SQL fetches, ~30s):
+mise run hydrate-lake
 ```
 
-This fetches the S&P 500 constituent list from Wikipedia, spot prices, and full call/put
-option chains (strikes, bid/ask, volume, open interest, IV, greeks) and writes them into
-`data/options.duckdb`.
+The hydration reads the latest run per symbol from `options.underlyings` and
+`options.option_contracts` in the lake, so the local DuckDB always reflects the
+most recent successful loader run. Name/sector are enriched by the loader
+project; if the lake's `underlyings` table does not yet carry those columns,
+`hydrate_lake.py` falls back to merging them locally from Wikipedia.
 
+The full refreshes and Parquet→R2 upload are automated by the `refresh-data`
+GitHub Action (cron after market close); you generally don't run this by hand.
+
+```bash
+# One-shot local ETL (hydrate -> export -> upload to R2):
+mise run refresh
+```
 ## 2. Run it
 
 Open two terminals:
@@ -122,51 +137,37 @@ SQL:
 
 ## Notes / caveats
 
-- Yahoo Finance is an unofficial data source and is rate-limited; the full download
-  throttles each symbol (`time.sleep`) and logs failures to the `download_log` table.
-- Greeks (`delta`, `gamma`, `theta`, `vega`, `rho`) are returned by Yahoo where available
-  and may be `NULL` for very short-dated or illiquid contracts. See *Recomputing
-  Greeks* below to backfill them yourself.
+- CBOE data is delayed ~15 minutes (fine for a screener). The data source is official
+  exchange data (via [cdn.cboe.com](https://cdn.cboe.com/api/global/delayed_quotes/options/))
+  and requires no API key.
+- The ETL runs nightly on a GitHub-hosted runner from GitHub/Azure IPs; scheduled runners
+  can occasionally be delayed or flaky. If a refresh fails, the last-good Parquet in R2 is
+  preserved (the job stops before the R2 upload), and you can re-run manually via
+  `workflow_dispatch` on the `refresh-data` workflow.
+- Greeks are supplied directly by CBOE (already in Black-Scholes units; `theta` per calendar
+  day, `vega`/`rho` per 1.00 of vol/rate — same conventions the UI expects). No local
+  Black-Scholes recompute is needed.
 - DuckDB holds the whole dataset in a single file you can query directly:
 
   ```bash
   mise exec -- python -c "import duckdb; c=duckdb.connect('data/options.duckdb'); print(c.execute('SELECT symbol, COUNT(*) FROM option_contracts GROUP BY 1 ORDER BY 2 DESC LIMIT 5').fetchall())"
   ```
 
-### Recomputing Greeks
+### GitHub Actions
 
-Yahoo's Greeks are often `NULL` for short-dated / illiquid contracts.
-`backend/screener/greeks.py` recomputes all five Greeks from the
-Black-Scholes model (zero dividends, `q = 0`) using the spot (`underlyings.spot`),
-strike, `implied_vol`, type, and expiration already in DuckDB, and writes them
-back into `option_contracts` keyed on `(symbol, expiration, type, strike)`.
+A nightly `refresh-data.yml` workflow automates the ETL: `hydrate-lake` →
+`export-parquet` → `upload-r2` (mirrors `mise run refresh`). It schedules after US market
+close (01:00 UTC Mon–Fri) and can be triggered manually via the Actions UI. It does not
+touch the `deploy.yml` deploy workflow.
 
-Conventions (match the UI / Yahoo):
+The `hydrate-lake` step reads the CBOE Iceberg lake over R2 SQL and needs these repo secrets:
 
-- `theta` is per **calendar day**
-- `vega` is per **1.00 (100%)** change in volatility
-- `rho` is per **1.00 (100%)** change in rate
+- `R2_SQL_ACCOUNT_ID` — Cloudflare account ID hosting the lake
+- `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (the warehouse is `{ACCOUNT_ID}_{BUCKET}`)
+- `R2_SQL_TOKEN` — R2 API token with Admin Read & Write + R2 SQL Read on that bucket (the same token used by the `cboe-to-r2` loader project works)
 
-The risk-free rate defaults to a constant `r = 0.043` (no network calls);
-override with `--rate`. Rows with `T <= 0` (expired) or missing / `<= 0` IV,
-spot, or strike are skipped and left `NULL`.
-
-```bash
-# recompute every row (idempotent):
-mise run greeks
-# recompute just NVDA with a different rate:
-mise run greeks -- --only NVDA --rate 0.045
-# preview without writing:
-mise run greeks -- --dry-run --limit 20
-# only fill rows whose greeks are currently NULL:
-mise run greeks -- --null-only
-```
-
-Verify NULL coverage:
-
-```bash
-cd backend && uv run python -c "import duckdb; c=duckdb.connect('../data/options.duckdb'); print(c.execute('SELECT COUNT(*) total, SUM(CASE WHEN delta IS NULL THEN 1 ELSE 0 END) null_delta FROM option_contracts').fetchone())"
-```
+The `upload-r2` task and the workflow both authenticate with the `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` secrets set in the repo.
 
 ## Production build
 

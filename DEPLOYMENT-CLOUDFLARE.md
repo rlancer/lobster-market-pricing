@@ -183,7 +183,7 @@ Each step is independently testable and leaves the existing FastAPI dev workflow
 
 | Component | Fate |
 |---|---|
-| `backend/screener/download.py`, `sp500.py`, `greeks.py`, `db.py` | **Stay.** They're the data pipeline — run locally/offline to produce the DuckDB file. |
+| `backend/screener/download_cboe.py`, `sp500.py`, `db.py`, `export_parquet.py` | **Stay.** They're the data pipeline — run locally/offline (or in the nightly `refresh-data` GitHub Action) to produce the DuckDB/Parquet files. |
 | `backend/screener/server.py` | **Ported to `frontend/src/server.ts`**, then the Python file becomes dead code (keep for reference, or delete). |
 | `backend/screener/export_parquet.py` | **New.** Bridge between the DuckDB pipeline and R2. |
 | `frontend/src/api.ts` | **Rewired** to call `server.ts` instead of `fetch`. Types unchanged. |

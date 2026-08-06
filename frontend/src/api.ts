@@ -33,6 +33,11 @@ export interface OptionRow {
   vega: number | null;
   rho: number | null;
   in_the_money: boolean | null;
+  // CBOE-delivered columns (hard cutover from Yahoo): theoretical price +
+  // quoted bid/ask sizes. Optional so callers that don't select them still typecheck.
+  theo?: number | null;
+  bid_size?: number | null;
+  ask_size?: number | null;
   moneyness_pct: number | null;
 }
 
@@ -104,6 +109,10 @@ export interface ChainContract {
   vega: number | null;
   rho: number | null;
   in_the_money: boolean | null;
+  // CBOE-delivered columns (see OptionRow).
+  theo?: number | null;
+  bid_size?: number | null;
+  ask_size?: number | null;
 }
 
 export interface SymbolDetail {

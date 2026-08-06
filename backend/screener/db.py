@@ -39,6 +39,9 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             vega               DOUBLE,
             rho               DOUBLE,
             in_the_money      BOOLEAN,
+            theo              DOUBLE,       -- CBOE theoretical price
+            bid_size          BIGINT,       -- CBOE bid size (contracts)
+            ask_size          BIGINT,       -- CBOE ask size (contracts)
             fetched_at        TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS download_log (
