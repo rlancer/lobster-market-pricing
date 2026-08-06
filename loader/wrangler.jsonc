@@ -4,10 +4,20 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-05",
   "vars": {
+    // Off by default: flip to "true" (dashboard → Settings → Variables) to
+    // enable the nightly scheduled S&P 500 refresh AFTER full-refresh
+    // validation is complete (see NEXT_STEPS.md). See the `triggers.crons`
+    // entry below.
+    "ENABLE_SCHEDULED_REFRESH": "false"
     // PIPELINE_*_URL and PIPELINE_AUTH_TOKEN are deployed as Wrangler secrets
     // (`wrangler secret put`). The ingest URLs are unauthenticated write
     // endpoints whose subdomain IS the credential, so they must never be
     // committed. See SECURITY-AUDIT.md (CRITICAL) and loader/.dev.vars.example.
+  },
+  // Nightly scheduled refresh. Inert unless ENABLE_SCHEDULED_REFRESH is "true"
+  // (the worker's `scheduled` handler gates on it).
+  "triggers": {
+    "crons": ["0 9 * * *"]
   },
   "containers": [
     {
@@ -24,6 +34,13 @@
       }
     ]
   },
+  "workflows": [
+    {
+      "binding": "SCHEDULED_REFRESH",
+      "name": "scheduled-refresh",
+      "class_name": "ScheduledRefreshWorkflow"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
