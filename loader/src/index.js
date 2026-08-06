@@ -40,10 +40,18 @@ function loopEnabled(env) {
 
 // The loop bootstraps itself: the first request to the Worker arms the driver
 // DO (one alarm -> next alarm -> ... forever). Arming is idempotent and cheap —
-// it does not wake the 10-minute container.
+// it does not wake the 10-minute container. We route through the DO's `fetch`
+// handler (which calls ensureArmed) rather than a method-RPC so arming is
+// guaranteed to take effect.
 function armDriver(env, ctx) {
   if (!loopEnabled(env)) return;
-  ctx.waitUntil(driverStub(env).ensureArmed().catch(() => {}));
+  const url = new URL("http://continuous-loader/loop/");
+  ctx.waitUntil(
+    driverStub(env)
+      .fetch(url)
+      .then((response) => response.text())
+      .catch(() => {})
+  );
 }
 
 export default {
