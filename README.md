@@ -2,84 +2,145 @@
 
 A free, end-to-end options screener for the S&P 500:
 
-- **Data source:** Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) (free, no API key)
-- **Storage / indexing:** [DuckDB](https://duckdb.org) — a single embedded `data/options.duckdb` file
-- **Backend:** FastAPI that queries DuckDB
-- **Frontend:** React + TypeScript (Vite)
-- **Toolchain:** managed with [mise](https://mise.jdx.dev) (Python via `uv`, Node, `uv` itself)
+- **Data source:** CBOE delayed quotes (official exchange data, includes Greeks) loaded into a Cloudflare-hosted Apache Iceberg lake by the [options-lake](https://github.com/rlancer/options-lake) loader project (CBOE → Cloudflare Pipelines → R2 Data Catalog). This repo consumes that lake directly over **R2 SQL** — no local database, no Parquet, no in-browser DuckDB.
+- **Backend:** a lightweight **Cloudflare Worker** (`worker/`) that queries the Iceberg lake over the R2 SQL REST API and returns JSON. Deployed via `wrangler deploy`.
+- **Frontend:** React + TypeScript (Vite) — a plain `fetch()` client; no WASM, no Parquet, no httpfs.
+- **Toolchain:** managed with [mise](https://mise.jdx.dev) (Node, wrangler).
+
+```
+options-lake (loader, separate repo):
+  CBOE → Cloudflare Pipelines → R2 Data Catalog Iceberg tables
+                                        │
+                                        ▼
+screener_glm52 Worker (worker/):
+  /api/* → R2 SQL REST endpoint → JSON (cached 5–10 min in-isolate)
+                                        │
+                                        ▼
+screener_glm52 frontend (Vite + React):
+  fetch('/api/*') → render
+```
+
+The Worker is the only runtime component on this side. It's a thin SQL-string
+builder + cache over the R2 SQL REST endpoint — exactly what the old FastAPI
+backend was over DuckDB, ported to DataFusion SQL. Uncached lake queries take
+1–6 s; the Worker caches them 5–10 min (data is nightly-refreshed) so cached
+responses are instant.
+
+## Repo layout
 
 ```
 screener_glm52/
-├── mise.toml                 # tool versions + tasks
-├── backend/
-│   ├── pyproject.toml
-│   └── screener/
-│       ├── db.py             # DuckDB schema + connection
-│       ├── sp500.py          # Wikipedia S&P 500 constituent list
-│       ├── download.py       # fetch underlyings + option chains -> DuckDB
-│       └── server.py         # FastAPI screener API
-├── frontend/                 # Vite + React + TS UI
-│   └── src/{App.tsx, api.ts, App.css}
-└── data/options.duckdb       # created on first download (gitignored)
+├── mise.toml              # tool versions + tasks (Node, wrangler)
+├── worker/                # Cloudflare Worker backend (R2 SQL → JSON)
+│   ├── src/index.ts        # all endpoints, R2 SQL client, in-isolate cache
+│   ├── wrangler.jsonc       # Worker config (R2_SQL_ACCOUNT_ID, R2_SQL_BUCKET vars)
+│   └── .dev.vars            # local-dev R2_SQL_TOKEN (gitignored)
+└── frontend/              # Vite + React + TS UI
+    ├── src/{App.tsx, api.ts, App.css, Explorer.tsx, AiChat.tsx, …}
+    ├── .env                # VITE_API_BASE → deployed Worker URL
+    └── vite.config.ts
 ```
 
 ## Prerequisites
 
-Only [mise](https://mise.jdx.dev) is required. Everything else (Python 3.12, Node 22, `uv`) is
-pinned in `mise.toml` and installed automatically:
+Only [mise](https://mise.jdx.dev) is required. Node 22 and wrangler are pinned
+in `mise.toml` and installed automatically:
 
 ```bash
 mise trust        # one-time: trust this project's config
 mise install      # install pinned tools
-mise run sync     # uv sync (backend) + npm install (frontend)
+mise run sync     # npm install (frontend + worker)
 ```
 
-## 1. Download options data
+## Configuration
+
+### Worker — `R2_SQL_TOKEN` (secret)
+
+The Worker authenticates to the R2 SQL REST API with a Cloudflare API token
+that has **R2 SQL Read** on the lake bucket. It is stored as a Worker secret
+(never in plaintext config):
 
 ```bash
-# Quick smoke test (first 25 symbols, 3 expirations each):
-mise run download -- --fresh --limit 25 --max-expirations 3
-
-# Full S&P 500 (takes a while — rate-limited to ~5 req/s by Yahoo):
-mise run download -- --fresh
+cd worker && npx wrangler secret put R2_SQL_TOKEN
+# paste the token (same one the options-lake loader uses as
+# WRANGLER_R2_SQL_AUTH_TOKEN)
 ```
 
-This fetches the S&P 500 constituent list from Wikipedia, spot prices, and full call/put
-option chains (strikes, bid/ask, volume, open interest, IV, greeks) and writes them into
-`data/options.duckdb`.
+For local dev, put the same value in `worker/.dev.vars` (gitignored):
 
-## 2. Run it
+```
+R2_SQL_TOKEN=cfat_...
+```
 
-Open two terminals:
+`worker/wrangler.jsonc` sets the non-secret connection values as vars:
+
+- `R2_SQL_ACCOUNT_ID` — Cloudflare account ID hosting the lake
+- `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (warehouse is `{ACCOUNT_ID}_{BUCKET}`)
+- `CORS_ORIGIN` — `*` (or your Pages origin)
+
+### Frontend — `VITE_API_BASE`
+
+`frontend/.env` points the frontend at the Worker:
+
+```
+# Deployed Worker (production):
+VITE_API_BASE=https://screener-api.robertlancer.workers.dev
+
+# Local Worker dev (wrangler dev on 127.0.0.1:8787):
+# VITE_API_BASE=http://127.0.0.1:8787
+# (or leave empty and use the Vite /api proxy in vite.config.ts)
+```
+
+## Run it
+
+Open two terminals (or run the Worker in the background):
 
 ```bash
-mise run backend    # FastAPI on http://127.0.0.1:8001
-mise run frontend   # Vite dev server on http://127.0.0.1:5173
+mise run worker-dev    # Cloudflare Worker on http://127.0.0.1:8787
+mise run frontend       # Vite dev server on http://127.0.0.1:5173
 ```
 
-Then open <http://127.0.0.1:5173>. The Vite dev server proxies `/api/*` to the backend.
+Then open <http://127.0.0.1:5173>. The frontend calls the Worker (via
+`VITE_API_BASE`) which queries the live Iceberg lake over R2 SQL. No local
+data is needed.
 
-### API endpoints
+### Deploy
+
+```bash
+mise run worker-deploy   # npx wrangler deploy → *.workers.dev URL
+# Frontend deploys to Cloudflare Pages via the deploy.yml GitHub Action
+# on push to main (project: robs-options-slop, domain: lobster.mp).
+```
+
+## API endpoints
 
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/stats` | Counts of underlyings / contracts / calls / puts, last-updated timestamp |
-| `GET /api/sectors` | Per-sector symbol count & avg spot price |
-| `GET /api/underlyings?sector=&q=&limit=&offset=` | Paginated underlyings |
-| `GET /api/symbols?q=` | Symbol autocomplete |
+| `GET /api/health` | `{ok:true}` |
+| `GET /api/stats` | Counts of underlyings / contracts / calls / puts, last-updated timestamp (`?liquid_only=true`) |
+| `GET /api/sectors` | Per-sector symbol count & avg spot price (`?liquid_only=true`) |
+| `GET /api/underlyings?sector=&q=&liquid_only=&limit=&offset=` | Paginated underlyings |
+| `GET /api/symbols?q=&liquid_only=&limit=` | Symbol autocomplete |
+| `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
-| `GET /api/tables` | List all tables with columns/types and row counts |
-| `POST /api/query` | Run an arbitrary read-only SQL query (body: `{"sql":"...","limit":1000}`) |
-| `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (for the chain view) |
+| `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run) |
+| `GET /api/tables` | List lake tables (`options.*`) with columns/types and row counts |
+| `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
+| `GET /api/notebook/premium` | 45-day premium leaders notebook |
 
 ### `/api/screen` query parameters
 
-`symbol`, `type` (`call`\|`put`), `sector`,
+`symbol`, `type` (`call`|`put`), `sector`,
 `min_strike`, `max_strike`, `min_volume`, `min_open_interest`,
 `min_iv`, `max_iv`, `min_delta`, `max_delta`, `in_the_money`,
 `expiration_before` (`YYYY-MM-DD`), `expiration_after`,
-`sort` (`volume` \| `open_interest` \| `strike` \| `implied_vol` \| `delta` \| `gamma` \| `theta` \| `vega` \| `bid` \| `ask` \| `last` \| `expiration`),
-`order` (`asc` \| `desc`), `limit`, `offset`.
+`liquid_only` (default `true`), `near_spot_strikes` (default `50`),
+`sort` (`volume` | `open_interest` | `strike` | `implied_vol` | `delta` | `gamma` | `theta` | `vega` | `bid` | `ask` | `last` | `expiration`),
+`order` (`asc` | `desc`), `limit`, `offset`.
+
+R2 SQL has no `OFFSET`, so the Worker fetches the ordered result set (capped
+at 10,000 rows) once per filter signature, caches it, and pages slices
+in-memory.
 
 ## UI features
 
@@ -89,87 +150,56 @@ Then open <http://127.0.0.1:5173>. The Vite dev server proxies `/api/*` to the b
 - Sortable columns (volume, OI, strike, IV, greeks, etc.)
 - Calls/puts color-coded; moneyness % relative to spot shown per row
 - Debounced auto-refresh on filter changes
-- **Click any row to dive into that symbol's option chain** — see chain view below
+- **Click any row to dive into that symbol's option chain** — chain view with
+  per-expiration calls/puts/strikes table
 
-### Symbol chain view
+### Data Explorer (SQL Lab)
 
-Click a screener row (e.g. NVDA) to open a per-symbol detail view:
+Browse the Iceberg lake and run arbitrary read-only SQL:
 
-- Header shows symbol, name, sector, spot, total contracts, and # of expirations
-- A horizontal **expiration selector** lists every expiry with days-to-expiry;
-  click one to regroup the chain
-- A classic **calls / strike / puts** chain table for the selected expiration:
-  each row is a strike, call greeks/quotes on the left, put greeks/quotes on the
-  right, in-the-money cells shaded, strike center column sticky, hover a strike
-  for moneyness vs spot
-- Per-expiration summary (strikes, calls/puts, total volume & OI, DTE)
-- ← Back to screener returns to the filtered list
-- Backed by `GET /api/symbol/{symbol}` (underlying info + all its contracts,
-  ordered for chain grouping)
+- Tables: `options.option_contracts`, `options.underlyings`, `options.refresh_runs`
+- Sample queries use the `options.` schema prefix
+- Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted (read-only)
+- Backed by `GET /api/tables` and `POST /api/query`
 
-### Data Explorer
+### AI Copilot
 
-The **Data Explorer** tab lets you browse the DuckDB database and run arbitrary
-SQL:
+An OpenRouter-powered chat that translates natural-language questions into
+DataFusion SQL, runs them against the lake via `/api/query`, and interprets
+the results. Bring your own OpenRouter API key (stored in localStorage; never
+sent to our server).
 
-- Left sidebar lists every table with row counts; click a table to see its
-  columns + types. Click a column name to append it to the query.
-- SQL editor with sample queries (buttons `#1`–`#5`) and `Ctrl`+`Enter` to run.
-- Results render as a scrollable table with a row index, row count, elapsed
-  time, and truncation notice (capped at 1000 rows).
-- Backed by `GET /api/tables` and `POST /api/query` (read-only: only
-  `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN`/`PRAGMA` are permitted).
+## R2 SQL / DataFusion notes
+
+The Worker builds SQL strings for the R2 SQL REST endpoint (no parameter
+binding — literals are inlined via a `lit()` helper with single-quote
+escaping; sort columns are whitelisted). Key dialect constraints:
+
+- No `OFFSET` — fetch + page in-memory
+- `WHERE` must come **before** `QUALIFY`
+- DTE: `CAST(expiration AS DATE) - CURRENT_DATE` (expiration is TEXT)
+- `spot_price` (not `spot`) is the lake column name
+- No named `WINDOW` clause; inline `OVER (...)` only
+- Latest snapshot: `QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY fetched_at DESC) = 1`
 
 ## Notes / caveats
 
-- Yahoo Finance is an unofficial data source and is rate-limited; the full download
-  throttles each symbol (`time.sleep`) and logs failures to the `download_log` table.
-- Greeks (`delta`, `gamma`, `theta`, `vega`, `rho`) are returned by Yahoo where available
-  and may be `NULL` for very short-dated or illiquid contracts. See *Recomputing
-  Greeks* below to backfill them yourself.
-- DuckDB holds the whole dataset in a single file you can query directly:
-
-  ```bash
-  mise exec -- python -c "import duckdb; c=duckdb.connect('data/options.duckdb'); print(c.execute('SELECT symbol, COUNT(*) FROM option_contracts GROUP BY 1 ORDER BY 2 DESC LIMIT 5').fetchall())"
-  ```
-
-### Recomputing Greeks
-
-Yahoo's Greeks are often `NULL` for short-dated / illiquid contracts.
-`backend/screener/greeks.py` recomputes all five Greeks from the
-Black-Scholes model (zero dividends, `q = 0`) using the spot (`underlyings.spot`),
-strike, `implied_vol`, type, and expiration already in DuckDB, and writes them
-back into `option_contracts` keyed on `(symbol, expiration, type, strike)`.
-
-Conventions (match the UI / Yahoo):
-
-- `theta` is per **calendar day**
-- `vega` is per **1.00 (100%)** change in volatility
-- `rho` is per **1.00 (100%)** change in rate
-
-The risk-free rate defaults to a constant `r = 0.043` (no network calls);
-override with `--rate`. Rows with `T <= 0` (expired) or missing / `<= 0` IV,
-spot, or strike are skipped and left `NULL`.
-
-```bash
-# recompute every row (idempotent):
-mise run greeks
-# recompute just NVDA with a different rate:
-mise run greeks -- --only NVDA --rate 0.045
-# preview without writing:
-mise run greeks -- --dry-run --limit 20
-# only fill rows whose greeks are currently NULL:
-mise run greeks -- --null-only
-```
-
-Verify NULL coverage:
-
-```bash
-cd backend && uv run python -c "import duckdb; c=duckdb.connect('../data/options.duckdb'); print(c.execute('SELECT COUNT(*) total, SUM(CASE WHEN delta IS NULL THEN 1 ELSE 0 END) null_delta FROM option_contracts').fetchone())"
-```
+- CBOE data is delayed ~15 minutes (fine for a screener). Official exchange
+  data via [cdn.cboe.com](https://cdn.cboe.com/api/global/delayed_quotes/options/) — no API key.
+- The loader project (`options-lake`) owns CBOE ingestion (nightly run, ~502
+  symbols, ~1M contracts). This repo only reads the lake.
+- Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per
+  calendar day, `vega`/`rho` per 1.00 of vol/rate).
+- The Worker cache is time-based (5 min). Data changes only on nightly loader
+  runs, so staleness is bounded. To force freshness sooner, redeploy the
+  Worker (clears the isolate cache).
 
 ## Production build
 
 ```bash
 mise run build    # outputs frontend/dist
 ```
+
+The `deploy.yml` GitHub Action builds and deploys the frontend to Cloudflare
+Pages on push to main (`robs-options-slop` project, `lobster.mp` domain);
+dev/preview deploys for non-main branches.

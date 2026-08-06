@@ -4,9 +4,9 @@
 // backend proxy, no per-user billing for the site owner.
 //
 // Flow per question:
-//   1. Gather schema context (tables, columns, types, sample rows).
-//   2. Call OpenRouter with a system prompt to generate DuckDB SQL.
-//   3. Execute the SQL against the local DuckDB-WASM instance.
+//   1. Gather schema context (tables, columns, types, sample rows) via the Worker.
+//   2. Call OpenRouter with a system prompt to generate DataFusion (R2 SQL) SQL.
+//   3. Execute the SQL against the CBOE Iceberg lake via the Worker's /api/query.
 //   4. If SQL errors, ask the model to fix it (up to 2 retries).
 //   5. Summarise the result and ask the model to interpret in plain English.
 //   6. Return { answer, sql, result }.
@@ -168,7 +168,7 @@ export async function buildSchemaContext(): Promise<SchemaContext> {
   for (const t of tables) {
     let sample: Record<string, unknown>[] = [];
     try {
-      const r = await api.query(`SELECT * FROM "${t.name}" LIMIT 3`, 3);
+      const r = await api.query(`SELECT * FROM options."${t.name}" LIMIT 3`, 3);
       sample = r.rows;
     } catch {
       /* non-fatal: sample is optional */
@@ -186,7 +186,7 @@ function schemaToPrompt(ctx: SchemaContext): string {
         ? '  sample rows:\n' +
           t.sample.map((r) => '    ' + JSON.stringify(r)).join('\n')
         : '';
-      return `TABLE ${t.name}\n  columns:\n${cols}${sample}`;
+      return `TABLE options.${t.name}\n  columns:\n${cols}${sample}`;
     })
     .join('\n\n');
 }
@@ -290,15 +290,20 @@ async function generateSql(
   model: string,
 ): Promise<string> {
   const system = [
-    'You are a senior quant developer writing DuckDB SQL against an options market dataset.',
+    'You are a senior quant developer writing DataFusion SQL (R2 SQL) against an options market Iceberg lake.',
     '',
     'Schema:',
     schemaPrompt,
     '',
     'Rules:',
     '- Write ONE read-only query (SELECT or WITH).',
+    '- Tables live in the `options` schema: options.option_contracts, options.underlyings, options.refresh_runs.',
     '- Use the exact table and column names from the schema.',
     '- implied_vol is a decimal (0.25 = 25%). Moneyness ≈ (strike - spot) / spot.',
+    '- spot price column is `spot_price` (not `spot`). expiration is TEXT (use CAST(expiration AS DATE) for date math).',
+    '- DTE: CAST(expiration AS DATE) - CURRENT_DATE returns integer days.',
+    '- No OFFSET (unsupported). No named WINDOW clause (inline OVER (...) only).',
+    '- WHERE must come before QUALIFY.',
     '- Prefer explicit column names over SELECT *.',
     '- Respond with ONLY the SQL inside a markdown ```sql code fence. No prose, no explanation.',
   ].join('\n');
@@ -308,7 +313,7 @@ async function generateSql(
     model,
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content: `Answer this question with a DuckDB query:\n${question}` },
+      { role: 'user', content: `Answer this question with a DataFusion (R2 SQL) query:\n${question}` },
     ],
     temperature: 0.1,
     maxTokens: 800,
@@ -324,12 +329,13 @@ async function fixSql(
   model: string,
 ): Promise<string> {
   const system = [
-    'You write read-only DuckDB SQL for an options dataset.',
+    'You write read-only DataFusion SQL (R2 SQL) for an options Iceberg lake.',
     '',
     'Schema:',
     schemaPrompt,
     '',
     'Your previous query failed with an error. Rewrite it to fix the error.',
+    'Tables: options.option_contracts, options.underlyings, options.refresh_runs.',
     'Return ONLY the corrected SQL inside a markdown ```sql code fence. No prose.',
   ].join('\n');
 
@@ -357,7 +363,7 @@ async function interpret(
 ): Promise<string> {
   const system = [
     'You are a friendly, concise options-analytics assistant.',
-    'The user asked a question, and a DuckDB query ran locally against their options dataset.',
+    'The user asked a question, and a DataFusion query ran against the CBOE Iceberg lake via the screener-api Worker.',
     'Explain the findings in plain, natural language.',
     'Mention specific symbols, sectors, and numbers where useful.',
     'If no rows were returned, say so and suggest a looser query.',

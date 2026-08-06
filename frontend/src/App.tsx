@@ -219,7 +219,7 @@ function App() {
         <div className="db-loading">
           <span className="loading-mark" aria-hidden="true" />
           <b>{db.error ? 'Dataset unavailable' : 'Opening market data'}</b>
-          <span>{db.error ? db.error : 'Loading the options chain into your browser…'}</span>
+          <span>{db.error ? db.error : 'Connecting to the screener API…'}</span>
         </div>
       </div>
     );
@@ -401,7 +401,7 @@ function App() {
 
       <footer className="app-footer">
         <span>Market data for research only. Quotes may be delayed.</span>
-        <span>Yahoo Finance · DuckDB · Runs locally in your browser</span>
+        <span>CBOE · Cloudflare Worker · R2 SQL · Iceberg lake</span>
       </footer>
     </div>
   );

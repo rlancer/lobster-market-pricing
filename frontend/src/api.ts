@@ -33,12 +33,18 @@ export interface OptionRow {
   vega: number | null;
   rho: number | null;
   in_the_money: boolean | null;
+  // CBOE-delivered columns (hard cutover from Yahoo): theoretical price +
+  // quoted bid/ask sizes. Optional so callers that don't select them still typecheck.
+  theo?: number | null;
+  bid_size?: number | null;
+  ask_size?: number | null;
   moneyness_pct: number | null;
 }
 
 export interface ScreenResponse {
   total: number;
   items: OptionRow[];
+  truncated?: boolean;
 }
 
 export interface LiquidityCriteria {
@@ -104,6 +110,10 @@ export interface ChainContract {
   vega: number | null;
   rho: number | null;
   in_the_money: boolean | null;
+  // CBOE-delivered columns (see OptionRow).
+  theo?: number | null;
+  bid_size?: number | null;
+  ask_size?: number | null;
 }
 
 export interface SymbolDetail {
@@ -151,47 +161,53 @@ export interface PremiumNotebook {
   puts: PremiumNotebookRow[];
 }
 
-// The API layer now runs entirely in-browser: each method delegates to the
-// corresponding function in `server.ts` (a 1:1 port of backend/screener/server.py)
-// which executes the same SQL against the DuckDB-WASM instance in `db.ts`.
-// The exported types above are unchanged, so the UI components need no edits.
-import { ready as dbReady } from './db';
-import * as server from './server';
+// ---------------------------------------------------------------------------
+// API client — fetches the screener-api Cloudflare Worker (R2 SQL backend).
+// The exported types above are unchanged from the in-browser DuckDB-WASM era,
+// so the UI components need no edits. `VITE_API_BASE` (frontend/.env) points at
+// the deployed Worker URL; in local dev it can point at `http://127.0.0.1:8787`
+// or be left empty to use the Vite `/api` proxy.
+// ---------------------------------------------------------------------------
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? '';
+
+async function get<T>(path: string): Promise<T> {
+  const r = await fetch(API_BASE + path);
+  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
+  return r.json() as Promise<T>;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
+  return r.json() as Promise<T>;
+}
+
+function qs(params: Record<string, string | number | boolean | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))) sp.set(k, String(v));
+  }
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+}
 
 export const api = {
-  /** Resolves once DuckDB-WASM has loaded the dataset views. */
-  ready: () => dbReady,
-  stats: (liquid_only?: boolean) => server.stats(!!liquid_only),
-  sectors: (liquid_only?: boolean) => server.sectors(!!liquid_only),
+  /** No-op readiness: the Worker is always ready (was the DuckDB-WASM load gate). */
+  ready: () => Promise.resolve(),
+  stats: (liquid_only?: boolean) => get<Stats>(`/api/stats${qs({ liquid_only })}`),
+  sectors: (liquid_only?: boolean) => get<SectorRow[]>(`/api/sectors${qs({ liquid_only })}`),
   symbols: (q: string, liquid_only?: boolean) =>
-    server.symbols({ q: q || undefined, liquid_only: !!liquid_only }),
-  liquidity: () => server.liquidity(),
+    get<SymbolSuggestion[]>(`/api/symbols${qs({ q: q || undefined, liquid_only })}`),
+  liquidity: () => get<LiquidityInfo>('/api/liquidity'),
   screen: (params: Record<string, string | number | boolean | undefined>) =>
-    server.screen({
-      symbol: params.symbol as string | undefined,
-      type: params.type as 'call' | 'put' | undefined,
-      sector: params.sector as string | undefined,
-      min_strike: params.min_strike as number | undefined,
-      max_strike: params.max_strike as number | undefined,
-      min_volume: params.min_volume as number | undefined,
-      min_open_interest: params.min_open_interest as number | undefined,
-      min_iv: params.min_iv as number | undefined,
-      max_iv: params.max_iv as number | undefined,
-      min_delta: params.min_delta as number | undefined,
-      max_delta: params.max_delta as number | undefined,
-      in_the_money: params.in_the_money as boolean | undefined,
-      expiration_before: params.expiration_before as string | undefined,
-      expiration_after: params.expiration_after as string | undefined,
-      liquid_only: params.liquid_only as boolean | undefined,
-      near_spot_strikes: params.near_spot_strikes as number | undefined,
-      sort: params.sort as string | undefined,
-      order: params.order as 'asc' | 'desc' | undefined,
-      limit: params.limit as number | undefined,
-      offset: params.offset as number | undefined,
-    }),
-  tables: () => server.tables(),
-  query: (sql: string, limit?: number) => server.runQuery({ sql, limit }),
-  symbolDetail: (symbol: string) => server.symbolDetail(symbol.toUpperCase()),
+    get<ScreenResponse>(`/api/screen${qs(params)}`),
+  tables: () => get<TableInfo[]>('/api/tables'),
+  query: (sql: string, limit?: number) => post<QueryResult>('/api/query', { sql, limit }),
+  symbolDetail: (symbol: string) => get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
   notebookPremium: (params: {
     target_dte?: number;
     tolerance?: number;
@@ -199,23 +215,23 @@ export const api = {
     min_volume?: number;
     liquid_only?: boolean;
     limit?: number;
-  }) => server.notebookPremium(params),
+  }) => get<PremiumNotebook>(`/api/notebook/premium${qs(params)}`),
 };
 
 import { useState, useEffect } from 'react';
 
-/** React hook that exposes the DuckDB-WASM readiness state for a loading gate. */
+/**
+ * Readiness hook. With the Worker backend there is no in-browser dataset to
+ * load, so this is always ready. Kept for backwards compatibility with the
+ * DuckDB-WASM-era App.tsx loading gate.
+ */
 export function useDbReady(): { ready: boolean; error: string | null } {
   const [state, setState] = useState<{ ready: boolean; error: string | null }>({
-    ready: false,
+    ready: true,
     error: null,
   });
   useEffect(() => {
-    let cancelled = false;
-    dbReady
-      .then(() => !cancelled && setState({ ready: true, error: null }))
-      .catch((e) => !cancelled && setState({ ready: false, error: String(e) }));
-    return () => { cancelled = true; };
+    setState({ ready: true, error: null });
   }, []);
   return state;
 }

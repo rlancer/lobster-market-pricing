@@ -1,7 +1,5 @@
 [tools]
-python = "3.12"
 node = "22"
-uv = "latest"
 wrangler = "latest"
 
 [env]
@@ -9,43 +7,25 @@ PYTHONUNBUFFERED = "1"
 
 # ---------------------------------------------------------------------------
 # Tasks (run with: mise run <task>)
-# We use `uv run python` so the backend venv interpreter is used reliably
-# (avoids the Windows "Python was not found" Store stub when calling bare `python`).
-# ---------------------------------------------------------------------------
-[tasks.sync]
-description = "Install Python (uv) and Node (npm) dependencies"
 # NOTE: mise on Windows only executes the first line of a multi-line `run`
 # script, so multi-step tasks must be chained on a single line with `&&`.
-run = "cd backend && uv sync && cd ../frontend && npm install"
-
-[tasks.download]
-description = "Download S&P 500 option chains into DuckDB. Extra args are appended, e.g. mise run download -- --fresh --limit 25"
-run = "cd backend && uv run python -m screener.download"
-
-[tasks.backend]
-description = "Run the FastAPI backend on http://127.0.0.1:8001"
-run = "cd backend && uv run python -m screener.server"
+# ---------------------------------------------------------------------------
+[tasks.sync]
+description = "Install Node dependencies (frontend + worker)"
+run = "cd frontend && npm install && cd ../worker && npm install"
 
 [tasks.frontend]
-description = "Run the Vite dev server on http://127.0.0.1:5173 (zero-backend; reads Parquet from R2 via VITE_R2_BASE)"
+description = "Run the Vite dev server on http://127.0.0.1:5173 (calls the screener-api Worker via VITE_API_BASE)"
 run = "cd frontend && npm run dev"
 
-[tasks.greeks]
-description = "Recompute Black-Scholes Greeks in DuckDB. e.g. mise run greeks -- --rate 0.043"
-run = "cd backend && uv run python -m screener.greeks"
+[tasks.worker-dev]
+description = "Run the screener-api Worker locally on http://127.0.0.1:8787 (reads R2_SQL_TOKEN from worker/.dev.vars)"
+run = "cd worker && npx wrangler dev"
 
-[tasks.export-parquet]
-description = "Export DuckDB tables to Parquet (data/parquet/*.parquet + manifest.json) for R2 serving"
-run = "cd backend && uv run python -m screener.export_parquet"
+[tasks.worker-deploy]
+description = "Deploy the screener-api Worker to Cloudflare (workers.dev). Set R2_SQL_TOKEN via: cd worker && npx wrangler secret put R2_SQL_TOKEN"
+run = "cd worker && npx wrangler deploy"
 
 [tasks.build]
 description = "Build the production frontend bundle"
 run = "cd frontend && npm run build"
-
-[tasks.upload-r2]
-description = "Upload Parquet files + manifest to the R2 bucket (robs-options-slop-data). Requires wrangler logged in."
-# NOTE: mise on Windows only executes the first line of a multi-line `run`
-# script, so all four uploads (+ the closing echo) are chained on one line
-# with `&&`. `wrangler r2 object put/get` default to LOCAL — `--remote` is
-# required to hit the real bucket.
-run = "mise exec -- wrangler r2 object put robs-options-slop-data/options/underlyings.parquet --file data/parquet/underlyings.parquet --remote --content-type application/octet-stream --cache-control \"public, max-age=3600\" && mise exec -- wrangler r2 object put robs-options-slop-data/options/option_contracts.parquet --file data/parquet/option_contracts.parquet --remote --content-type application/octet-stream --cache-control \"public, max-age=3600\" && mise exec -- wrangler r2 object put robs-options-slop-data/options/download_log.parquet --file data/parquet/download_log.parquet --remote --content-type application/octet-stream --cache-control \"public, max-age=3600\" && mise exec -- wrangler r2 object put robs-options-slop-data/options/manifest.json --file data/parquet/manifest.json --remote --content-type application/json --cache-control \"public, max-age=60, must-revalidate\" && echo \"Uploaded. Bucket: robs-options-slop-data/options/\""
