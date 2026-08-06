@@ -8,9 +8,17 @@ name: Deploy loader (Worker + container)
 # Required GitHub secrets:
 #   CLOUDFLARE_API_TOKEN — Worker + Container deploy permissions
 #   CLOUDFLARE_ACCOUNT_ID — Cloudflare account ID
-# LOADER_TOKEN is set once on the deployed Worker via
-#   `cd loader && npx wrangler secret put LOADER_TOKEN`
-# and persists across deploys, so CI does not need it.
+# LOADER_TOKEN and the rotated PIPELINE_*_URL / PIPELINE_AUTH_TOKEN are set
+# once on the deployed Worker via `wrangler secret put` and persist across
+# deploys, so CI does not need them. The ingest URLs are unauthenticated
+# write endpoints (the subdomain IS the credential) and must NEVER be
+# committed — see SECURITY-AUDIT.md (CRITICAL). Set them after rotating any
+# leaked URLs in the Cloudflare dashboard:
+#   npx wrangler secret put PIPELINE_RUNS_URL
+#   npx wrangler secret put PIPELINE_CONTRACTS_URL
+#   npx wrangler secret put PIPELINE_UNDERLYINGS_URL
+#   npx wrangler secret put PIPELINE_ERRORS_URL        # empty to disable
+#   npx wrangler secret put PIPELINE_AUTH_TOKEN        # if Pipeline-side auth enabled
 
 on:
   workflow_dispatch:

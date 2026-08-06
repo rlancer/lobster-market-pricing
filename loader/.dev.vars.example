@@ -1,9 +1,26 @@
 # loader Worker local-dev secrets (loader/.dev.vars).
 # Copy to `.dev.vars` and fill in. This file is gitignored; the example is tracked.
-# Deploy the secret once with: cd loader && npx wrangler secret put LOADER_TOKEN
 #
 # LOADER_TOKEN protects the loader Worker /run endpoint (POST only).
-# Pipeline URL vars (PIPELINE_RUNS_URL / CONTRACTS / UNDERLYINGS / ERRORS) are
-# non-secret and already set in loader/wrangler.jsonc — they do NOT belong here.
+# Deploy once with:  cd loader && npx wrangler secret put LOADER_TOKEN
+#
+# Pipeline ingest URLs (PIPELINE_*_URL) are unauthenticated WRITE endpoints —
+# the 32-hex subdomain IS the credential. They must NEVER be committed. Deploy
+# them as Wrangler secrets after rotating any leaked URLs in the Cloudflare
+# dashboard (see SECURITY-AUDIT.md, CRITICAL):
+#   npx wrangler secret put PIPELINE_RUNS_URL
+#   npx wrangler secret put PIPELINE_CONTRACTS_URL
+#   npx wrangler secret put PIPELINE_UNDERLYINGS_URL
+#   npx wrangler secret put PIPELINE_ERRORS_URL        # leave empty to disable
+#   npx wrangler secret put PIPELINE_AUTH_TOKEN        # if Pipeline-side auth is enabled
+#
+# For local runs against the deployed Worker, leave the URLs blank here and let
+# the Worker forward them. For local container dev (WRITE_MODE=pipeline), set
+# the rotated URLs and PIPELINE_AUTH_TOKEN below.
 
 LOADER_TOKEN=
+PIPELINE_RUNS_URL=
+PIPELINE_CONTRACTS_URL=
+PIPELINE_UNDERLYINGS_URL=
+PIPELINE_ERRORS_URL=
+PIPELINE_AUTH_TOKEN=

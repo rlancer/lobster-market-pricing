@@ -4,10 +4,10 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-05",
   "vars": {
-    "PIPELINE_RUNS_URL": "https://REDACTED.ingest.cloudflare.com",
-    "PIPELINE_CONTRACTS_URL": "https://REDACTED.ingest.cloudflare.com",
-    "PIPELINE_UNDERLYINGS_URL": "https://REDACTED.ingest.cloudflare.com",
-    "PIPELINE_ERRORS_URL": ""
+    // PIPELINE_*_URL and PIPELINE_AUTH_TOKEN are deployed as Wrangler secrets
+    // (`wrangler secret put`). The ingest URLs are unauthenticated write
+    // endpoints whose subdomain IS the credential, so they must never be
+    // committed. See SECURITY-AUDIT.md (CRITICAL) and loader/.dev.vars.example.
   },
   "containers": [
     {

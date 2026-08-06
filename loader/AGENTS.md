@@ -27,9 +27,9 @@ This package (the `loader/` directory of the `options-db` monorepo) loads the 50
 
 ```text
 Warehouse: 3315bb3e7d2e3556bfea6fb3947a890e_cboe-options-data
-Runs:      https://REDACTED.ingest.cloudflare.com
-Contracts: https://REDACTED.ingest.cloudflare.com
-Underlyings:https://REDACTED.ingest.cloudflare.com
+Runs:      <PIPELINE_RUNS_URL secret — see Cloudflare dashboard / wrangler secret>
+Contracts: <PIPELINE_CONTRACTS_URL secret — see Cloudflare dashboard / wrangler secret>
+Underlyings:<PIPELINE_UNDERLYINGS_URL secret — see Cloudflare dashboard / wrangler secret>
 Tables: options.option_contracts, options.underlyings, options.refresh_runs
 ```
 
@@ -64,9 +64,11 @@ Terminal 1:
 
 ```powershell
 $env:WRITE_MODE = "pipeline"
-$env:PIPELINE_RUNS_URL = "https://REDACTED.ingest.cloudflare.com"
-$env:PIPELINE_CONTRACTS_URL = "https://REDACTED.ingest.cloudflare.com"
-$env:PIPELINE_UNDERLYINGS_URL = "https://REDACTED.ingest.cloudflare.com"
+# Ingest URLs are deployed as Wrangler secrets (see SECURITY-AUDIT.md, CRITICAL).
+# For local container dev, set them from .dev.vars or `wrangler secret put`.
+# $env:PIPELINE_RUNS_URL      = "<rotated-url>"
+# $env:PIPELINE_CONTRACTS_URL = "<rotated-url>"
+# $env:PIPELINE_UNDERLYINGS_URL = "<rotated-url>"
 python .\container\loader.py
 ```
 

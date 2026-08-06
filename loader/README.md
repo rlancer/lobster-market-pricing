@@ -90,9 +90,12 @@ For the robust local strategy, start the raw Python loader in one terminal:
 
 ```powershell
 $env:WRITE_MODE = "pipeline"
-$env:PIPELINE_RUNS_URL = "https://REDACTED.ingest.cloudflare.com"
-$env:PIPELINE_CONTRACTS_URL = "https://REDACTED.ingest.cloudflare.com"
-$env:PIPELINE_UNDERLYINGS_URL = "https://REDACTED.ingest.cloudflare.com"
+# Ingest URLs are unauthenticated write endpoints — never commit them.
+# Deploy as Wrangler secrets (`wrangler secret put`); for local container
+# dev, source them from .dev.vars (see .dev.vars.example).
+# $env:PIPELINE_RUNS_URL       = "<rotated-url>"
+# $env:PIPELINE_CONTRACTS_URL  = "<rotated-url>"
+# $env:PIPELINE_UNDERLYINGS_URL = "<rotated-url>"
 python .\container\loader.py
 ```
 

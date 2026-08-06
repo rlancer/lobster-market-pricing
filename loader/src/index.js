@@ -43,6 +43,10 @@ export default {
       "x-pipeline-contracts-url": env.PIPELINE_CONTRACTS_URL,
       "x-pipeline-underlyings-url": env.PIPELINE_UNDERLYINGS_URL,
       "x-pipeline-errors-url": env.PIPELINE_ERRORS_URL,
+      // Forward the Pipeline auth token (env.PIPELINE_AUTH_TOKEN secret) so the
+      // loader attaches `Authorization: Bearer <token>` to every ingest POST.
+      // Without this the ingest URLs are unauthenticated write endpoints.
+      "x-pipeline-auth-token": env.PIPELINE_AUTH_TOKEN,
     };
     for (const [name, value] of Object.entries(endpointHeaders)) {
       if (value) forwarded.headers.set(name, value);
