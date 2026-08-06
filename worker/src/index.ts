@@ -164,6 +164,31 @@ async function stats(env: Env, liquidOnly: boolean): Promise<{
   };
 }
 
+// Recent loader refresh runs (the consumer view of options.refresh_runs).
+async function runs(env: Env, limit = 5): Promise<{
+  run_id: string; started_at: string; completed_at: string | null; as_of_date: string;
+  expected_symbols: number; successful_symbols: number; failed_symbols: number;
+  contract_count: number; status: string; error_summary: string | null;
+}[]> {
+  const lim = clamp(limit, 1, 50);
+  const rows = await r2sql(env,
+    `SELECT run_id, started_at, completed_at, as_of_date, expected_symbols, ` +
+    `successful_symbols, failed_symbols, contract_count, status, error_summary ` +
+    `FROM options.refresh_runs ORDER BY started_at DESC LIMIT ${lim}`, "runs_" + lim);
+  return rows.map((r) => ({
+    run_id: String(r.run_id ?? ""),
+    started_at: String(r.started_at ?? ""),
+    completed_at: strOrNull(r.completed_at),
+    as_of_date: String(r.as_of_date ?? ""),
+    expected_symbols: num(r.expected_symbols),
+    successful_symbols: num(r.successful_symbols),
+    failed_symbols: num(r.failed_symbols),
+    contract_count: num(r.contract_count),
+    status: String(r.status ?? ""),
+    error_summary: strOrNull(r.error_summary),
+  }));
+}
+
 async function liquidity(env: Env): Promise<{
   enabled_defaults: typeof LIQ_DEFAULTS; total_underlyings: number; liquid_underlyings: number; description: string;
 }> {
@@ -478,6 +503,7 @@ async function handle(env: Env, req: Request): Promise<Response> {
   if (path === "/api/liquidity") return json(env, await liquidity(env));
 
   if (path === "/api/stats") return json(env, await stats(env, q.get("liquid_only") === "true"));
+  if (path === "/api/runs") return json(env, await runs(env, num(q.get("limit") ?? 5)));
   if (path === "/api/sectors") return json(env, await sectors(env, q.get("liquid_only") === "true"));
   if (path === "/api/symbols")
     return json(env, await symbols(env, q.get("q") ?? undefined, q.get("liquid_only") === "true", num(q.get("limit") ?? 50)));
