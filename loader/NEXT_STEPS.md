@@ -21,7 +21,11 @@ Current infrastructure:
 - Pipeline HTTP authentication: **enabled** (Bearer token, rotated after
   the security audit — the old unauthenticated ingest URLs were leaked in
   public git history and have been rotated + scrubbed).
-
+- Security fix (DONE 2026-08-06): Pipeline ingest URLs rotated to new
+  authenticated streams; migrated from `wrangler.jsonc` vars to Wrangler
+  secrets; redacted from all tracked docs; git history scrubbed via
+  `git-filter-repo`. See `SECURITY-AUDIT.md` (CRITICAL — RESOLVED) and
+  `FOLLOW-UP-ACTIONS.md`.
 ## Phase 1: Validate the one-symbol result
 
 Use R2 SQL to verify the completed refresh:

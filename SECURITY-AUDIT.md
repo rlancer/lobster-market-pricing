@@ -41,10 +41,10 @@ The README documents that the streams are unauthenticated, and the Worker never 
 
 ### Fix (priority order)
 
-1. **Rotate the ingest URLs** in the Cloudflare dashboard (create new Pipeline streams, update the deployed Worker/container to point at them). The current URLs are burned — they're in public history.
-2. Move `PIPELINE_*_URL` from `vars` → **Wrangler secrets** (`wrangler secret put`) so they're not in `wrangler.jsonc`.
-3. Redact the URLs from `AGENTS.md` + `README.md` (replace with "see Cloudflare dashboard / `wrangler secret`").
-4. Enable Pipeline-side auth if available and forward it via `x-pipeline-auth-token` from the Worker (the loader already reads it).
+1. ~~**Rotate the ingest URLs** in the Cloudflare dashboard (create new Pipeline streams, update the deployed Worker/container to point at them). The current URLs are burned — they're in public history.~~ **Done.**
+2. ~~Move `PIPELINE_*_URL` from `vars` → **Wrangler secrets** (`wrangler secret put`) so they're not in `wrangler.jsonc`.~~ **Done.**
+3. ~~Redact the URLs from `AGENTS.md` + `README.md` (replace with "see Cloudflare dashboard / `wrangler secret`").~~ **Done.** (git history also scrubbed via `git-filter-repo`.)
+4. ~~Enable Pipeline-side auth if available and forward it via `x-pipeline-auth-token` from the Worker (the loader already reads it).~~ **Done.** New streams created with `--http-auth`; `PIPELINE_AUTH_TOKEN` secret set; Worker forwards `x-pipeline-auth-token` to container.
 
 ---
 
