@@ -271,9 +271,10 @@ function AiChat() {
         {msgs.length === 0 && (
           <div className="ai-welcome">
             <p>
-              I can translate your questions into DuckDB queries and run them
-              against <b>option_contracts</b>, <b>underlyings</b> and <b>download_log</b>
-              {' '}right in your browser.
+              I can translate your questions into SQL queries and run them
+              against the CBOE Iceberg lake tables <b>options.option_contracts</b>,
+              <b>options.underlyings</b> and <b>options.refresh_runs</b> via the
+              {' '}screener-api Worker.
             </p>
             <div className="ai-examples">
               {EXAMPLES.map((ex) => (
