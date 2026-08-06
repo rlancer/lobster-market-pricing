@@ -1,6 +1,7 @@
 [tools]
 node = "24.12.0"
 wrangler = "latest"
+python = "3.12.11"
 
 [env]
 PYTHONUNBUFFERED = "1"
@@ -29,3 +30,36 @@ run = "cd worker && npx wrangler deploy"
 [tasks.build]
 description = "Build the production frontend bundle"
 run = "cd frontend && npm run build"
+
+
+# ---------------------------------------------------------------------------
+# Loader (loader/) — CBOE → Cloudflare Pipelines → R2 Data Catalog
+# Run from the repo root; tasks cd into loader/ themselves.
+# ---------------------------------------------------------------------------
+[tasks.loader-install]
+description = "Install loader Node dependencies (@cloudflare/containers, wrangler)"
+run = "cd loader && npm ci"
+
+[tasks.loader-types]
+description = "Generate and check loader Worker bindings"
+run = "cd loader && npx wrangler types && npx wrangler types --check"
+
+[tasks.loader-dev]
+description = "Run the cboe-to-r2 loader Worker locally"
+run = "cd loader && npx wrangler dev"
+
+[tasks.loader-deploy]
+description = "Deploy the cboe-to-r2 loader Worker and container. Set LOADER_TOKEN via: cd loader && npx wrangler secret put LOADER_TOKEN"
+run = "cd loader && npx wrangler deploy"
+
+[tasks.loader-validate]
+description = "Validate loader Wrangler config without a container rollout"
+run = "cd loader && npx wrangler deploy --dry-run --containers-rollout=none"
+
+[tasks.loader-container-build]
+description = "Build the loader image with Podman (linux/amd64)"
+run = "cd loader && podman build --platform linux/amd64 -t cboe-to-r2-poc ."
+
+[tasks.loader-container-run]
+description = "Run the loader locally in stdout mode"
+run = "cd loader && podman run --rm -p 8080:8080 -e WRITE_MODE=stdout cboe-to-r2-poc"

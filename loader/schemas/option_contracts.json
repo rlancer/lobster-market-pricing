@@ -1,0 +1,26 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"expiration","type":"string","required":true},
+    {"name":"type","type":"string","required":true},
+    {"name":"strike","type":"float64","required":true},
+    {"name":"last","type":"float64","required":false},
+    {"name":"bid","type":"float64","required":false},
+    {"name":"ask","type":"float64","required":false},
+    {"name":"volume","type":"int64","required":false},
+    {"name":"open_interest","type":"int64","required":false},
+    {"name":"implied_vol","type":"float64","required":false},
+    {"name":"delta","type":"float64","required":false},
+    {"name":"gamma","type":"float64","required":false},
+    {"name":"theta","type":"float64","required":false},
+    {"name":"vega","type":"float64","required":false},
+    {"name":"rho","type":"float64","required":false},
+    {"name":"in_the_money","type":"bool","required":false},
+    {"name":"theo","type":"float64","required":false},
+    {"name":"bid_size","type":"int64","required":false},
+    {"name":"ask_size","type":"int64","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

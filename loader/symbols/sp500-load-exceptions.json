@@ -1,0 +1,14 @@
+{
+  "description": "S&P 500 symbols that could not be loaded from the configured CBOE endpoint",
+  "exceptions": [
+    {
+      "symbol": "NVR",
+      "status": "unavailable",
+      "source": "https://cdn.cboe.com/api/global/delayed_quotes/options/NVR.json",
+      "http_status": 403,
+      "error": "Forbidden",
+      "detected_at": "2026-08-05",
+      "notes": "The endpoint returned HTTP 403 after retries; the symbol was not marked successful and no contracts were published for it."
+    }
+  ]
+}

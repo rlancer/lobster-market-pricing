@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cboe-to-r2",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-05",
+  "vars": {
+    "PIPELINE_RUNS_URL": "https://REDACTED.ingest.cloudflare.com",
+    "PIPELINE_CONTRACTS_URL": "https://REDACTED.ingest.cloudflare.com",
+    "PIPELINE_UNDERLYINGS_URL": "https://REDACTED.ingest.cloudflare.com",
+    "PIPELINE_ERRORS_URL": ""
+  },
+  "containers": [
+    {
+      "class_name": "CboeLoaderContainer",
+      "image": "./Dockerfile",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CBOE_LOADER",
+        "class_name": "CboeLoaderContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CboeLoaderContainer"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

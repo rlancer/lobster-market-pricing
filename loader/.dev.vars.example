@@ -1,0 +1,9 @@
+# loader Worker local-dev secrets (loader/.dev.vars).
+# Copy to `.dev.vars` and fill in. This file is gitignored; the example is tracked.
+# Deploy the secret once with: cd loader && npx wrangler secret put LOADER_TOKEN
+#
+# LOADER_TOKEN protects the loader Worker /run endpoint (POST only).
+# Pipeline URL vars (PIPELINE_RUNS_URL / CONTRACTS / UNDERLYINGS / ERRORS) are
+# non-secret and already set in loader/wrangler.jsonc — they do NOT belong here.
+
+LOADER_TOKEN=

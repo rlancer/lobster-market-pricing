@@ -2,6 +2,9 @@
 
 **Date:** 2026-08-06
 **Scope:** `rlancer/screener_glm52` and `rlancer/options-lake` (both **public** GitHub repos)
+
+> **Note (2026-08-06):** The two audited repos have been merged into a single monorepo (`screener_glm52`). The former `rlancer/options-lake` loader is now `loader/` within this repo. Findings below reference the old repo names for provenance; the affected code now lives at `loader/` (Pipeline URL exposure), `worker/` (screener API), and root `.env` (secret hygiene).
+
 **Goal:** Identify security issues that could cause a surprise Cloudflare bill. Not exhaustive; focused on cost-abuse vectors.
 
 ---

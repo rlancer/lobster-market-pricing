@@ -1,0 +1,41 @@
+name: Deploy loader (Worker + container)
+
+# Deploys the `cboe-to-r2` loader Worker and its Cloudflare Container
+# (CBOE → Pipelines → R2 Data Catalog Iceberg tables). Lives in the
+# monorepo under `loader/`. Kept manual until full-refresh validation is
+# complete (see loader/NEXT_STEPS.md); do not add a schedule before then.
+#
+# Required GitHub secrets:
+#   CLOUDFLARE_API_TOKEN — Worker + Container deploy permissions
+#   CLOUDFLARE_ACCOUNT_ID — Cloudflare account ID
+# LOADER_TOKEN is set once on the deployed Worker via
+#   `cd loader && npx wrangler secret put LOADER_TOKEN`
+# and persists across deploys, so CI does not need it.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Deploy Worker and container
+        run: cd loader && npx wrangler deploy

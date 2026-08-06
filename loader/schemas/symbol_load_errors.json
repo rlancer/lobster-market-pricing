@@ -1,0 +1,9 @@
+{
+  "fields": [
+    {"name":"run_id","type":"string","required":true},
+    {"name":"symbol","type":"string","required":true},
+    {"name":"status","type":"string","required":true},
+    {"name":"error","type":"string","required":true},
+    {"name":"failed_at","type":"string","required":true}
+  ]
+}

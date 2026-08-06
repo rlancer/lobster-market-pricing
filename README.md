@@ -2,13 +2,13 @@
 
 A free, end-to-end options screener for the S&P 500:
 
-- **Data source:** CBOE delayed quotes (official exchange data, includes Greeks) loaded into a Cloudflare-hosted Apache Iceberg lake by the [options-lake](https://github.com/rlancer/options-lake) loader project (CBOE → Cloudflare Pipelines → R2 Data Catalog). This repo consumes that lake directly over **R2 SQL** — no local database, no Parquet, no in-browser DuckDB.
+- **Data source:** CBOE delayed quotes (official exchange data, includes Greeks) loaded into a Cloudflare-hosted Apache Iceberg lake by the in-repo loader (`loader/`: CBOE → Cloudflare Pipelines → R2 Data Catalog). This repo consumes that lake directly over **R2 SQL** — no local database, no Parquet, no in-browser DuckDB.
 - **Backend:** a lightweight **Cloudflare Worker** (`worker/`) that queries the Iceberg lake over the R2 SQL REST API and returns JSON. Deployed via `wrangler deploy`.
 - **Frontend:** React + TypeScript (Vite) — a plain `fetch()` client; no WASM, no Parquet, no httpfs.
 - **Toolchain:** managed with [mise](https://mise.jdx.dev) (Node, wrangler).
 
 ```
-options-lake (loader, separate repo):
+loader/ (in this repo):
   CBOE → Cloudflare Pipelines → R2 Data Catalog Iceberg tables
                                         │
                                         ▼
@@ -35,21 +35,29 @@ screener_glm52/
 │   ├── src/index.ts        # all endpoints, R2 SQL client, in-isolate cache
 │   ├── wrangler.jsonc       # Worker config (R2_SQL_ACCOUNT_ID, R2_SQL_BUCKET vars)
 │   └── .dev.vars            # local-dev R2_SQL_TOKEN (gitignored)
-└── frontend/              # Vite + React + TS UI
-    ├── src/{App.tsx, api.ts, App.css, Explorer.tsx, AiChat.tsx, …}
-    ├── .env                # VITE_API_BASE → deployed Worker URL
-    └── vite.config.ts
-```
+├── frontend/              # Vite + React + TS UI
+│   ├── src/{App.tsx, api.ts, App.css, Explorer.tsx, AiChat.tsx, …}
+│   ├── .env                # VITE_API_BASE → deployed Worker URL
+│   └── vite.config.ts
+└── loader/                # CBOE → Pipelines → R2 Data Catalog loader (Worker + Container)
+    ├── src/index.js         # Worker endpoint + Container routing (cboe-to-r2)
+    ├── container/loader.py  # CBOE fetch, OCC normalization, batching, refresh publication
+    ├── tools/load_sp500.py  # resumable S&P 500 symbol driver
+    ├── symbols/             # sp500.json manifest + constituents (name/sector enrichment)
+    ├── schemas/             # Pipeline input schemas
+    ├── Dockerfile           # container image (Python 3.12)
+    └── wrangler.jsonc       # Worker + Container config (Pipeline endpoint vars)
 
 ## Prerequisites
 
-Only [mise](https://mise.jdx.dev) is required. Node 22 and wrangler are pinned
-in `mise.toml` and installed automatically:
+Only [mise](https://mise.jdx.dev) is required. Node 24, Python 3.12, and
+wrangler are pinned in `mise.toml` and installed automatically:
 
 ```bash
 mise trust        # one-time: trust this project's config
 mise install      # install pinned tools
 mise run sync     # npm install (frontend + worker)
+mise run loader-install  # npm ci (loader)
 ```
 
 ## Configuration
@@ -62,7 +70,7 @@ that has **R2 SQL Read** on the lake bucket. It is stored as a Worker secret
 
 ```bash
 cd worker && npx wrangler secret put R2_SQL_TOKEN
-# paste the token (same one the options-lake loader uses as
+# paste the token (same one the in-repo loader uses as
 # WRANGLER_R2_SQL_AUTH_TOKEN)
 ```
 
@@ -77,6 +85,20 @@ R2_SQL_TOKEN=cfat_...
 - `R2_SQL_ACCOUNT_ID` — Cloudflare account ID hosting the lake
 - `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (warehouse is `{ACCOUNT_ID}_{BUCKET}`)
 - `CORS_ORIGIN` — `*` (or your Pages origin)
+
+### Loader — `LOADER_TOKEN` (secret)
+
+The loader Worker (`loader/`, deployed as `cboe-to-r2`) protects its `/run`
+endpoint with a bearer token. Set it once as a Worker secret:
+
+```bash
+cd loader && npx wrangler secret put LOADER_TOKEN
+```
+
+For local dev, put the same value in `loader/.dev.vars` (gitignored; see
+`loader/.dev.vars.example`). Pipeline URL vars are non-secret and already set
+in `loader/wrangler.jsonc`. The root `.env` holds `WRANGLER_R2_SQL_AUTH_TOKEN`
+for local `wrangler r2 sql query` validation (gitignored; see `.env.example`).
 
 ### Frontend — `VITE_API_BASE`
 
@@ -108,8 +130,10 @@ data is needed.
 
 ```bash
 mise run worker-deploy   # npx wrangler deploy → *.workers.dev URL
+mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + container
 # Frontend deploys to Cloudflare Pages via the deploy.yml GitHub Action
 # on push to main (project: robs-options-slop, domain: lobster.mp).
+# The loader deploys via the deploy-loader.yml GitHub Action (manual dispatch).
 ```
 
 ## API endpoints
@@ -186,7 +210,7 @@ escaping; sort columns are whitelisted). Key dialect constraints:
 
 - CBOE data is delayed ~15 minutes (fine for a screener). Official exchange
   data via [cdn.cboe.com](https://cdn.cboe.com/api/global/delayed_quotes/options/) — no API key.
-- The loader project (`options-lake`) owns CBOE ingestion (nightly run, ~502
+- The in-repo loader (`loader/`, deployed Worker `cboe-to-r2`) owns CBOE ingestion (nightly run, ~502
   symbols, ~1M contracts). This repo only reads the lake.
 - Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per
   calendar day, `vega`/`rho` per 1.00 of vol/rate).

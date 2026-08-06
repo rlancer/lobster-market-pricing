@@ -1,0 +1,5 @@
+# screener Worker local-dev secrets (worker/.dev.vars).
+# Copy to `.dev.vars` and fill in. This file is gitignored; the example is tracked.
+# Deploy the secret once with: cd worker && npx wrangler secret put R2_SQL_TOKEN
+
+R2_SQL_TOKEN=

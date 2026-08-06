@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {"name":"run_id","type":"string","required":true},
+    {"name":"started_at","type":"string","required":true},
+    {"name":"completed_at","type":"string","required":false},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"expected_symbols","type":"int64","required":true},
+    {"name":"successful_symbols","type":"int64","required":true},
+    {"name":"failed_symbols","type":"int64","required":true},
+    {"name":"contract_count","type":"int64","required":true},
+    {"name":"status","type":"string","required":true},
+    {"name":"error_summary","type":"string","required":false}
+  ]
+}
