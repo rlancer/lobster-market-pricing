@@ -2,7 +2,7 @@
 
 ## Scope
 
-This package (the `loader/` directory of the `screener_glm52` monorepo) loads the 503-symbol S&P 500 manifest from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). Work locally with raw Python unless the task explicitly requests Worker, Container, or GitHub Actions changes.
+This package (the `loader/` directory of the `options-db` monorepo) loads the 503-symbol S&P 500 manifest from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). Work locally with raw Python unless the task explicitly requests Worker, Container, or GitHub Actions changes.
 
 ## Current verified state
 

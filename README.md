@@ -12,11 +12,11 @@ loader/ (in this repo):
   CBOE → Cloudflare Pipelines → R2 Data Catalog Iceberg tables
                                         │
                                         ▼
-screener_glm52 Worker (worker/):
+options-db Worker (worker/):
   /api/* → R2 SQL REST endpoint → JSON (cached 5–10 min in-isolate)
                                         │
                                         ▼
-screener_glm52 frontend (Vite + React):
+options-db frontend (Vite + React):
   fetch('/api/*') → render
 ```
 
@@ -29,7 +29,7 @@ responses are instant.
 ## Repo layout
 
 ```
-screener_glm52/
+options-db/
 ├── mise.toml              # tool versions + tasks (Node, wrangler)
 ├── worker/                # Cloudflare Worker backend (R2 SQL → JSON)
 │   ├── src/index.ts        # all endpoints, R2 SQL client, in-isolate cache

@@ -3,7 +3,7 @@
 **Date:** 2026-08-06
 **Status:** Ready to implement. All feasibility checks done; the Worker skeleton exists at `worker/src/index.ts`.
 
-> **Note (2026-08-06):** The loader project (formerly `cboe-to-r2` / `options-lake`, a separate repo) has been merged into this monorepo as `loader/`. References below to "the loader project" or "the `cboe-to-r2` / `options-lake` repo" now point to `loader/`. The `screener_glm52` repo is now a single monorepo containing all three components: `loader/`, `worker/`, `frontend/`.
+> **Note (2026-08-06):** The loader project (formerly `cboe-to-r2` / `options-lake`, a separate repo) has been merged into this monorepo as `loader/`. References below to "the loader project" or "the `cboe-to-r2` / `options-lake` repo" now point to `loader/`. The `options-db` repo is now a single monorepo containing all three components: `loader/`, `worker/`, `frontend/`.
 
 ---
 
@@ -95,7 +95,7 @@ The Iceberg lake data gap is **fixed and live**:
 - PR: https://github.com/rlancer/options-lake/pull/1 (branch
   `feat/underlyings-name-sector`).
 
-### Consumer project (`screener_glm52` repo)
+### Consumer project (`options-db` repo)
 - `backend/screener/hydrate_lake.py` exists (lake → DuckDB) — **this becomes
   legacy/removed** under the new architecture.
 - The Worker skeleton is written at `worker/src/index.ts` (ports all
@@ -103,7 +103,7 @@ The Iceberg lake data gap is **fixed and live**:
   `worker/wrangler.jsonc`, `worker/package.json`, `worker/tsconfig.json` are
   in place.
 - PR (lake-consumer, now superseded by this plan):
-  https://github.com/rlancer/screener_glm52/pull/3
+  https://github.com/rlancer/options-db/pull/3
 
 ### Live lake state
 - Warehouse: `3315bb3e7d2e3556bfea6fb3947a890e_cboe-options-data`
@@ -111,7 +111,7 @@ The Iceberg lake data gap is **fixed and live**:
 - `option_contracts`: ~1.06M rows / 504 symbols, Greeks/quotes populated
 - `underlyings`: 502 symbols, all with `name`+`sector`+`spot_price`
 - NVR: HTTP 403 (documented; the only failed symbol)
-- R2 SQL token: in `screener_glm52/.env` as `R2_SQL_TOKEN` (gitignored; same
+- R2 SQL token: in `options-db/.env` as `R2_SQL_TOKEN` (gitignored; same
   token as the loader project's `WRANGLER_R2_SQL_AUTH_TOKEN`)
 
 ---
@@ -123,11 +123,11 @@ cboe-to-r2 (loader, separate repo):
   CBOE → Cloudflare Pipelines → R2 Data Catalog Iceberg tables
                                         │
                                         ▼
-screener_glm52 Worker (this repo, worker/):
+options-db Worker (this repo, worker/):
   /api/* → R2 SQL REST endpoint → JSON (cached 5–10 min in-isolate)
                                         │
                                         ▼
-screener_glm52 frontend (Vite + React):
+options-db frontend (Vite + React):
   fetch('/api/*') → render (no DuckDB-WASM, no Parquet)
 ```
 
@@ -150,7 +150,7 @@ The skeleton at `worker/src/index.ts` is feature-complete but needs:
 - **Set the R2 SQL token as a secret** (not a var — it's a credential):
   ```bash
   cd worker && npx wrangler secret put R2_SQL_TOKEN
-  # paste the token from screener_glm52/.env (R2_SQL_TOKEN value)
+  # paste the token from options-db/.env (R2_SQL_TOKEN value)
   ```
   `wrangler.jsonc` already has `R2_SQL_ACCOUNT_ID` and `R2_SQL_BUCKET` as vars.
 - **Local dev:** `npx wrangler dev` then hit endpoints with curl. The Worker
@@ -307,7 +307,7 @@ documentation. Document:
 | Bucket | `cboe-options-data` |
 | Warehouse | `3315bb3e7d2e3556bfea6fb3947a890e_cboe-options-data` |
 | REST endpoint | `https://api.sql.cloudflarestorage.com/api/v1/accounts/{ACCOUNT}/r2-sql/query/{BUCKET}` |
-| Token | `R2_SQL_TOKEN` in `screener_glm52/.env` (gitignored); same as loader's `WRANGLER_R2_SQL_AUTH_TOKEN` |
+| Token | `R2_SQL_TOKEN` in `options-db/.env` (gitignored); same as loader's `WRANGLER_R2_SQL_AUTH_TOKEN` |
 | Tables | `options.option_contracts`, `options.underlyings`, `options.refresh_runs` |
 | `underlyings` columns | `symbol, name, sector, spot_price, description, run_id, as_of_date, fetched_at, __ingest_ts` |
 | `option_contracts` columns | `symbol, expiration(TEXT), type, strike, last, bid, ask, volume, open_interest, implied_vol, delta, gamma, theta, vega, rho, in_the_money, theo, bid_size, ask_size, run_id, as_of_date, fetched_at, __ingest_ts` |

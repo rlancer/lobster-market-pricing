@@ -6,7 +6,7 @@ Loader-only pipeline for periodic CBOE options snapshots:
 CBOE → Cloudflare Worker Container → Cloudflare Pipelines → R2 Data Catalog Iceberg tables → R2 SQL
 ```
 
-This package is the loader half of the `screener_glm52` monorepo; the frontend, R2-SQL Worker API, and Pages deploy live at the repo root (`frontend/`, `worker/`, `.github/workflows/deploy.yml`). This package itself contains no frontend, browser SQL, Pages, or static Parquet-serving code.
+This package is the loader half of the `options-db` monorepo; the frontend, R2-SQL Worker API, and Pages deploy live at the repo root (`frontend/`, `worker/`, `.github/workflows/deploy.yml`). This package itself contains no frontend, browser SQL, Pages, or static Parquet-serving code.
 
 ## Current status
 
