@@ -10,6 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WRITE_MODE=stdout
 
 WORKDIR /app
+COPY container/loader.py /app/loader.py
 COPY symbols/sp500_constituents.json /app/sp500_constituents.json
 
 EXPOSE 8080
