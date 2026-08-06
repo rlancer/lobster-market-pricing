@@ -13,15 +13,16 @@
 
 | Severity | Count | Headline |
 |---|---|---|
-| 🔴 Critical | 1 | Pipeline ingest URLs leaked in public git (unauthenticated write endpoints) |
+| 🔴 Critical | 1 | ✅ RESOLVED — Pipeline ingest URLs rotated, moved to secrets, history scrubbed, auth enabled |
 | 🟠 High | 1 | Screener `/api/query` — unbounded compute, no rate limit |
 | 🟡 Medium | 3 | Unauth container wake; R2 CORS in history; cross-schema reads |
 | 🟢 Low / Info | 7 | Secret hygiene, account ID, gitignore gaps, etc. |
 
 ---
 
-## 🔴 CRITICAL — Pipeline ingest URLs leaked in public git
+## 🔴 CRITICAL — Pipeline ingest URLs leaked in public git — ✅ RESOLVED (2026-08-06)
 
+> **Status: RESOLVED.** All 4 fix items applied: (1) ingest URLs rotated — old unauthenticated streams deleted, new authenticated streams created; (2) `PIPELINE_*_URL` migrated from `wrangler.jsonc` vars to Wrangler secrets; (3) URLs redacted from `AGENTS.md`, `README.md`, and git history (scrubbed via `git-filter-repo`, force-pushed); (4) Pipeline-side auth enabled (`x-pipeline-auth-token` forwarded from Worker to container, `PIPELINE_AUTH_TOKEN` secret set). End-to-end verified: unauthenticated POST → 400, authenticated POST → 200 with data in R2 SQL.
 **Repos:** `rlancer/options-lake` (findings `PIPELINE-*`, `R2-PIPELINE-URLS-IN-GIT`)
 
 The 3 Cloudflare Pipeline ingest URLs are unauthenticated **write** endpoints — the 32-hex subdomain *is* the credential. Anyone with the URL can POST arbitrary data into the R2 lake (`options.option_contracts`, `options.underlyings`, `options.refresh_runs`), racking up Pipeline compute + R2 storage costs.
@@ -132,10 +133,11 @@ Strings: doubles single quotes. Numbers/booleans/NULL emitted literally. Sort co
 
 ## Recommended immediate action
 
-Only the **Pipeline URLs** are genuinely urgent — public, unauthenticated, and writable. Everything else is real hardening but not "surprise large bill" territory on its own.
+~~Only the **Pipeline URLs** are genuinely urgent — public, unauthenticated, and writable.~~
+**✅ RESOLVED (2026-08-06): items 1–2 below are done.**
 
-1. Rotate the ingest URLs in the Cloudflare dashboard (current ones are burned).
-2. Move `PIPELINE_*_URL` to Wrangler secrets; redact from docs.
+1. ~~Rotate the ingest URLs in the Cloudflare dashboard (current ones are burned).~~ **Done** — old streams deleted, new authenticated streams created.
+2. ~~Move `PIPELINE_*_URL` to Wrangler secrets; redact from docs.~~ **Done** — migrated to secrets, redacted from docs, git history scrubbed.
 3. Gate `/health`/`/status` behind `LOADER_TOKEN`.
 4. Add a rate-limit + cache key to the screener `/api/query`; narrow CORS to `lobster.mp`.
 

@@ -1,7 +1,7 @@
 # Plan: Migrate Screener to R2 SQL Worker Backend (Replace DuckDB-WASM)
 
 **Date:** 2026-08-06
-**Status:** Ready to implement. All feasibility checks done; the Worker skeleton exists at `worker/src/index.ts`.
+**Status:** IMPLEMENTED (PR #4 merged). Worker deployed at `screener-api.robertlancer.workers.dev`. This document is a historical record of the migration plan.
 
 > **Note (2026-08-06):** The loader project (formerly `cboe-to-r2` / `options-lake`, a separate repo) has been merged into this monorepo as `loader/`. References below to "the loader project" or "the `cboe-to-r2` / `options-lake` repo" now point to `loader/`. The `options-db` repo is now a single monorepo containing all three components: `loader/`, `worker/`, `frontend/`.
 
@@ -80,7 +80,7 @@ queries the homepage fires — acceptable, and far better than 40 MB WASM.
 
 ## What's already done
 
-### Loader project (`cboe-to-r2` / `options-lake` repo)
+### Loader project (`loader/`, in this monorepo)
 The Iceberg lake data gap is **fixed and live**:
 - `options.underlyings` recreated with `name` + `sector` columns (Pipeline
   schemas are immutable, so the old stream+sink+table were dropped, the table
@@ -96,13 +96,13 @@ The Iceberg lake data gap is **fixed and live**:
   `feat/underlyings-name-sector`).
 
 ### Consumer project (`options-db` repo)
-- `backend/screener/hydrate_lake.py` exists (lake → DuckDB) — **this becomes
-  legacy/removed** under the new architecture.
-- The Worker skeleton is written at `worker/src/index.ts` (ports all
+- `backend/screener/hydrate_lake.py` (lake→DuckDB bridge) — **REMOVED** in PR #4.
+- The Worker is implemented at `worker/src/index.ts` (ports the former
   `server.py` endpoints to R2 SQL with caching + fetch-and-page pagination).
   `worker/wrangler.jsonc`, `worker/package.json`, `worker/tsconfig.json` are
   in place.
-- PR (lake-consumer, now superseded by this plan):
+- PR #3 (`feat/lake-consumer`, Python `hydrate_lake.py` + DuckDB/Parquet path)
+  — **CLOSED**, superseded by PR #4 (this Worker):
   https://github.com/rlancer/options-db/pull/3
 
 ### Live lake state
@@ -119,7 +119,7 @@ The Iceberg lake data gap is **fixed and live**:
 ## Architecture (target)
 
 ```
-cboe-to-r2 (loader, separate repo):
+loader/ (in this monorepo):
   CBOE → Cloudflare Pipelines → R2 Data Catalog Iceberg tables
                                         │
                                         ▼
@@ -237,7 +237,7 @@ documentation. Document:
 - The Worker is the backend (`worker/`), deployed via `wrangler deploy`.
 - `VITE_API_BASE` env var pointing the frontend at the Worker.
 - The `R2_SQL_TOKEN` Worker secret.
-- That the loader project (`options-lake`) owns ingestion.
+- That the loader project (`loader/`) owns ingestion.
 
 ### 5. Verify end-to-end
 
