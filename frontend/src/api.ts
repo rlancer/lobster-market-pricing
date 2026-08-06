@@ -47,6 +47,19 @@ export interface ScreenResponse {
   truncated?: boolean;
 }
 
+export interface RefreshRun {
+  run_id: string;
+  started_at: string;
+  completed_at: string | null;
+  as_of_date: string;
+  expected_symbols: number;
+  successful_symbols: number;
+  failed_symbols: number;
+  contract_count: number;
+  status: string;
+  error_summary: string | null;
+}
+
 export interface LiquidityCriteria {
   min_volume: number;
   min_open_interest: number;
@@ -199,6 +212,7 @@ export const api = {
   /** No-op readiness: the Worker is always ready (was the DuckDB-WASM load gate). */
   ready: () => Promise.resolve(),
   stats: (liquid_only?: boolean) => get<Stats>(`/api/stats${qs({ liquid_only })}`),
+  runs: (limit?: number) => get<RefreshRun[]>(`/api/runs${qs({ limit })}`),
   sectors: (liquid_only?: boolean) => get<SectorRow[]>(`/api/sectors${qs({ liquid_only })}`),
   symbols: (q: string, liquid_only?: boolean) =>
     get<SymbolSuggestion[]>(`/api/symbols${qs({ q: q || undefined, liquid_only })}`),

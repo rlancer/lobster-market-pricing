@@ -5,6 +5,7 @@ import './App.css';
 import Explorer from './Explorer';
 import AiChat from './AiChat';
 import LiquidityFilter from './LiquidityFilter';
+import RefreshRuns from './RefreshRuns';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
 import SymbolTypeahead from './SymbolTypeahead';
@@ -239,6 +240,7 @@ function App() {
           <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
           <span className="data-status"><StatusDot variant="success" label="Dataset ready" /> Dataset ready</span>
           <span className="updated">As of {updatedAt}</span>
+          <RefreshRuns />
         </div>
       </header>
 
