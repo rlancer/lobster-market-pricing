@@ -3,6 +3,7 @@
   "name": "screener-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-05",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "vars": {
     "R2_SQL_ACCOUNT_ID": "3315bb3e7d2e3556bfea6fb3947a890e",
     "R2_SQL_BUCKET": "cboe-options-data",
