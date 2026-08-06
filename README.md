@@ -46,7 +46,7 @@ options-db/
     ├── symbols/             # sp500.json manifest + constituents (name/sector enrichment)
     ├── schemas/             # Pipeline input schemas
     ├── Dockerfile           # container image (Python 3.12)
-    └── wrangler.jsonc       # Worker + Container config (Pipeline endpoint vars)
+    └── wrangler.jsonc       # Worker + Container config (Pipeline URLs are secrets, not vars)
 
 ## Prerequisites
 
@@ -96,9 +96,11 @@ cd loader && npx wrangler secret put LOADER_TOKEN
 ```
 
 For local dev, put the same value in `loader/.dev.vars` (gitignored; see
-`loader/.dev.vars.example`). Pipeline URL vars are non-secret and already set
-in `loader/wrangler.jsonc`. The root `.env` holds `WRANGLER_R2_SQL_AUTH_TOKEN`
-for local `wrangler r2 sql query` validation (gitignored; see `.env.example`).
+`loader/.dev.vars.example`). Pipeline ingest URLs are **secrets** (the URL
+subdomain IS the credential) — deployed via `wrangler secret put`, never in
+`wrangler.jsonc`. See `loader/.dev.vars.example` for the full secret list.
+The root `.env` holds `WRANGLER_R2_SQL_AUTH_TOKEN` for local `wrangler r2 sql
+query` validation (gitignored; see `.env.example`).
 
 ### Frontend — `VITE_API_BASE`
 

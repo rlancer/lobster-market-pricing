@@ -18,9 +18,9 @@ Current infrastructure:
 - Pipeline sinks and pipelines: created
 - Worker: deployed at `cboe-to-r2.robertlancer.workers.dev`
 - GitHub deployment: manual workflow in `.github/workflows/deploy-loader.yml`
-- Pipeline HTTP authentication: disabled for the initial experiment
-
-Do not treat the current unauthenticated stream endpoints as production-ready.
+- Pipeline HTTP authentication: **enabled** (Bearer token, rotated after
+  the security audit — the old unauthenticated ingest URLs were leaked in
+  public git history and have been rotated + scrubbed).
 
 ## Phase 1: Validate the one-symbol result
 
@@ -152,7 +152,8 @@ Track the first full-run storage and catalog usage in the Cloudflare dashboard. 
 
 Before enabling recurring refreshes:
 
-- Restore authenticated Pipeline HTTP ingestion or replace it with an equivalent trusted path.
+- ~~Restore authenticated Pipeline HTTP ingestion~~ **Done** — ingest streams
+  are authenticated (Bearer token); URLs rotated to Wrangler secrets.
 - Remove unused Pipeline credentials from Cloudflare and GitHub.
 - Add refresh retention and snapshot-expiration policy.
 - Decide whether to retain an independent raw or normalized backup.
