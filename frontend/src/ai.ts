@@ -146,6 +146,11 @@ export function modelSupports(model: string, param: string): boolean {
   return modelSupportedParams.get(model)?.includes(param) ?? false;
 }
 
+/** True once the catalog has authoritative params for `model` (false while loading / unknown / fetch failed). */
+export function modelHasParams(model: string): boolean {
+  return modelSupportedParams.has(model);
+}
+
 async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
   const res = await fetch(`${OPENROUTER_BASE}/models`);
   if (!res.ok) throw new Error(`Failed to load OpenRouter models (${res.status})`);

@@ -24,6 +24,8 @@ import {
   getModel,
   handleOAuthCallback,
   isOAuthCallback,
+  modelHasParams,
+  modelSupports,
   setApiKey,
   setEffort,
   setModel,
@@ -276,6 +278,15 @@ function AiChat() {
     navigate({ to: '/lab', search: { sql } });
   };
 
+  // Effort only applies to models the catalog confirms accept reasoning_effort.
+  // Leave it enabled while loading (params not known yet) and for unknown/custom
+  // models; disable it only when we definitively know the model lacks the param.
+  const effortDisabled =
+    !modelsLoading && modelHasParams(model) && !modelSupports(model, 'reasoning_effort');
+  const effortDisabledMessage = effortDisabled
+    ? "This model doesn't support reasoning effort."
+    : undefined;
+
   return (
     <div className="ai-chat">
       <div className="ai-head">
@@ -305,6 +316,8 @@ function AiChat() {
             size="sm"
             isLabelHidden
             width={120}
+            isDisabled={effortDisabled}
+            disabledMessage={effortDisabledMessage}
             options={EFFORT_OPTIONS}
             value={effort}
             onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
@@ -360,6 +373,8 @@ function AiChat() {
             <Selector
               label="Reasoning effort"
               size="md"
+              isDisabled={effortDisabled}
+              disabledMessage={effortDisabledMessage}
               options={EFFORT_OPTIONS}
               value={effort}
               onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
