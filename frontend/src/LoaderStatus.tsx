@@ -53,10 +53,15 @@ const BADGE_LABEL: Record<Badge, string> = {
 };
 
 /** Badge precedence: Disabled > Retrying > Never loaded > Stale > Fresh. */
-const badgeOf = (s: LoaderSymbol): Badge => {
+const badgeOf = (s: LoaderSymbol, marketOpen: boolean | undefined): Badge => {
   if (s.enabled === 0) return 'disabled';
   if (s.consecutive_failures > 0) return 'retrying';
   if (!s.last_success_at) return 'never';
+  // While the market is closed the loop is paused until the next open; a
+  // symbol with data is as current as it can possibly be, so it isn't "stale"
+  // (it just can't be refreshed yet). Only report staleness during a live
+  // session.
+  if (!marketOpen) return 'fresh';
   const stale =
     Date.now() - s.last_success_at > CADENCE_MS || s.next_attempt_after <= Date.now();
   return stale ? 'stale' : 'fresh';
@@ -261,7 +266,7 @@ export default function LoaderStatus() {
           </thead>
           <tbody>
             {symbols.map((s) => {
-              const b = badgeOf(s);
+              const b = badgeOf(s, status?.market?.open);
               return (
                 <tr key={s.symbol}>
                   <td><b>{s.symbol}</b></td>

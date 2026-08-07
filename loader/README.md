@@ -83,6 +83,14 @@ The loop arms itself: the first request to the Worker (any of `/run`, `/status`,
 — one alarm schedules the next forever. Set `CONTINUOUS_LOADER_ENABLED=false`
 to disable the loop entirely.
 
+**Self-healing re-arm.** `fetch()` calls `ensureArmed()` on *every* request,
+including the read-only `/loop/status` and `/loop/symbols` that the monitor
+polls every ~20s. Without this, a DO reset/deploy (e.g. `"Durable Object reset
+because its code was updated"`) consumes the in-flight alarm and, if the DO is
+destroyed mid-pass, the `alarm()` `finally` re-arm never runs — the loop would
+otherwise stay stranded with no alarm and burn an entire session. Re-arming on
+every poll makes the loop durable across redeploys.
+
 ### One-time setup
 
 Create the D1 database and point the binding at it (the committed
@@ -119,33 +127,56 @@ Migrations in `migrations/` are also applied automatically on deploy.
 
 ### Safe defaults and tuning
 
-CBOE data refreshes ~every 15 min. To honor the *"no schedule until full-refresh
-validation"* gate, the loop ships with **modest, cost-conscious defaults** — it
-will be slow to fully cycle until tuned. All are `vars` in `wrangler.jsonc`:
+CBOE data refreshes ~every 15 min intraday. All are `vars` in `wrangler.jsonc`:
 
 | Var | Default | Meaning |
 |---|---|---|
-| `LOADER_BATCH_SIZE` | 10 | symbols per `/run` pass (bounds pass duration + per-cycle writes) |
+| `LOADER_BATCH_SIZE` | 250 | symbols per `/run` pass (bounds pass duration + per-cycle writes) |
 | `LOADER_POLL_INTERVAL_SECONDS` | 60 | seconds between passes |
 | `LOADER_CADENCE_SECONDS` | 900 | reload every ~15 min after a success |
 | `LOADER_BACKOFF_BASE_SECONDS` | 60 | first failure backoff |
 | `LOADER_BACKOFF_CAP_SECONDS` | 1800 | max backoff (30 min) |
-| `LOADER_RUN_TIMEOUT_SECONDS` | 300 | abort a stuck container `/run`; that batch is backed off and retried |
+| `LOADER_RUN_TIMEOUT_SECONDS` | 600 | abort a stuck container `/run`; that batch is backed off and retried |
+| `SYMBOL_CONCURRENCY` (container ENV) | 8 | symbols fetched/normalized in parallel per `/run` |
 | `MARKET_HOURS_ENABLED` | true | skip passes + sleep until open when the US regular session is closed |
 | `MARKET_OPEN_MINUTES` | 570 (09:30 ET) | market open, minutes-since-midnight ET |
 | `MARKET_CLOSE_MINUTES` | 960 (16:00 ET) | market close, minutes-since-midnight ET |
 | `MARKET_EARLY_CLOSE_MINUTES` | 780 (13:00 ET) | early-close time (Christmas Eve, Black Friday) |
 
+`LOADER_BATCH_SIZE` was raised from 10 to 250 to fit the concurrent pass: at
+`SYMBOL_CONCURRENCY=8` (~4.3s/symbol serial-equivalent) a 250-symbol batch is
+~2 min, two passes cover the universe in ~5 min — inside the 15-min cadence.
+Kept just under the 503 so a single stuck symbol can't hold the whole run for
+the full timeout; `LOADER_RUN_TIMEOUT_SECONDS` was raised to 600 to fit it.
+
+**Concurrency (container `container/loader.py`).** Per-symbol work is I/O-bound
+(CBOE fetch + Pipeline POSTs), so `SYMBOL_CONCURRENCY` `ThreadPoolExecutor`
+workers overlap it near-linearly — the GIL is released during socket I/O, so a
+24-symbol fixture runs at ~4.0× (C=4) and ~7.9× (C=8) wall-clock, i.e. the
+~36-min serial full pass drops to ~4.5 min. Shared state (contract buffer,
+batch counter, success/failure tallies) is guarded by a lock; full contract
+batches are flushed out-of-lock with unique idempotency keys. Verified: an
+8-symbol fixture with stubbed CBOE/Pipeline produces byte-identical pipeline
+output at C=1 and C=8 (same contracts, underlyings, run/error records).
+
 Outside regular US market hours (weekends, US holidays, overnight/after-hours)
 there is no new CBOE data, so the loop sleeps one far-out alarm until the next
 open and skips passes entirely — no container waking, no Pipeline/R2 writes.
-Set `MARKET_HOURS_ENABLED=false` to always run (e.g. for backfills).
+Set `MARKET_HOURS_ENABLED=false` to always run (e.g. for backfills). Note the
+monitor surfaces a symbol as "stale" only during a live session; while the
+market is closed a loaded symbol reads "Fresh" (it cannot be refreshed until
+the open).
 
-To reach the ~15-min full cadence, raise `LOADER_BATCH_SIZE` so the container
-can cycle ~503 symbols within ~15 min (e.g. 34+ per minute given the container's
-per-symbol fetch + delay). Validate the full refresh (see below) before tuning
-up. The loop remains safe at any setting because `next_attempt_after` and the
-single-flight guard prevent overlap.
+**Temporary market-closed override (weekend backfill).** To force the loop to
+run while the market is closed (clear the never-loaded/stale backlog over a
+weekend, or test it), temporarily set `MARKET_HOURS_ENABLED=false` in
+`wrangler.jsonc`, deploy, let it cycle, then set it back to `true` and redeploy.
+`wrangler deploy` is the only way to change this var. Verify a forced pass with:
+
+```powershell
+Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $env:LOADER_TOKEN" } `
+  -Uri "https://cboe-to-r2.robertlancer.workers.dev/loop/trigger"
+```
 
 ### Local dry-run note
 

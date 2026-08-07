@@ -231,11 +231,18 @@ export class CboeContinuousLoader {
 
   async fetch(request) {
     const url = new URL(request.url);
+    // Re-arm on EVERY request (idempotent: only arms when no alarm is set). A
+    // DO reset/deploy ("Durable Object reset because its code was updated")
+    // consumes the in-flight alarm and, if it destroys the DO mid-pass, the
+    // `finally` re-arm in alarm() never runs — leaving the loop stranded with
+    // no alarm. Because the monitor polls /loop/status and /loop/symbols every
+    // ~20s, arming here makes the loop self-healing instead of silently
+    // burning entire sessions.
+    await this.ensureArmed();
     if (url.pathname === "/loop/trigger") {
       // Manual kick (auth-gated at the Worker edge). Serializes with the alarm
       // via the `passing` flag inside tick().
       await this.tick();
-      await this.ensureArmed();
       return json({ ok: true, note: "tick completed" });
     }
     if (url.pathname === "/loop/status") {
@@ -244,9 +251,8 @@ export class CboeContinuousLoader {
     if (url.pathname === "/loop/symbols") {
       return json(await this.symbols(url));
     }
-    // Any other DO request (e.g. the worker's auto-arm ping): make sure the
-    // loop is armed.
-    await this.ensureArmed();
+    // Any other DO request (e.g. the worker's auto-arm ping): loop already
+    // armed above.
     return json({ ok: true });
   }
 

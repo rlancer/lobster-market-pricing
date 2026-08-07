@@ -13,9 +13,13 @@
     // Continuous-loader tuning (safe, cost-conscious defaults — see README).
     // Master switch for the background loop; "false" disables arming entirely.
     "CONTINUOUS_LOADER_ENABLED": "true",
-    // Symbols per /run batch. Kept modest: bounds each pass duration and the
-    // number of CBOE/Pipeline writes per cycle (free-tier cost driver).
-    "LOADER_BATCH_SIZE": 10,
+    // Symbols per /run batch. Sized so the container's concurrent workers can
+    // cycle the universe in a couple of passes: at SYMBOL_CONCURRENCY=8 and the
+    // container's ~4.3s/symbol serial-equivalent, a 250-symbol batch is ~2 min,
+    // two passes cover all ~503 in ~5 min — comfortably inside the 15-min
+    // cadence. Kept just under the full 503 so a single stuck symbol can't hold
+    // a whole run hostage for the full timeout.
+    "LOADER_BATCH_SIZE": 250,
     // Seconds between passes (alarm fires, picks the due batch, re-arms).
     "LOADER_POLL_INTERVAL_SECONDS": 60,
     // Seconds after a successful reload before a symbol is due again (~15 min).
@@ -24,8 +28,9 @@
     "LOADER_BACKOFF_BASE_SECONDS": 60,
     "LOADER_BACKOFF_CAP_SECONDS": 1800,
     // Abort timeout (s) for the internal container /run call. On timeout the
-    // whole batch is backed off and retried — the loop stays healthy.
-    "LOADER_RUN_TIMEOUT_SECONDS": 300,
+    // whole batch is backed off and retried — the loop stays healthy. Raised to
+    // fit a full-universe concurrent pass (~3–6 min at batch 250 / concurrency 8).
+    "LOADER_RUN_TIMEOUT_SECONDS": 600,
     // Market-hours gating: skip passes and sleep the alarm loop until the
     // next open when the US regular session is closed (no new CBOE data).
     // Times are minutes-since-midnight ET. Set MARKET_HOURS_ENABLED="false"
