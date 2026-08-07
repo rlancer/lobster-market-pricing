@@ -409,6 +409,12 @@ async function runQuery(env: Env, sqlIn: string, limit = 1000): Promise<{ column
   const lower = cleaned.toLowerCase();
   for (const kw of ["insert into", "update ", "delete from", "drop ", "create ", "alter ", "truncate ", "attach ", "detach "])
     if (lower.includes(kw)) return { columns: [], rows: [], row_count: 0, truncated: false, limit, error: "Disallowed keyword" };
+  // Cartesian products of large tables are the one expensive pattern R2 SQL does
+  // NOT budget-gate up front (it may just time out). Reject them outright: options
+  // analytics never needs a CROSS JOIN. R2 SQL's other cost guards (read-only,
+  // LIMIT default 500, budget-gated DISTINCT/aggregate/window) already apply.
+  if (/\bcross\s+join\b/.test(lower))
+    return { columns: [], rows: [], row_count: 0, truncated: false, limit, error: "CROSS JOIN is not allowed (cartesian products of large tables). Join on a key with WHERE filters instead." };
   const lim = clamp(limit, 1, R2SQL_LIMIT_MAX);
   try {
     const rows = await r2sql(env, `SELECT * FROM (${cleaned}) AS __q LIMIT ${lim}`);
