@@ -68,6 +68,9 @@ interface CatalogModel {
   name?: string;
   created?: number;
   supported_parameters?: string[];
+  architecture?: {
+    output_modalities?: string[];
+  };
 }
 
 // Curated fallback (used if the live fetch fails / app is offline). Also
@@ -107,6 +110,12 @@ const toolCapable = (m: CatalogModel): boolean =>
   Array.isArray(m.supported_parameters) && m.supported_parameters.includes('tools');
 const isRecent = (m: CatalogModel): boolean =>
   typeof m.created === 'number' && Date.now() - m.created * 1000 < MODELS_RECENCY_MS;
+// Exclude image-generation models (e.g. dalle/flux/gemini-*-image): they don't
+// belong in a chat model picker. Only OUTPUT modality matters — vision input on
+// a text-output chat model is fine.
+const hasImageOutput = (m: CatalogModel): boolean =>
+  Array.isArray(m.architecture?.output_modalities) &&
+  m.architecture.output_modalities.includes('image');
 
 async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
   const res = await fetch(`${OPENROUTER_BASE}/models`);
@@ -114,7 +123,10 @@ async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
   const json = (await res.json()) as { data?: CatalogModel[] };
 
   const choices = (json.data ?? [])
-    .filter((m): m is CatalogModel => !!m && typeof m.id === 'string' && toolCapable(m) && isRecent(m))
+    .filter(
+      (m): m is CatalogModel =>
+        !!m && typeof m.id === 'string' && toolCapable(m) && isRecent(m) && !hasImageOutput(m),
+    )
     // Strip the redundant "{Provider}: " prefix from OpenRouter's display name
     // since options are already grouped into provider sections.
     .map((m): ModelChoice => ({
