@@ -231,7 +231,7 @@ function AiChat() {
     <div className="ai-chat">
       <div className="ai-head">
         <div className="ai-title">
-          <span className="ai-mark" aria-hidden="true">✦</span>
+          <span className="ai-mark" aria-hidden="true">λ</span>
           <div>
             <h2>Options Copilot</h2>
             <p>Ask in plain English — SQL runs locally on your dataset.</p>
@@ -302,16 +302,23 @@ function AiChat() {
 
       <div className="ai-messages" ref={scrollRef}>
         {msgs.length === 0 && (
-          <div className="ai-welcome">
-            <div className="ai-welcome-hero">
-              <span className="ai-welcome-mark" aria-hidden="true">✦</span>
-              <h1>Ask your options data anything</h1>
+          <section className="ai-welcome">
+            <header className="ai-welcome-hero">
+              <figure className="ai-welcome-mark" aria-label="Volatility smile curve">
+                <svg viewBox="0 0 240 76" role="img" aria-hidden="true">
+                  <path className="smile-grid" d="M8 18H232M8 38H232M8 58H232M40 8V68M80 8V68M120 8V68M160 8V68M200 8V68" />
+                  <path className="smile-curve" d="M12 14C50 55 83 62 120 62C157 62 190 55 228 14" />
+                  <circle cx="120" cy="62" r="4" />
+                </svg>
+                <figcaption>Implied volatility / strike</figcaption>
+              </figure>
+              <span className="ai-welcome-kicker">Natural-language market research</span>
+              <h1>Interrogate the volatility surface</h1>
               <p>
-                I turn plain English into SQL and run it live against the CBOE
-                Iceberg lake — <b>option_contracts</b>, <b>underlyings</b>{' '}
-                and <b>refresh_runs</b>.
+                Ask a market question. Copilot writes the SQL and runs it against
+                <b> option_contracts</b>, <b>underlyings</b> and <b>refresh_runs</b>.
               </p>
-            </div>
+            </header>
             <div className="ai-examples">
               {EXAMPLES.map((ex) => (
                 <button key={ex} className="ai-example-card" onClick={() => send(ex)} disabled={busy}>
@@ -334,13 +341,13 @@ function AiChat() {
                 </button>
               </div>
             )}
-          </div>
+          </section>
         )}
 
         {msgs.map((m) => (
           <div key={m.id} className={`ai-msg ai-${m.role}`}>
             {m.role === 'assistant' && (
-              <span className="ai-msg-mark" aria-hidden="true">✦</span>
+              <span className="ai-msg-mark" aria-hidden="true">λ</span>
             )}
             <div className="ai-bubble">
               {m.error ? (

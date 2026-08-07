@@ -73,7 +73,6 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: var(--shadow-high);
   overflow: hidden;
 }
 .liq-popover-title {

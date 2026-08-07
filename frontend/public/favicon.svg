@@ -1,37 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 48 48">
-  <!-- Lobster silhouette — clean, geometric -->
-  <g stroke="#863bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <!-- Tail segments -->
-    <path d="M24 44c-4-2-6-6-6-10v-4"/>
-    <path d="M24 44c4-2 6-6 6-10v-4"/>
-    <!-- Body (carapace) -->
-    <path d="M18 30c0-4 2-8 6-8s6 4 6 8"/>
-    <!-- Head/rostrum -->
-    <path d="M24 22v-6"/>
-    <path d="M24 16c-2 0-4-2-4-4s2-4 4-4 4 2 4 4-2 4-4 4z"/>
-    <!-- Antennae -->
-    <path d="M20 14c-3-2-6-1-8 2"/>
-    <path d="M28 14c3-2 6-1 8 2"/>
-    <!-- Left claw arm -->
-    <path d="M18 26c-4-1-8-3-10-6"/>
-    <path d="M8 20c-1 1-2 3-1 4s2 1 2 0 1-2 0-3c-1-1-3 0-3 2"/>
-    <path d="M8 20c-1-1-2-1-2 0"/>
-    <!-- Right claw arm -->
-    <path d="M30 26c4-1 8-3 10-6"/>
-    <path d="M40 20c1 1 2 3 1 4s-2 1-2 0-1-2 0-3c1-1 3 0 3 2"/>
-    <path d="M40 20c1-1 2-1 2 0"/>
-    <!-- Walking legs left -->
-    <path d="M18 28c-2 0-4 2-4 4"/>
-    <path d="M18 30c-2 1-4 3-3 5"/>
-    <path d="M18 32c-2 1-3 3-2 5"/>
-    <!-- Walking legs right -->
-    <path d="M30 28c2 0 4 2 4 4"/>
-    <path d="M30 30c2 1 4 3 3 5"/>
-    <path d="M30 32c2 1 3 3 2 5"/>
-    <!-- Tail fan -->
-    <path d="M18 34c-2 2-2 5 0 6"/>
-    <path d="M30 34c2 2 2 5 0 6"/>
-    <path d="M20 34c-1 2 0 4 4 4"/>
-    <path d="M28 34c1 2 0 4-4 4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="blue-shell" x1="24" y1="12" x2="72" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#62C7FF"/>
+      <stop offset="1" stop-color="#1689E8"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="#62C7FF" stroke-linecap="round" stroke-width="3">
+    <path d="M41 22C34 13 26 7 17 3"/>
+    <path d="M55 22C62 13 70 7 79 3"/>
+    <path d="M37 38L25 34M35 46L22 46M37 54L25 59"/>
+    <path d="M59 38L71 34M61 46L74 46M59 54L71 59"/>
+  </g>
+  <g fill="url(#blue-shell)" stroke="#62C7FF" stroke-width="1.5" stroke-linejoin="round">
+    <path fill-rule="evenodd" d="M32 39C27 29 19 21 10 24C1 27 0 40 7 47C14 53 24 49 31 43L32 39ZM10 31C15 28 21 31 25 36C20 34 15 36 11 40C8 38 7 34 10 31Z"/>
+    <path fill-rule="evenodd" d="M64 39C69 29 77 21 86 24C95 27 96 40 89 47C82 53 72 49 65 43L64 39ZM86 31C81 28 75 31 71 36C76 34 81 36 85 40C88 38 89 34 86 31Z"/>
+    <path d="M32 36C37 30 40 27 42 26L39 43L31 44ZM64 36C59 30 56 27 54 26L57 43L65 44Z"/>
+    <path d="M38 23C40 17 44 14 48 14C52 14 56 17 58 23L57 37H39L38 23Z"/>
+    <path d="M39 37H57L58 47H38L39 37ZM38 47H58L56 58H40L38 47Z"/>
+    <path d="M40 58H56L54 68H42L40 58ZM42 68H54L52 77H44L42 68Z"/>
+    <path d="M44 77L32 88L45 85L48 93L51 85L64 88L52 77H44Z"/>
+  </g>
+  <g fill="#07131F" stroke="#62C7FF" stroke-width="1.2">
+    <circle cx="43" cy="23" r="2.4"/>
+    <circle cx="53" cy="23" r="2.4"/>
   </g>
 </svg>

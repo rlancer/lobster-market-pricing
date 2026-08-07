@@ -7,25 +7,6 @@
 :root {
   color-scheme: dark;
   background: var(--color-background-body);
-
-  /* ------------------------------------------------------------------
-     Brand theme — "Amber Gold" (chosen with the designer model).
-     A warm, finance-first accent (brass/gold candlestick) that reads as
-     premium market depth. Distinctly not the AI-purple cliché, and it
-     keeps clear of the call-green / put-red semantics already used in the
-     data UI. Overrides the neutral theme's accent so every component
-     (tabs, buttons, links, focus rings) retints through --color-accent.
-     ------------------------------------------------------------------ */
-  --color-accent: #F6C453;
-  --color-accent-muted: #2E2414;
-  --color-on-accent: #1A1205;
-  --color-text-accent: #F7C85E;
-  --color-icon-accent: #F6C453;
-
-  /* Two-stop CTA gradient + soft header glow for accent surfaces. */
-  --brand-gradient-a: #F7B733;
-  --brand-gradient-b: #E08926;
-  --brand-glow: #F7B73359;
 }
 
 html { min-width: 320px; background: var(--color-background-body); }

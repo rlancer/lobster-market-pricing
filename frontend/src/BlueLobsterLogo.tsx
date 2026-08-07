@@ -1,0 +1,56 @@
+import { useId } from 'react';
+
+export function BlueLobsterLogo({
+  className,
+  width = 40,
+  height = 40,
+}: {
+  className?: string;
+  width?: number | string;
+  height?: number | string;
+}) {
+  const gradientId = useId();
+
+  return (
+    <svg
+      viewBox="0 0 96 96"
+      className={className}
+      width={width}
+      height={height}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="24" y1="12" x2="72" y2="88" gradientUnits="userSpaceOnUse">
+          <stop stopColor="var(--color-icon-blue)" />
+          <stop offset="1" stopColor="var(--color-border-blue)" />
+        </linearGradient>
+      </defs>
+
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="3.2">
+        <path d="M41 22C34 13 26 7 17 3" />
+        <path d="M55 22C62 13 70 7 79 3" />
+        <path d="M37 38L25 34M35 46L22 46M37 54L25 59" />
+        <path d="M59 38L71 34M61 46L74 46M59 54L71 59" />
+      </g>
+
+      <g fill={`url(#${gradientId})`} stroke="var(--color-icon-blue)" strokeWidth="1.8" strokeLinejoin="round">
+        <path fillRule="evenodd" d="M32 39C27 29 19 21 10 24C1 27 0 40 7 47C14 53 24 49 31 43L32 39ZM10 31C15 28 21 31 25 36C20 34 15 36 11 40C8 38 7 34 10 31Z" />
+        <path fillRule="evenodd" d="M64 39C69 29 77 21 86 24C95 27 96 40 89 47C82 53 72 49 65 43L64 39ZM86 31C81 28 75 31 71 36C76 34 81 36 85 40C88 38 89 34 86 31Z" />
+        <path d="M32 36C37 30 40 27 42 26L39 43L31 44Z" />
+        <path d="M64 36C59 30 56 27 54 26L57 43L65 44Z" />
+        <path d="M38 23C40 17 44 14 48 14C52 14 56 17 58 23L57 37H39L38 23Z" />
+        <path d="M39 37H57L58 47H38L39 37Z" />
+        <path d="M38 47H58L56 58H40L38 47Z" />
+        <path d="M40 58H56L54 68H42L40 58Z" />
+        <path d="M42 68H54L52 77H44L42 68Z" />
+        <path d="M44 77L32 88L45 85L48 93L51 85L64 88L52 77H44Z" />
+      </g>
+
+      <g fill="var(--color-background-body)" stroke="var(--color-icon-blue)" strokeWidth="1.4">
+        <circle cx="43" cy="23" r="2.4" />
+        <circle cx="53" cy="23" r="2.4" />
+      </g>
+    </svg>
+  );
+}

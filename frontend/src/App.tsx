@@ -1,7 +1,8 @@
 import { useCallback, useContext, createContext, useEffect, useState } from 'react';
-import { Link, Outlet, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { StatusDot } from '@astryxdesign/core/StatusDot';
 import './App.css';
+import { BlueLobsterLogo } from './BlueLobsterLogo';
 import LiquidityFilter from './LiquidityFilter';
 import RefreshRuns from './RefreshRuns';
 import { api, useDbReady, type SectorRow, type Stats } from './api';
@@ -26,9 +27,25 @@ export function useWorkspace(): WorkspaceValue {
   return v;
 }
 
+type Section = {
+  to: string;
+  label: string;
+  heading: string;
+  glyph: string;
+  exact?: boolean;
+};
+const SECTIONS: Section[] = [
+  { to: '/', label: 'Copilot', heading: 'Options Copilot', glyph: 'AI', exact: true },
+  { to: '/market', label: 'Market', heading: 'Market screener', glyph: 'MK' },
+  { to: '/research', label: 'Research', heading: 'Notebooks & research', glyph: 'RX' },
+  { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', glyph: 'QL' },
+  { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', glyph: 'IO' },
+];
+
 function Layout() {
   const db = useDbReady();
   const navigate = useNavigate();
+  const location = useLocation();
   const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [stats, setStats] = useState<Stats | null>(null);
   const [sectors, setSectors] = useState<SectorRow[]>([]);
@@ -59,15 +76,19 @@ function Layout() {
       })
     : '–';
 
+  const active = SECTIONS.find((s) =>
+    s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
+  );
+
   if (!db.ready) {
     return (
-      <div className="app">
-        <div className="db-loading">
+      <main className="app app-loading">
+        <section className="db-loading">
           <span className="loading-mark" aria-hidden="true" />
           <b>{db.error ? 'Dataset unavailable' : 'Opening market data'}</b>
           <span>{db.error ? db.error : 'Connecting to the screener API…'}</span>
-        </div>
-      </div>
+        </section>
+      </main>
     );
   }
 
@@ -76,42 +97,66 @@ function Layout() {
   return (
     <WorkspaceContext.Provider value={value}>
       <div className="app">
-        <header className="app-header">
-          <div className="brand-lockup">
-            <span className="brand-mark" aria-hidden="true">🦞</span>
-            <span>
+        <aside className="sidebar">
+          <header className="brand">
+            <span className="brand-mark"><BlueLobsterLogo className="brand-lobster" /></span>
+            <span className="brand-text">
               <h1>Lobster MP</h1>
-              <small>S&amp;P 500 options screener</small>
+              <small>Options intelligence</small>
             </span>
-          </div>
-          <div className="header-tools">
-            <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-            <span className="data-status"><StatusDot variant="success" label="Dataset ready" /> Dataset ready</span>
-            <span className="updated">As of {updatedAt}</span>
-            <RefreshRuns />
-          </div>
-        </header>
+          </header>
 
-        <nav className="tabs" aria-label="Workspace">
-          <Link to="/" className="tab" activeOptions={{ exact: true }} activeProps={{ className: 'tab active' }}>Chat</Link>
-          <Link to="/market" className="tab" activeOptions={{ exact: true }} activeProps={{ className: 'tab active' }}>Market</Link>
-          <Link to="/research" className="tab" activeProps={{ className: 'tab active' }}>Research</Link>
-          <Link to="/lab" className="tab" activeProps={{ className: 'tab active' }} search={{ sql: undefined }}>SQL Lab</Link>
-          <Link to="/monitor" className="tab" activeProps={{ className: 'tab active' }}>Monitor</Link>
-          <div className="stats" aria-label="Dataset summary">
-            <span><b>{stats?.underlyings ?? '–'}</b> symbols</span>
-            <span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b> contracts</span>
-            <span><b>{stats?.calls?.toLocaleString() ?? '–'}</b> calls</span>
-            <span><b>{stats?.puts?.toLocaleString() ?? '–'}</b> puts</span>
-          </div>
-        </nav>
+          <nav className="sidenav" aria-label="Workspace">
+            {SECTIONS.map((s) => (
+              <Link
+                key={s.to}
+                to={s.to}
+                className={[
+                  'side-item',
+                  active?.to === s.to ? 'active' : '',
+                ].join(' ')}
+                activeOptions={{ exact: s.exact }}
+                search={s.to === '/lab' ? { sql: undefined } : undefined}
+              >
+                <span className="side-glyph" aria-hidden="true">{s.glyph}</span>
+                <span className="side-label">{s.label}</span>
+              </Link>
+            ))}
+          </nav>
 
-        <Outlet />
+          <section className="sidebar-stats" aria-label="Dataset summary">
+            <header className="sidebar-stats-head"><span>Market ledger</span><span className="ledger-live">Live</span></header>
+            <p className="stat-row"><span>Symbols</span><b>{stats?.underlyings ?? '–'}</b></p>
+            <p className="stat-row"><span>Contracts</span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b></p>
+            <p className="stat-row calls"><span>Calls</span><b>{stats?.calls?.toLocaleString() ?? '–'}</b></p>
+            <p className="stat-row puts"><span>Puts</span><b>{stats?.puts?.toLocaleString() ?? '–'}</b></p>
+          </section>
 
-        <footer className="app-footer">
-          <span>Market data for research only. Quotes may be delayed.</span>
-          <span>CBOE · Cloudflare Worker · R2 SQL · Iceberg lake</span>
-        </footer>
+          <footer className="sidebar-foot">
+            <span className="mantra">CBOE lake · research surface</span>
+          </footer>
+        </aside>
+
+        <section className="main-col">
+          <header className="topbar">
+            <span className="topbar-heading"><span className="topbar-eyebrow">Workspace · {active?.label ?? 'Overview'}</span><h2 className="topbar-title">{active?.heading ?? 'Lobster MP'}</h2></span>
+            <div className="topbar-tools">
+              <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
+              <span className="data-status"><StatusDot variant="success" label="Dataset ready" /> Dataset ready</span>
+              <span className="updated">As of {updatedAt}</span>
+              <RefreshRuns />
+            </div>
+          </header>
+
+          <main className="content">
+            <Outlet />
+          </main>
+
+          <footer className="app-footer">
+            <span>Research only · Quotes may be delayed</span>
+            <span>CBOE / Cloudflare / Iceberg</span>
+          </footer>
+        </section>
       </div>
     </WorkspaceContext.Provider>
   );
