@@ -39,9 +39,16 @@ function LabView() {
 
 const rootRoute = createRootRoute({ component: App });
 
+// Chat is the app's home — front and center when you open the workspace.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  component: AiChat,
+});
+
+const marketRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/market',
   component: MarketView,
 });
 
@@ -80,6 +87,7 @@ const symbolRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  marketRoute,
   researchRoute,
   labRoute,
   aiRoute,

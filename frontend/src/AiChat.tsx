@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
 import { type QueryResult } from './api';
+import { OpenRouterLogo } from './OpenRouterLogo';
 import {
   askAi,
   clearApiKey,
@@ -93,7 +94,9 @@ function ResultTable({ result }: { result: QueryResult }) {
 function AiChat() {
   const [key, setKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
-  const [showSettings, setShowSettings] = useState(!getApiKey());
+  // Keep the chat front-and-center on load; the connect flow lives in the
+  // welcome empty-state (see below) instead of forcing a big form open.
+  const [showSettings, setShowSettings] = useState(false);
   const [oauthBusy, setOauthBusy] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -219,9 +222,15 @@ function AiChat() {
       {showSettings && (
         <div className="ai-settings">
           <div className="ai-settings-connect">
-            <span className="ai-settings-label">Connect your OpenRouter account</span>
+            <span className="or-badge" aria-hidden="true">
+              <OpenRouterLogo width={32} height={24} color="#7F3DFF" />
+            </span>
+            <span className="ai-settings-label">
+              <b>Sign in with OpenRouter</b>
+              <em>Use any model in one place — no manual key needed.</em>
+            </span>
             <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-              {oauthBusy ? 'Connecting…' : 'Connect with OpenRouter ↗'}
+              {oauthBusy ? 'Connecting…' : 'Continue with OpenRouter'}
             </button>
           </div>
           <div className="ai-settings-divider"><span>or paste a key manually</span></div>
@@ -269,17 +278,37 @@ function AiChat() {
       <div className="ai-messages" ref={scrollRef}>
         {msgs.length === 0 && (
           <div className="ai-welcome">
-            <p>
-              I can translate your questions into SQL queries and run them
-              against the CBOE Iceberg lake tables <b>options.option_contracts</b>,
-              <b>options.underlyings</b> and <b>options.refresh_runs</b> via the
-              {' '}screener-api Worker.
-            </p>
+            <div className="ai-welcome-hero">
+              <span className="ai-welcome-mark" aria-hidden="true">✦</span>
+              <h1>Ask your options data anything</h1>
+              <p>
+                I turn plain English into SQL and run it live against the CBOE
+                Iceberg lake — <b>option_contracts</b>, <b>underlyings</b>{' '}
+                and <b>refresh_runs</b>.
+              </p>
+            </div>
             <div className="ai-examples">
               {EXAMPLES.map((ex) => (
-                <button key={ex} onClick={() => send(ex)} disabled={busy}>{ex}</button>
+                <button key={ex} className="ai-example-card" onClick={() => send(ex)} disabled={busy}>
+                  <span className="ai-example-arrow" aria-hidden="true">↗</span>
+                  <span>{ex}</span>
+                </button>
               ))}
             </div>
+            {!getApiKey() && (
+              <div className="ai-welcome-connect">
+                <span className="or-badge" aria-hidden="true">
+                  <OpenRouterLogo width={30} height={22} color="#7F3DFF" />
+                </span>
+                <div className="ai-welcome-connect-text">
+                  <b>Connect your model</b>
+                  <span>Sign in with OpenRouter to start — your key stays in your browser.</span>
+                </div>
+                <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
+                  {oauthBusy ? 'Connecting…' : 'Connect with OpenRouter'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -326,21 +355,31 @@ function AiChat() {
         )}
       </div>
 
-      <div className="ai-composer">
-        <textarea
-          ref={inputRef}
-          value={input}
-          placeholder='Ask something like "find ATM puts with high IV in the Tech sector"'
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          rows={2}
-          disabled={busy}
-        />
-        <button className="ai-send" onClick={() => send(input)} disabled={busy || !input.trim()}>
-          {busy ? '…' : 'Send'}
-        </button>
+      <div className="ai-composer-wrap">
+        <div className="ai-composer">
+          <textarea
+            ref={inputRef}
+            value={input}
+            placeholder='Try "find ATM puts with high IV in the Tech sector"…'
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            rows={2}
+            disabled={busy}
+          />
+          {getApiKey() ? (
+            <button className="ai-send" onClick={() => send(input)} disabled={busy || !input.trim()}>
+              {busy ? '…' : 'Send'}
+            </button>
+          ) : (
+            <button className="ai-send ai-send-cta" onClick={() => setShowSettings(true)} title="Connect to start chatting">
+              Connect
+            </button>
+          )}
+        </div>
+        <div className="ai-foot">
+          Enter to send · Shift+Enter for newline · Bring your own key · SQL never leaves your browser
+        </div>
       </div>
-      <div className="ai-foot">Enter to send · Shift+Enter for newline · Bring-your-own-key · SQL never leaves your browser</div>
     </div>
   );
 }

@@ -93,10 +93,10 @@ function Layout() {
         </header>
 
         <nav className="tabs" aria-label="Workspace">
-          <Link to="/" className="tab" activeOptions={{ exact: true }} activeProps={{ className: 'tab active' }}>Market</Link>
+          <Link to="/" className="tab" activeOptions={{ exact: true }} activeProps={{ className: 'tab active' }}>Chat</Link>
+          <Link to="/market" className="tab" activeOptions={{ exact: true }} activeProps={{ className: 'tab active' }}>Market</Link>
           <Link to="/research" className="tab" activeProps={{ className: 'tab active' }}>Research</Link>
           <Link to="/lab" className="tab" activeProps={{ className: 'tab active' }} search={{ sql: undefined }}>SQL Lab</Link>
-          <Link to="/ai" className="tab" activeProps={{ className: 'tab active' }}>Copilot</Link>
           <Link to="/monitor" className="tab" activeProps={{ className: 'tab active' }}>Monitor</Link>
           <div className="stats" aria-label="Dataset summary">
             <span><b>{stats?.underlyings ?? '–'}</b> symbols</span>
