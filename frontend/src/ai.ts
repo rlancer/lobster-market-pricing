@@ -28,7 +28,7 @@ const APP_TITLE = 'Open Interest Options Workspace';
 // ---------------------------------------------------------------------------
 const STORAGE_KEY = 'openinterest_ai_key';
 const MODEL_KEY = 'openinterest_ai_model';
-const DEFAULT_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_MODEL = 'openai/gpt-5.6-luna';
 
 export function getApiKey(): string {
   return localStorage.getItem(STORAGE_KEY) ?? '';
@@ -44,6 +44,156 @@ export function getModel(): string {
 }
 export function setModel(m: string): void {
   localStorage.setItem(MODEL_KEY, m.trim());
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning-effort preference (localStorage)
+// ---------------------------------------------------------------------------
+// OpenAI-style reasoning models (e.g. openai/gpt-5.6-luna) accept an optional
+// `reasoning_effort` of low/medium/high via OpenRouter. Not every model accepts
+// it, so senders must check `modelSupports(model, 'reasoning_effort')` first.
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+const EFFORT_KEY = 'openinterest_ai_effort';
+const DEFAULT_EFFORT: ReasoningEffort = 'medium';
+const EFFORT_VALUES = ['low', 'medium', 'high'] as const;
+
+export function getEffort(): ReasoningEffort {
+  const v = localStorage.getItem(EFFORT_KEY);
+  return (EFFORT_VALUES as readonly string[]).includes(v ?? '') ? (v as ReasoningEffort) : DEFAULT_EFFORT;
+}
+export function setEffort(e: ReasoningEffort): void {
+  localStorage.setItem(EFFORT_KEY, e);
+}
+
+// ---------------------------------------------------------------------------
+// Model catalog (OpenRouter /models, filtered for the pilot agent)
+// ---------------------------------------------------------------------------
+// The Copilot runs a TanStack AI agent that needs function/tool calling, and we
+// only want live, current models. OpenRouter's public /models endpoint (no key
+// required) exposes `supported_parameters` (does it accept tools?) and `created`
+// (epoch seconds) per model, so we surface tool-capable models released within
+// the last ~6 months and group them by provider.
+export interface ModelChoice {
+  value: string;
+  label: string;
+}
+export interface ModelGroup {
+  title: string;
+  options: ModelChoice[];
+}
+
+interface CatalogModel {
+  id: string;
+  name?: string;
+  created?: number;
+  supported_parameters?: string[];
+  architecture?: {
+    output_modalities?: string[];
+  };
+}
+
+// Curated fallback (used if the live fetch fails / app is offline). Also
+// guarantees `openrouter/auto` is always offered — it's a routing alias, not an
+// entry in the /models catalog.
+export const FALLBACK_MODEL_GROUPS: ModelGroup[] = [
+  {
+    title: 'Anthropic',
+    options: [
+      { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+      { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku' },
+    ],
+  },
+  {
+    title: 'OpenAI',
+    options: [
+      { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini' },
+      { value: 'openai/gpt-4o', label: 'GPT-4o' },
+    ],
+  },
+  {
+    title: 'Google',
+    options: [{ value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' }],
+  },
+  {
+    title: 'Meta',
+    options: [{ value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' }],
+  },
+  {
+    title: 'Auto',
+    options: [{ value: 'openrouter/auto', label: 'OpenRouter auto' }],
+  },
+];
+
+const MODELS_RECENCY_MS = 1000 * 60 * 60 * 24 * 30 * 6; // ~6 months
+const toolCapable = (m: CatalogModel): boolean =>
+  Array.isArray(m.supported_parameters) && m.supported_parameters.includes('tools');
+const isRecent = (m: CatalogModel): boolean =>
+  typeof m.created === 'number' && Date.now() - m.created * 1000 < MODELS_RECENCY_MS;
+// Exclude image-generation models (e.g. dalle/flux/gemini-*-image): they don't
+// belong in a chat model picker. Only OUTPUT modality matters — vision input on
+// a text-output chat model is fine.
+const hasImageOutput = (m: CatalogModel): boolean =>
+  Array.isArray(m.architecture?.output_modalities) &&
+  m.architecture.output_modalities.includes('image');
+
+// Model id → supported_parameters, filled from the live /models catalog so callers
+// only send provider-specific options to models that accept them. Empty/unknown
+// models conservatively report "not supported".
+const modelSupportedParams = new Map<string, string[]>();
+
+/** True when the catalog says `model` accepts the given parameter (e.g. 'reasoning_effort'). */
+export function modelSupports(model: string, param: string): boolean {
+  return modelSupportedParams.get(model)?.includes(param) ?? false;
+}
+
+/** True once the catalog has authoritative params for `model` (false while loading / unknown / fetch failed). */
+export function modelHasParams(model: string): boolean {
+  return modelSupportedParams.has(model);
+}
+
+async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
+  const res = await fetch(`${OPENROUTER_BASE}/models`);
+  if (!res.ok) throw new Error(`Failed to load OpenRouter models (${res.status})`);
+  const json = (await res.json()) as { data?: CatalogModel[] };
+
+  const qualified = (json.data ?? []).filter(
+    (m): m is CatalogModel =>
+      !!m && typeof m.id === 'string' && toolCapable(m) && isRecent(m) && !hasImageOutput(m),
+  );
+  // Record per-model supported_parameters so senders know which provider-specific
+  // options (e.g. reasoning_effort) each model actually accepts.
+  for (const m of qualified) modelSupportedParams.set(m.id, m.supported_parameters ?? []);
+
+  const choices = qualified
+    // Strip the redundant "{Provider}: " prefix from OpenRouter's display name
+    // since options are already grouped into provider sections.
+    .map((m): ModelChoice => ({
+      value: m.id,
+      label: (m.name && m.name.replace(/^[^:]+:\s*/, '')) || m.id,
+    }))
+    .sort((a, b) => a.value.localeCompare(b.value));
+
+  const byProvider = new Map<string, ModelChoice[]>();
+  for (const c of choices) {
+    const slash = c.value.indexOf('/');
+    const provider = slash > 0 ? c.value.slice(0, slash) : 'other';
+    const list = byProvider.get(provider);
+    if (list) list.push(c);
+    else byProvider.set(provider, [c]);
+  }
+
+  const groups: ModelGroup[] = [
+    { title: 'Auto', options: [{ value: 'openrouter/auto', label: 'OpenRouter auto' }] },
+  ];
+  for (const [provider, options] of [...byProvider.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    groups.push({ title: provider, options });
+  }
+  return groups;
+}
+
+/** Best-effort live load; rejects so callers can fall back to FALLBACK_MODEL_GROUPS. */
+export async function fetchAvailableModels(): Promise<ModelGroup[]> {
+  return fetchOpenRouterModels();
 }
 
 // ---------------------------------------------------------------------------
@@ -538,7 +688,14 @@ async function runAgent(
     systemPrompts: [systemPrompt(schemaPrompt)],
     tools: [runQuery, checkSchema],
     agentLoopStrategy: maxIterations(8),
-    modelOptions: { temperature: 0.2 },
+    modelOptions: {
+      temperature: 0.2,
+      // Only send reasoning_effort to models the catalog says support it —
+      // OpenRouter rejects unsupported parameters.
+      ...(modelSupports(model, 'reasoning_effort')
+        ? { reasoning_effort: getEffort() }
+        : {}),
+    },
     stream: true,
   });
 

@@ -7,6 +7,7 @@ import {
   ChatMessageMetadata,
   ChatSendButton,
   Markdown,
+  Selector,
   Spinner,
   Timestamp,
   useChatStreamScroll,
@@ -16,24 +17,45 @@ import { OpenRouterLogo } from './OpenRouterLogo';
 import {
   askAi,
   clearApiKey,
+  FALLBACK_MODEL_GROUPS,
+  fetchAvailableModels,
   getApiKey,
+  getEffort,
   getModel,
   handleOAuthCallback,
   isOAuthCallback,
+  modelHasParams,
+  modelSupports,
   setApiKey,
+  setEffort,
   setModel,
   startOAuthFlow,
+  type ModelGroup,
+  type ReasoningEffort,
 } from './ai';
 
-const MODEL_SUGGESTIONS = [
-  'openai/gpt-4o-mini',
-  'openai/gpt-4o',
-  'anthropic/claude-3.5-sonnet',
-  'anthropic/claude-3.5-haiku',
-  'google/gemini-2.0-flash-001',
-  'meta-llama/llama-3.1-8b-instruct',
-  'openrouter/auto',
+const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
 ];
+
+// Model options come from OpenRouter's /models catalog (tool-capable, recent),
+// fetched on mount. The chat state (localStorage) can hold any model id a user
+// chose before, so the rendered options always merge the active model back in —
+// the selector must never drop it. Returns section-shaped options for Selector.
+function ensureModelPresent(groups: ModelGroup[], model: string) {
+  const sections = groups.map((g) => ({
+    type: 'section' as const,
+    title: g.title,
+    options: g.options,
+  }));
+  const known = groups.flatMap((g) => g.options.map((o) => o.value));
+  if (model && !known.includes(model)) {
+    sections.push({ type: 'section', title: 'Custom', options: [{ value: model, label: model }] });
+  }
+  return sections;
+}
 
 const EXAMPLES = [
   'Find the most liquid call options expiring within 30 days',
@@ -126,6 +148,10 @@ function CopyButton({ text }: { text: string }) {
 function AiChat() {
   const [key, setKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
+  const [effort, setEffortState] = useState<ReasoningEffort>(getEffort());
+  // Live OpenRouter catalog (tool-capable, recent) + loading flag for the Selector.
+  const [modelGroups, setModelGroups] = useState<ModelGroup[]>(FALLBACK_MODEL_GROUPS);
+  const [modelsLoading, setModelsLoading] = useState(false);
   // Keep the chat front-and-center on load; the connect flow lives in the
   // welcome empty-state (see below) instead of forcing a big form open.
   const [showSettings, setShowSettings] = useState(false);
@@ -154,6 +180,27 @@ function AiChat() {
       .finally(() => setOauthBusy(false));
   }, []);
 
+  // Load the live OpenRouter model catalog once. On failure keep the empty
+  // fallback (the header/settings still work; the user's stored model is
+  // always merged back in by ensureModelPresent).
+  useEffect(() => {
+    let cancelled = false;
+    setModelsLoading(true);
+    fetchAvailableModels()
+      .then((groups) => {
+        if (!cancelled) setModelGroups(groups);
+      })
+      .catch(() => {
+        /* fall back to empty; stored model stays selected */
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const connect = async () => {
     setOauthBusy(true);
     setError(null);
@@ -178,6 +225,10 @@ function AiChat() {
   const saveModel = (m: string) => {
     setModel(m);
     setModelState(m);
+  };
+  const saveEffort = (e: ReasoningEffort) => {
+    setEffort(e);
+    setEffortState(e);
   };
   const resetKey = () => {
     clearApiKey();
@@ -227,6 +278,15 @@ function AiChat() {
     navigate({ to: '/lab', search: { sql } });
   };
 
+  // Effort only applies to models the catalog confirms accept reasoning_effort.
+  // Leave it enabled while loading (params not known yet) and for unknown/custom
+  // models; disable it only when we definitively know the model lacks the param.
+  const effortDisabled =
+    !modelsLoading && modelHasParams(model) && !modelSupports(model, 'reasoning_effort');
+  const effortDisabledMessage = effortDisabled
+    ? "This model doesn't support reasoning effort."
+    : undefined;
+
   return (
     <div className="ai-chat">
       <div className="ai-head">
@@ -239,6 +299,29 @@ function AiChat() {
         </div>
         <div className="ai-head-actions">
           <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} title={getApiKey() ? 'API key set' : 'No API key'} />
+          <Selector
+            label="Model"
+            size="sm"
+            isLabelHidden
+            hasSearch
+            isLoading={modelsLoading}
+            searchPlaceholder="Search models…"
+            width={236}
+            options={ensureModelPresent(modelGroups, model)}
+            value={model}
+            onChange={(m) => { if (m) saveModel(m); }}
+          />
+          <Selector
+            label="Reasoning effort"
+            size="sm"
+            isLabelHidden
+            width={120}
+            isDisabled={effortDisabled}
+            disabledMessage={effortDisabledMessage}
+            options={EFFORT_OPTIONS}
+            value={effort}
+            onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
+          />
           <Button variant="ghost" size="sm" label="Settings" onClick={() => setShowSettings((s) => !s)} />
           <Button variant="ghost" size="sm" label="New chat" onClick={newChat} />
         </div>
@@ -276,19 +359,27 @@ function AiChat() {
                 )}
               </div>
             </label>
-            <label>
-              <span>Model</span>
-              <input
-                list="ai-model-list"
-                value={model}
-                spellCheck={false}
-                placeholder="openai/gpt-4o-mini"
-                onChange={(e) => saveModel(e.target.value)}
-              />
-              <datalist id="ai-model-list">
-                {MODEL_SUGGESTIONS.map((m) => <option key={m} value={m} />)}
-              </datalist>
-            </label>
+            <Selector
+              label="Model"
+              size="md"
+              hasSearch
+              isLoading={modelsLoading}
+              searchPlaceholder="Search models…"
+              options={ensureModelPresent(modelGroups, model)}
+              value={model}
+              onChange={(m) => { if (m) saveModel(m); }}
+              className="ai-settings-model"
+            />
+            <Selector
+              label="Reasoning effort"
+              size="md"
+              isDisabled={effortDisabled}
+              disabledMessage={effortDisabledMessage}
+              options={EFFORT_OPTIONS}
+              value={effort}
+              onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
+              className="ai-settings-effort"
+            />
           </div>
           <p className="ai-settings-note">
             Your key is sent only to <b>openrouter.ai</b> from your browser. It is never

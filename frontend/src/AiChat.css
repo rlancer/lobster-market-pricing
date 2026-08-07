@@ -183,8 +183,9 @@
 }
 .ai-settings-row {
   display: grid;
-  grid-template-columns: 1fr 200px;
+  grid-template-columns: 1fr 280px 170px;
   gap: 14px;
+  align-items: end;
 }
 .ai-settings-row label {
   display: flex;
@@ -529,6 +530,7 @@
 @media (max-width: 760px) {
   .ai-chat { height: calc(100vh - 200px); border-radius: var(--radius-container); }
   .ai-settings-row { grid-template-columns: 1fr; }
+  .ai-head-actions { flex-wrap: wrap; }
   .ai-settings-connect, .ai-welcome-connect { flex-wrap: wrap; }
   .ai-connect-btn { width: 100%; }
   .ai-welcome-mark { width: min(86%, 250px); }
