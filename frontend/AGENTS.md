@@ -35,12 +35,13 @@ MORE CLI:
 
 ## Workflow: branch protection
 
-`main` is now branch-protected — you cannot push to it directly. All changes must
-go through a pull request:
+`main` is branch-protected — no direct pushes. Single-owner project, so no code
+review is required, but every change still goes through a PR:
 
 1. Create a feature branch: `git checkout -b feat/<slug>`.
 2. Commit your work there and push: `git push -u origin feat/<slug>`.
-3. Open a PR against `main` (e.g. `gh pr create --base main`), and have it
-   reviewed/merged before assuming the change is live.
+3. Open a PR against `main` (`gh pr create --base main`), confirm the required
+   checks pass, then merge when ready (`gh pr merge <n> --merge`) and assume the
+   change is live.
 
-Do not amend or force-push after the PR is opened unless a reviewer asks.
+Do not amend or force-push after the PR is opened.
