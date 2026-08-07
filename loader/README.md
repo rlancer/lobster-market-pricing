@@ -167,16 +167,6 @@ monitor surfaces a symbol as "stale" only during a live session; while the
 market is closed a loaded symbol reads "Fresh" (it cannot be refreshed until
 the open).
 
-**Temporary market-closed override (weekend backfill).** To force the loop to
-run while the market is closed (clear the never-loaded/stale backlog over a
-weekend, or test it), temporarily set `MARKET_HOURS_ENABLED=false` in
-`wrangler.jsonc`, deploy, let it cycle, then set it back to `true` and redeploy.
-`wrangler deploy` is the only way to change this var. Verify a forced pass with:
-
-```powershell
-Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $env:LOADER_TOKEN" } `
-  -Uri "https://cboe-to-r2.robertlancer.workers.dev/loop/trigger"
-```
 
 ### Local dry-run note
 
