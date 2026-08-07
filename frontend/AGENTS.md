@@ -32,3 +32,15 @@ MORE CLI:
   swizzle <Name>     eject component source for deep customization
   upgrade --apply    run after any @astryxdesign/core bump
 <!-- ASTRYX:END -->
+
+## Workflow: branch protection
+
+`main` is now branch-protected — you cannot push to it directly. All changes must
+go through a pull request:
+
+1. Create a feature branch: `git checkout -b feat/<slug>`.
+2. Commit your work there and push: `git push -u origin feat/<slug>`.
+3. Open a PR against `main` (e.g. `gh pr create --base main`), and have it
+   reviewed/merged before assuming the change is live.
+
+Do not amend or force-push after the PR is opened unless a reviewer asks.
