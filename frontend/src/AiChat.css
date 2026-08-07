@@ -183,7 +183,7 @@
 }
 .ai-settings-row {
   display: grid;
-  grid-template-columns: 1fr 240px;
+  grid-template-columns: 1fr 280px 170px;
   gap: 14px;
   align-items: end;
 }

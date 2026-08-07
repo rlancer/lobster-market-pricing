@@ -28,7 +28,7 @@ const APP_TITLE = 'Open Interest Options Workspace';
 // ---------------------------------------------------------------------------
 const STORAGE_KEY = 'openinterest_ai_key';
 const MODEL_KEY = 'openinterest_ai_model';
-const DEFAULT_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_MODEL = 'openai/gpt-5.6-luna';
 
 export function getApiKey(): string {
   return localStorage.getItem(STORAGE_KEY) ?? '';
@@ -44,6 +44,25 @@ export function getModel(): string {
 }
 export function setModel(m: string): void {
   localStorage.setItem(MODEL_KEY, m.trim());
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning-effort preference (localStorage)
+// ---------------------------------------------------------------------------
+// OpenAI-style reasoning models (e.g. openai/gpt-5.6-luna) accept an optional
+// `reasoning_effort` of low/medium/high via OpenRouter. Not every model accepts
+// it, so senders must check `modelSupports(model, 'reasoning_effort')` first.
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+const EFFORT_KEY = 'openinterest_ai_effort';
+const DEFAULT_EFFORT: ReasoningEffort = 'medium';
+const EFFORT_VALUES = ['low', 'medium', 'high'] as const;
+
+export function getEffort(): ReasoningEffort {
+  const v = localStorage.getItem(EFFORT_KEY);
+  return (EFFORT_VALUES as readonly string[]).includes(v ?? '') ? (v as ReasoningEffort) : DEFAULT_EFFORT;
+}
+export function setEffort(e: ReasoningEffort): void {
+  localStorage.setItem(EFFORT_KEY, e);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,16 +136,30 @@ const hasImageOutput = (m: CatalogModel): boolean =>
   Array.isArray(m.architecture?.output_modalities) &&
   m.architecture.output_modalities.includes('image');
 
+// Model id → supported_parameters, filled from the live /models catalog so callers
+// only send provider-specific options to models that accept them. Empty/unknown
+// models conservatively report "not supported".
+const modelSupportedParams = new Map<string, string[]>();
+
+/** True when the catalog says `model` accepts the given parameter (e.g. 'reasoning_effort'). */
+export function modelSupports(model: string, param: string): boolean {
+  return modelSupportedParams.get(model)?.includes(param) ?? false;
+}
+
 async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
   const res = await fetch(`${OPENROUTER_BASE}/models`);
   if (!res.ok) throw new Error(`Failed to load OpenRouter models (${res.status})`);
   const json = (await res.json()) as { data?: CatalogModel[] };
 
-  const choices = (json.data ?? [])
-    .filter(
-      (m): m is CatalogModel =>
-        !!m && typeof m.id === 'string' && toolCapable(m) && isRecent(m) && !hasImageOutput(m),
-    )
+  const qualified = (json.data ?? []).filter(
+    (m): m is CatalogModel =>
+      !!m && typeof m.id === 'string' && toolCapable(m) && isRecent(m) && !hasImageOutput(m),
+  );
+  // Record per-model supported_parameters so senders know which provider-specific
+  // options (e.g. reasoning_effort) each model actually accepts.
+  for (const m of qualified) modelSupportedParams.set(m.id, m.supported_parameters ?? []);
+
+  const choices = qualified
     // Strip the redundant "{Provider}: " prefix from OpenRouter's display name
     // since options are already grouped into provider sections.
     .map((m): ModelChoice => ({
@@ -650,7 +683,14 @@ async function runAgent(
     systemPrompts: [systemPrompt(schemaPrompt)],
     tools: [runQuery, checkSchema],
     agentLoopStrategy: maxIterations(8),
-    modelOptions: { temperature: 0.2 },
+    modelOptions: {
+      temperature: 0.2,
+      // Only send reasoning_effort to models the catalog says support it —
+      // OpenRouter rejects unsupported parameters.
+      ...(modelSupports(model, 'reasoning_effort')
+        ? { reasoning_effort: getEffort() }
+        : {}),
+    },
     stream: true,
   });
 

@@ -20,14 +20,23 @@ import {
   FALLBACK_MODEL_GROUPS,
   fetchAvailableModels,
   getApiKey,
+  getEffort,
   getModel,
   handleOAuthCallback,
   isOAuthCallback,
   setApiKey,
+  setEffort,
   setModel,
   startOAuthFlow,
   type ModelGroup,
+  type ReasoningEffort,
 } from './ai';
+
+const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
 
 // Model options come from OpenRouter's /models catalog (tool-capable, recent),
 // fetched on mount. The chat state (localStorage) can hold any model id a user
@@ -137,6 +146,7 @@ function CopyButton({ text }: { text: string }) {
 function AiChat() {
   const [key, setKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
+  const [effort, setEffortState] = useState<ReasoningEffort>(getEffort());
   // Live OpenRouter catalog (tool-capable, recent) + loading flag for the Selector.
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>(FALLBACK_MODEL_GROUPS);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -214,6 +224,10 @@ function AiChat() {
     setModel(m);
     setModelState(m);
   };
+  const saveEffort = (e: ReasoningEffort) => {
+    setEffort(e);
+    setEffortState(e);
+  };
   const resetKey = () => {
     clearApiKey();
     setKeyState('');
@@ -286,6 +300,15 @@ function AiChat() {
             value={model}
             onChange={(m) => { if (m) saveModel(m); }}
           />
+          <Selector
+            label="Reasoning effort"
+            size="sm"
+            isLabelHidden
+            width={120}
+            options={EFFORT_OPTIONS}
+            value={effort}
+            onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
+          />
           <Button variant="ghost" size="sm" label="Settings" onClick={() => setShowSettings((s) => !s)} />
           <Button variant="ghost" size="sm" label="New chat" onClick={newChat} />
         </div>
@@ -333,6 +356,14 @@ function AiChat() {
               value={model}
               onChange={(m) => { if (m) saveModel(m); }}
               className="ai-settings-model"
+            />
+            <Selector
+              label="Reasoning effort"
+              size="md"
+              options={EFFORT_OPTIONS}
+              value={effort}
+              onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
+              className="ai-settings-effort"
             />
           </div>
           <p className="ai-settings-note">
