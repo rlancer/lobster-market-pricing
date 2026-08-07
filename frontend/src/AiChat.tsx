@@ -17,6 +17,8 @@ import { OpenRouterLogo } from './OpenRouterLogo';
 import {
   askAi,
   clearApiKey,
+  FALLBACK_MODEL_GROUPS,
+  fetchAvailableModels,
   getApiKey,
   getModel,
   handleOAuthCallback,
@@ -24,60 +26,24 @@ import {
   setApiKey,
   setModel,
   startOAuthFlow,
+  type ModelGroup,
 } from './ai';
 
-// Curated OpenRouter model suggestions, grouped by provider for the Selector.
-// The chat state (localStorage) can hold any model id a user typed before, so
-// the options are built at render time and the current value is merged back if
-// it isn't already listed — the selector must never drop the active model.
-interface ModelOption {
-  value: string;
-  label: string;
-}
-interface ModelGroup {
-  title: string;
-  options: ModelOption[];
-}
-const MODEL_GROUPS: ModelGroup[] = [
-  {
-    title: 'Anthropic',
-    options: [
-      { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-      { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku' },
-    ],
-  },
-  {
-    title: 'OpenAI',
-    options: [
-      { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini' },
-      { value: 'openai/gpt-4o', label: 'GPT-4o' },
-    ],
-  },
-  {
-    title: 'Google',
-    options: [{ value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' }],
-  },
-  {
-    title: 'Meta',
-    options: [{ value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' }],
-  },
-  {
-    title: 'Auto',
-    options: [{ value: 'openrouter/auto', label: 'OpenRouter auto' }],
-  },
-];
-
-function buildModelOptions(model: string): { type: 'section'; title?: string; options: ModelOption[] }[] {
-  const groups = MODEL_GROUPS.map((g) => ({
+// Model options come from OpenRouter's /models catalog (tool-capable, recent),
+// fetched on mount. The chat state (localStorage) can hold any model id a user
+// chose before, so the rendered options always merge the active model back in —
+// the selector must never drop it. Returns section-shaped options for Selector.
+function ensureModelPresent(groups: ModelGroup[], model: string) {
+  const sections = groups.map((g) => ({
     type: 'section' as const,
     title: g.title,
     options: g.options,
   }));
-  const known = MODEL_GROUPS.flatMap((g) => g.options.map((o) => o.value));
+  const known = groups.flatMap((g) => g.options.map((o) => o.value));
   if (model && !known.includes(model)) {
-    groups.push({ type: 'section', title: 'Custom', options: [{ value: model, label: model }] });
+    sections.push({ type: 'section', title: 'Custom', options: [{ value: model, label: model }] });
   }
-  return groups;
+  return sections;
 }
 
 const EXAMPLES = [
@@ -171,6 +137,9 @@ function CopyButton({ text }: { text: string }) {
 function AiChat() {
   const [key, setKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
+  // Live OpenRouter catalog (tool-capable, recent) + loading flag for the Selector.
+  const [modelGroups, setModelGroups] = useState<ModelGroup[]>(FALLBACK_MODEL_GROUPS);
+  const [modelsLoading, setModelsLoading] = useState(false);
   // Keep the chat front-and-center on load; the connect flow lives in the
   // welcome empty-state (see below) instead of forcing a big form open.
   const [showSettings, setShowSettings] = useState(false);
@@ -197,6 +166,27 @@ function AiChat() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setOauthBusy(false));
+  }, []);
+
+  // Load the live OpenRouter model catalog once. On failure keep the empty
+  // fallback (the header/settings still work; the user's stored model is
+  // always merged back in by ensureModelPresent).
+  useEffect(() => {
+    let cancelled = false;
+    setModelsLoading(true);
+    fetchAvailableModels()
+      .then((groups) => {
+        if (!cancelled) setModelGroups(groups);
+      })
+      .catch(() => {
+        /* fall back to empty; stored model stays selected */
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const connect = async () => {
@@ -289,9 +279,10 @@ function AiChat() {
             size="sm"
             isLabelHidden
             hasSearch
+            isLoading={modelsLoading}
             searchPlaceholder="Search models…"
             width={236}
-            options={buildModelOptions(model)}
+            options={ensureModelPresent(modelGroups, model)}
             value={model}
             onChange={(m) => { if (m) saveModel(m); }}
           />
@@ -336,8 +327,9 @@ function AiChat() {
               label="Model"
               size="md"
               hasSearch
+              isLoading={modelsLoading}
               searchPlaceholder="Search models…"
-              options={buildModelOptions(model)}
+              options={ensureModelPresent(modelGroups, model)}
               value={model}
               onChange={(m) => { if (m) saveModel(m); }}
               className="ai-settings-model"
