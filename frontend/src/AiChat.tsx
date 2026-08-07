@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
 import { type QueryResult } from './api';
 import {
@@ -101,6 +102,7 @@ function AiChat() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
 
   // Process an OpenRouter OAuth callback if the page loaded with one.
   useEffect(() => {
@@ -192,12 +194,9 @@ function AiChat() {
   };
 
   const openExplorerSql = (sql: string) => {
-    const params = new URLSearchParams(window.location.search);
-    params.set('tab', 'explorer');
-    window.history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-    // Pass the SQL to the explorer via a custom event; Explorer picks it up.
-    window.dispatchEvent(new CustomEvent('ai:load-sql', { detail: { sql } }));
+    // Route to the SQL Lab with the SQL carried in the `sql` search param;
+    // the Explorer route reads and runs it on mount.
+    navigate({ to: '/lab', search: { sql } });
   };
 
   return (

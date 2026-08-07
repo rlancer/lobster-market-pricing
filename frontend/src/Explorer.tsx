@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearch } from '@tanstack/react-router';
 import './Explorer.css';
 import { api, type QueryResult, type TableInfo } from './api';
 
@@ -24,7 +25,8 @@ function Explorer() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [activeTable, setActiveTable] = useState<string | null>(null);
-  const [sql, setSql] = useState(SAMPLES[0]);
+  const { sql: initialSql } = useSearch({ strict: false }) as { sql?: string };
+  const [sql, setSql] = useState(initialSql ?? SAMPLES[0]);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
@@ -69,18 +71,12 @@ function Explorer() {
 
   const insertName = (name: string) => setSql((s) => (s ? `${s}\n${name}` : name));
 
-  // Accept a SQL payload pushed from the AI copilot ("Open in SQL Lab").
+  // If the AI copilot opened this lab with SQL via the `sql` search param
+  // ("Open in SQL Lab"), seed the editor and run it once.
   useEffect(() => {
-    const onAiSql = (e: Event) => {
-      const detail = (e as CustomEvent<{ sql?: string }>).detail;
-      if (detail?.sql) {
-        setSql(detail.sql);
-        run();
-      }
-    };
-    window.addEventListener('ai:load-sql', onAiSql);
-    return () => window.removeEventListener('ai:load-sql', onAiSql);
-  }, [run]);
+    if (initialSql) run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="explorer">

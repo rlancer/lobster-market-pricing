@@ -1,18 +1,24 @@
 // AI copilot for the options screener.
-// Runs entirely client-side: the user's OpenRouter API key is stored in
-// localStorage and sent directly from the browser to OpenRouter — no
-// backend proxy, no per-user billing for the site owner.
+// Runs entirely client-side (BYOK): the user's OpenRouter API key is stored in
+// localStorage and sent directly from the browser to OpenRouter — no backend
+// proxy, no per-user billing for the site owner.
 //
-// Flow per question:
+// Flow per question (TanStack AI agent loop):
 //   1. Gather schema context (tables, columns, types, sample rows) via the Worker.
-//   2. Call OpenRouter with a system prompt to generate DataFusion (R2 SQL) SQL.
-//   3. Execute the SQL against the CBOE Iceberg lake via the Worker's /api/query.
-//   4. If SQL errors, ask the model to fix it (up to 2 retries).
-//   5. Summarise the result and ask the model to interpret in plain English.
-//   6. Return { answer, sql, result }.
+//   2. Ask an agent (chat() + a `run_query` tool) to answer the question. The
+//      model writes DataFusion (R2 SQL), calls run_query to execute it against
+//      the CBOE Iceberg lake via the Worker's /api/query, reads the result, and
+//      fixes any error by calling the tool again — all inside the agent loop.
+//   3. Return { answer, sql, result } (last executed SQL + result for the UI).
 
+import { chat, toolDefinition, maxIterations } from '@tanstack/ai';
+import { openaiCompatibleText } from '@tanstack/ai-openai/compatible';
+import { z } from 'zod';
 import { api } from './api';
 import type { QueryResult } from './api';
+
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+const APP_TITLE = 'Open Interest Options Workspace';
 
 // ---------------------------------------------------------------------------
 // Credential / model helpers (localStorage)
@@ -81,7 +87,9 @@ export async function startOAuthFlow(): Promise<void> {
   const verifier = generateCodeVerifier();
   sessionStorage.setItem(OAUTH_SESSION_KEY, verifier);
   const challenge = await sha256CodeChallenge(verifier);
-  const callbackUrl = `${window.location.origin}${window.location.pathname}?${OAUTH_CALLBACK_PARAM}=1`;
+  // Land the redirect back on the Copilot route (/ai), not the site root, so
+  // the path itself restores the tab after the full-page OAuth round trip.
+  const callbackUrl = `${window.location.origin}/ai?${OAUTH_CALLBACK_PARAM}=1`;
   const authUrl =
     'https://openrouter.ai/auth?' +
     `callback_url=${encodeURIComponent(callbackUrl)}` +
@@ -192,74 +200,12 @@ function schemaToPrompt(ctx: SchemaContext): string {
 }
 
 // ---------------------------------------------------------------------------
-// OpenRouter Chat Completions
-// ---------------------------------------------------------------------------
-async function chatCompletion(opts: {
-  apiKey: string;
-  model: string;
-  messages: { role: string; content: string }[];
-  temperature?: number;
-  maxTokens?: number;
-}): Promise<string> {
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${opts.apiKey}`,
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'Open Interest Options Workspace',
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: opts.messages,
-      temperature: opts.temperature ?? 0.2,
-      max_tokens: opts.maxTokens ?? 1024,
-    }),
-  });
-
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const j = await res.json();
-      detail = j?.error?.message ?? j?.message ?? detail;
-    } catch {
-      /* ignore */
-    }
-    throw new Error(`OpenRouter error (${res.status}): ${detail}`);
-  }
-
-  const j = await res.json();
-  const content = j?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('OpenRouter returned an empty response.');
-  }
-  return content;
-}
-
-// ---------------------------------------------------------------------------
-// SQL extraction from model response
-// ---------------------------------------------------------------------------
-function extractSql(text: string): string | null {
-  // Prefer a ```sql … ``` fence.
-  const fence = text.match(/```(?:sql)?\s*([\s\S]*?)```/i);
-  if (fence) {
-    const s = fence[1].trim();
-    if (/^(SELECT|WITH|DESCRIBE|SHOW|PRAGMA|EXPLAIN)\b/i.test(s)) return s;
-  }
-  // Fallback: treat the whole response as SQL if it starts with a read-only
-  // keyword.
-  const stripped = text.trim().replace(/;+\s*$/, '').trim();
-  if (/^(SELECT|WITH|DESCRIBE|SHOW|PRAGMA|EXPLAIN)\b/i.test(stripped)) return stripped;
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Result summariser (compact text for the interpretation prompt)
+// Result summariser (compact text fed back to the model inside the tool)
 // ---------------------------------------------------------------------------
 function summarizeResult(res: QueryResult): string {
   const { columns, rows, row_count } = res;
   const lines: string[] = [`Columns: ${columns.join(', ')}`, `Row count: ${row_count}`];
-  const shown = rows.slice(0, 50);
+  const shown = rows.slice(0, 30);
   if (shown.length > 0) {
     lines.push('---', 'Rows (pipe-separated):');
     for (const r of shown) {
@@ -275,114 +221,135 @@ function summarizeResult(res: QueryResult): string {
       });
       lines.push('  ' + vals.join(' | '));
     }
-    if (rows.length > 50) lines.push(`  … (showing 50 of ${row_count} rows)`);
+    if (rows.length > 30) lines.push(`  … (showing 30 of ${row_count} rows)`);
   }
   return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
-// Individual model calls
+// Agent tool: run a read-only query via the Worker
 // ---------------------------------------------------------------------------
-async function generateSql(
-  question: string,
-  schemaPrompt: string,
-  apiKey: string,
-  model: string,
-): Promise<string> {
-  const system = [
+// The `run_query` tool is what turns the generic chat() loop into an agent:
+// the model proposes SQL, the tool executes it and returns a compact summary
+// the model can reason over, and the loop repeats (fix on error) until the
+// model answers. The full QueryResult is captured for the UI separately from
+// what the model sees.
+const runQueryDef = toolDefinition({
+  name: 'run_query',
+  description:
+    'Execute ONE read-only DataFusion (R2 SQL) SELECT/WITH query against the ' +
+    'CBOE options Iceberg lake and return a compact result summary. Tables live ' +
+    'in the `options` schema. Use this to answer questions about the data.',
+  inputSchema: z.object({
+    sql: z.string().describe('A single read-only SQL query (SELECT or WITH).'),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean().describe('Whether the query ran without an error.'),
+    error: z.string().nullable().describe('Error message, or null when ok.'),
+    summary: z.string().describe('Compact result summary for reasoning.'),
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// TanStack AI agent: answer a question by writing + running SQL
+// ---------------------------------------------------------------------------
+interface AgentCapture {
+  sql: string | null;
+  result: QueryResult | null;
+}
+
+function systemPrompt(schemaPrompt: string): string {
+  return [
     'You are a senior quant developer writing DataFusion SQL (R2 SQL) against an options market Iceberg lake.',
     '',
     'Schema:',
     schemaPrompt,
     '',
     'Rules:',
-    '- Write ONE read-only query (SELECT or WITH).',
+    '- To answer, ALWAYS write a read-only query (SELECT or WITH) and execute it with the run_query tool.',
     '- Tables live in the `options` schema: options.option_contracts, options.underlyings, options.refresh_runs.',
     '- Use the exact table and column names from the schema.',
     '- implied_vol is a decimal (0.25 = 25%). Moneyness ≈ (strike - spot) / spot.',
-    '- spot price column is `spot_price` (not `spot`). expiration is TEXT (use CAST(expiration AS DATE) for date math).',
+    '- The spot price column is `spot_price` (not `spot`). expiration is TEXT (use CAST(expiration AS DATE) for date math).',
     '- DTE: CAST(expiration AS DATE) - CURRENT_DATE returns integer days.',
     '- No OFFSET (unsupported). No named WINDOW clause (inline OVER (...) only).',
     '- WHERE must come before QUALIFY.',
     '- Prefer explicit column names over SELECT *.',
-    '- Respond with ONLY the SQL inside a markdown ```sql code fence. No prose, no explanation.',
+    '- The run_query tool returns a compact summary. If a query errors, fix it and call run_query again (a few attempts max).',
+    '',
+    'After you have the results, answer the user\'s question in plain English:',
+    'mention specific symbols, sectors, and numbers where useful. If no rows were',
+    'returned, say so and suggest a looser query. Be data-driven and conversational.',
+    'Do NOT explain the SQL mechanics.',
   ].join('\n');
-
-  return chatCompletion({
-    apiKey,
-    model,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: `Answer this question with a DataFusion (R2 SQL) query:\n${question}` },
-    ],
-    temperature: 0.1,
-    maxTokens: 800,
-  });
 }
 
-async function fixSql(
+async function runAgent(
   question: string,
+  apiKey: string,
+  model: string,
   schemaPrompt: string,
-  previousSql: string,
-  error: string,
-  apiKey: string,
-  model: string,
+  capture: AgentCapture,
+  onStatus?: AskCallbacks['onStatus'],
 ): Promise<string> {
-  const system = [
-    'You write read-only DataFusion SQL (R2 SQL) for an options Iceberg lake.',
-    '',
-    'Schema:',
-    schemaPrompt,
-    '',
-    'Your previous query failed with an error. Rewrite it to fix the error.',
-    'Tables: options.option_contracts, options.underlyings, options.refresh_runs.',
-    'Return ONLY the corrected SQL inside a markdown ```sql code fence. No prose.',
-  ].join('\n');
+  const runQuery = runQueryDef.server(async ({ sql }) => {
+    onStatus?.('Running query…');
+    const res = await api.query(sql, 200);
+    capture.sql = sql;
+    capture.result = res;
+    if (res.error) {
+      return { ok: false, error: res.error, summary: `Query failed: ${res.error}` };
+    }
+    return { ok: true, error: null, summary: summarizeResult(res) };
+  });
 
-  return chatCompletion({
+  const adapter = openaiCompatibleText(model, {
+    baseURL: OPENROUTER_BASE,
     apiKey,
-    model,
+    // BYOK: the key is owned by the user, stored only in their browser, and
+    // sent straight to OpenRouter — there is no server in this AI path that
+    // could leak it. That is exactly the case `dangerouslyAllowBrowser` is for
+    // (it disables the OpenAI SDK's default browser-key guard).
+    dangerouslyAllowBrowser: true,
+    defaultHeaders: {
+      'HTTP-Referer': window.location.origin,
+      'X-Title': APP_TITLE,
+    },
+  });
+
+  const stream = chat({
+    adapter,
     messages: [
-      { role: 'system', content: system },
       {
+        id: 'user',
         role: 'user',
-        content: `Question: ${question}\n\nFailing SQL:\n${previousSql}\n\nError:\n${error}`,
+        parts: [{ type: 'text', content: question }],
       },
     ],
-    temperature: 0.1,
-    maxTokens: 800,
+    // systemPrompt is threaded via the `systemPrompts` option, NOT a system
+    // message: TanStack AI's message conversion deliberately drops role:'system'
+    // UIMessages and ModelMessage has no 'system' role.
+    systemPrompts: [systemPrompt(schemaPrompt)],
+    tools: [runQuery],
+    agentLoopStrategy: maxIterations(8),
+    modelOptions: { temperature: 0.2 },
+    stream: true,
   });
-}
 
-async function interpret(
-  question: string,
-  sql: string,
-  summary: string,
-  apiKey: string,
-  model: string,
-): Promise<string> {
-  const system = [
-    'You are a friendly, concise options-analytics assistant.',
-    'The user asked a question, and a DataFusion query ran against the CBOE Iceberg lake via the screener-api Worker.',
-    'Explain the findings in plain, natural language.',
-    'Mention specific symbols, sectors, and numbers where useful.',
-    'If no rows were returned, say so and suggest a looser query.',
-    'Be data-driven and conversational. Do NOT explain the SQL mechanics.',
-  ].join('\n');
-
-  return chatCompletion({
-    apiKey,
-    model,
-    messages: [
-      { role: 'system', content: system },
-      {
-        role: 'user',
-        content: `User question:\n${question}\n\nQuery executed:\n${sql}\n\nResult summary:\n${summary}`,
-      },
-    ],
-    temperature: 0.4,
-    maxTokens: 700,
-  });
+  // The final assistant text comes after the last tool call; drop any text the
+  // model emitted before deciding to call a tool.
+  let answer = '';
+  for await (const ev of stream) {
+    if (ev.type === 'TOOL_CALL_END') {
+      // Only keep text emitted after the last tool call (the final answer).
+      answer = '';
+    } else if (ev.type === 'TEXT_MESSAGE_CONTENT' && typeof ev.delta === 'string') {
+      answer += ev.delta;
+    } else if (ev.type === 'RUN_ERROR') {
+      throw new Error(ev.message || 'The model request failed.');
+    }
+  }
+  return answer.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -406,8 +373,8 @@ export async function askAi(
   if (!apiKey) throw new Error('No API key configured. Set it in the settings panel first.');
 
   const model = getModel();
+  const capture: AgentCapture = { sql: null, result: null };
 
-  // --- Step 1: Schema ---
   opts.onStatus?.('Reading schema…');
   let schemaPrompt: string;
   try {
@@ -416,55 +383,19 @@ export async function askAi(
     throw new Error(`Failed to read schema: ${e}`);
   }
 
-  // --- Step 2: Generate SQL ---
-  opts.onStatus?.('Designing SQL query…');
-  let sql = extractSql(await generateSql(question, schemaPrompt, apiKey, model));
-
-  // --- Step 3: Execute + auto-fix loop ---
-  let result: QueryResult | null = null;
-  let attempts = 0;
-  while (!result && attempts < 3) {
-    if (!sql) {
-      return {
-        answer: 'I could not generate a valid SQL query from your question. Try rephrasing it.',
-        sql: null,
-        result: null,
-      };
-    }
-
-    opts.onStatus?.(`Running query${attempts > 0 ? ` (attempt ${attempts + 1})` : ''}…`);
-    const res = await api.query(sql, 200);
-    if (res.error) {
-      attempts++;
-      if (attempts >= 3) {
-        result = res;
-        break;
-      }
-      opts.onStatus?.('Fixing query…');
-      sql = extractSql(await fixSql(question, schemaPrompt, sql, res.error, apiKey, model));
-    } else {
-      result = res;
-    }
-  }
-
-  // --- Step 4: Interpret ---
-  opts.onStatus?.('Interpreting results…');
-  let summary: string;
+  opts.onStatus?.('Reasoning over the data…');
   let answer: string;
-  if (result?.error) {
-    summary = `Query failed: ${result.error}`;
-    answer = `The query ran into an error:\n\n> ${result.error}\n\nyou could try rephrasing your question.`;
-  } else if (result) {
-    summary = summarizeResult(result);
-    try {
-      answer = await interpret(question, sql ?? '', summary, apiKey, model);
-    } catch {
-      // Fallback: provide a simple table summary if the model call fails.
-      answer = `The query returned **${result.row_count} row${result.row_count !== 1 ? 's' : ''}** with ${result.columns.length} columns: ${result.columns.join(', ')}.`;
+  try {
+    answer = await runAgent(question, apiKey, model, schemaPrompt, capture, opts.onStatus);
+  } catch (e) {
+    // If the agent itself errored but a query already ran, still surface the
+    // (partial) result rather than dropping it.
+    if (capture.result) {
+      answer = `The query ran but the model did not finish an answer: ${e}`;
+    } else {
+      throw e;
     }
-  } else {
-    answer = 'No results were returned. Try a different question.';
   }
 
-  return { answer, sql, result };
+  return { answer, sql: capture.sql, result: capture.result };
 }
