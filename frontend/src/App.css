@@ -265,10 +265,10 @@ button, select { cursor: pointer; }
   font-family: var(--font-family-code);
   font-size: var(--font-size-xs);
 }
-.data-status { display: flex; align-items: center; gap: var(--spacing-2); color: var(--text); }
-.updated { color: var(--muted); font-variant-numeric: tabular-nums; }
-
 .content { padding-block: var(--spacing-6); }
+
+/* Dataset monitor page — refresh-run history sits above the live loader loop. */
+.monitor { display: flex; flex-direction: column; gap: var(--spacing-5); }
 
 /* ===== Filters ===== */
 .filters {
@@ -528,8 +528,7 @@ button, select { cursor: pointer; }
   .topbar-tools { width: 100%; justify-content: space-between; gap: var(--spacing-2); }
 }
 @media (max-width: 640px) {
-  .brand-text small, .data-status, .updated { display: none; }
-  .topbar-tools .refresh-runs { display: none; }
+  .brand-text small, .ms-data { display: none; }
   .topbar-tools { justify-content: flex-start; }
   .filter-heading { align-items: flex-start; }
   .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }

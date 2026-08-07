@@ -1,10 +1,9 @@
 import { useCallback, useContext, createContext, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import { StatusDot } from '@astryxdesign/core/StatusDot';
 import './App.css';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import LiquidityFilter from './LiquidityFilter';
-import RefreshRuns from './RefreshRuns';
+import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type SectorRow, type Stats } from './api';
 import { isOAuthCallback } from './ai';
 
@@ -39,8 +38,11 @@ const SECTIONS: Section[] = [
   { to: '/market', label: 'Market', heading: 'Market screener', glyph: 'MK' },
   { to: '/research', label: 'Research', heading: 'Notebooks & research', glyph: 'RX' },
   { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', glyph: 'QL' },
-  { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', glyph: 'IO' },
 ];
+
+// The Monitor lives in the header (as the consolidated status chip), not the
+// left nav — but the /monitor page still needs its own heading.
+const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', glyph: 'IO' };
 
 function Layout() {
   const db = useDbReady();
@@ -76,7 +78,7 @@ function Layout() {
       })
     : '–';
 
-  const active = SECTIONS.find((s) =>
+  const active = [...SECTIONS, MONITOR_HEADING].find((s) =>
     s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
   );
 
@@ -142,9 +144,7 @@ function Layout() {
             <span className="topbar-heading"><span className="topbar-eyebrow">Workspace · {active?.label ?? 'Overview'}</span><h2 className="topbar-title">{active?.heading ?? 'Lobster MP'}</h2></span>
             <div className="topbar-tools">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-              <span className="data-status"><StatusDot variant="success" label="Dataset ready" /> Dataset ready</span>
-              <span className="updated">As of {updatedAt}</span>
-              <RefreshRuns />
+              <MonitorStatus />
             </div>
           </header>
 

@@ -11,8 +11,25 @@ import MarketView from './MarketView';
 import Explorer from './Explorer';
 import AiChat from './AiChat';
 import LoaderStatus from './LoaderStatus';
+import RefreshRuns from './RefreshRuns';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
+
+// The header now holds a single consolidated status chip that links here; this
+// page is where all dataset status detail lives (refresh-run history + the live
+// loader loop).
+function MonitorView() {
+  return (
+    <div className="monitor">
+      <section className="monitor-runs">
+        <h2>Refresh runs</h2>
+        <p className="muted">Nightly loader runs — the latest data date and status at a glance.</p>
+        <RefreshRuns />
+      </section>
+      <LoaderStatus />
+    </div>
+  );
+}
 
 function ResearchView() {
   const { liquidOnly } = useWorkspace();
@@ -76,7 +93,7 @@ const aiRoute = createRoute({
 const monitorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/monitor',
-  component: LoaderStatus,
+  component: MonitorView,
 });
 
 const symbolRoute = createRoute({
