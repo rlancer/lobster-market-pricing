@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
-import { Markdown, useChatStreamScroll } from '@astryxdesign/core';
+import {
+  Button,
+  ChatComposer,
+  ChatMessageMetadata,
+  ChatSendButton,
+  Markdown,
+  Spinner,
+  Timestamp,
+  useChatStreamScroll,
+} from '@astryxdesign/core';
 import { type QueryResult } from './api';
 import { OpenRouterLogo } from './OpenRouterLogo';
 import {
@@ -42,6 +51,10 @@ interface Msg {
   sql?: string | null;
   result?: QueryResult | null;
   error?: string;
+  /** Epoch ms when the message was produced. */
+  ts?: number;
+  /** Model that answered (assistant only). */
+  model?: string;
 }
 
 function fmtCell(v: unknown): string {
@@ -92,6 +105,24 @@ function ResultTable({ result }: { result: QueryResult }) {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — ignore */
+    }
+  };
+  return (
+    <button type="button" className="ai-sql-copy" onClick={copy} title="Copy SQL">
+      {copied ? 'Copied ✓' : 'Copy'}
+    </button>
+  );
+}
+
 function AiChat() {
   const [key, setKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
@@ -105,7 +136,6 @@ function AiChat() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const navigate = useNavigate();
 
   // Process an OpenRouter OAuth callback if the page loaded with one.
@@ -165,32 +195,26 @@ function AiChat() {
     }
     setInput('');
     setError(null);
-    setMsgs((m) => [...m, { id: uid(), role: 'user', content: question }]);
+    const now = Date.now();
+    setMsgs((m) => [...m, { id: uid(), role: 'user', content: question, ts: now }]);
     setBusy(true);
     setStatus('Starting…');
     try {
       const res = await askAi(question, { onStatus: setStatus });
       setMsgs((m) => [
         ...m,
-        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result },
+        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, ts: Date.now(), model: getModel() },
       ]);
     } catch (e) {
       setMsgs((m) => [
         ...m,
-        { id: uid(), role: 'assistant', content: '', error: String(e) },
+        { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() },
       ]);
     } finally {
       setBusy(false);
       setStatus('');
     }
   }, [busy]);
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      send(input);
-    }
-  };
 
   const newChat = () => {
     setMsgs([]);
@@ -215,8 +239,8 @@ function AiChat() {
         </div>
         <div className="ai-head-actions">
           <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} title={getApiKey() ? 'API key set' : 'No API key'} />
-          <button className="ai-ghost" onClick={() => setShowSettings((s) => !s)}>Settings</button>
-          <button className="ai-ghost" onClick={newChat}>New chat</button>
+          <Button variant="ghost" size="sm" label="Settings" onClick={() => setShowSettings((s) => !s)} />
+          <Button variant="ghost" size="sm" label="New chat" onClick={newChat} />
         </div>
       </div>
 
@@ -332,17 +356,26 @@ function AiChat() {
                     <div className="ai-sql">
                       <div className="ai-sql-head">
                         <span>SQL</span>
-                        <button
-                          onClick={() => openExplorerSql(m.sql!)}
-                          title="Open in SQL Lab"
-                        >
-                          Open in SQL Lab ↗
-                        </button>
+                        <span className="ai-sql-actions">
+                          <CopyButton text={m.sql} />
+                          <button
+                            onClick={() => openExplorerSql(m.sql!)}
+                            title="Open in SQL Lab"
+                          >
+                            Open in SQL Lab ↗
+                          </button>
+                        </span>
                       </div>
                       <pre>{m.sql}</pre>
                     </div>
                   )}
                   {m.result && <ResultTable result={m.result} />}
+                  {m.role === 'assistant' && (m.ts !== undefined || m.model) && (
+                    <ChatMessageMetadata
+                      timestamp={m.ts !== undefined ? <Timestamp value={m.ts / 1000} format="time" /> : undefined}
+                      footer={m.model}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -353,34 +386,28 @@ function AiChat() {
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">✦</span>
             <div className="ai-bubble ai-busy">
-              <span className="ai-spinner" aria-hidden="true" />
-              {status || 'Thinking…'}
+              <Spinner size="md" />
+              <span>{status || 'Thinking…'}</span>
             </div>
           </div>
         )}
       </div>
 
       <div className="ai-composer-wrap">
-        <div className="ai-composer">
-          <textarea
-            ref={inputRef}
-            value={input}
-            placeholder='Try "find ATM puts with high IV in the Tech sector"…'
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={2}
-            disabled={busy}
-          />
-          {getApiKey() ? (
-            <button className="ai-send" onClick={() => send(input)} disabled={busy || !input.trim()}>
-              {busy ? '…' : 'Send'}
-            </button>
-          ) : (
-            <button className="ai-send ai-send-cta" onClick={() => setShowSettings(true)} title="Connect to start chatting">
-              Connect
-            </button>
-          )}
-        </div>
+        <ChatComposer
+          value={input}
+          onChange={setInput}
+          onSubmit={(v) => send(v)}
+          isDisabled={busy}
+          placeholder='Try "find ATM puts with high IV in the Tech sector"…'
+          sendButton={
+            getApiKey() ? (
+              <ChatSendButton />
+            ) : (
+              <Button variant="primary" label="Connect" tooltip="Connect to start chatting" onClick={() => setShowSettings(true)} />
+            )
+          }
+        />
         <div className="ai-foot">
           Enter to send · Shift+Enter for newline · Bring your own key · SQL never leaves your browser
         </div>
