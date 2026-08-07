@@ -100,7 +100,12 @@ export async function startOAuthFlow(): Promise<void> {
 
 /** Detect whether the current URL is an OpenRouter OAuth callback. */
 export function isOAuthCallback(): boolean {
-  return new URLSearchParams(window.location.search).get(OAUTH_CALLBACK_PARAM) === '1';
+  const p = new URLSearchParams(window.location.search);
+  // OpenRouter appends `?code=...` to the redirect URL but drops the
+  // `oauth_callback=1` marker we put in the callback_url (observed live:
+  // it returned `/ai?code=…` with no marker). So detect the return trip by
+  // the `code` param; keep the marker check only as defense in depth.
+  return p.has('code') || p.get(OAUTH_CALLBACK_PARAM) === '1';
 }
 
 /**
@@ -110,9 +115,11 @@ export function isOAuthCallback(): boolean {
  */
 export async function handleOAuthCallback(): Promise<boolean> {
   const params = new URLSearchParams(window.location.search);
-  if (params.get(OAUTH_CALLBACK_PARAM) !== '1') return false;
-
   const code = params.get('code');
+  // OpenRouter drops the `oauth_callback=1` marker (only `?code=…` survives),
+  // so the presence of `code` alone identifies the return trip.
+  if (!code && params.get(OAUTH_CALLBACK_PARAM) !== '1') return false;
+
   const verifier = sessionStorage.getItem(OAUTH_SESSION_KEY);
   sessionStorage.removeItem(OAUTH_SESSION_KEY);
 
@@ -125,6 +132,8 @@ export async function handleOAuthCallback(): Promise<boolean> {
     '',
     `${window.location.pathname}${qs ? `?${qs}` : ''}`,
   );
+
+  console.log('[OpenRouter OAuth] callback code:', code);
 
   if (!code) throw new Error('OAuth callback missing the authorization code.');
 
@@ -155,6 +164,10 @@ export async function handleOAuthCallback(): Promise<boolean> {
     throw new Error('OpenRouter did not return an API key.');
   }
   setApiKey(key);
+  console.log(
+    `[OpenRouter OAuth] API key stored in localStorage (len=${key.length}); ` +
+      `chat is configured.`,
+  );
   return true;
 }
 
