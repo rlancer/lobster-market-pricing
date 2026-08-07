@@ -7,6 +7,7 @@ import {
   ChatMessageMetadata,
   ChatSendButton,
   Markdown,
+  Selector,
   Spinner,
   Timestamp,
   useChatStreamScroll,
@@ -25,15 +26,59 @@ import {
   startOAuthFlow,
 } from './ai';
 
-const MODEL_SUGGESTIONS = [
-  'openai/gpt-4o-mini',
-  'openai/gpt-4o',
-  'anthropic/claude-3.5-sonnet',
-  'anthropic/claude-3.5-haiku',
-  'google/gemini-2.0-flash-001',
-  'meta-llama/llama-3.1-8b-instruct',
-  'openrouter/auto',
+// Curated OpenRouter model suggestions, grouped by provider for the Selector.
+// The chat state (localStorage) can hold any model id a user typed before, so
+// the options are built at render time and the current value is merged back if
+// it isn't already listed — the selector must never drop the active model.
+interface ModelOption {
+  value: string;
+  label: string;
+}
+interface ModelGroup {
+  title: string;
+  options: ModelOption[];
+}
+const MODEL_GROUPS: ModelGroup[] = [
+  {
+    title: 'Anthropic',
+    options: [
+      { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+      { value: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku' },
+    ],
+  },
+  {
+    title: 'OpenAI',
+    options: [
+      { value: 'openai/gpt-4o-mini', label: 'GPT-4o mini' },
+      { value: 'openai/gpt-4o', label: 'GPT-4o' },
+    ],
+  },
+  {
+    title: 'Google',
+    options: [{ value: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' }],
+  },
+  {
+    title: 'Meta',
+    options: [{ value: 'meta-llama/llama-3.1-8b-instruct', label: 'Llama 3.1 8B' }],
+  },
+  {
+    title: 'Auto',
+    options: [{ value: 'openrouter/auto', label: 'OpenRouter auto' }],
+  },
 ];
+
+function buildModelOptions(model: string): { type: 'section'; title?: string; options: ModelOption[] }[] {
+  const groups = MODEL_GROUPS.map((g) => ({
+    type: 'section' as const,
+    title: g.title,
+    options: g.options,
+  }));
+  const known = MODEL_GROUPS.flatMap((g) => g.options.map((o) => o.value));
+  if (model && !known.includes(model)) {
+    groups.push({ type: 'section', title: 'Custom', options: [{ value: model, label: model }] });
+  }
+  return groups;
+}
 
 const EXAMPLES = [
   'Find the most liquid call options expiring within 30 days',
@@ -239,6 +284,17 @@ function AiChat() {
         </div>
         <div className="ai-head-actions">
           <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} title={getApiKey() ? 'API key set' : 'No API key'} />
+          <Selector
+            label="Model"
+            size="sm"
+            isLabelHidden
+            hasSearch
+            searchPlaceholder="Search models…"
+            width={236}
+            options={buildModelOptions(model)}
+            value={model}
+            onChange={(m) => { if (m) saveModel(m); }}
+          />
           <Button variant="ghost" size="sm" label="Settings" onClick={() => setShowSettings((s) => !s)} />
           <Button variant="ghost" size="sm" label="New chat" onClick={newChat} />
         </div>
@@ -276,19 +332,16 @@ function AiChat() {
                 )}
               </div>
             </label>
-            <label>
-              <span>Model</span>
-              <input
-                list="ai-model-list"
-                value={model}
-                spellCheck={false}
-                placeholder="openai/gpt-4o-mini"
-                onChange={(e) => saveModel(e.target.value)}
-              />
-              <datalist id="ai-model-list">
-                {MODEL_SUGGESTIONS.map((m) => <option key={m} value={m} />)}
-              </datalist>
-            </label>
+            <Selector
+              label="Model"
+              size="md"
+              hasSearch
+              searchPlaceholder="Search models…"
+              options={buildModelOptions(model)}
+              value={model}
+              onChange={(m) => { if (m) saveModel(m); }}
+              className="ai-settings-model"
+            />
           </div>
           <p className="ai-settings-note">
             Your key is sent only to <b>openrouter.ai</b> from your browser. It is never
