@@ -195,6 +195,12 @@ export interface LoaderStatus {
   } | null;
   next_alarm: number | null;
   passing: boolean;
+  market?: {
+    open: boolean;
+    reason?: 'open' | 'overnight' | 'after-hours' | 'weekend' | 'holiday';
+    now_et?: string | null;
+    next_open_et?: string | null;
+  };
 }
 
 export type LoaderFilter = 'all' | 'failing' | 'retrying' | 'stale' | 'disabled';

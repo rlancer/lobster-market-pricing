@@ -100,8 +100,9 @@ Migrations in `migrations/` are also applied automatically on deploy.
 ### Observability
 
 - `GET /loop/status` — counts (total / enabled / due / failing), the last pass
-  summary (`last_pass`), the next alarm time, and whether a pass is in flight.
-  Read-only; safe to expose to the consumer without waking the container.
+  summary (`last_pass`), the next alarm time, whether a pass is in flight, and
+  `market` (open / reason / `now_et` / `next_open_et`). Read-only; safe to
+  expose to the consumer without waking the container.
 - `GET /loop/symbols?filter=&q=&limit=&offset=&sort=&order=` — paginated,
   read-only per-symbol listing of `symbol_state`. Read-only; never writes to
   D1. `filter` ∈ `all|enabled|disabled|failing|retrying|due|stale` (default
@@ -130,6 +131,15 @@ will be slow to fully cycle until tuned. All are `vars` in `wrangler.jsonc`:
 | `LOADER_BACKOFF_BASE_SECONDS` | 60 | first failure backoff |
 | `LOADER_BACKOFF_CAP_SECONDS` | 1800 | max backoff (30 min) |
 | `LOADER_RUN_TIMEOUT_SECONDS` | 300 | abort a stuck container `/run`; that batch is backed off and retried |
+| `MARKET_HOURS_ENABLED` | true | skip passes + sleep until open when the US regular session is closed |
+| `MARKET_OPEN_MINUTES` | 570 (09:30 ET) | market open, minutes-since-midnight ET |
+| `MARKET_CLOSE_MINUTES` | 960 (16:00 ET) | market close, minutes-since-midnight ET |
+| `MARKET_EARLY_CLOSE_MINUTES` | 780 (13:00 ET) | early-close time (Christmas Eve, Black Friday) |
+
+Outside regular US market hours (weekends, US holidays, overnight/after-hours)
+there is no new CBOE data, so the loop sleeps one far-out alarm until the next
+open and skips passes entirely — no container waking, no Pipeline/R2 writes.
+Set `MARKET_HOURS_ENABLED=false` to always run (e.g. for backfills).
 
 To reach the ~15-min full cadence, raise `LOADER_BATCH_SIZE` so the container
 can cycle ~503 symbols within ~15 min (e.g. 34+ per minute given the container's

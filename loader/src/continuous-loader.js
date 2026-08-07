@@ -32,6 +32,161 @@ function num(env, key, dflt) {
   return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
+// ---------------------------------------------------------------------------
+// US market-hours gating
+//
+// CBOE S&P 500 quotes only change during the regular US session
+// (09:30–16:00 ET, Mon–Fri, excluding US market holidays; some days close
+// early at 13:00 ET). When the market is closed there is no new data, so to
+// avoid wasting CPU / DO-wakes / container + Pipeline spend we sleep the
+// alarm loop until the next open (a single far-out alarm) and skip passes
+// entirely. MARKET_HOURS_ENABLED="false" restores the always-on behavior.
+// ---------------------------------------------------------------------------
+const MIN = 60000;
+const HOUR = 3600000;
+
+function nthWeekdayDayOfMonth(year, month0, weekday, n) {
+  const first = new Date(Date.UTC(year, month0, 1)).getUTCDay();
+  const offset = (weekday - first + 7) % 7;
+  return 1 + offset + (n - 1) * 7;
+}
+
+function lastWeekdayDayOfMonth(year, month0, weekday) {
+  const days = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+  const last = new Date(Date.UTC(year, month0, days)).getUTCDay();
+  const offset = (last - weekday + 7) % 7;
+  return days - offset;
+}
+
+// Gregorian Computus — Easter as a UTC-midnight epoch (ms).
+function easterUtcMs(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month0 = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return Date.UTC(year, month0, day);
+}
+
+// Is `utcMs` inside US DST (America/New_York): 2nd Sun Mar 07:00 UTC →
+// 1st Sun Nov 06:00 UTC.
+function isUcDst(utcMs) {
+  const y = new Date(utcMs).getUTCFullYear();
+  const start = Date.UTC(y, 2, nthWeekdayDayOfMonth(y, 2, 0, 2), 7);
+  const end = Date.UTC(y, 10, nthWeekdayDayOfMonth(y, 10, 0, 1), 6);
+  return utcMs >= start && utcMs < end;
+}
+
+// ET offset (hours behind UTC) at a given instant: 5 (EST) / 4 (EDT).
+function etOffsetHours(utcMs) {
+  return isUcDst(utcMs) ? 4 : 5;
+}
+
+// ET wall-clock view of `utcMs` as a synthetic UTC Date whose calendar fields
+// read as America/New_York local time.
+function etWall(utcMs) {
+  return new Date(utcMs - etOffsetHours(utcMs) * HOUR);
+}
+
+// Fully-closed US market holiday for an ET wall-clock date `w`.
+function isHolidayClosed(w) {
+  const y = w.getUTCFullYear();
+  const mo = w.getUTCMonth(), d = w.getUTCDate();
+  const on = (m0, day) => mo === m0 && d === day;
+  const observed = (m0, day) => {
+    const dy = new Date(Date.UTC(y, m0, day)).getUTCDay();
+    if (dy === 0) return on(m0, day + 1); // Sun -> Mon
+    if (dy === 6) return on(m0, day - 1); // Sat -> Fri
+    return on(m0, day);
+  };
+  const gf = new Date(easterUtcMs(y) - 2 * 86400000);
+  return (
+    observed(0, 1) ||                                   // New Year's Day
+    on(0, nthWeekdayDayOfMonth(y, 0, 1, 3)) ||          // MLK (3rd Mon Jan)
+    on(1, nthWeekdayDayOfMonth(y, 1, 1, 3)) ||          // Presidents (3rd Mon Feb)
+    on(gf.getUTCMonth(), gf.getUTCDate()) ||            // Good Friday
+    on(4, lastWeekdayDayOfMonth(y, 4, 1)) ||            // Memorial (last Mon May)
+    observed(5, 19) ||                                  // Juneteenth
+    observed(6, 4) ||                                   // Independence Day
+    on(8, nthWeekdayDayOfMonth(y, 8, 1, 1)) ||          // Labor (1st Mon Sep)
+    on(10, nthWeekdayDayOfMonth(y, 10, 4, 4)) ||        // Thanksgiving (4th Thu Nov)
+    observed(11, 25)                                    // Christmas
+  );
+}
+
+// Early-close days (13:00 ET): Christmas Eve + the Friday after Thanksgiving.
+function isEarlyClose(w) {
+  const y = w.getUTCFullYear();
+  const bf = new Date(Date.UTC(y, 10, nthWeekdayDayOfMonth(y, 10, 4, 4) + 1));
+  return (
+    (w.getUTCMonth() === 11 && w.getUTCDate() === 24) ||
+    (w.getUTCMonth() === bf.getUTCMonth() && w.getUTCDate() === bf.getUTCDate())
+  );
+}
+
+function marketHoursEnabled(env) {
+  return (env && env.MARKET_HOURS_ENABLED) !== "false";
+}
+
+function marketState(nowMs, env) {
+  const openMin = Math.floor(num(env, "MARKET_OPEN_MINUTES", 9 * 60 + 30));
+  const closeMin = Math.floor(num(env, "MARKET_CLOSE_MINUTES", 16 * 60));
+  const earlyMin = Math.floor(num(env, "MARKET_EARLY_CLOSE_MINUTES", 13 * 60));
+  const w = etWall(nowMs);
+  const weekday = w.getUTCDay();
+  const minutes = w.getUTCHours() * 60 + w.getUTCMinutes();
+  const base = { now_minutes: minutes, weekday, now_et: w.toISOString() };
+  if (weekday === 0 || weekday === 6) {
+    return { open: false, reason: "weekend", ...base, next_open: nextOpenMs(nowMs, env) };
+  }
+  if (isHolidayClosed(w)) {
+    return { open: false, reason: "holiday", ...base, next_open: nextOpenMs(nowMs, env) };
+  }
+  const closeToday = isEarlyClose(w) ? earlyMin : closeMin;
+  if (minutes >= openMin && minutes < closeToday) {
+    return { open: true, reason: "open", ...base, next_open: null };
+  }
+  return {
+    open: false,
+    reason: minutes < openMin ? "overnight" : "after-hours",
+    ...base,
+    next_open: nextOpenMs(nowMs, env),
+  };
+}
+
+// Epoch ms of the next US market open strictly after `nowMs`.
+function nextOpenMs(nowMs, env) {
+  const openMin = Math.floor(num(env, "MARKET_OPEN_MINUTES", 9 * 60 + 30));
+  const w = etWall(nowMs);
+  let y = w.getUTCFullYear(), mo = w.getUTCMonth(), d = w.getUTCDate();
+  for (let i = 0; i < 16; i++) {
+    const dow = new Date(Date.UTC(y, mo, d)).getUTCDay();
+    const isTrading = dow !== 0 && dow !== 6 && !isHolidayClosed(new Date(Date.UTC(y, mo, d)));
+    if (isTrading) {
+      const dayUtc = Date.UTC(y, mo, d);
+      const offH = etOffsetHours(dayUtc + openMin * MIN);
+      const openMs = dayUtc + openMin * MIN + offH * HOUR;
+      if (openMs > nowMs) return openMs;
+    }
+    const nd = new Date(Date.UTC(y, mo, d + 1));
+    y = nd.getUTCFullYear(); mo = nd.getUTCMonth(); d = nd.getUTCDate();
+  }
+  return nowMs + 24 * HOUR;
+}
+
+// When the next alarm should fire: poll cadence while open, otherwise sleep
+// until the next market open.
+function nextWakeMs(env, nowMs) {
+  const pollMs = Math.floor(num(env, "LOADER_POLL_INTERVAL_SECONDS", 60) * 1000);
+  if (!marketHoursEnabled(env)) return nowMs + pollMs;
+  const st = marketState(nowMs, env);
+  return st.open ? nowMs + pollMs : (st.next_open != null ? st.next_open : nowMs + pollMs);
+}
+
 // Reused by both the public /run endpoint and the driver's internal call so the
 // container always receives the correct, authenticated Pipeline URLs/token.
 export function pipelineHeaders(env) {
@@ -98,8 +253,7 @@ export class CboeContinuousLoader {
   async ensureArmed() {
     const existing = await this.ctx.storage.getAlarm();
     if (existing == null) {
-      const pollMs = Math.floor(num(this.env, "LOADER_POLL_INTERVAL_SECONDS", 60) * 1000);
-      await this.ctx.storage.setAlarm(Date.now() + pollMs);
+      await this.ctx.storage.setAlarm(nextWakeMs(this.env, Date.now()));
     }
   }
 
@@ -110,9 +264,9 @@ export class CboeContinuousLoader {
       // Never let a bad pass stop the loop. Log and re-arm.
       console.log(JSON.stringify({ event: "pass_error", error: String((error && error.message) || error) }));
     } finally {
-      // Re-arm unconditionally so the loop is self-sustaining.
-      const pollMs = Math.floor(num(this.env, "LOADER_POLL_INTERVAL_SECONDS", 60) * 1000);
-      await this.ctx.storage.setAlarm(Date.now() + pollMs);
+      // Re-arm unconditionally so the loop is self-sustaining. While the
+      // market is closed this sleeps until the next open rather than polling.
+      await this.ctx.storage.setAlarm(nextWakeMs(this.env, Date.now()));
     }
   }
 
@@ -196,6 +350,9 @@ export class CboeContinuousLoader {
 
   async tick() {
     if (await this.ctx.storage.get("passing")) return; // single-flight guard
+    // Outside regular market hours there is no new CBOE data; skip the pass
+    // (no container call / no D1 writes) and let alarm() sleep until open.
+    if (marketHoursEnabled(this.env) && !marketState(Date.now(), this.env).open) return;
     await this.ctx.storage.put("passing", true);
     try {
       const env = this.env;
@@ -279,6 +436,7 @@ export class CboeContinuousLoader {
     const lastPassRow = await this.env.LOADER_DB
       .prepare(`SELECT value FROM loader_meta WHERE key = 'last_pass'`)
       .first();
+    const m = marketState(now, this.env);
     return {
       ok: true,
       driver: "continuous",
@@ -286,6 +444,12 @@ export class CboeContinuousLoader {
       last_pass: lastPassRow ? JSON.parse(lastPassRow.value) : null,
       next_alarm: await this.ctx.storage.getAlarm(),
       passing: !!(await this.ctx.storage.get("passing")),
+      market: {
+        open: m.open,
+        reason: m.reason,
+        now_et: m.now_et,
+        next_open_et: m.next_open != null ? new Date(m.next_open).toISOString() : null,
+      },
     };
   }
 

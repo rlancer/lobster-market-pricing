@@ -18,6 +18,21 @@
 }
 .ls-error span { color: var(--text); }
 
+/* Market-closed indicator (no new data off-session). */
+.ls-market-closed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: color-mix(in srgb, #ff9f0a 14%, transparent);
+  border: 1px solid color-mix(in srgb, #ff9f0a 45%, transparent);
+  color: #ff9f0a;
+  padding: 10px 12px;
+  border-radius: var(--radius-element, 8px);
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.ls-market-closed span { color: var(--text); }
+
 .ls-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -53,6 +68,7 @@
 
 .ls-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .ls-dot.ok { background: var(--success, #34c759); }
+.ls-dot.muted { background: var(--muted); }
 .ls-dot.run { background: var(--accent); animation: ls-pulse 1.6s infinite; }
 @keyframes ls-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 

@@ -64,6 +64,24 @@ const badgeOf = (s: LoaderSymbol): Badge => {
 
 const FILTERS: LoaderFilter[] = ['all', 'failing', 'retrying', 'stale', 'disabled'];
 
+const MARKET_REASON: Record<string, string> = {
+  overnight: 'before the regular 09:30 ET session',
+  'after-hours': 'after the 16:00 ET close',
+  weekend: 'weekend',
+  holiday: 'US market holiday',
+};
+
+/** Next open as a short ET date/time string ("Mon, Sep 7, 9:30 AM"). */
+const fmtOpen = (mkt: NonNullable<LoaderStatus['market']>): string => {
+  if (!mkt.next_open_et) return 'the next session';
+  const d = new Date(mkt.next_open_et);
+  if (Number.isNaN(d.getTime())) return 'the next session';
+  return d.toLocaleString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York',
+  });
+};
+
 export default function LoaderStatus() {
   const [status, setStatus] = useState<LoaderStatus | null>(null);
   const [symbols, setSymbols] = useState<LoaderSymbol[]>([]);
@@ -106,6 +124,7 @@ export default function LoaderStatus() {
 
   const counts = status?.counts;
   const lp = status?.last_pass;
+  const mkt = status?.market;
 
   return (
     <div className="loader-status">
@@ -115,6 +134,16 @@ export default function LoaderStatus() {
           Live state of the continuous CBOE refresh loop (per-symbol D1, read-only).
         </p>
       </div>
+
+      {mkt && mkt.open === false && (
+        <div className="ls-market-closed" role="status">
+          <b>Market closed — refreshes paused</b>
+          <span>
+            {MARKET_REASON[mkt.reason ?? ''] ? `Reason: ${MARKET_REASON[mkt.reason ?? '']}. ` : ''}
+            Resumes {fmtOpen(mkt)} ET.
+          </span>
+        </div>
+      )}
 
       {error && (
         <div className="ls-error" role="alert">
@@ -143,9 +172,19 @@ export default function LoaderStatus() {
         <div className="ls-card ls-card-wide">
           <span className="ls-card-label">Loop health</span>
           <b>
-            <span className={`ls-dot ${status?.passing ? 'run' : 'ok'}`} aria-hidden="true" />
-            {status?.passing ? 'Running a pass now' : 'Idle'}
-            <span className="muted"> · next refresh {status?.next_alarm != null ? rel(status.next_alarm) : '–'}</span>
+            {mkt && mkt.open === false ? (
+              <>
+                <span className="ls-dot muted" aria-hidden="true" />
+                Paused — market closed
+                <span className="muted">{mkt.next_open_et ? ` · resumes ${fmtOpen(mkt)} ET` : ''}</span>
+              </>
+            ) : (
+              <>
+                <span className={`ls-dot ${status?.passing ? 'run' : 'ok'}`} aria-hidden="true" />
+                {status?.passing ? 'Running a pass now' : 'Idle'}
+                <span className="muted"> · next refresh {status?.next_alarm != null ? rel(status.next_alarm) : '–'}</span>
+              </>
+            )}
           </b>
         </div>
       </div>
