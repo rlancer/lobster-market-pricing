@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
+import { Markdown, useChatStreamScroll } from '@astryxdesign/core';
 import { type QueryResult } from './api';
 import { OpenRouterLogo } from './OpenRouterLogo';
 import {
@@ -134,10 +135,10 @@ function AiChat() {
     }
   };
 
+  const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs, busy, status]);
+    scrollIfLocked();
+  }, [scrollIfLocked, msgs, busy, status]);
 
   const saveKey = () => {
     setApiKey(key);
@@ -322,7 +323,11 @@ function AiChat() {
                 <div className="ai-err">{m.error}</div>
               ) : (
                 <>
-                  {m.content && <div className="ai-text">{m.content}</div>}
+                  {m.content && (
+                    m.role === 'assistant'
+                      ? <div className="ai-text"><Markdown>{m.content}</Markdown></div>
+                      : <div className="ai-text">{m.content}</div>
+                  )}
                   {m.sql && (
                     <div className="ai-sql">
                       <div className="ai-sql-head">
