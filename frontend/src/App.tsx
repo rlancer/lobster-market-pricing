@@ -1,5 +1,6 @@
 import { useCallback, useContext, createContext, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { CircleHelp } from 'lucide-react';
 import './App.css';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import LiquidityFilter from './LiquidityFilter';
@@ -155,7 +156,7 @@ function Layout() {
                 title="Docs — how this platform works"
                 aria-label="Docs — how this platform works"
               >
-                <span className="docs-glyph" aria-hidden="true">?</span>
+                <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
               </Link>
             </div>
           </header>
