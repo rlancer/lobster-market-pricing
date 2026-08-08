@@ -4,9 +4,9 @@ import './Explorer.css';
 import { api, type QueryResult, type TableInfo } from './api';
 
 const SAMPLES = [
-  'SELECT * FROM options.underlyings LIMIT 50',
+  'SELECT ticker AS symbol, name, sector, spot_price FROM options.underlying_snapshots LIMIT 50',
   'SELECT symbol, COUNT(*) AS contracts, MAX(expiration) AS latest_expiry\nFROM options.option_contracts\nGROUP BY 1\nORDER BY contracts DESC\nLIMIT 20',
-  'SELECT sector, COUNT(*) AS symbols, ROUND(AVG(spot_price), 2) AS avg_spot\nFROM options.underlyings\nGROUP BY sector\nORDER BY symbols DESC',
+  'SELECT sector, COUNT(*) AS symbols, ROUND(AVG(spot_price), 2) AS avg_spot\nFROM options.underlying_snapshots\nGROUP BY sector\nORDER BY symbols DESC',
   'SELECT type, COUNT(*) AS n, ROUND(AVG(implied_vol), 4) AS avg_iv,\n         ROUND(AVG(volume), 0) AS avg_vol\nFROM options.option_contracts\nGROUP BY type',
   'SELECT symbol, expiration, type, strike, bid, ask, volume, implied_vol, delta\nFROM options.option_contracts\nWHERE volume > 0\nORDER BY volume DESC\nLIMIT 100',
 ];

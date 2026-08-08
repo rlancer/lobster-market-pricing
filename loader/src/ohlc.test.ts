@@ -30,6 +30,7 @@ function barsFromCloses(closes: number[]): DailyBar[] {
     high: close,
     low: close,
     close,
+    adjustedClose: close,
     volume: 1000,
   }));
 }

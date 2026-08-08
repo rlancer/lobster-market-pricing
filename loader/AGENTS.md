@@ -90,13 +90,27 @@ Contracts:   <PIPELINE_CONTRACTS_URL secret — see Cloudflare dashboard / wrang
 Underlyings: <PIPELINE_UNDERLYINGS_URL secret — see Cloudflare dashboard / wrangler secret>
 OHLC:        <PIPELINE_OHLC_URL secret — stream cboe_ohlc_v2>
 RealizedVol: <PIPELINE_REALIZED_VOL_URL secret — stream cboe_realized_vol_v2>
+CorporateActions: <PIPELINE_CORPORATE_ACTIONS_URL secret — stream cboe_corporate_actions_v2>
+Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
+SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
+UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
 Streams: cboe_option_contracts_v2, cboe_underlyings_v2, cboe_refresh_runs_v2,
-         cboe_ohlc_v2, cboe_realized_vol_v2
+         cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
+         cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2
 Sinks:   cboe_option_contracts_sink, cboe_underlyings_sink, cboe_refresh_runs_sink,
-         cboe_ohlc_sink, cboe_realized_vol_sink
+         cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
+         cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink
 Tables: options.option_contracts, options.underlyings, options.refresh_runs,
-        options.ohlc, options.realized_vol
+        options.ohlc, options.realized_vol, options.corporate_actions,
+        options.securities, options.symbol_history, options.underlying_snapshots
 ```
+
+S&P 500 OHLC backfill (`ohlc-backfill` job, item-scoped with a
+`ohlc_backfill_state` D1 item store; trigger `POST /jobs/ohlc-backfill/trigger`):
+Yahoo chart v8 with `period1`/`period2` + `events=div,split`; realized vol is
+computed off **adjusted** closes; dividends/splits go to `options.corporate_actions`.
+`security_id` is a deterministic ticker-derived UUID (`src/symbology.ts`) shared by
+securities / symbol_history / corporate_actions / the backfill item store.
 
 Inspect existing infrastructure before changing it (names above):
 

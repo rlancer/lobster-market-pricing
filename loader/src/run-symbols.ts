@@ -13,6 +13,7 @@
 // directly testable.
 
 import constituentsData from "../symbols/sp500_constituents.json";
+import { securityIdForTicker } from "./symbology.js";
 
 export const DEFAULT_CBOE_URL_TEMPLATE =
   "https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json";
@@ -48,6 +49,7 @@ export interface LoaderEnv {
   PIPELINE_RUNS_URL?: string;
   PIPELINE_CONTRACTS_URL?: string;
   PIPELINE_UNDERLYINGS_URL?: string;
+  PIPELINE_UNDERLYING_SNAPSHOTS_URL?: string;
   PIPELINE_ERRORS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   MAX_SYMBOLS?: number;
@@ -407,6 +409,33 @@ function semaphore(limit: number): { acquire(): Promise<void>; release(): void }
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
+
+// Shape an underlying_snapshots record (options.underlying_snapshots) from the
+// underlyings record. It keeps the run-history half (spot + run/fetched timing)
+// plus the denormalized ticker/name/sector, keyed by the stable security_id.
+function underlyingSnapshot(
+  symbol: string,
+  underlying: Record<string, unknown>,
+): Record<string, unknown> {
+  const rec: Record<string, unknown> = {
+    security_id: securityIdForTicker(symbol),
+    ticker: underlying.symbol ?? symbol,
+    spot_price: underlying.spot_price ?? null,
+    name: underlying.name ?? null,
+    sector: underlying.sector ?? null,
+    run_id: underlying.run_id,
+    as_of_date: underlying.as_of_date,
+    fetched_at: underlying.fetched_at,
+  };
+  const out: Record<string, unknown> = {};
+  const SNAPSHOT_FIELDS = [
+    "security_id", "ticker", "spot_price", "name", "sector",
+    "run_id", "as_of_date", "fetched_at",
+  ] as const;
+  for (const f of SNAPSHOT_FIELDS) out[f] = rec[f];
+  return out;
+}
+
 export async function runSymbols(symbols: string[], env: LoaderEnv = {}): Promise<RunResult> {
   const normalized = normalizeSymbols(symbols);
   const maxSymbols = Math.floor(num(env.MAX_SYMBOLS, MAX_SYMBOLS_DEFAULT));
@@ -421,6 +450,7 @@ export async function runSymbols(symbols: string[], env: LoaderEnv = {}): Promis
 
   const runUrl = env.PIPELINE_RUNS_URL || "";
   const underlyingUrl = env.PIPELINE_UNDERLYINGS_URL || "";
+  const snapshotUrl = env.PIPELINE_UNDERLYING_SNAPSHOTS_URL || "";
   const contractsUrl = env.PIPELINE_CONTRACTS_URL || "";
   const errorUrl = env.PIPELINE_ERRORS_URL || "";
   const authToken = env.PIPELINE_AUTH_TOKEN || "";
@@ -487,13 +517,27 @@ export async function runSymbols(symbols: string[], env: LoaderEnv = {}): Promis
       }
       nextToPublish += 1;
       if (outcome !== null) {
+        const symbol = normalized[nextToPublish - 1];
         await requestJson(
           underlyingUrl,
           [outcome.underlying],
-          `${runId}:underlying:${normalized[nextToPublish - 1]}`,
+          `${runId}:underlying:${symbol}`,
           authToken,
           env,
         );
+        // Decoupled underlying snapshot (run-history half of the old
+        // underlyings table) — options.underlying_snapshots. security_id is the
+        // deterministic ticker-derived id so it lines up with securities /
+        // symbol_history / corporate_actions.
+        if (snapshotUrl) {
+          await requestJson(
+            snapshotUrl,
+            [underlyingSnapshot(symbol, outcome.underlying)],
+            `${runId}:underlying_snapshot:${symbol}`,
+            authToken,
+            env,
+          );
+        }
       }
       // Free this symbol's buffered records now that they've been fully drained
       // into published chunks. Without this the `results` array pins every
