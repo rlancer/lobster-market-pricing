@@ -3,7 +3,7 @@ import { CboeContinuousLoader } from "./scheduler.js";
 
 const RUNS_URL = "https://runs.example";
 const CONTRACTS_URL = "https://contracts.example";
-const UNDERLYINGS_URL = "https://underlyings.example";
+const SNAPSHOTS_URL = "https://snapshots.example";
 const ERRORS_URL = "https://errors.example";
 
 function cboePayload(symbol: string) {
@@ -80,7 +80,7 @@ function baseEnv(db: unknown, symbols: string[]): Record<string, unknown> {
     LOADER_BATCH_SIZE: 10,
     PIPELINE_RUNS_URL: RUNS_URL,
     PIPELINE_CONTRACTS_URL: CONTRACTS_URL,
-    PIPELINE_UNDERLYINGS_URL: UNDERLYINGS_URL,
+    PIPELINE_UNDERLYING_SNAPSHOTS_URL: SNAPSHOTS_URL,
     PIPELINE_ERRORS_URL: ERRORS_URL,
     PIPELINE_AUTH_TOKEN: "token",
     SYMBOL_CONCURRENCY: 2,
@@ -136,8 +136,8 @@ describe("CboeContinuousLoader wiring", () => {
       .flatMap((c) => JSON.parse(c.body));
     expect(contractRecords).toHaveLength(4);
     const underlyingSymbols = captures
-      .filter((c) => c.url === UNDERLYINGS_URL)
-      .map((c) => JSON.parse(c.body)[0].symbol)
+      .filter((c) => c.url === SNAPSHOTS_URL)
+      .map((c) => JSON.parse(c.body)[0].ticker)
       .sort();
     expect(underlyingSymbols).toEqual([...symbols].sort());
 

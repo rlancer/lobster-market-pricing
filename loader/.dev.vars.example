@@ -13,7 +13,6 @@
 # **Workers Pipelines -> Send** permission — other tokens get 401 code 1014):
 #   npx wrangler secret put PIPELINE_RUNS_URL
 #   npx wrangler secret put PIPELINE_CONTRACTS_URL
-#   npx wrangler secret put PIPELINE_UNDERLYINGS_URL
 #   npx wrangler secret put PIPELINE_ERRORS_URL        # leave empty to disable
 #   npx wrangler secret put PIPELINE_OHLC_URL          # stream cboe_ohlc_v2
 #   npx wrangler secret put PIPELINE_REALIZED_VOL_URL  # stream cboe_realized_vol_v2
@@ -30,7 +29,6 @@
 LOADER_TOKEN=
 PIPELINE_RUNS_URL=
 PIPELINE_CONTRACTS_URL=
-PIPELINE_UNDERLYINGS_URL=
 PIPELINE_ERRORS_URL=
 PIPELINE_OHLC_URL=
 PIPELINE_REALIZED_VOL_URL=

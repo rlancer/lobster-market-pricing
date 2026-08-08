@@ -15,11 +15,12 @@ enrichment path is provisioned + verified end-to-end in production.
 
 Infrastructure:
 
-- Catalog tables: `options.option_contracts`, `options.underlyings`,
-  `options.refresh_runs`, **`options.ohlc`, `options.realized_vol`**,
-  and the symbology/decoupled set **`options.securities`,
-  `options.symbol_history`, `options.underlying_snapshots`,
-  `options.corporate_actions`**
+- Catalog tables: `options.option_contracts`, `options.refresh_runs`,
+  **`options.ohlc`, `options.realized_vol`**, and the symbology/decoupled set
+  **`options.securities`, `options.symbol_history`,
+  `options.underlying_snapshots`, `options.corporate_actions`**. The old
+  `options.underlyings` table was **retired** at cutover — descriptive facts
+  live in `securities`, run-history snapshots in `underlying_snapshots`.
 - Jobs (D1 `job_state` ledger): `cboe-options` (continuous, market-gated, item
   store `symbol_state`), `ohlc-daily` (daily, ungated, whole universe), and
   `ohlc-backfill` (item-scoped, resumable via the `ohlc_backfill_state` D1 item
@@ -27,7 +28,7 @@ Infrastructure:
 - Scheduler observability: `GET /jobs`, `GET /jobs/{id}`,
   `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`); `/loop/*` stay as
   cboe-options back-compat aliases for the monitor
-- `options.underlyings` carries `name` and `sector` enriched from the S&P 500 Wikipedia constituents manifest (`symbols/sp500_constituents.json`), which is bundled with the Worker. CBOE's delayed-quotes endpoint does not return a company name or sector, so the loader merges them from the static manifest at publish time; symbols missing from the manifest fall back to `name = symbol`, `sector = 'Unknown'`.
+- `options.underlying_snapshots` carries `name` and `sector` denormalized per snapshot, enriched from the S&P 500 Wikipedia constituents manifest (`symbols/sp500_constituents.json`), which is bundled with the Worker. CBOE's delayed-quotes endpoint does not return a company name or sector, so the loader merges them from the static manifest at publish time; symbols missing from the manifest fall back to `name = symbol`, `sector = 'Unknown'`. The stable identity (a deterministic ticker-derived `security_id`, `src/symbology.ts`) lives on `securities` / `symbol_history` / `corporate_actions` and lines up across all writers.
 - Worker: `cboe-to-r2`
 - Deployment: GitHub Actions workflow (auto on push to `main`), including the
   D1 migration step
@@ -199,7 +200,7 @@ overlap it near-linearly with no thread/GIL artifact — a 24-symbol fixture run
 at ~4–8× wall-clock as C scales. Contract batches are flushed with unique
 idempotency keys, and publication is serialized in symbol-input order.
 Verified: an 8-symbol fixture with stubbed CBOE/Pipeline produces byte-identical
-pipeline output at C=1 and C=8 (same contracts, underlyings, run/error records).
+pipeline output at C=1 and C=8 (same contracts, underlying snapshots, run/error records).
 
 Outside regular US market hours (weekends, US holidays, overnight/after-hours)
 there is no new CBOE data, so the loop sleeps one far-out alarm until the next
@@ -388,12 +389,12 @@ SELECT COUNT(*) AS contracts,
        COUNT(DISTINCT symbol) AS symbols
 FROM options.option_contracts;
 
-SELECT COUNT(*) AS underlyings,
-       COUNT(DISTINCT symbol) AS symbols
-FROM options.underlyings;
+SELECT COUNT(*) AS underlying_snapshots,
+       COUNT(DISTINCT ticker) AS symbols
+FROM options.underlying_snapshots;
 ```
 
-Confirm the checkpoint has 503 groups, 502 complete symbols, and only the documented NVR failure (or explicitly explain any changed exceptions). Confirm every successful symbol has contract and underlying rows before treating the refresh as complete.
+Confirm the checkpoint has 503 groups, 502 complete symbols, and only the documented NVR failure (or explicitly explain any changed exceptions). Confirm every successful symbol has contract and underlying-snapshot rows before treating the refresh as complete.
 
 ## Query validation
 
