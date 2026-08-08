@@ -3,37 +3,52 @@
 Loader-only pipeline for periodic CBOE options snapshots:
 
 ```text
-CBOE → Cloudflare Worker Container → Cloudflare Pipelines → R2 Data Catalog Iceberg tables → R2 SQL
+CBOE → Cloudflare Worker (in-process loader) → Cloudflare Pipelines → R2 Data Catalog Iceberg tables → R2 SQL
 ```
 
 This package is the loader half of the `options-db` monorepo; the frontend, R2-SQL Worker API, and Pages deploy live at the repo root (`frontend/`, `worker/`, `.github/workflows/deploy.yml`). This package itself contains no frontend, browser SQL, Pages, or static Parquet-serving code.
 
 ## Current status
 
-The one-symbol AAPL smoke test completed successfully and wrote normalized option contracts to the `options` catalog namespace.
+The continuous scheduler (`EtlScheduler` + job registry) is live and the OHLC
+enrichment path is provisioned + verified end-to-end in production.
 
 Infrastructure:
 
-- Catalog tables currently in use: `options.option_contracts`, `options.underlyings`, `options.refresh_runs`; planned error table: `options.symbol_load_errors`
-- `options.underlyings` carries `name` and `sector` enriched from the S&P 500 Wikipedia constituents manifest (`symbols/sp500_constituents.json`), which is baked into the container image. CBOE's delayed-quotes endpoint does not return a company name or sector, so the loader merges them from the static manifest at publish time; symbols missing from the manifest fall back to `name = symbol`, `sector = 'Unknown'`.
+- Catalog tables: `options.option_contracts`, `options.underlyings`,
+  `options.refresh_runs`, **`options.ohlc`, `options.realized_vol`**
+- Jobs (D1 `job_state` ledger): `cboe-options` (continuous, market-gated, item
+  store `symbol_state`) and `ohlc-daily` (daily, ungated, whole universe)
+- Scheduler observability: `GET /jobs`, `GET /jobs/{id}`,
+  `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`); `/loop/*` stay as
+  cboe-options back-compat aliases for the monitor
+- `options.underlyings` carries `name` and `sector` enriched from the S&P 500 Wikipedia constituents manifest (`symbols/sp500_constituents.json`), which is bundled with the Worker. CBOE's delayed-quotes endpoint does not return a company name or sector, so the loader merges them from the static manifest at publish time; symbols missing from the manifest fall back to `name = symbol`, `sector = 'Unknown'`.
 - Worker: `cboe-to-r2`
-- Deployment: manual GitHub Actions workflow
+- Deployment: GitHub Actions workflow (auto on push to `main`), including the
+  D1 migration step
 
-The Pipeline HTTP streams are authenticated (Bearer, `PIPELINE_AUTH_TOKEN`)
-after the 2026-08-06 security fix — the ingest URLs are rotated and held only
-as Wrangler secrets. The Worker `/run` endpoint is protected by `LOADER_TOKEN`.
-The continuous loader (see below) is the intended replacement for the
-previously manual/scheduled refresh pattern.
+The Pipeline HTTP streams are authenticated (Bearer, `PIPELINE_AUTH_TOKEN`).
+The ingest token was rotated and stored in GitHub (2026-08-08) — the stream
+auth requires a Cloudflare API token with the **Workers Pipelines → Send**
+permission (other tokens return `401 / code 1014 "unauthorized to use this
+Pipeline"`). The Worker `/run`, `/loop/trigger`, and `/jobs/*/trigger` endpoints
+are protected by `LOADER_TOKEN`. OHLC `PIPELINE_OHLC_URL` /
+`PIPELINE_REALIZED_VOL_URL` are set as Worker secrets and ingest into
+`options.ohlc` / `options.realized_vol` (verified: committed → queryable via
+R2 SQL).
 
 ## Package layout
 
-- `container/loader.py` — CBOE fetch, OCC normalization, batching, retries, and refresh publication
-- `src/index.js` — Worker endpoint, Container routing, and `/loop/*` driver routing
-- `src/continuous-loader.js` — the `CboeContinuousLoader` Durable Object (the continuous background driver)
+- `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
+- `src/ohlc.ts` — OHLC + realized-vol fetch/normalize/publish prototype
+- `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
+- `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`)
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
-- `schemas/` — Pipeline input schemas
-- `wrangler.jsonc` — Worker, Container, D1, DO, and Pipeline endpoint configuration
-- `.github/workflows/deploy-loader.yml` — container deployment (auto on push to `main`)
+- `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, …)
+- `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
+- `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure
 
 ## Continuous background loader
@@ -43,7 +58,7 @@ stops**. No cron, no schedule.
 
 ### How it works
 
-A single Durable Object instance (`CboeContinuousLoader`) runs a self-rescheduling
+A single Durable Object instance (`EtlScheduler`) runs a self-rescheduling
 **alarm loop**. Each alarm pass:
 
 1. Seeds `symbol_state` from `symbols/sp500.json` on first run (every symbol,
@@ -51,10 +66,9 @@ A single Durable Object instance (`CboeContinuousLoader`) runs a self-rescheduli
 2. Picks the due batch: `WHERE enabled = 1 AND next_attempt_after <= now`
    ordered by `priority` then stalest-first (`last_success_at`), `LIMIT` the
    batch size.
-3. Calls the existing container `/run` with that batch, reusing the same
-   authenticated pipeline-headers as the public endpoint — the CBOE fetch,
-   normalization, and Iceberg publication logic in `container/loader.py` is
-   untouched.
+3. Runs the ported loader in-process for that batch — `runSymbols(batch, env)`
+   fetches each symbol from CBOE, normalizes it, and publishes to Pipeline with
+   the same retry/idempotency behavior the container used, but no external hop.
 4. Updates D1 per symbol: **success** resets failures and reschedules the next
    reload at the cadence; **failure** increments `consecutive_failures`, doubles
    `backoff_seconds` from 60s → 5m → 30m (capped), and sets `next_attempt_after`
@@ -64,11 +78,11 @@ A single Durable Object instance (`CboeContinuousLoader`) runs a self-rescheduli
 
 ### Why a Durable Object alarm loop
 
-- **Cheapest on the free tier.** Each pass is one small indexed D1 read, one
-  container HTTP call, and a handful of D1 writes — negligible CPU. The real
-  spend (CBOE fetches → Pipeline/R2 writes) lives in the container and grows
-  only with refresh volume. A Workflow would bill every `step.do`/`step.sleep`
-  in an infinite loop for no benefit here.
+- **Cheapest on the free tier.** Each pass is one small indexed D1 read, the
+  CBOE fetches → Pipeline/R2 writes, and a handful of D1 writes. The I/O is
+  network-bound and runs in-process (bounded concurrency), so CPU cost is
+  negligible and grows only with refresh volume. A Workflow would bill every
+  `step.do`/`step.sleep` in an infinite loop for no benefit here.
 - **Durable across restarts.** Alarm state is stored durably, and D1 holds
   per-symbol progress, so nothing is lost on redeploy.
 - **Single-flight for free.** A DO runs one `alarm()` at a time; the next alarm
@@ -110,7 +124,7 @@ Migrations in `migrations/` are also applied automatically on deploy.
 - `GET /loop/status` — counts (total / enabled / due / failing), the last pass
   summary (`last_pass`), the next alarm time, whether a pass is in flight, and
   `market` (open / reason / `now_et` / `next_open_et`). Read-only; safe to
-  expose to the consumer without waking the container.
+  expose to the consumer.
 - `GET /loop/symbols?filter=&q=&limit=&offset=&sort=&order=` — paginated,
   read-only per-symbol listing of `symbol_state`. Read-only; never writes to
   D1. `filter` ∈ `all|enabled|disabled|failing|retrying|due|stale` (default
@@ -122,6 +136,14 @@ Migrations in `migrations/` are also applied automatically on deploy.
   last_error }] }` (epoch-ms timestamps; `null` when never recorded).
 - `POST /loop/trigger` (Bearer `LOADER_TOKEN`) — run one pass now (still
   serialized against the alarm).
+- Job-aware observability (the monitor's eventual home; `/loop/*` are
+  cboe-options aliases):
+  - `GET /jobs` — list every registered job + its `job_state` ledger, scope,
+    policy, and `last_pass`.
+  - `GET /jobs/{id}` — one job's status (e.g. `/jobs/cboe-options`,
+    `/jobs/ohlc-daily`).
+  - `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`) — run that job's pass
+    now regardless of cadence.
 - Each pass logs a single newline-delimited JSON `pass_completed` event
   (`attempted`, `succeeded`, `failed`, `run_id`, `error`).
 
@@ -131,33 +153,37 @@ CBOE data refreshes ~every 15 min intraday. All are `vars` in `wrangler.jsonc`:
 
 | Var | Default | Meaning |
 |---|---|---|
-| `LOADER_BATCH_SIZE` | 250 | symbols per `/run` pass (bounds pass duration + per-cycle writes) |
+| `LOADER_BATCH_SIZE` | 40 | symbols per `/run` pass (bounds pass duration + per-cycle writes) |
 | `LOADER_POLL_INTERVAL_SECONDS` | 60 | seconds between passes |
 | `LOADER_CADENCE_SECONDS` | 900 | reload every ~15 min after a success |
 | `LOADER_BACKOFF_BASE_SECONDS` | 60 | first failure backoff |
 | `LOADER_BACKOFF_CAP_SECONDS` | 1800 | max backoff (30 min) |
-| `LOADER_RUN_TIMEOUT_SECONDS` | 600 | abort a stuck container `/run`; that batch is backed off and retried |
-| `SYMBOL_CONCURRENCY` (container ENV) | 8 | symbols fetched/normalized in parallel per `/run` |
+| `LOADER_RUN_TIMEOUT_SECONDS` | 600 | safety net for a stuck pass; the batch backs off and retries |
+| `SYMBOL_CONCURRENCY` | 8 | symbols fetched/normalized in parallel per pass (runSymbols) |
 | `MARKET_HOURS_ENABLED` | true | skip passes + sleep until open when the US regular session is closed |
 | `MARKET_OPEN_MINUTES` | 570 (09:30 ET) | market open, minutes-since-midnight ET |
 | `MARKET_CLOSE_MINUTES` | 960 (16:00 ET) | market close, minutes-since-midnight ET |
 | `MARKET_EARLY_CLOSE_MINUTES` | 780 (13:00 ET) | early-close time (Christmas Eve, Black Friday) |
 
-`LOADER_BATCH_SIZE` was raised from 10 to 250 to fit the concurrent pass: at
-`SYMBOL_CONCURRENCY=8` (~4.3s/symbol serial-equivalent) a 250-symbol batch is
-~2 min, two passes cover the universe in ~5 min — inside the 15-min cadence.
-Kept just under the 503 so a single stuck symbol can't hold the whole run for
-the full timeout; `LOADER_RUN_TIMEOUT_SECONDS` was raised to 600 to fit it.
+`LOADER_BATCH_SIZE` is kept modest (40). Per-symbol publication is serialized
+through a single publish chain to guarantee deterministic output, so a large
+batch stretches the pass and buffers thousands of parsed contracts in the DO
+isolate at once — live validation at batch 250 OOM'd the DO isolate and hit the
+600s `LOADER_RUN_TIMEOUT_SECONDS`. At 40 a pass completes well inside the
+timeout (and each drained symbol's records are freed immediately, bounding
+memory). The serialized-publish throughput constraint means refreshing the
+full 503-symbol universe takes longer than the 15-min cadence, so a symbol can
+age up to ~20–25 min between refreshes. Revisit `LOADER_BATCH_SIZE` /
+publication concurrency only after re-validating the full-refresh cycle on a
+live market day.
 
-**Concurrency (container `container/loader.py`).** Per-symbol work is I/O-bound
-(CBOE fetch + Pipeline POSTs), so `SYMBOL_CONCURRENCY` `ThreadPoolExecutor`
-workers overlap it near-linearly — the GIL is released during socket I/O, so a
-24-symbol fixture runs at ~4.0× (C=4) and ~7.9× (C=8) wall-clock, i.e. the
-~36-min serial full pass drops to ~4.5 min. Shared state (contract buffer,
-batch counter, success/failure tallies) is guarded by a lock; full contract
-batches are flushed out-of-lock with unique idempotency keys. Verified: an
-8-symbol fixture with stubbed CBOE/Pipeline produces byte-identical pipeline
-output at C=1 and C=8 (same contracts, underlyings, run/error records).
+**Concurrency (`src/run-symbols.ts`).** Per-symbol work is I/O-bound (CBOE fetch
++ Pipeline POSTs), so `SYMBOL_CONCURRENCY` worker tasks (a promise semaphore)
+overlap it near-linearly with no thread/GIL artifact — a 24-symbol fixture runs
+at ~4–8× wall-clock as C scales. Contract batches are flushed with unique
+idempotency keys, and publication is serialized in symbol-input order.
+Verified: an 8-symbol fixture with stubbed CBOE/Pipeline produces byte-identical
+pipeline output at C=1 and C=8 (same contracts, underlyings, run/error records).
 
 Outside regular US market hours (weekends, US holidays, overnight/after-hours)
 there is no new CBOE data, so the loop sleeps one far-out alarm until the next
@@ -170,24 +196,65 @@ the open).
 
 ### Local dry-run note
 
-`wrangler deploy --dry-run` validates config + bundle (both DOs, D1 binding,
-vars). The **Docker image build step fails locally** when Docker/Podman is
-unavailable — that is expected. Use `--containers-rollout=none` to dry-run the
-config/bundle alone; the container image builds on the GitHub-hosted runner.
+`wrangler deploy --dry-run` validates config + bundle (the DO, D1 binding,
+vars). There is no container image step anymore — the whole loader is plain
+Worker code, so the dry-run passes fully offline.
 
 
 
 ## Deployment
 
-The deployment workflow uses a GitHub-hosted runner, so Docker Desktop is not required locally.
+Deployment is pure Worker code — `npx wrangler deploy` (automatic on push to
+`main` via GitHub Actions). No Docker/container image is built.
 
 Required GitHub secrets:
 
-- `CLOUDFLARE_API_TOKEN` — Worker and Container deployment permissions
+- `CLOUDFLARE_API_TOKEN` — Worker deployment permissions
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
-- `LOADER_TOKEN` — protected `/run` endpoint token
+- `LOADER_TOKEN` — protected `/run` + `/loop/trigger` + `/jobs/*/trigger` endpoint token
+- `PIPELINE_AUTH_TOKEN` — stream HTTP-ingest auth (Workers Pipelines → Send)
+- `R2_DATA_CATALOG_TOKEN` — R2 Data Catalog table/sink management
 
-Run **Deploy loader (Worker + container)** manually from GitHub Actions. Do not add a schedule until the full-refresh validation is complete.
+GitHub Actions secrets are the project's de-facto secrets manager: any token
+created (ingest auth, catalog, etc.) is saved there as well as its runtime
+location so a credential can never be lost again. See the "Tokens and secrets"
+section.
+
+Run **Deploy loader (Worker)** manually from GitHub Actions. Do not add a schedule until the full-refresh validation is complete.
+
+## Tokens and secrets
+
+GitHub Actions secrets are the de-facto token store: every token is saved both
+where the runtime needs it and in GitHub, so a credential is never only held on
+one machine (see `AGENTS.md` → "Secrets and token handling" for the full
+inventory). At a glance:
+
+| Secret | Purpose | Where it lives |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` | deploy, pipelines, D1 | GitHub |
+| `LOADER_TOKEN` | auth for `/run`, `/loop/trigger`, `/jobs/*/trigger` | Worker secret + GitHub |
+| `PIPELINE_AUTH_TOKEN` | stream HTTP-ingest auth — needs **Workers Pipelines → Send** | Worker secret + GitHub |
+| `PIPELINE_*_URL` | ingest endpoints (incl. `PIPELINE_OHLC_URL`, `PIPELINE_REALIZED_VOL_URL`) | Worker secrets |
+| `R2_DATA_CATALOG_TOKEN` | catalog tables + `--catalog-token` for sinks — needs R2 Storage Admin R&W + R2 Data Catalog R&W | root `.env` + GitHub |
+| `R2_SQL_TOKEN` / `WRANGLER_R2_SQL_AUTH_TOKEN` | read-only lake queries (`wrangler r2 sql query`) | root `.env` |
+
+Rules that saved us:
+
+- **Stream ingest auth is a distinct permission.** An unrelated Cloudflare API
+  token (even R2 Admin RW) is rejected by authenticated streams with
+  `401 code 1014 "unauthorized to use this Pipeline"` — create the ingest token
+  with exactly **Workers Pipelines → Send**.
+- **Rotating the ingest token** needs no stream changes (streams accept any
+  token with the Send permission): create the token, put the value in root
+  `.env` as `PIPELINE_AUTH_TOKEN`, then
+  `gh secret set PIPELINE_AUTH_TOKEN` and
+  `printf '%s' "$env:PIPELINE_AUTH_TOKEN" | npx wrangler secret put PIPELINE_AUTH_TOKEN`.
+- `wrangler r2 sql query` is **read-only** (`CREATE TABLE` fails with `40003
+  only read-only queries allowed`); create catalog tables via the Iceberg REST
+  catalog/dashboard, or let a Pipeline sink create them (sinks error with
+  `1012` if the table already exists — never pre-create a sink's table).
+- Never print a token, pass one as a CLI argument, or commit `.env` /
+  `.dev.vars`.
 
 ## Running an S&P 500 refresh
 
@@ -223,42 +290,37 @@ For the initial full load, keep the refresh unscheduled and validate each run
 in R2 SQL before proceeding. See [`FOLLOW-UP-ACTIONS.md`](../FOLLOW-UP-ACTIONS.md)
 for failure testing and completeness checks.
 
-Inspect live progress while a refresh is running:
+A one-shot `POST /run` returns the full `{ run, failures }` result directly (HTTP
+200 when the run completed, 502 if any symbol failed). For ongoing visibility of
+the continuous loop, query the Durable Object:
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "https://cboe-to-r2.robertlancer.workers.dev/status"
+  -Uri "https://cboe-to-r2.robertlancer.workers.dev/loop/status"
 ```
 
-The response reports `run_id`, current symbol, completed/failed symbols, normalized contract count, batch number, last event, and the latest error. Container logs emit the same events as newline-delimited JSON.
+`/loop/status` reports counts, the `last_pass` summary (`run_id`, attempted /
+succeeded / failed, `duration_ms`), next alarm, and market state. Each pass also
+logs a newline-delimited JSON `pass_completed` event.
 
 
 > Run all local commands from the `loader/` directory.
 
-For the robust local strategy, start the raw Python loader in one terminal:
+For the robust local strategy, start the Worker locally in one terminal (Pipeline
+URLs/token come from `loader/.dev.vars` or `wrangler secret put`):
 
 ```powershell
-$env:WRITE_MODE = "pipeline"
-# Ingest URLs are unauthenticated write endpoints — never commit them.
-# Deploy as Wrangler secrets (`wrangler secret put`); for local container
-# dev, source them from .dev.vars (see .dev.vars.example).
-# $env:PIPELINE_RUNS_URL       = "<rotated-url>"
-# $env:PIPELINE_CONTRACTS_URL  = "<rotated-url>"
-# $env:PIPELINE_UNDERLYINGS_URL = "<rotated-url>"
-python .\container\loader.py
+npx wrangler dev
 ```
 
 Then run the symbol-resumable driver in a second terminal:
 
-
 ```powershell
 python .\tools\load_sp500.py `
-  --url http://127.0.0.1:8080/run `
+  --url http://127.0.0.1:8787/run `
   --batch-size 1 `
   --continue-on-failure `
-  --pipeline-runs-url $env:PIPELINE_RUNS_URL `
-  --pipeline-contracts-url $env:PIPELINE_CONTRACTS_URL `
-  --pipeline-underlyings-url $env:PIPELINE_UNDERLYINGS_URL
+  --state .sp500-catalog-load-state.json
 ```
 Known load exceptions are recorded in [`symbols/sp500-load-exceptions.json`](symbols/sp500-load-exceptions.json). `NVR` is currently listed there because the configured CBOE endpoint returns HTTP 403.
 
@@ -268,7 +330,7 @@ The default checkpoint is `.sp500-symbol-load-state.json`. It is written atomica
 
 ### Full-load preflight and recovery
 
-Do not start a full manifest load until the contract Pipeline passes a synthetic smoke request. The request must include the same `User-Agent` used by `container/loader.py`; without it, the ingest endpoint can return Cloudflare error 1010 even for a valid record.
+Do not start a full manifest load until the contract Pipeline passes a synthetic smoke request. The request must include the same `User-Agent` used by `src/run-symbols.ts` (`cboe-to-r2/0.2`); without it, the ingest endpoint can return Cloudflare error 1010 even for a valid record.
 
 ```powershell
 $probe = '{"symbol":"ZZZ","expiration":"2099-01-01","type":"call","strike":1.0,"run_id":"probe-<unique-id>","as_of_date":"2099-01-01","fetched_at":"2099-01-01T00:00:00+00:00"}'
@@ -294,14 +356,11 @@ Run the resumable loader with one-symbol groups and an explicit checkpoint:
 
 ```powershell
 python .\tools\load_sp500.py `
-  --url http://127.0.0.1:8080/run `
+  --url http://127.0.0.1:8787/run `
   --batch-size 1 `
   --resume `
   --continue-on-failure `
-  --state .sp500-catalog-load-state.json `
-  --pipeline-runs-url $env:PIPELINE_RUNS_URL `
-  --pipeline-contracts-url $env:PIPELINE_CONTRACTS_URL `
-  --pipeline-underlyings-url $env:PIPELINE_UNDERLYINGS_URL
+  --state .sp500-catalog-load-state.json
 ```
 
 The state file is atomically updated after every symbol. Rerun with `--resume` after correcting a failure; completed groups are skipped and failed groups are retried. Treat `NVR` as an expected exception while the CBOE endpoint continues returning HTTP 403. Do not claim completion from process exit status alone.

@@ -1,0 +1,12 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"realized_vol_30d","type":"float64","required":false},
+    {"name":"realized_vol_90d","type":"float64","required":false},
+    {"name":"n_returns_30","type":"int64","required":false},
+    {"name":"n_returns_90","type":"int64","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

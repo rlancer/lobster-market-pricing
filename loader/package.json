@@ -6,14 +6,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "container:build": "podman build --platform linux/amd64 -t cboe-to-r2-poc .",
-    "container:run": "podman run --rm -p 8080:8080 -e WRITE_MODE=stdout cboe-to-r2-poc",
-    "container:health": "curl --fail http://127.0.0.1:8080/health"
-  },
-  "dependencies": {
-    "@cloudflare/containers": "0.3.7"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
     "wrangler": "4.119.0"
   }
 }
