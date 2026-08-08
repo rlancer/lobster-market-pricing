@@ -18,6 +18,7 @@ import { ChartView, type ChartSpec } from './Chart';
 import {
   askAi,
   clearApiKey,
+  createSession,
   FALLBACK_MODEL_GROUPS,
   fetchAvailableModels,
   getApiKey,
@@ -31,6 +32,8 @@ import {
   setEffort,
   setModel,
   startOAuthFlow,
+  type ChatSession,
+  type DataFrame,
   type ModelGroup,
   type ReasoningEffort,
 } from './ai';
@@ -93,6 +96,10 @@ function fmtCell(v: unknown): string {
   return String(v);
 }
 
+// Frames can hold thousands of rows (materialized chains); rendering them all
+// would swamp the DOM. Show the first batch; the full result stays in session.
+const MAX_RENDER_ROWS = 200;
+
 function ResultTable({ result }: { result: QueryResult }) {
   if (result.error) {
     return <div className="ai-err">Query error: {result.error}</div>;
@@ -100,6 +107,7 @@ function ResultTable({ result }: { result: QueryResult }) {
   if (!result.columns.length) {
     return <div className="ai-empty">Query returned no columns.</div>;
   }
+  const shown = result.rows.slice(0, MAX_RENDER_ROWS);
   return (
     <div className="ai-result">
       <div className="ai-result-meta">
@@ -115,13 +123,20 @@ function ResultTable({ result }: { result: QueryResult }) {
             </tr>
           </thead>
           <tbody>
-            {result.rows.map((row, i) => (
+            {shown.map((row, i) => (
               <tr key={i}>
                 <td className="ai-idx">{i + 1}</td>
                 {result.columns.map((c) => <td key={c}>{fmtCell(row[c])}</td>)}
               </tr>
             ))}
-            {result.rows.length === 0 && (
+            {result.row_count > shown.length && (
+              <tr>
+                <td colSpan={result.columns.length + 1} className="ai-empty">
+                  … {result.row_count - shown.length} more rows (full result cached in session data)
+                </td>
+              </tr>
+            )}
+            {shown.length === 0 && (
               <tr><td colSpan={result.columns.length + 1} className="ai-empty">No rows returned.</td></tr>
             )}
           </tbody>
@@ -167,6 +182,20 @@ function AiChat() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  // Per-chat data cache ("frames"): named snapshots of query results the agent
+  // materializes (run_query save_as) and slices locally (filter_frame). Holds
+  // the mutable session; `frames` mirrors it for the chips UI.
+  const [session] = useState<ChatSession>(() => createSession());
+  const [frames, setFrames] = useState<DataFrame[]>([]);
+
+  const syncFrames = useCallback(() => {
+    setFrames(Array.from(session.frames.values()).reverse());
+  }, [session]);
+  const dropFrame = useCallback((name: string) => {
+    session.frames.delete(name);
+    syncFrames();
+  }, [session, syncFrames]);
 
   // Process an OpenRouter OAuth callback if the page loaded with one.
   useEffect(() => {
@@ -255,11 +284,12 @@ function AiChat() {
     setBusy(true);
     setStatus('Starting…');
     try {
-      const res = await askAi(question, { onStatus: setStatus });
+      const res = await askAi(question, session, { onStatus: setStatus });
       setMsgs((m) => [
         ...m,
         { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getModel() },
       ]);
+      syncFrames();
     } catch (e) {
       setMsgs((m) => [
         ...m,
@@ -269,9 +299,12 @@ function AiChat() {
       setBusy(false);
       setStatus('');
     }
-  }, [busy]);
+  }, [busy, session, syncFrames]);
 
   const newChat = () => {
+    session.frames.clear();
+    session.history.length = 0;
+    setFrames([]);
     setMsgs([]);
     setError(null);
   };
@@ -396,6 +429,35 @@ function AiChat() {
       )}
 
       {error && <div className="ai-error-banner">{error}</div>}
+
+      {frames.length > 0 && (
+        <div className="ai-frames">
+          <span className="ai-frames-label">Session data</span>
+          {frames.map((f) => {
+            const ageMin = Math.round((Date.now() - f.fetched_at) / 60000);
+            return (
+              <span
+                key={f.name}
+                className="ai-frame-chip"
+                title={`${f.row_count.toLocaleString()} rows · ${f.columns.length} cols · ${f.sql}`}
+              >
+                <b>{f.name}</b>
+                <span className="ai-frame-meta">
+                  {f.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}
+                </span>
+                <button
+                  type="button"
+                  className="ai-frame-drop"
+                  onClick={() => dropFrame(f.name)}
+                  aria-label={`Drop frame ${f.name}`}
+                >
+                  ✕
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div className="ai-messages" ref={scrollRef}>
         {msgs.length === 0 && (
