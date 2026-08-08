@@ -10,6 +10,19 @@
     "CORS_ORIGIN": "*",
     "LOADER_BASE_URL": "https://cboe-to-r2.robertlancer.workers.dev"
   },
+  // D1 cache for the expensive lake-schema payload (/api/tables). The schema
+  // is read on every AI chat question and the SQL Lab sidebar; recomputing it
+  // costs several R2 SQL round trips, so the computed payload (tables +
+  // columns + row counts + sample rows) lives here and only refreshes when
+  // stale or on ?force=1. Migration in ./migrations is applied on deploy.
+  "d1_databases": [
+    {
+      "binding": "SCHEMA_DB",
+      "database_name": "screener-schema-cache",
+      "database_id": "b0efdfb0-9774-45ea-a6f2-e12361bcb4dd",
+      "migrations_dir": "./migrations"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1

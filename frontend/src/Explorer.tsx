@@ -36,11 +36,11 @@ function Explorer() {
   const [running, setRunning] = useState(false);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
 
-  const loadTables = useCallback(async () => {
+  const loadTables = useCallback(async (force = false) => {
     setTablesLoading(true);
     setTablesError(null);
     try {
-      const t = await api.tables();
+      const t = await api.tables(force ? { force: true } : undefined);
       setTables(t);
       // Functional updater keeps this callback stable: depending on `activeTable`
       // made the mount effect re-run the whole schema fetch after the first
@@ -105,7 +105,7 @@ function Explorer() {
       <aside className="explorer-sidebar">
         <div className="sidebar-head">
           <h2>Schema</h2>
-          <button className="ghost-btn" onClick={loadTables} disabled={tablesLoading} title="Refresh">⟳</button>
+          <button className="ghost-btn" onClick={() => loadTables(true)} disabled={tablesLoading} title="Refresh (recompute from the lake)">⟳</button>
         </div>
         {tablesError && <div className="sidebar-error">{tablesError}</div>}
         <ul className="table-list">

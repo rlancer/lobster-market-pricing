@@ -33,6 +33,9 @@ export interface Env {
   // Non-secret base URL of the continuous CBOE loader worker, used by the
   // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
   LOADER_BASE_URL?: string;
+  // D1 cache for the computed lake-schema payload (/api/tables). See
+  // worker/migrations/0001_schema_cache.sql and `schemaTables` below.
+  SCHEMA_DB: D1Database;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,22 +389,76 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
   };
 }
 
-async function tables(env: Env): Promise<{ name: string; row_count: number | null; columns: { name: string; type: string }[] }[]> {
+// ---------------------------------------------------------------------------
+// Lake schema (/api/tables) — D1-backed cache
+// ---------------------------------------------------------------------------
+// The schema payload is expensive to compute: SHOW TABLES, then per table
+// DESCRIBE + COUNT(*) + a 3-row sample — several R2 SQL round trips against
+// the lake. The AI copilot loads it on every chat question and the SQL Lab
+// sidebar on every mount, so the computed payload is cached in D1 and only
+// recomputed when stale or on explicit ?force=1. The payload changes only
+// when the loader publishes new tables/columns or data lands, so the TTL
+// bounds staleness and self-heals; the SQL Lab refresh button forces an
+// immediate recompute. D1 failures degrade to live compute (the R2 SQL lake
+// remains the source of truth — the cache is a performance layer only).
+const SCHEMA_TTL_MS = 10 * 60 * 1000; // schema structure is near-static
+const SCHEMA_CACHE_KEY = "lake_tables";
+const SCHEMA_SAMPLE_LIMIT = 3;
+
+interface LakeTable {
+  name: string;
+  row_count: number | null;
+  columns: { name: string; type: string }[];
+  sample: Record<string, unknown>[];
+}
+
+/** Compute the full schema payload straight from the lake (uncached). */
+async function loadLakeTables(env: Env): Promise<LakeTable[]> {
   const list = await r2sql(env, "SHOW TABLES IN options");
-  const out: { name: string; row_count: number | null; columns: { name: string; type: string }[] }[] = [];
-  for (const t of list) {
-    const name = String(t.table_name);
-    const [cols, cnt] = await Promise.all([
-      r2sql(env, `DESCRIBE options.${name}`),
-      r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
-    ]);
-    out.push({
-      name,
-      row_count: num(cnt[0]?.n),
-      columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
-    });
+  return Promise.all(
+    list.map(async (t): Promise<LakeTable> => {
+      const name = String(t.table_name);
+      const [cols, cnt, sample] = await Promise.all([
+        r2sql(env, `DESCRIBE options.${name}`),
+        r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
+        r2sql(env, `SELECT * FROM options."${name}" LIMIT ${SCHEMA_SAMPLE_LIMIT}`, "tbl_sample_" + name),
+      ]);
+      return {
+        name,
+        row_count: num(cnt[0]?.n),
+        columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
+        sample: sample as Record<string, unknown>[],
+      };
+    }),
+  );
+}
+
+/** Schema payload served by /api/tables: D1 when fresh, live compute when stale/forced. */
+async function schemaTables(env: Env, force: boolean): Promise<LakeTable[]> {
+  if (!force) {
+    try {
+      const row = await env.SCHEMA_DB.prepare(
+        "SELECT payload, expires_at FROM schema_cache WHERE key = ?1",
+      ).bind(SCHEMA_CACHE_KEY).first<{ payload: string; expires_at: number }>();
+      if (row && Date.now() < row.expires_at) {
+        return JSON.parse(row.payload) as LakeTable[];
+      }
+    } catch (e) {
+      // D1 read failed — fall back to live compute; the lake is authoritative.
+      console.error("schema cache read failed, computing live", e);
+    }
   }
-  return out;
+  const tables = await loadLakeTables(env);
+  try {
+    await env.SCHEMA_DB.prepare(
+      "INSERT INTO schema_cache (key, payload, expires_at) VALUES (?1, ?2, ?3) " +
+        "ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, expires_at = excluded.expires_at",
+    ).bind(SCHEMA_CACHE_KEY, JSON.stringify(tables), Date.now() + SCHEMA_TTL_MS).run();
+  } catch (e) {
+    // D1 write failed — serve the freshly computed payload anyway.
+    console.error("schema cache write failed", e);
+  }
+  return tables;
 }
 
 async function runQuery(env: Env, sqlIn: string, limit = 1000): Promise<{ columns: string[]; rows: Row[]; row_count: number; truncated: boolean; limit: number; error?: string }> {
@@ -545,7 +602,7 @@ async function handle(env: Env, req: Request): Promise<Response> {
   if (path === "/api/sectors") return json(env, await sectors(env, q.get("liquid_only") === "true"));
   if (path === "/api/symbols")
     return json(env, await symbols(env, q.get("q") ?? undefined, q.get("liquid_only") === "true", num(q.get("limit") ?? 50)));
-  if (path === "/api/tables") return json(env, await tables(env));
+  if (path === "/api/tables") return json(env, await schemaTables(env, q.get("force") === "1"));
   if (path === "/api/notebook/premium")
     return json(env, await notebookPremium(env, {
       target_dte: q.get("target_dte") ? num(q.get("target_dte")) : undefined,
