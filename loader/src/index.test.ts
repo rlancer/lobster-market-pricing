@@ -3,7 +3,7 @@ import worker from "./index.js";
 
 const RUNS_URL = "https://runs.example";
 const CONTRACTS_URL = "https://contracts.example";
-const UNDERLYINGS_URL = "https://underlyings.example";
+const SNAPSHOTS_URL = "https://snapshots.example";
 const ERRORS_URL = "https://errors.example";
 
 function cboePayload(symbol: string) {
@@ -27,7 +27,7 @@ function baseEnv() {
     ETL_SCHEDULER: DO_STUB,
     PIPELINE_RUNS_URL: RUNS_URL,
     PIPELINE_CONTRACTS_URL: CONTRACTS_URL,
-    PIPELINE_UNDERLYINGS_URL: UNDERLYINGS_URL,
+    PIPELINE_UNDERLYING_SNAPSHOTS_URL: SNAPSHOTS_URL,
     PIPELINE_ERRORS_URL: ERRORS_URL,
     PIPELINE_AUTH_TOKEN: "token",
     SYMBOL_CONCURRENCY: 2,
@@ -80,8 +80,8 @@ describe("index.js one-shot /run", () => {
     // Both symbols' contracts + underlyings were published to the Pipeline.
     const contracts = captures.filter((c) => c.url === CONTRACTS_URL).flatMap((c) => JSON.parse(c.body));
     expect(contracts).toHaveLength(2);
-    const underlyings = captures.filter((c) => c.url === UNDERLYINGS_URL).map((c) => JSON.parse(c.body)[0].symbol);
-    expect(underlyings.sort()).toEqual(["AAPL", "MSFT"]);
+    const snapshots = captures.filter((c) => c.url === SNAPSHOTS_URL).map((c) => JSON.parse(c.body)[0].ticker);
+    expect(snapshots.sort()).toEqual(["AAPL", "MSFT"]);
   });
 
   it("returns 502 when a symbol fails, with the failure captured", async () => {

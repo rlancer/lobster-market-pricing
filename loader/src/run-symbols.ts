@@ -48,7 +48,6 @@ export interface LoaderEnv {
   CBOE_URL_TEMPLATE?: string;
   PIPELINE_RUNS_URL?: string;
   PIPELINE_CONTRACTS_URL?: string;
-  PIPELINE_UNDERLYINGS_URL?: string;
   PIPELINE_UNDERLYING_SNAPSHOTS_URL?: string;
   PIPELINE_ERRORS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
@@ -449,7 +448,6 @@ export async function runSymbols(symbols: string[], env: LoaderEnv = {}): Promis
   const asOfDate = startedAt.slice(0, 10);
 
   const runUrl = env.PIPELINE_RUNS_URL || "";
-  const underlyingUrl = env.PIPELINE_UNDERLYINGS_URL || "";
   const snapshotUrl = env.PIPELINE_UNDERLYING_SNAPSHOTS_URL || "";
   const contractsUrl = env.PIPELINE_CONTRACTS_URL || "";
   const errorUrl = env.PIPELINE_ERRORS_URL || "";
@@ -518,16 +516,9 @@ export async function runSymbols(symbols: string[], env: LoaderEnv = {}): Promis
       nextToPublish += 1;
       if (outcome !== null) {
         const symbol = normalized[nextToPublish - 1];
-        await requestJson(
-          underlyingUrl,
-          [outcome.underlying],
-          `${runId}:underlying:${symbol}`,
-          authToken,
-          env,
-        );
-        // Decoupled underlying snapshot (run-history half of the old
-        // underlyings table) — options.underlying_snapshots. security_id is the
-        // deterministic ticker-derived id so it lines up with securities /
+        // Decoupled underlying snapshot (options.underlying_snapshots) — the
+        // run-history half of the retired options.underlyings table. security_id
+        // is the deterministic ticker-derived id so it lines up with securities /
         // symbol_history / corporate_actions.
         if (snapshotUrl) {
           await requestJson(

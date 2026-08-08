@@ -87,23 +87,28 @@ Runs via the `EtlScheduler` Durable Object alarm loop
 Warehouse: 3315bb3e7d2e3556bfea6fb3947a890e_cboe-options-data
 Runs:        <PIPELINE_RUNS_URL secret — see Cloudflare dashboard / wrangler secret>
 Contracts:   <PIPELINE_CONTRACTS_URL secret — see Cloudflare dashboard / wrangler secret>
-Underlyings: <PIPELINE_UNDERLYINGS_URL secret — see Cloudflare dashboard / wrangler secret>
 OHLC:        <PIPELINE_OHLC_URL secret — stream cboe_ohlc_v2>
 RealizedVol: <PIPELINE_REALIZED_VOL_URL secret — stream cboe_realized_vol_v2>
 CorporateActions: <PIPELINE_CORPORATE_ACTIONS_URL secret — stream cboe_corporate_actions_v2>
 Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
 SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
 UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
-Streams: cboe_option_contracts_v2, cboe_underlyings_v2, cboe_refresh_runs_v2,
+Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2
-Sinks:   cboe_option_contracts_sink, cboe_underlyings_sink, cboe_refresh_runs_sink,
+Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink
-Tables: options.option_contracts, options.underlyings, options.refresh_runs,
+Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots
 ```
+
+The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline
+were **retired at cutover** (2026-08-08): the descriptive half now lives in
+`options.securities` and the run-history half in `options.underlying_snapshots`
+(loader dual-published both during migration; the Worker read path now uses
+`underlying_snapshots`).
 
 S&P 500 OHLC backfill (`ohlc-backfill` job, item-scoped with a
 `ohlc_backfill_state` D1 item store; trigger `POST /jobs/ohlc-backfill/trigger`):
@@ -120,7 +125,7 @@ npx wrangler pipelines get cboe_option_contracts_pipeline
 npx wrangler pipelines sinks get cboe_option_contracts_sink
 ```
 
-The `options.underlyings` schema now includes `name` (string, optional) and `sector` (string, optional), enriched from the S&P 500 Wikipedia constituents manifest `symbols/sp500_constituents.json`. CBOE's delayed-quotes endpoint does not return a company name or sector, so the loader merges them from the static manifest at publish time (in `src/run-symbols.ts`); symbols missing from the manifest fall back to `name = symbol`, `sector = 'Unknown'`.
+`options.securities` / `options.underlying_snapshots` carry `name` and `sector` enriched from the S&P 500 Wikipedia constituents manifest `symbols/sp500_constituents.json`. CBOE's delayed-quotes endpoint does not return a company name or sector, so the loader merges them from the static manifest at publish time (in `src/run-symbols.ts`); symbols missing from the manifest fall back to `name = symbol`, `sector = 'Unknown'` (denormalized onto each `underlying_snapshots` row).
 
 Recreating an Iceberg table (required because Pipeline stream schemas are immutable — see `references/pipelines/gotchas.md`) requires dropping the old stream + sink, dropping the Iceberg table via the catalog, then recreating the stream + sink with the new schema and running a full reload. Note: **sinks cannot be created for existing catalog tables** (wrangler errors `1012 writing to existing Catalog tables is not yet supported`) — the sink must create the table; do not pre-create it.
 
@@ -137,7 +142,7 @@ only held on a machine.
 | `CLOUDFLARE_ACCOUNT_ID` | deploy target account | — | GitHub Actions | yes |
 | `LOADER_TOKEN` | auth for `POST /run`, `/loop/trigger`, `/jobs/*/trigger` | — (any shared secret) | Worker secret | yes |
 | `PIPELINE_AUTH_TOKEN` | **stream HTTP ingest auth** (all `cboe_*_v2` streams) | **Workers Pipelines → Send** | Worker secret | yes |
-| `PIPELINE_*_URL` (`RUNS`, `CONTRACTS`, `UNDERLYINGS`, `ERRORS`, `OHLC`, `REALIZED_VOL`) | ingest endpoints; write-capable | — (URL = endpoint) | Worker secrets | no (set once) |
+| `PIPELINE_*_URL` (`RUNS`, `CONTRACTS`, `ERRORS`, `OHLC`, `REALIZED_VOL`, `CORPORATE_ACTIONS`, `SECURITIES`, `SYMBOL_HISTORY`, `UNDERLYING_SNAPSHOTS`) | ingest endpoints; write-capable | — (URL = endpoint) | Worker secrets | no (set once) |
 | `R2_DATA_CATALOG_TOKEN` | create/drop catalog tables; `--catalog-token` for r2-data-catalog sinks | R2 Storage Admin R&W + R2 Data Catalog R&W | root `.env` (gitignored) | yes |
 | `R2_SQL_TOKEN` / `WRANGLER_R2_SQL_AUTH_TOKEN` | query the lake (R2 SQL) via `wrangler r2 sql query` | R2 SQL Read | root `.env` (gitignored) | yes |
 

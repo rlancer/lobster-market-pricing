@@ -7,10 +7,11 @@ import {
   occFields,
   runSymbols,
 } from "./run-symbols";
+import { securityIdForTicker } from "./symbology";
 
 const RUNS_URL = "https://runs.example";
 const CONTRACTS_URL = "https://contracts.example";
-const UNDERLYINGS_URL = "https://underlyings.example";
+const SNAPSHOTS_URL = "https://snapshots.example";
 const ERRORS_URL = "https://errors.example";
 
 const FIXED_NOW = new Date("2026-08-07T15:00:00.000Z");
@@ -122,7 +123,7 @@ function baseEnv(overrides: Partial<LoaderEnv> = {}): LoaderEnv {
   return {
     PIPELINE_RUNS_URL: RUNS_URL,
     PIPELINE_CONTRACTS_URL: CONTRACTS_URL,
-    PIPELINE_UNDERLYINGS_URL: UNDERLYINGS_URL,
+    PIPELINE_UNDERLYING_SNAPSHOTS_URL: SNAPSHOTS_URL,
     PIPELINE_ERRORS_URL: ERRORS_URL,
     PIPELINE_AUTH_TOKEN: "token",
     MAX_BATCH_RECORDS: 5,
@@ -151,13 +152,16 @@ describe("runSymbols", () => {
 
     // Determinism: identical byte stream on every pipeline endpoint regardless
     // of concurrency (same run_id/clock injected, so output is byte-identical).
-    for (const url of [RUNS_URL, CONTRACTS_URL, UNDERLYINGS_URL, ERRORS_URL]) {
+    for (const url of [RUNS_URL, CONTRACTS_URL, SNAPSHOTS_URL, ERRORS_URL]) {
       expect(bucket(c8.captures, url)).toEqual(bucket(c1.captures, url));
     }
 
-    // Every symbol's underlying published exactly once, in input order.
-    const underlyings = bucket(c1.captures, UNDERLYINGS_URL).map((b) => JSON.parse(b)[0].symbol);
-    expect(underlyings).toEqual(SYMBOLS);
+    // Every symbol's underlying snapshot published exactly once, in input order.
+    const snapshots = bucket(c1.captures, SNAPSHOTS_URL).map((b) => JSON.parse(b)[0].ticker);
+    expect(snapshots).toEqual(SYMBOLS);
+    // Snapshot is keyed by the deterministic ticker-derived security_id.
+    const firstSnap = JSON.parse(bucket(c1.captures, SNAPSHOTS_URL)[0]);
+    expect(firstSnap[0].security_id).toBe(securityIdForTicker(firstSnap[0].ticker));
 
     // Run record posted twice: running + final.
     expect(bucket(c1.captures, RUNS_URL)).toHaveLength(2);
@@ -232,11 +236,11 @@ describe("runSymbols", () => {
     expect(errorRecords[0].status).toBe("unavailable");
     expect(errorRecords[0].run_id).toBe(FIXED_RUN_ID);
 
-    // Only the two successful symbols publish underlyings; NVR publishes none.
-    const underlyings = bucket(captures, UNDERLYINGS_URL)
-      .map((b) => JSON.parse(b)[0].symbol)
+    // Only the two successful symbols publish underlying snapshots; NVR publishes none.
+    const snapshots = bucket(captures, SNAPSHOTS_URL)
+      .map((b) => JSON.parse(b)[0].ticker)
       .sort();
-    expect(underlyings).toEqual(["AAPL", "MSFT"]);
+    expect(snapshots).toEqual(["AAPL", "MSFT"]);
   });
 
   it("normalizes and de-duplicates symbols", () => {
