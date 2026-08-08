@@ -666,17 +666,19 @@ function systemPrompt(schemaPrompt: string): string {
     '',
     'Charting:',
     '- If the user asks for a chart (a stock chart, vol surface, IV smile/skew, OI/IV',
-    '  profile, anything visual), after run_query returns the chartable data, call',
-    '  render_chart with that result\'s column names. There is no historical price',
-    '  series in this lake — "chart of a stock" means chart what IS available for it:',
-    '  the IV smile (implied_vol vs strike), IV term structure (implied_vol vs',
-    '  expiration), or OI/IV profile by strike. SELECT the specific numeric columns you',
-    '  want to chart (strike, implied_vol, open_interest, delta, expiration, type, …).',
-    '- Vol surface / smile: x=strike, y=implied_vol, series=expiration.',
-    '- OI/IV profile: x=strike, y=open_interest (or implied_vol), series=type.',
-    '- Prefer `line` for curves and surfaces; `bar` for magnitudes (e.g. OI by strike);',
-    '  `scatter` for point clouds. Give a short title. Use xLabel/yLabel when axis units',
-    '  would help (e.g. yLabel="Implied vol" for a 0-1 IV, "Strike" on x).',
+    '  profile, anything visual), you MUST call render_chart AFTER a run_query that',
+    '  returned the chartable data — do not finish with just a table. There is no',
+    '  historical price series in this lake, so "chart of a stock" means chart what IS',
+    '  available for it: the IV smile (implied_vol vs strike), IV term structure, or',
+    '  OI/IV profile by strike. SELECT the specific numeric columns you will chart.',
+    '- Vol surface: x=strike, y=implied_vol, series=expiration.',
+    '- IV smile: x=strike, y=implied_vol. OI/IV profile: x=strike, y=open_interest, series=type.',
+    '- kind: `line` for curves/surfaces, `bar` for magnitudes, `scatter` for point clouds.',
+    '- Give a short title and xLabel/yLabel when axis units help (yLabel="Implied vol"',
+    '  for a 0-1 IV, xLabel="Strike"). Example: "Show the IV surface for AAPL" →',
+    '  run_query for strike, implied_vol, expiration; then render_chart',
+    '  { title: "AAPL IV surface", kind: "line", x: "strike", y: "implied_vol",',
+    '    series: "expiration" }.',
   ].join('\n');
 }
 
@@ -793,8 +795,25 @@ async function runAgent(
       // Capture a chart spec the model declared, paired with the last result,
       // so the UI can render it alongside the answer. Only keep text emitted
       // after the last tool call (the final answer).
-      if (ev.toolCallName === 'render_chart' && typeof ev.input === 'object' && ev.input !== null) {
-        capture.chart = ev.input as ChartSpec;
+      // Some adapters emit the tool name on `toolName` (deprecated) rather than
+      // `toolCallName`, and `input` may arrive as a JSON string — accept any of
+      // these so capture never silently drops a requested chart.
+      let toolName: string | undefined = ev.toolCallName;
+      if (toolName === undefined && 'toolName' in ev) {
+        const tn = ev.toolName;
+        if (typeof tn === 'string') toolName = tn;
+      }
+      if (toolName === 'render_chart') {
+        let input: unknown = ev.input;
+        if (typeof input === 'string') {
+          try { input = JSON.parse(input); } catch { /* keep raw */ }
+        }
+        if (input && typeof input === 'object') {
+          const c = input as Partial<ChartSpec>;
+          if (typeof c.x === 'string' && typeof c.y === 'string') {
+            capture.chart = { kind: c.kind ?? 'line', ...input } as ChartSpec;
+          }
+        }
       }
       answer = '';
     } else if (ev.type === 'TEXT_MESSAGE_CONTENT' && typeof ev.delta === 'string') {
