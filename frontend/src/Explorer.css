@@ -40,7 +40,26 @@
   font-size: 13px;
 }
 .ghost-btn:hover { color: var(--accent); border-color: var(--accent); }
+.ghost-btn:disabled { opacity: 0.5; cursor: default; }
 .sidebar-error { color: var(--put); padding: 10px 14px; font-size: 12px; }
+.sidebar-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .table-list {
   list-style: none;
@@ -119,18 +138,6 @@
 .col-btn:hover { background: var(--color-overlay-hover); }
 .col-name { color: var(--text); }
 .col-type { color: var(--muted); font-size: 10.5px; }
-.preview-btn {
-  margin: 8px 10px 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  color: var(--accent);
-  border-radius: 8px;
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-.preview-btn:hover { border-color: var(--accent); }
 
 /* ---- main / editor ------------------------------------------------------- */
 .explorer-main {

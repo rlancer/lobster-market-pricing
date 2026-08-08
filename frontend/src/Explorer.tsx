@@ -3,6 +3,10 @@ import { useSearch } from '@tanstack/react-router';
 import './Explorer.css';
 import { api, type QueryResult, type TableInfo } from './api';
 
+// Row cap for the auto-`SELECT *` preview fired by clicking a table in the
+// schema sidebar. A bounded preview keeps rendering light on huge tables.
+const TABLE_PREVIEW_LIMIT = 250;
+
 const SAMPLES = [
   'SELECT ticker AS symbol, name, sector, spot_price FROM options.underlying_snapshots LIMIT 50',
   'SELECT symbol, COUNT(*) AS contracts, MAX(expiration) AS latest_expiry\nFROM options.option_contracts\nGROUP BY 1\nORDER BY contracts DESC\nLIMIT 20',
@@ -24,6 +28,7 @@ function fmtCell(v: unknown): string {
 function Explorer() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesError, setTablesError] = useState<string | null>(null);
+  const [tablesLoading, setTablesLoading] = useState(false);
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const { sql: initialSql } = useSearch({ strict: false }) as { sql?: string };
   const [sql, setSql] = useState(initialSql ?? SAMPLES[0]);
@@ -32,22 +37,29 @@ function Explorer() {
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
 
   const loadTables = useCallback(async () => {
+    setTablesLoading(true);
+    setTablesError(null);
     try {
       const t = await api.tables();
       setTables(t);
-      if (!activeTable && t.length) setActiveTable(t[0].name);
+      // Functional updater keeps this callback stable: depending on `activeTable`
+      // made the mount effect re-run the whole schema fetch after the first
+      // table was auto-selected (double cold-cache fetch = extra delay).
+      setActiveTable((prev) => prev ?? (t.length ? t[0].name : null));
     } catch (e) {
       setTablesError(String(e));
+    } finally {
+      setTablesLoading(false);
     }
-  }, [activeTable]);
+  }, []);
 
   useEffect(() => { loadTables(); }, [loadTables]);
 
-  const run = useCallback(async () => {
+  const runQuery = useCallback(async (sqlText: string) => {
     setRunning(true); setElapsedMs(null);
     const t0 = performance.now();
     try {
-      const r = await api.query(sql);
+      const r = await api.query(sqlText);
       setResult(r);
     } catch (e) {
       setResult({ columns: [], rows: [], row_count: 0, error: String(e) });
@@ -55,7 +67,17 @@ function Explorer() {
       setElapsedMs(Math.round(performance.now() - t0));
       setRunning(false);
     }
-  }, [sql]);
+  }, []);
+
+  const run = useCallback(() => runQuery(sql), [runQuery, sql]);
+
+  // Clicking a table previews it: fill the editor with a bounded SELECT * and run it.
+  const selectTable = (name: string) => {
+    setActiveTable(name);
+    const q = `SELECT * FROM options.${name} LIMIT ${TABLE_PREVIEW_LIMIT};`;
+    setSql(q);
+    runQuery(q);
+  };
 
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -83,13 +105,13 @@ function Explorer() {
       <aside className="explorer-sidebar">
         <div className="sidebar-head">
           <h2>Schema</h2>
-          <button className="ghost-btn" onClick={loadTables} title="Refresh">⟳</button>
+          <button className="ghost-btn" onClick={loadTables} disabled={tablesLoading} title="Refresh">⟳</button>
         </div>
         {tablesError && <div className="sidebar-error">{tablesError}</div>}
         <ul className="table-list">
           {tables.map((t) => (
             <li key={t.name} className={t.name === activeTable ? 'active' : ''}>
-              <button className="table-btn" onClick={() => setActiveTable(t.name)}>
+              <button className="table-btn" onClick={() => selectTable(t.name)}>
                 <span className="table-name">{t.name}</span>
                 <span className="table-count">
                   {t.row_count !== null ? t.row_count.toLocaleString() : '?'}
@@ -97,7 +119,13 @@ function Explorer() {
               </button>
             </li>
           ))}
-          {tables.length === 0 && !tablesError && (
+          {tablesLoading && (
+            <li className="sidebar-loading" role="status">
+              <span className="spinner" aria-hidden="true" />
+              <span>Loading schema…</span>
+            </li>
+          )}
+          {!tablesLoading && tables.length === 0 && !tablesError && (
             <li className="muted small">No tables found.</li>
           )}
         </ul>
@@ -121,13 +149,7 @@ function Explorer() {
                 </li>
               ))}
             </ul>
-            <button
-              className="preview-btn"
-              onClick={() => setSql(`SELECT * FROM ${activeTable} LIMIT 100;`)}
-            >
-              Preview {activeTable}
-            </button>
-          </div>
+            </div>
         )}
       </aside>
 
