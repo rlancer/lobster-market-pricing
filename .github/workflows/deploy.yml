@@ -146,3 +146,20 @@ jobs:
             --branch ${{ steps.br.outputs.branch }}
             --commit-hash ${{ github.sha }}
             --commit-message "deploy(dev): ${{ github.sha }}"
+
+      # Stable dev URL (https://robs-options-slop-dev.pages.dev/): this project's
+      # production branch is `dev`, so every dev build also lands here,
+      # clobbering the previous build. Unlike the per-branch URLs above, the
+      # origin never changes — the browser localStorage (OpenRouter login) on
+      # this URL persists across deploys, so testing needs no re-login.
+      - name: Deploy to Cloudflare Pages (stable dev URL)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >
+            pages deploy frontend/dist
+            --project-name robs-options-slop-dev
+            --branch dev
+            --commit-hash ${{ github.sha }}
+            --commit-message "deploy(dev-stable): ${{ github.sha }}"

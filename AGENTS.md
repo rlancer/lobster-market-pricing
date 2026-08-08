@@ -48,6 +48,13 @@ Confirm the preview went live (the `Deploy → dev` GitHub Action succeeded and
 the URL returns HTTP 200) before marking the task complete. The next push to
 the branch redeploys the same URL.
 
+**Stable dev URL** — every dev build is also deployed to the project's
+production branch (`dev`), i.e. `https://robs-options-slop-dev.pages.dev/`.
+That URL is constant and gets clobbered by each deploy (no stable history).
+Because the origin never changes, browser localStorage (the OpenRouter login
+in the Copilot) persists there across deploys — use that URL for manual
+testing instead of a per-branch URL, which requires re-logging in each time.
+
 ## Repo map
 
 - `frontend/` — Vite + React UI (Copilot, market screener, research, SQL lab,
