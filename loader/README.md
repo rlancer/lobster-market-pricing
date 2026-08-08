@@ -408,6 +408,17 @@ LIMIT 10;
 
 See [`FOLLOW-UP-ACTIONS.md`](../FOLLOW-UP-ACTIONS.md) for the staged full-dataset procedure and production hardening checklist.
 
+## Data maintenance (row cleanup / dedupe)
+
+Tables are append-only; to purge rows (e.g. smoke/test data) or collapse a table
+to its latest-wins view, use Iceberg row mutations — `wrangler r2 sql` is
+read-only and a recreate is only for schema changes. Provide
+[`tools/iceberg_rewrite.py`](tools/iceberg_rewrite.py) (PyIceberg, atomic
+`overwrite()`): `python tools/iceberg_rewrite.py ohlc --exclude symbol=TEST
+--dry-run`. See [AGENTS.md](AGENTS.md) → *R2 Data Catalog maintenance* for the
+mechanism (logical delete now, physical after hourly compaction), the PySpark
+`DELETE` alternative, and the gotchas.
+
 ## Security
 
 Never commit API tokens, Worker secrets, `.env` files, or local `.dev.vars` files. R2 Data Catalog and R2 SQL are beta products; retain a recoverable copy until multiple complete refresh cycles have been validated.
