@@ -6,13 +6,17 @@
 // Flow per question (TanStack AI agent loop):
 //   1. Gather schema context (tables, columns, types, row counts, sample rows)
 //      via the Worker.
-//   2. Ask an agent (chat() + `run_query` + `check_schema` tools) to answer the
-//      question. The model writes DataFusion (R2 SQL); every proposed query is
-//      deterministically validated against the real schema (unknown tables /
-//      columns rejected with a precise message), executed against the CBOE
-//      Iceberg lake via the Worker's /api/query, summarized, and any error is
-//      fixed by calling the tool again — all inside the agent loop.
-//   3. Return { answer, sql, result } (last executed SQL + result for the UI).
+//   2. Ask an agent (chat() + `run_query` + `check_schema` + `list_frames` +
+//      `filter_frame` + `refresh_frame` tools) to answer the question. The model
+//      writes DataFusion (R2 SQL); every proposed query is deterministically
+//      validated against the real schema (unknown tables / columns rejected with
+//      a precise message), executed against the CBOE Iceberg lake via the
+//      Worker's /api/query, summarized, and any error is fixed by calling the
+//      tool again — all inside the agent loop. Prior turns are threaded into the
+//      agent as messages, and results the model materializes with `save_as`
+//      become per-chat cached "frames" that follow-ups slice locally via
+//      filter_frame — no lake re-pull.
+//   3. Return { answer, sql, result } (last executed SQL/transform + result for the UI).
 
 import { chat, toolDefinition, maxIterations } from '@tanstack/ai';
 import { openaiCompatibleText } from '@tanstack/ai-openai/compatible';
@@ -23,6 +27,57 @@ import type { ChartSpec } from './Chart';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const APP_TITLE = 'Open Interest Options Workspace';
+
+// ---------------------------------------------------------------------------
+// Per-chat data cache ("frames")
+// ---------------------------------------------------------------------------
+// A frame is a named, immutable snapshot of a query result kept in the browser
+// for the life of one chat. The model materializes frames with run_query
+// `save_as` (which raises the row cap from 200 to FRAME_QUERY_LIMIT) and slices
+// them with filter_frame / refresh_frame — follow-ups ("only ≤45 DTE", "20
+// strikes around spot") become local filter/sort/slice ops instead of lake
+// queries. Frames carry per-column sketches (min/max/distinct) so the model can
+// reason about ranges without querying, and expire after FRAME_TTL_MS so the
+// view never silently slices stale data (the lake refreshes nightly).
+export const FRAME_TTL_MS = 15 * 60 * 1000;
+const MAX_FRAMES = 8;
+const MAX_FRAME_ROWS = 100_000;
+/** Row cap for run_query calls that materialize a frame (worker clamps to 10k). */
+export const FRAME_QUERY_LIMIT = 5000;
+/** Text turns kept from chat history and threaded into the agent as messages. */
+const HISTORY_TURNS = 16;
+
+export interface FrameColumnSketch {
+  type: 'number' | 'string' | 'boolean' | 'other';
+  min?: number;
+  max?: number;
+  /** Up to MAX_SKETCH_DISTINCT distinct non-null string values (low-cardinality hints). */
+  values?: string[];
+}
+
+export interface DataFrame {
+  name: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  summary: Record<string, FrameColumnSketch>;
+  /** Origin SQL — refresh_frame re-runs it against the lake. */
+  sql: string;
+  /** Epoch ms at materialization (stale after FRAME_TTL_MS). */
+  fetched_at: number;
+}
+
+export type FrameStore = Map<string, DataFrame>;
+
+export interface ChatSession {
+  /** Prior turns (text only) in display order — threaded into the agent as messages. */
+  history: { role: 'user' | 'assistant'; content: string }[];
+  frames: FrameStore;
+}
+
+export function createSession(): ChatSession {
+  return { history: [], frames: new Map() };
+}
 
 // ---------------------------------------------------------------------------
 // Credential / model helpers (localStorage)
@@ -525,6 +580,286 @@ function validateSqlSchema(sql: string, ctx: SchemaContext): ValidatedIssue[] {
 }
 
 // ---------------------------------------------------------------------------
+// Frame helpers: column sketches, eviction, catalog text
+// ---------------------------------------------------------------------------
+const MAX_SKETCH_DISTINCT = 12;
+// Sketch cost is bounded by sampling: a 100k-row frame never scans everything.
+const MAX_SKETCH_ROWS = 20_000;
+
+function sketchColumn(values: unknown[]): FrameColumnSketch {
+  let type: FrameColumnSketch['type'] = 'other';
+  let min: number | undefined;
+  let max: number | undefined;
+  const strings = new Set<string>();
+  for (const v of values) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'number') {
+      if (type === 'other') type = 'number';
+      if (min === undefined || v < min) min = v;
+      if (max === undefined || v > max) max = v;
+    } else if (type === 'number' && typeof v === 'string' && !Number.isNaN(Number(v))) {
+      const n = Number(v);
+      if (min === undefined || n < min) min = n;
+      if (max === undefined || n > max) max = n;
+    } else if (typeof v === 'boolean') {
+      if (type === 'other') type = 'boolean';
+    } else {
+      if (type === 'other') type = 'string';
+      if (strings.size < MAX_SKETCH_DISTINCT) strings.add(String(v));
+    }
+  }
+  const sketch: FrameColumnSketch = { type };
+  if (min !== undefined) sketch.min = min;
+  if (max !== undefined) sketch.max = max;
+  if (strings.size > 0) sketch.values = [...strings].sort();
+  return sketch;
+}
+
+function buildFrameSummary(
+  columns: string[],
+  rows: Record<string, unknown>[],
+): Record<string, FrameColumnSketch> {
+  const sampled = rows.slice(0, MAX_SKETCH_ROWS);
+  const summary: Record<string, FrameColumnSketch> = {};
+  for (const c of columns) summary[c] = sketchColumn(sampled.map((r) => r[c]));
+  return summary;
+}
+
+/** Insert a frame, evicting oldest when over MAX_FRAMES. Empty frames are rejected. */
+function saveFrame(store: FrameStore, frame: DataFrame): void {
+  if (frame.row_count <= 0) return;
+  if (frame.rows.length > MAX_FRAME_ROWS) {
+    frame.rows = frame.rows.slice(0, MAX_FRAME_ROWS);
+    frame.row_count = frame.rows.length;
+  }
+  store.set(frame.name, frame);
+  while (store.size > MAX_FRAMES) {
+    let oldest: string | null = null;
+    let oldestTs = Infinity;
+    for (const [name, f] of store) {
+      if (f.fetched_at < oldestTs) { oldestTs = f.fetched_at; oldest = name; }
+    }
+    if (oldest) store.delete(oldest);
+  }
+}
+
+function frameAgeText(frame: DataFrame): string {
+  const min = Math.round((Date.now() - frame.fetched_at) / 60000);
+  return min < 1 ? '<1 min' : `${min} min`;
+}
+
+function sketchText(sketch: FrameColumnSketch): string {
+  if (sketch.type === 'number') {
+    const range =
+      sketch.min !== undefined && sketch.max !== undefined
+        ? `${fmtNum(sketch.min)}..${fmtNum(sketch.max)}`
+        : '?';
+    return `number ${range}`;
+  }
+  if (sketch.type === 'string') {
+    const vals = sketch.values?.length ? ` {${sketch.values.join(', ')}}` : '';
+    return `string${vals}`;
+  }
+  return sketch.type;
+}
+
+function fmtNum(n: number): string {
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(3);
+}
+
+/** Compact catalog text for list_frames — what the model can slice without querying. */
+function frameCatalogText(store: FrameStore): string {
+  if (store.size === 0) {
+    return (
+      'No cached frames in this chat yet. When the question targets a specific ' +
+      "symbol's data (chain, vol surface/smile, OI/IV profile), run_query with " +
+      "save_as: '<name>' and SELECT a dte column (CAST(expiration AS DATE) - " +
+      "CURRENT_DATE AS dte) — the result is cached and follow-ups can slice it " +
+      'locally with filter_frame instead of re-querying the lake.'
+    );
+  }
+  const lines: string[] = [];
+  for (const f of store.values()) {
+    const cols = f.columns
+      .map((c) => `${c}: ${sketchText(f.summary[c])}`)
+      .join(', ');
+    lines.push(
+      `- '${f.name}': ${f.row_count} rows × ${f.columns.length} cols, age ${frameAgeText(f)} — ${cols}`,
+    );
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Local row slicing over cached frames (filter_frame engine)
+// ---------------------------------------------------------------------------
+// Where/sort are JS-style expressions over column names, e.g.
+//   where: "dte <= 45 && type == 'call'"
+//   sort:  "abs(strike - spot_price)"
+// Supported: numbers, 'single-quoted strings', == != < <= > >=, && || !,
+// parens, abs(x), min(a,b), max(a,b), round(x). Null safety: a null value in a
+// compared column makes comparisons false (SQL-like); null checks are written
+// `col == null` / `col != null`.
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const EXPR_KEYWORDS: Record<string, true> = {
+  abs: true, min: true, max: true, round: true,
+  true: true, false: true, null: true, undefined: true,
+};
+
+/**
+ * Rewrite bare column identifiers to `(c === null ? undefined : c)` outside
+ * string literals. Identifiers that are neither columns nor expression
+ * keywords are collected into `outUnknowns` (if given) so compileExpr can fail
+ * with a precise "unknown column" message instead of a runtime ReferenceError
+ * that silently drops every row.
+ */
+function nullGuardExpr(
+  expr: string,
+  columns: Set<string>,
+  outUnknowns?: string[],
+): string {
+  let out = '';
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (ch === "'") {
+      let j = i + 1;
+      let lit = "'";
+      while (j < expr.length) {
+        lit += expr[j];
+        if (expr[j] === "'") {
+          if (expr[j + 1] === "'") { lit += "'"; j += 2; continue; }
+          j++;
+          break;
+        }
+        j++;
+      }
+      out += lit;
+      i = j;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i + 1;
+      while (j < expr.length && /[A-Za-z0-9_]/.test(expr[j])) j++;
+      const word = expr.slice(i, j);
+      if (columns.has(word) && !EXPR_KEYWORDS[word]) {
+        out += `(${word} === null ? undefined : ${word})`;
+      } else {
+        out += word;
+        if (!EXPR_KEYWORDS[word] && !columns.has(word)) outUnknowns?.push(word);
+      }
+      i = j;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** Compile a where predicate or sort-key expression over the frame's columns. */
+function compileExpr(
+  columns: string[],
+  expr: string,
+  what: string,
+): (row: Record<string, unknown>) => unknown {
+  for (const c of columns) {
+    if (!IDENT_RE.test(c)) {
+      throw new Error(`column '${c}' can't be referenced in a ${what} expression`);
+    }
+  }
+  const unknowns: string[] = [];
+  const guarded = nullGuardExpr(expr, new Set(columns), unknowns);
+  if (unknowns.length) {
+    throw new Error(
+      `${what} expression references unknown column(s): ${unknowns.join(', ')}. ` +
+        `Frame columns: ${columns.length ? columns.join(', ') : '(none)'}. ` +
+        'Re-run the source query to include them in the frame.',
+    );
+  }
+  let fn: (...args: unknown[]) => unknown;
+  try {
+    fn = new Function(
+      ...columns,
+      'abs',
+      'min',
+      'max',
+      'round',
+      `"use strict"; return (${guarded});`,
+    ) as (...args: unknown[]) => unknown;
+  } catch {
+    throw new Error(`${what} expression is not valid JavaScript: ${expr}`);
+  }
+  return (row) =>
+    fn(
+      ...columns.map((c) => row[c] ?? null),
+      Math.abs,
+      Math.min,
+      Math.max,
+      Math.round,
+    );
+}
+
+function compareKeys(a: unknown, b: unknown): number {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'number') return -1;
+  if (typeof b === 'number') return 1;
+  return String(a ?? '').localeCompare(String(b ?? ''));
+}
+
+export interface FrameSlice {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+}
+
+export function sliceFrame(
+  frame: DataFrame,
+  opts: {
+    where?: string;
+    sort?: string;
+    limit?: number;
+    project?: string[];
+  } = {},
+): FrameSlice {
+  let columns = frame.columns;
+  let rows = frame.rows;
+  const where = opts.where?.trim();
+  if (where) {
+    const pred = compileExpr(columns, where, 'where');
+    rows = rows.filter((r) => {
+      try {
+        return pred(r) === true;
+      } catch {
+        return false;
+      }
+    });
+  }
+  const sort = opts.sort?.trim();
+  if (sort && rows.length > 1) {
+    const keyFn = compileExpr(columns, sort, 'sort');
+    const indexed = rows.map((r, i) => ({ r, i, k: keyFn(r) }));
+    indexed.sort((a, b) => compareKeys(a.k, b.k) || a.i - b.i);
+    rows = indexed.map((x) => x.r);
+  }
+  const limit = opts.limit;
+  if (limit !== undefined && limit >= 0) rows = rows.slice(0, limit);
+  if (opts.project && opts.project.length) {
+    const keep = new Set(opts.project.filter((c) => columns.includes(c)));
+    if (keep.size > 0) {
+      columns = columns.filter((c) => keep.has(c));
+      rows = rows.map((r) => {
+        const o: Record<string, unknown> = {};
+        for (const c of columns) o[c] = r[c];
+        return o;
+      });
+    }
+  }
+  return { columns, rows, row_count: rows.length };
+}
+
+// ---------------------------------------------------------------------------
 // Result summariser (compact text fed back to the model inside the tool)
 // ---------------------------------------------------------------------------
 function summarizeResult(res: QueryResult): string {
@@ -565,9 +900,19 @@ const runQueryDef = toolDefinition({
     'Execute ONE read-only DataFusion (R2 SQL) SELECT/WITH query against the ' +
     'CBOE options Iceberg lake and return a compact result summary. Tables live ' +
     'in the `options` schema. Use this to answer questions about the data. ' +
-    'SQL is validated against the real schema before running.',
+    'SQL is validated against the real schema before running. ' +
+    'With `save_as`, the full result (up to 5000 rows) is cached as a named ' +
+    'per-chat frame that filter_frame can slice locally — use it when you fetch ' +
+    'chartable data for a specific symbol (chain, surface, smile, OI profile) so ' +
+    'follow-up filters never re-query the lake.',
   inputSchema: z.object({
     sql: z.string().describe('A single read-only SQL query (SELECT or WITH).'),
+    save_as: z.string().optional().describe(
+      'Optional frame name (e.g. "aapl_surface") to cache this result as a per-chat ' +
+      'frame. When set, up to 5000 rows are returned/cached (200 otherwise). For ' +
+      'surface/chain/smile data, SELECT a dte column (CAST(expiration AS DATE) - ' +
+      'CURRENT_DATE AS dte) and spot_price so follow-ups can filter locally.',
+    ),
   }),
   outputSchema: z.object({
     ok: z.boolean().describe('Whether the query ran without an error.'),
@@ -588,6 +933,78 @@ const checkSchemaDef = toolDefinition({
   outputSchema: z.object({
     ok: z.boolean().describe('Whether the query references only known tables/columns.'),
     issues: z.array(z.string()).describe('Human-readable validation issues, if any.'),
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// Agent tools: per-chat cached frames (list / filter / refresh)
+// ---------------------------------------------------------------------------
+// Frames let follow-up questions slice already-fetched data locally instead of
+// re-pulling the lake. The model materializes a frame with run_query save_as,
+// checks what it holds with list_frames, slices it with filter_frame, and can
+// re-pull a stale one with refresh_frame.
+
+const listFramesDef = toolDefinition({
+  name: 'list_frames',
+  description:
+    'List per-chat cached data frames (results materialized with run_query ' +
+    'save_as). Includes columns, row counts, age in minutes, and per-column ' +
+    'min/max/distinct hints — enough to decide whether you can answer with ' +
+    'filter_frame on cached data instead of querying the lake again. Frames ' +
+    'expire after 15 minutes.',
+  inputSchema: z.object({}),
+  outputSchema: z.object({
+    ok: z.boolean().describe('Whether listing succeeded.'),
+    error: z.string().nullable().describe('Error message, or null when ok.'),
+    summary: z.string().describe('Frame catalog.'),
+  }),
+});
+
+const filterFrameDef = toolDefinition({
+  name: 'filter_frame',
+  description:
+    'Filter/sort/project a named cached frame entirely in the browser — NO lake ' +
+    'query. The result becomes the active data result for render_chart and the ' +
+    'chat table. `where` is a JS-style predicate over column names (examples: ' +
+    '"dte <= 45", "abs(strike - spot_price) / spot_price <= 0.05 && dte <= 60", ' +
+    '"type == \'call\' && open_interest > 1000"). `sort` is an expression for the ' +
+    'sort key, ascending (e.g. "abs(strike - spot_price)" for proximity to spot, ' +
+    '"dte" for nearest expiry); combine with `limit` for a top-N slice. Supported: ' +
+    'numbers, \'single-quoted strings\', == != < <= > >=, && || !, parens, ' +
+    'abs(x), min(a,b), max(a,b), round(x). Null semantics: rows with a null value ' +
+    'in a compared column are excluded (SQL-like); null checks are written ' +
+    '"col == null" / "col != null". Prefer this over re-querying the lake when ' +
+    'the frame already has the columns you need.',
+  inputSchema: z.object({
+    frame: z.string().describe('Name of the cached frame to slice (see list_frames).'),
+    where: z.string().optional().describe('Optional JS-style predicate; rows where it is false are dropped.'),
+    sort: z.string().optional().describe('Optional expression producing the ascending sort key.'),
+    limit: z.number().int().nonnegative().optional().describe('Optional max rows to return (after sort).'),
+    project: z.array(z.string()).optional().describe('Optional columns to keep (default all).'),
+    save_as: z.string().optional().describe(
+      'Optional frame name to cache the slice for later steps (e.g. "aapl_45dte").',
+    ),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean().describe('Whether the slice succeeded.'),
+    error: z.string().nullable().describe('Error message, or null when ok.'),
+    summary: z.string().describe('Compact result summary for reasoning.'),
+  }),
+});
+
+const refreshFrameDef = toolDefinition({
+  name: 'refresh_frame',
+  description:
+    'Re-pull a cached frame\'s source query from the lake and replace its rows. ' +
+    'Use when list_frames or a filter_frame error reports the frame is stale ' +
+    '(frames expire after 15 minutes; the lake refreshes nightly).',
+  inputSchema: z.object({
+    frame: z.string().describe('Name of the cached frame to refresh.'),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean().describe('Whether the refresh succeeded.'),
+    error: z.string().nullable().describe('Error message, or null when ok.'),
+    summary: z.string().describe('Compact result summary for reasoning.'),
   }),
 });
 
@@ -662,6 +1079,22 @@ function systemPrompt(schemaPrompt: string): string {
     'returned, say so and suggest a looser query. Be data-driven and conversational.',
     'Do NOT explain the SQL mechanics.',
     '',
+    'Cached data (per-chat frames — do not re-pull what you already have):',
+    '- When a question targets ONE symbol\'s data (chain, vol surface/smile, OI/IV profile),',
+    '  materialize it ONCE with run_query, passing save_as with a descriptive name and',
+    '  SELECTing a dte column (CAST(expiration AS DATE) - CURRENT_DATE AS dte) plus',
+    '  spot_price (for moneyness/proximity math). askAi caches up to 5000 rows locally.',
+    '- Follow-ups that narrow or re-shape that data ("only expirations <= 45 DTE", "20',
+    '  strikes around spot", "calls only") MUST be answered with list_frames +',
+    '  filter_frame on the cached frame — never a new lake query. Examples:',
+    '    filter_frame { frame: "aapl_surface", where: "dte <= 45" }',
+    '    filter_frame { frame: "aapl_surface", sort: "abs(strike - spot_price)", limit: 40 }',
+    '- A frame holds only what its SQL selected. If the follow-up needs a column the frame',
+    '  lacks (e.g. open_interest), run_query once more WITH save_as (same name replaces it).',
+    '- list_frames shows each frame\'s columns and numeric min/max so you know what is',
+    '  filterable locally. Frames expire after 15 min — on a stale-frame error, call',
+    '  refresh_frame and retry the slice.',
+    '',
     'Charting:',
     '- If the user asks for a chart (a stock chart, vol surface, IV smile/skew, OI/IV',
     '  profile, anything visual), you MUST call render_chart AFTER a run_query that',
@@ -674,9 +1107,10 @@ function systemPrompt(schemaPrompt: string): string {
     '- kind: `line` for curves/surfaces, `bar` for magnitudes, `scatter` for point clouds.',
     '- Give a short title and xLabel/yLabel when axis units help (yLabel="Implied vol"',
     '  for a 0-1 IV, xLabel="Strike"). Example: "Show the IV surface for AAPL" →',
-    '  run_query for strike, implied_vol, expiration; then render_chart',
-    '  { title: "AAPL IV surface", kind: "line", x: "strike", y: "implied_vol",',
-    '    series: "expiration" }.',
+    '  run_query with save_as: "aapl_surface" for strike, expiration, dte, implied_vol,',
+    '  spot_price; then render_chart { title: "AAPL IV surface", kind: "line", x: "strike",',
+    '    y: "implied_vol", series: "expiration" }. If the user then narrows the chart',
+    '  ("only 45 DTE"), filter_frame the cached frame and render_chart again — no re-query.',
   ].join('\n');
 }
 
@@ -685,6 +1119,7 @@ async function runAgent(
   apiKey: string,
   model: string,
   schema: SchemaContext,
+  session: ChatSession,
   capture: AgentCapture,
   onStatus?: AskCallbacks['onStatus'],
 ): Promise<string> {
@@ -698,7 +1133,7 @@ async function runAgent(
     };
   });
 
-  const runQuery = runQueryDef.server(async ({ sql }) => {
+  const runQuery = runQueryDef.server(async ({ sql, save_as }) => {
     // Deterministic grounding: pre-validate identifiers against the real schema
     // so hallucinated tables/columns are rejected with a precise message BEFORE
     // hitting the backend. The agent loop then autocorrects and retries.
@@ -709,21 +1144,140 @@ async function runAgent(
       return { ok: false, error: msg, summary: `Schema validation failed: ${msg}` };
     }
 
-    onStatus?.('Running query…');
-    const res = await api.query(sql, 200);
+    const materialize = !!save_as?.trim();
+    onStatus?.(materialize ? 'Running query & caching rows…' : 'Running query…');
+    const res = await api.query(sql, materialize ? FRAME_QUERY_LIMIT : 200);
     capture.sql = sql;
     capture.result = res;
     if (res.error) {
       return { ok: false, error: res.error, summary: `Query failed: ${res.error}` };
     }
+    let saved: DataFrame | null = null;
+    if (materialize && res.row_count > 0) {
+      const name = save_as!.trim();
+      saved = {
+        name,
+        columns: res.columns,
+        rows: res.rows,
+        row_count: res.row_count,
+        summary: buildFrameSummary(res.columns, res.rows),
+        sql,
+        fetched_at: Date.now(),
+      };
+      saveFrame(session.frames, saved);
+    }
     const warnings = issues
       .filter((i) => i.severity === 'warning')
       .map((i) => i.message)
       .join(' ');
+    let summary = warnings ? `Schema notes: ${warnings}\n${summarizeResult(res)}` : summarizeResult(res);
+    if (saved) {
+      summary +=
+        `\nSaved frame '${saved.name}' (${saved.row_count} rows, ${saved.columns.length} cols). ` +
+        (res.truncated
+          ? 'WARNING: result was truncated at ' + res.limit + ' rows — the frame may be incomplete.'
+          : 'Follow-ups can now filter it locally with filter_frame.');
+    }
+    return { ok: true, error: null, summary };
+  });
+
+  const listFrames = listFramesDef.server(async () => ({
+    ok: true,
+    error: null,
+    summary: frameCatalogText(session.frames),
+  }));
+
+  const filterFrame = filterFrameDef.server(
+    async ({ frame, where, sort, limit, project, save_as }) => {
+      const f = session.frames.get(frame);
+      if (!f) {
+        return {
+          ok: false,
+          error: `No frame '${frame}'. Call list_frames to see cached frames, or materialize one with run_query save_as.`,
+          summary: `No cached frame '${frame}'.`,
+        };
+      }
+      if (Date.now() - f.fetched_at > FRAME_TTL_MS) {
+        return {
+          ok: false,
+          error: `Frame '${frame}' is stale (cached ${frameAgeText(f)} ago; frames expire after ${Math.round(FRAME_TTL_MS / 60000)} min). Call refresh_frame { frame: '${frame}' } and retry.`,
+          summary: `Frame '${frame}' is stale.`,
+        };
+      }
+      try {
+        const sliced = sliceFrame(f, { where, sort, limit, project });
+        onStatus?.('Filtering cached data…');
+        const res: QueryResult = {
+          columns: sliced.columns,
+          rows: sliced.rows,
+          row_count: sliced.row_count,
+        };
+        capture.result = res;
+        capture.sql =
+          `-- slice of cached frame '${f.name}'` +
+          `${where ? ` where ${where}` : ''}${sort ? ` sorted by ${sort}` : ''}` +
+          `${limit !== undefined ? ` limit ${limit}` : ''}${project ? ` project [${project.join(', ')}]` : ''}` +
+          `\n-- source: ${f.sql}`;
+        let summary = summarizeResult(res);
+        if (save_as?.trim() && res.row_count > 0) {
+          const name = save_as.trim();
+          saveFrame(session.frames, {
+            name,
+            columns: res.columns,
+            rows: res.rows,
+            row_count: res.row_count,
+            summary: buildFrameSummary(res.columns, res.rows),
+            sql: f.sql,
+            fetched_at: Date.now(),
+          });
+          summary += `\nSaved frame '${name}' (${res.row_count} rows).`;
+        }
+        return { ok: true, error: null, summary };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return {
+          ok: false,
+          error: msg,
+          summary: `Filter failed: ${msg}. Check the where/sort expressions against the frame's columns.`,
+        };
+      }
+    },
+  );
+
+  const refreshFrame = refreshFrameDef.server(async ({ frame }) => {
+    const f = session.frames.get(frame);
+    if (!f) {
+      return {
+        ok: false,
+        error: `No frame '${frame}'. Call list_frames to see cached frames.`,
+        summary: `No cached frame '${frame}'.`,
+      };
+    }
+    onStatus?.('Refreshing cached data…');
+    const res = await api.query(f.sql, FRAME_QUERY_LIMIT);
+    capture.sql = f.sql;
+    capture.result = res;
+    if (res.error) {
+      return { ok: false, error: res.error, summary: `Refresh failed: ${res.error}` };
+    }
+    if (res.row_count > 0) {
+      const updated: DataFrame = {
+        name: f.name,
+        columns: res.columns,
+        rows: res.rows,
+        row_count: res.row_count,
+        summary: buildFrameSummary(res.columns, res.rows),
+        sql: f.sql,
+        fetched_at: Date.now(),
+      };
+      session.frames.set(f.name, updated);
+    }
     return {
       ok: true,
       error: null,
-      summary: warnings ? `Schema notes: ${warnings}\n${summarizeResult(res)}` : summarizeResult(res),
+      summary:
+        `Refreshed frame '${f.name}' (${res.row_count} rows).` +
+        (res.truncated ? ` WARNING: truncated at ${res.limit} rows — may be incomplete.` : ''),
     };
   });
 
@@ -733,7 +1287,10 @@ async function runAgent(
     // agent loop continue toward the natural-language answer.
     const result = capture.result;
     if (!result || result.error) {
-      return { ok: false, error: 'No successful query result to chart. Call run_query first.' };
+      return {
+        ok: false,
+        error: 'No successful query result to chart. Call run_query (or filter_frame on a cached frame) first.',
+      };
     }
     const cols = new Set(result.columns);
     if (!cols.has(x) || !cols.has(y)) {
@@ -759,21 +1316,32 @@ async function runAgent(
     },
   });
 
+  // Thread prior turns of this chat (text only; data lives in the frames) so
+  // follow-ups can refer to earlier results. Capped to bound token cost.
+  const history = session.history.slice(-HISTORY_TURNS);
+  const messages = [
+    ...history.map((h, i) => ({
+      id: `h${i}`,
+      role: h.role as 'user' | 'assistant',
+      parts: [{ type: 'text' as const, content: h.content }],
+    })),
+    {
+      id: 'user',
+      role: 'user' as const,
+      parts: [{ type: 'text' as const, content: question }],
+    },
+  ];
+
   const stream = chat({
     adapter,
-    messages: [
-      {
-        id: 'user',
-        role: 'user',
-        parts: [{ type: 'text', content: question }],
-      },
-    ],
+    messages,
     // systemPrompt is threaded via the `systemPrompts` option, NOT a system
     // message: TanStack AI's message conversion deliberately drops role:'system'
     // UIMessages and ModelMessage has no 'system' role.
     systemPrompts: [systemPrompt(schemaPrompt)],
-    tools: [runQuery, checkSchema, renderChart],
-    agentLoopStrategy: maxIterations(8),
+    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart],
+    // More tools + multi-step slice/chart workflows need a slightly larger budget.
+    agentLoopStrategy: maxIterations(10),
     modelOptions: {
       temperature: 0.2,
       // Only send reasoning_effort to models the catalog says support it —
@@ -840,6 +1408,7 @@ export interface AskResult {
 
 export async function askAi(
   question: string,
+  session: ChatSession,
   opts: AskCallbacks = {},
 ): Promise<AskResult> {
   const apiKey = getApiKey();
@@ -859,7 +1428,7 @@ export async function askAi(
   opts.onStatus?.('Reasoning over the data…');
   let answer: string;
   try {
-    answer = await runAgent(question, apiKey, model, schema, capture, opts.onStatus);
+    answer = await runAgent(question, apiKey, model, schema, session, capture, opts.onStatus);
   } catch (e) {
     // If the agent itself errored but a query already ran, still surface the
     // (partial) result rather than dropping it.
@@ -868,6 +1437,14 @@ export async function askAi(
     } else {
       throw e;
     }
+  }
+
+  // Memory for the next turn: text history (threaded as messages) is appended
+  // here; frames are already in session.frames (mutated by the tools).
+  session.history.push({ role: 'user', content: question });
+  session.history.push({ role: 'assistant', content: answer });
+  if (session.history.length > HISTORY_TURNS * 2) {
+    session.history.splice(0, session.history.length - HISTORY_TURNS * 2);
   }
 
   return { answer, sql: capture.sql, result: capture.result, chart: capture.chart };
