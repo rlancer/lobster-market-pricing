@@ -248,7 +248,10 @@
   flex-direction: column;
   gap: var(--spacing-4);
   padding: var(--spacing-5) var(--spacing-5) var(--spacing-2);
-  scroll-behavior: smooth;
+  /* No scroll-behavior: smooth here — useChatStreamScroll drives follow-  *
+   * scrolling imperatively at 60fps, and CSS-smoothing every scrollTop    *
+   * assignment (spec: scrollTop honors computed scroll-behavior) makes     *
+   * programmatic and wheel scrolling lag and rubber-band against the hook. */
 }
 .ai-welcome {
   margin: auto;
@@ -567,6 +570,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-messages { scroll-behavior: auto; }
   .ai-example-card { transition: none; }
 }
