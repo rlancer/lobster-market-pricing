@@ -15,9 +15,10 @@ const DOCS_PAGES = [
   { to: '/docs/overview', num: '01', label: 'Overview & architecture' },
   { to: '/docs/pipeline', num: '02', label: 'Data pipeline' },
   { to: '/docs/backend', num: '03', label: 'Backend & API' },
-  { to: '/docs/frontend', num: '04', label: 'Frontend surfaces' },
-  { to: '/docs/run', num: '05', label: 'Run it locally' },
-  { to: '/docs/deploy', num: '06', label: 'Deployment' },
+  { to: '/docs/exploration', num: '04', label: 'Exploration' },
+  { to: '/docs/frontend', num: '05', label: 'Frontend surfaces' },
+  { to: '/docs/run', num: '06', label: 'Run it locally' },
+  { to: '/docs/deploy', num: '07', label: 'Deployment' },
 ];
 
 type FlowStep = { glyph: string; title: string; sub: ReactNode };
@@ -394,6 +395,20 @@ export function DocsBackend() {
         ~15 minutes — fine for a screener. Greeks are CBOE-supplied Black-Scholes: theta per calendar day,
         vega/rho per 1.00 of vol/rate.
       </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 04 · Exploration — experiments against the live lake, with verdicts.
+// ---------------------------------------------------------------------------
+export function DocsExploration() {
+  return (
+    <Section id="exploration" num="04" title="Exploration">
+      <p className="docs-lede">
+        A running log of experiments against the live lake. Each entry states what was tried, the measured
+        results, and the verdict — so future sessions don’t re-run the same investigation.
+      </p>
       <h3>DuckDB vs R2 SQL — measured</h3>
       <p className="docs-lede">
         The lake is standard Iceberg REST, so a local DuckDB (≥ 1.4.0) can attach directly and pull the same
@@ -427,11 +442,11 @@ export function DocsBackend() {
 }
 
 // ---------------------------------------------------------------------------
-// Page: 04 · Frontend surfaces
+// Page: 05 · Frontend surfaces
 // ---------------------------------------------------------------------------
 export function DocsFrontend() {
   return (
-    <Section id="frontend" num="04" title="Frontend surfaces">
+    <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is five surfaces on one shell — sidebar navigation plus a
         header with the liquidity gate and dataset status. The question-mark icon in the header brings you
@@ -443,11 +458,11 @@ export function DocsFrontend() {
 }
 
 // ---------------------------------------------------------------------------
-// Page: 05 · Run it locally
+// Page: 06 · Run it locally
 // ---------------------------------------------------------------------------
 export function DocsRun() {
   return (
-    <Section id="run" num="05" title="Run it locally">
+    <Section id="run" num="06" title="Run it locally">
       <p className="docs-lede">
         Everything is pinned via mise — Node 24, Python 3.12, wrangler. Two terminals:
       </p>
@@ -466,11 +481,11 @@ mise run frontend            # Vite dev server    → http://127.0.0.1:5173`}</p
 }
 
 // ---------------------------------------------------------------------------
-// Page: 06 · Deployment
+// Page: 07 · Deployment
 // ---------------------------------------------------------------------------
 export function DocsDeploy() {
   return (
-    <Section id="deploy" num="06" title="Deployment">
+    <Section id="deploy" num="07" title="Deployment">
       <ul className="docs-ordered doc-list">
         <li><b>Worker</b> — <code>mise run worker-deploy</code> (wrangler deploy → screener-api.robertlancer.workers.dev).</li>
         <li><b>Loader</b> — GitHub Action <code>deploy-loader.yml</code> on push to main: deploys <code>cboe-to-r2</code> and applies D1 migrations.</li>
