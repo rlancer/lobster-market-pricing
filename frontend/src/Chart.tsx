@@ -97,10 +97,10 @@ function fmtTick(v: unknown): string {
 
 function seriesProps(kind: ChartKind, color: string): Record<string, unknown> {
   if (kind === 'line') {
-    return { type: 'monotone', stroke: color, strokeWidth: 2, dot: false, activeDot: { r: 3 } };
+    return { type: 'monotone', stroke: color, strokeWidth: 2, dot: false, activeDot: { r: 3 }, connectNulls: true };
   }
   if (kind === 'area') {
-    return { type: 'monotone', stroke: color, strokeWidth: 2, fill: color, fillOpacity: 0.15, dot: false };
+    return { type: 'monotone', stroke: color, strokeWidth: 2, fill: color, fillOpacity: 0.15, dot: false, connectNulls: true };
   }
   if (kind === 'scatter') {
     return { fill: color, fillOpacity: 0.7, stroke: 'none' };
