@@ -28,7 +28,9 @@ const APP_TITLE = 'Open Interest Options Workspace';
 // ---------------------------------------------------------------------------
 const STORAGE_KEY = 'openinterest_ai_key';
 const MODEL_KEY = 'openinterest_ai_model';
-const DEFAULT_MODEL = 'openai/gpt-5.6-luna';
+// Fresh users default to a free (:free) model so a $0 OpenRouter account works
+// out of the box — no deposit or credit card needed to start chatting.
+const DEFAULT_MODEL = 'google/gemma-4-31b-it:free';
 
 export function getApiKey(): string {
   return localStorage.getItem(STORAGE_KEY) ?? '';
@@ -96,6 +98,14 @@ interface CatalogModel {
 // guarantees `openrouter/auto` is always offered — it's a routing alias, not an
 // entry in the /models catalog.
 export const FALLBACK_MODEL_GROUPS: ModelGroup[] = [
+  {
+    title: 'Free',
+    options: [
+      { value: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B Instruct (free)' },
+      { value: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B (free)' },
+      { value: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B (free)' },
+    ],
+  },
   {
     title: 'Anthropic',
     options: [
@@ -173,8 +183,15 @@ async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
     }))
     .sort((a, b) => a.value.localeCompare(b.value));
 
+  // OpenRouter's `:free` tier needs no balance. Surface those first as their own
+  // "Free" group (and out of the paid provider groups) so a $0 account can chat
+  // immediately. They still carry full supported_parameters via modelSupportedParams.
+  const isFree = (id: string): boolean => id.endsWith(':free');
+  const free = choices.filter((c) => isFree(c.value));
+  const paid = choices.filter((c) => !isFree(c.value));
+
   const byProvider = new Map<string, ModelChoice[]>();
-  for (const c of choices) {
+  for (const c of paid) {
     const slash = c.value.indexOf('/');
     const provider = slash > 0 ? c.value.slice(0, slash) : 'other';
     const list = byProvider.get(provider);
@@ -182,9 +199,11 @@ async function fetchOpenRouterModels(): Promise<ModelGroup[]> {
     else byProvider.set(provider, [c]);
   }
 
-  const groups: ModelGroup[] = [
-    { title: 'Auto', options: [{ value: 'openrouter/auto', label: 'OpenRouter auto' }] },
-  ];
+  const groups: ModelGroup[] = [];
+  if (free.length) {
+    groups.push({ title: 'Free', options: free });
+  }
+  groups.push({ title: 'Auto', options: [{ value: 'openrouter/auto', label: 'OpenRouter auto' }] });
   for (const [provider, options] of [...byProvider.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     groups.push({ title: provider, options });
   }
