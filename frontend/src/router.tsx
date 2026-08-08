@@ -15,7 +15,7 @@ import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
-import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
+import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 
 // The header now holds a single consolidated status chip that links here; this
 // page is where all dataset status detail lives (refresh-run history + the live
@@ -138,6 +138,12 @@ const docsBackendRoute = createRoute({
   component: DocsBackend,
 });
 
+const docsExplorationRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/exploration',
+  component: DocsExploration,
+});
+
 const docsFrontendRoute = createRoute({
   getParentRoute: () => docsLayoutRoute,
   path: '/frontend',
@@ -161,6 +167,7 @@ const docsRoute = docsLayoutRoute.addChildren([
   docsOverviewRoute,
   docsPipelineRoute,
   docsBackendRoute,
+  docsExplorationRoute,
   docsFrontendRoute,
   docsRunRoute,
   docsDeployRoute,
