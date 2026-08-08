@@ -1,17 +1,22 @@
 # loader Worker local-dev secrets (loader/.dev.vars).
 # Copy to `.dev.vars` and fill in. This file is gitignored; the example is tracked.
 #
-# LOADER_TOKEN protects the loader Worker /run endpoint (POST only).
-# Deploy once with:  cd loader && npx wrangler secret put LOADER_TOKEN
+# GitHub Actions secrets are the project's de-facto secrets manager — every
+# token below is also stored there (`gh secret set NAME`) so it is never lost.
 #
-# Pipeline ingest URLs (PIPELINE_*_URL) are unauthenticated WRITE endpoints —
-# the 32-hex subdomain IS the credential. They must NEVER be committed. Deploy
-# them as Wrangler secrets after rotating any leaked URLs in the Cloudflare
-# dashboard (see SECURITY-AUDIT.md, CRITICAL):
+# LOADER_TOKEN protects the loader Worker /run, /loop/trigger and /jobs/*/trigger
+# endpoints. Deploy once with:  cd loader && npx wrangler secret put LOADER_TOKEN
+#
+# Pipeline ingest URLs (PIPELINE_*_URL) are write-capable endpoints for the R2
+# lake — they must NEVER be committed. Deploy them as Wrangler secrets (streams
+# are authenticated; PIPELINE_AUTH_TOKEN must be a Cloudflare API token with the
+# **Workers Pipelines -> Send** permission — other tokens get 401 code 1014):
 #   npx wrangler secret put PIPELINE_RUNS_URL
 #   npx wrangler secret put PIPELINE_CONTRACTS_URL
 #   npx wrangler secret put PIPELINE_UNDERLYINGS_URL
 #   npx wrangler secret put PIPELINE_ERRORS_URL        # leave empty to disable
+#   npx wrangler secret put PIPELINE_OHLC_URL          # stream cboe_ohlc_v2
+#   npx wrangler secret put PIPELINE_REALIZED_VOL_URL  # stream cboe_realized_vol_v2
 #   npx wrangler secret put PIPELINE_AUTH_TOKEN        # required (streams are authenticated)
 #
 # For local runs against the deployed Worker, leave the URLs blank here and let
@@ -23,4 +28,6 @@ PIPELINE_RUNS_URL=
 PIPELINE_CONTRACTS_URL=
 PIPELINE_UNDERLYINGS_URL=
 PIPELINE_ERRORS_URL=
+PIPELINE_OHLC_URL=
+PIPELINE_REALIZED_VOL_URL=
 PIPELINE_AUTH_TOKEN=

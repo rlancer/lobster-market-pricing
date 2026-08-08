@@ -1,0 +1,15 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"date","type":"string","required":true},
+    {"name":"open","type":"float64","required":false},
+    {"name":"high","type":"float64","required":false},
+    {"name":"low","type":"float64","required":false},
+    {"name":"close","type":"float64","required":false},
+    {"name":"volume","type":"int64","required":false},
+    {"name":"source","type":"string","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}
