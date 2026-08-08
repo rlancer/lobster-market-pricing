@@ -358,19 +358,17 @@ export interface SchemaContext {
 }
 
 export async function buildSchemaContext(): Promise<SchemaContext> {
+  // Single round trip: /api/tables now carries columns, row counts AND sample
+  // rows (cached in the Worker's D1), so no per-table SELECT * is needed here.
   const tables = await api.tables();
-  const out: SchemaTable[] = [];
-  for (const t of tables) {
-    let sample: Record<string, unknown>[] = [];
-    try {
-      const r = await api.query(`SELECT * FROM options."${t.name}" LIMIT 3`, 3);
-      sample = r.rows;
-    } catch {
-      /* non-fatal: sample is optional */
-    }
-    out.push({ name: t.name, row_count: t.row_count, columns: t.columns, sample });
-  }
-  return { tables: out };
+  return {
+    tables: tables.map((t) => ({
+      name: t.name,
+      row_count: t.row_count,
+      columns: t.columns,
+      sample: t.sample ?? [],
+    })),
+  };
 }
 
 function schemaToPrompt(ctx: SchemaContext): string {

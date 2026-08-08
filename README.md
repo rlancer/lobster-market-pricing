@@ -150,7 +150,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run) |
-| `GET /api/tables` | List lake tables (`options.*`) with columns/types and row counts |
+| `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 

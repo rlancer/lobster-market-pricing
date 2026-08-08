@@ -96,6 +96,8 @@ export interface TableInfo {
   name: string;
   row_count: number | null;
   columns: ColumnInfo[];
+  /** Up to 3 sample rows from the (D1-cached) lake schema; absent when the fetch predates samples. */
+  sample?: Record<string, unknown>[];
 }
 
 export interface QueryResult {
@@ -267,7 +269,10 @@ export const api = {
   liquidity: () => get<LiquidityInfo>('/api/liquidity'),
   screen: (params: Record<string, string | number | boolean | undefined>) =>
     get<ScreenResponse>(`/api/screen${qs(params)}`),
-  tables: () => get<TableInfo[]>('/api/tables'),
+  // Lake schema, served from the Worker's D1 cache (recomputed when stale).
+  // `force` skips the cache and recomputes live from the lake (SQL Lab refresh).
+  tables: (opts?: { force?: boolean }) =>
+    get<TableInfo[]>(`/api/tables${qs({ force: opts?.force ? 1 : undefined })}`),
   query: (sql: string, limit?: number) => post<QueryResult>('/api/query', { sql, limit }),
   symbolDetail: (symbol: string) => get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
   notebookPremium: (params: {
