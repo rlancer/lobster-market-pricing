@@ -151,7 +151,7 @@ function Layout() {
               <MonitorStatus />
               <Link
                 to="/docs"
-                className={location.pathname === '/docs' ? 'docs-link active' : 'docs-link'}
+                className={location.pathname.startsWith('/docs') ? 'docs-link active' : 'docs-link'}
                 title="Docs — how this platform works"
                 aria-label="Docs — how this platform works"
               >
