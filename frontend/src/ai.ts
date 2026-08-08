@@ -19,6 +19,7 @@ import { openaiCompatibleText } from '@tanstack/ai-openai/compatible';
 import { z } from 'zod';
 import { api } from './api';
 import type { QueryResult } from './api';
+import type { ChartSpec } from './Chart';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const APP_TITLE = 'Open Interest Options Workspace';
@@ -593,11 +594,45 @@ const checkSchemaDef = toolDefinition({
 });
 
 // ---------------------------------------------------------------------------
+// Agent tool: render a chart of the most recent query result in the chat UI
+// ---------------------------------------------------------------------------
+// The model fetches chartable data with run_query, then calls render_chart to
+// request a chart. The frontend captures the spec (from the tool-call input)
+// alongside the last query result and renders it — the tool itself is a no-op
+// server-side; its only job is to appear in the agent loop so the model can
+// declare a chart and keep producing the natural-language answer.
+const renderChartDef = toolDefinition({
+  name: 'render_chart',
+  description:
+    'Show the most recent run_query result as a chart in the chat. Call this AFTER a ' +
+    'run_query that fetched the chart data, naming the EXACT result columns to plot: ' +
+    '`x` (x-axis), `y` (y-axis), and optionally `series` to split into one line/bar per ' +
+    'distinct value. For a volatility surface: x=strike, y=implied_vol, series=expiration ' +
+    '(or a DTE column) → one curve per expiration. For a stock OI/IV profile: x=strike, ' +
+    'y=(open_interest|implied_vol), series=type. Use `line` for curves/surfaces, `bar` for ' +
+    'single-variable magnitude (e.g. OI by strike), `scatter` for point clouds.',
+  inputSchema: z.object({
+    title: z.string().optional().describe('Short chart heading.'),
+    kind: z.enum(['line', 'area', 'scatter', 'bar']).default('line'),
+    x: z.string().describe('Column in the most recent query result for the x-axis.'),
+    y: z.string().describe('Column in the most recent query result for the y-axis.'),
+    series: z.string().optional().describe('Optional column that splits data into one series per value.'),
+    xLabel: z.string().optional(),
+    yLabel: z.string().optional(),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean().describe('Whether the chart spec is well-formed.'),
+    error: z.string().nullable().describe('Error message, or null when ok.'),
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // TanStack AI agent: answer a question by writing + running SQL
 // ---------------------------------------------------------------------------
 interface AgentCapture {
   sql: string | null;
   result: QueryResult | null;
+  chart: ChartSpec | null;
 }
 
 function systemPrompt(schemaPrompt: string): string {
@@ -624,10 +659,24 @@ function systemPrompt(schemaPrompt: string): string {
     '- Expensive queries are budget-gated or time out: avoid joins of 3+ large tables with no WHERE filter, COUNT(DISTINCT x)/(DISTINCT) across joins or high-cardinality columns, ARRAY_AGG/STRING_AGG, and window functions over large partitions. Prefer WHERE filters + GROUP BY and the approx_* aggregates (approx_distinct, approx_median, approx_percentile_cont).',
     '- Filter before joining; join tables on keys (symbol, run_id) rather than scanning everything.',
     '',
-    'After you have the results, answer the user\'s question in plain English:',
+    '- After you have the results, answer the user\'s question in plain English:',
     'mention specific symbols, sectors, and numbers where useful. If no rows were',
     'returned, say so and suggest a looser query. Be data-driven and conversational.',
     'Do NOT explain the SQL mechanics.',
+    '',
+    'Charting:',
+    '- If the user asks for a chart (a stock chart, vol surface, IV smile/skew, OI/IV',
+    '  profile, anything visual), after run_query returns the chartable data, call',
+    '  render_chart with that result\'s column names. There is no historical price',
+    '  series in this lake — "chart of a stock" means chart what IS available for it:',
+    '  the IV smile (implied_vol vs strike), IV term structure (implied_vol vs',
+    '  expiration), or OI/IV profile by strike. SELECT the specific numeric columns you',
+    '  want to chart (strike, implied_vol, open_interest, delta, expiration, type, …).',
+    '- Vol surface / smile: x=strike, y=implied_vol, series=expiration.',
+    '- OI/IV profile: x=strike, y=open_interest (or implied_vol), series=type.',
+    '- Prefer `line` for curves and surfaces; `bar` for magnitudes (e.g. OI by strike);',
+    '  `scatter` for point clouds. Give a short title. Use xLabel/yLabel when axis units',
+    '  would help (e.g. yLabel="Implied vol" for a 0-1 IV, "Strike" on x).',
   ].join('\n');
 }
 
@@ -678,6 +727,24 @@ async function runAgent(
     };
   });
 
+  const renderChart = renderChartDef.server(async ({ x, y }) => {
+    // The chart itself is rendered client-side from the captured tool input +
+    // the last query result; this executor only needs to validate + let the
+    // agent loop continue toward the natural-language answer.
+    const result = capture.result;
+    if (!result || result.error) {
+      return { ok: false, error: 'No successful query result to chart. Call run_query first.' };
+    }
+    const cols = new Set(result.columns);
+    if (!cols.has(x) || !cols.has(y)) {
+      return {
+        ok: false,
+        error: `Result has no columns '${x}'/'${y}'. Available: ${result.columns.join(', ')}.`,
+      };
+    }
+    return { ok: true, error: null };
+  });
+
   const adapter = openaiCompatibleText(model, {
     baseURL: OPENROUTER_BASE,
     apiKey,
@@ -705,7 +772,7 @@ async function runAgent(
     // message: TanStack AI's message conversion deliberately drops role:'system'
     // UIMessages and ModelMessage has no 'system' role.
     systemPrompts: [systemPrompt(schemaPrompt)],
-    tools: [runQuery, checkSchema],
+    tools: [runQuery, checkSchema, renderChart],
     agentLoopStrategy: maxIterations(8),
     modelOptions: {
       temperature: 0.2,
@@ -723,7 +790,12 @@ async function runAgent(
   let answer = '';
   for await (const ev of stream) {
     if (ev.type === 'TOOL_CALL_END') {
-      // Only keep text emitted after the last tool call (the final answer).
+      // Capture a chart spec the model declared, paired with the last result,
+      // so the UI can render it alongside the answer. Only keep text emitted
+      // after the last tool call (the final answer).
+      if (ev.toolCallName === 'render_chart' && typeof ev.input === 'object' && ev.input !== null) {
+        capture.chart = ev.input as ChartSpec;
+      }
       answer = '';
     } else if (ev.type === 'TEXT_MESSAGE_CONTENT' && typeof ev.delta === 'string') {
       answer += ev.delta;
@@ -745,6 +817,8 @@ export interface AskResult {
   answer: string;
   sql: string | null;
   result: QueryResult | null;
+  /** Chart the model asked to render (paired with `result`), or null. */
+  chart: ChartSpec | null;
 }
 
 export async function askAi(
@@ -755,7 +829,7 @@ export async function askAi(
   if (!apiKey) throw new Error('No API key configured. Set it in the settings panel first.');
 
   const model = getModel();
-  const capture: AgentCapture = { sql: null, result: null };
+  const capture: AgentCapture = { sql: null, result: null, chart: null };
 
   opts.onStatus?.('Reading schema…');
   let schema: SchemaContext;
@@ -779,5 +853,5 @@ export async function askAi(
     }
   }
 
-  return { answer, sql: capture.sql, result: capture.result };
+  return { answer, sql: capture.sql, result: capture.result, chart: capture.chart };
 }
