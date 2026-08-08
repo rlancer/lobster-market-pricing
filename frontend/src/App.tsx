@@ -156,7 +156,6 @@ function Layout() {
                 aria-label="Docs — how this platform works"
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="8.75" />
                   <path d="M9.45 9.15a2.55 2.55 0 1 1 3.5 2.37c-.78.34-1.12.86-1.12 1.66v.22" />
                   <circle cx="11.9" cy="16.3" r="1.05" fill="currentColor" stroke="none" />
                 </svg>
