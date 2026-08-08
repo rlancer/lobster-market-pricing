@@ -131,6 +131,34 @@ export interface ChainContract {
   ask_size?: number | null;
 }
 
+/** One daily spot OHLC bar for an underlying (options.ohlc, newest run per date). */
+export interface OhlcBar {
+  date: string; // YYYY-MM-DD
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+}
+
+/** Latest realized-volatility snapshot (options.realized_vol), annualized fractions. */
+export interface RealizedVol {
+  as_of_date: string;
+  realized_vol_30d: number | null;
+  realized_vol_90d: number | null;
+  n_returns_30: number | null;
+  n_returns_90: number | null;
+}
+
+/** Latest dividend/split row for an underlying (options.corporate_actions). */
+export interface CorporateAction {
+  action_type: 'DIVIDEND' | 'SPLIT';
+  ex_date: string; // YYYY-MM-DD
+  numerator: number | null; // split ratio, e.g. 4-for-1
+  denominator: number | null;
+  amount: number | null; // per-share cash dividend
+}
+
 export interface SymbolDetail {
   underlying: {
     symbol: string;
@@ -143,6 +171,12 @@ export interface SymbolDetail {
   expirations: string[];
   n_contracts: number;
   liquid: boolean;
+  // Enrichment from the OHLC pipeline (~1y of daily bars, latest realized-vol
+  // snapshot, recent dividends/splits). Optional: older worker deploys omit
+  // them; empty arrays when the tables have no rows for this symbol.
+  ohlc?: OhlcBar[];
+  realized_vol?: RealizedVol | null;
+  corporate_actions?: CorporateAction[];
 }
 
 export interface PremiumNotebookRow {

@@ -181,6 +181,85 @@
   background: rgba(255, 209, 102, 0.35);
 }
 
+/* ---- OHLC / realized-vol panel ---- */
+.ohlc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.ohlc-panel .panel-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.ohlc-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ohlc-stats b { color: var(--text); }
+.ohlc-stats .small { font-size: 11px; margin-left: 4px; }
+.ohlc-stats .up { color: var(--call); }
+.ohlc-stats .down { color: var(--put); }
+.ohlc-stats .ca-chip {
+  background: rgba(56, 217, 169, 0.14);
+  color: var(--accent-2);
+  border: 1px solid rgba(56, 217, 169, 0.35);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+  white-space: nowrap;
+}
+.ohlc-stats .ca-chip.ca-split {
+  background: rgba(224, 168, 76, 0.14);
+  color: #e0a84c;
+  border-color: rgba(224, 168, 76, 0.4);
+}
+.ohlc-chart { height: 110px; }
+.ohlc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.ohlc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ohlc-table th, .ohlc-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ohlc-table thead th {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.ohlc-table tbody tr:last-child td { border-bottom: none; }
+.ohlc-table tbody tr:hover { background: rgba(79, 140, 255, 0.06); }
+.ohlc-table .num { color: var(--text); }
+.ohlc-table .left { text-align: left; }
+.ohlc-table .right { text-align: right; }
+.ohlc-table .muted { color: var(--muted); }
+.ohlc-table .up { color: var(--call); }
+.ohlc-table .down { color: var(--put); }
+.ohlc-table .close-col { color: var(--text); font-weight: 600; }
+
 .empty { text-align: center; padding: 28px; color: var(--muted); }
 .error {
   background: rgba(255, 82, 82, 0.1);

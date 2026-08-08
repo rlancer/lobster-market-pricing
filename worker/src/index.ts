@@ -362,21 +362,96 @@ function row(r: R2Row): { symbol: string; name: string | null; sector: string | 
   return { symbol: String(r.symbol), name: strOrNull(r.name), sector: strOrNull(r.sector) };
 }
 
+// ---------------------------------------------------------------------------
+// Symbol detail enrichment: daily OHLC bars, realized vol, corporate actions.
+// These tables (options.ohlc / options.realized_vol / options.corporate_actions)
+// are newer than the chain data, so each query is isolated and degrades to
+// empty on failure (missing table, empty lake, transient R2 SQL error) — the
+// endpoint must keep serving contracts even when enrichment is unavailable.
+// OHLC is append-only across daily runs, so rows are deduped per (symbol,date)
+// keeping the newest run; bars come back newest-first and are flipped to
+// ascending for the chart.
+// ---------------------------------------------------------------------------
+const OHLC_BARS_LIMIT = 260; // ~1y of trading days → 52w high/low + sparkline
+
+function enrichQuery(env: Env, symbol: string, kind: string, sql: string, key: string) {
+  return r2sql(env, sql, key).catch((e) => {
+    console.error(`symbol ${symbol} ${kind} enrichment failed`, e);
+    return [];
+  });
+}
+
+async function enrichSymbol(env: Env, symbol: string): Promise<{
+  ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
+}> {
+  const sym = lit(symbol);
+  const [ohlcRows, rvRows, caRows] = await Promise.all([
+    enrichQuery(env, symbol, "ohlc",
+      `SELECT date, open, high, low, close, volume FROM (` +
+      `  SELECT date, open, high, low, close, volume,` +
+      `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
+      `  FROM options.ohlc WHERE symbol = ${sym}` +
+      `) WHERE rn = 1 ORDER BY date DESC LIMIT ${OHLC_BARS_LIMIT}`,
+      `sym_ohlc_${symbol}`),
+    enrichQuery(env, symbol, "realized_vol",
+      `SELECT as_of_date, realized_vol_30d, realized_vol_90d, n_returns_30, n_returns_90 FROM (` +
+      `  SELECT as_of_date, realized_vol_30d, realized_vol_90d, n_returns_30, n_returns_90,` +
+      `    ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY fetched_at DESC, run_id DESC) rn` +
+      `  FROM options.realized_vol WHERE symbol = ${sym}` +
+      `) WHERE rn = 1`,
+      `sym_rv_${symbol}`),
+    enrichQuery(env, symbol, "corporate_actions",
+      `SELECT action_type, ex_date, numerator, denominator, amount FROM (` +
+      `  SELECT action_type, ex_date, numerator, denominator, amount,` +
+      `    ROW_NUMBER() OVER (PARTITION BY action_type, ex_date ORDER BY fetched_at DESC, run_id DESC) rn` +
+      `  FROM options.corporate_actions WHERE ticker = ${sym}` +
+      `) WHERE rn = 1 ORDER BY ex_date DESC LIMIT 8`,
+      `sym_ca_${symbol}`),
+  ]);
+  return {
+    ohlc: (ohlcRows as Row[]).map((r) => ({
+      date: String(r.date),
+      open: numOrNull(r.open), high: numOrNull(r.high), low: numOrNull(r.low),
+      close: numOrNull(r.close), volume: numOrNull(r.volume),
+    })).reverse(),
+    realized_vol: rvRows.length ? {
+      as_of_date: String(rvRows[0].as_of_date),
+      realized_vol_30d: numOrNull(rvRows[0].realized_vol_30d),
+      realized_vol_90d: numOrNull(rvRows[0].realized_vol_90d),
+      n_returns_30: numOrNull(rvRows[0].n_returns_30),
+      n_returns_90: numOrNull(rvRows[0].n_returns_90),
+    } : null,
+    corporate_actions: (caRows as Row[]).map((r) => ({
+      action_type: String(r.action_type),
+      ex_date: String(r.ex_date),
+      numerator: numOrNull(r.numerator),
+      denominator: numOrNull(r.denominator),
+      amount: numOrNull(r.amount),
+    })),
+  };
+}
+
 async function symbolDetail(env: Env, symbol: string): Promise<{
   underlying: { symbol: string; name: string | null; sector: string | null; spot: number | null; fetched_at: string | null } | null;
   contracts: Row[]; expirations: string[]; n_contracts: number; liquid: boolean;
+  ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
 }> {
   const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`);
-  if (!u.length) return { underlying: null, contracts: [], expirations: [], n_contracts: 0, liquid: false };
+  if (!u.length) {
+    return { underlying: null, contracts: [], expirations: [], n_contracts: 0, liquid: false, ohlc: [], realized_vol: null, corporate_actions: [] };
+  }
   const ud = u[0];
-  // contracts for the latest run of this symbol
-  const rows = await r2sql(env,
-    `SELECT expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, ` +
-    `delta, gamma, theta, vega, rho, in_the_money, theo, bid_size, ask_size, fetched_at ` +
-    `FROM options.option_contracts WHERE symbol = ${lit(symbol)} ` +
-    `AND run_id = ${lit(ud.run_id)} ORDER BY expiration, strike, type LIMIT ${R2SQL_LIMIT_MAX}`);
-  const expirations = sortedUnique(rows.map((r) => String(r.expiration)));
-  const syms = await liquidSymbols(env);
+  // contracts for the latest run of this symbol + enrichment, in parallel
+  const [{ rows, expirations }, enrich, syms] = await Promise.all([
+    r2sql(env,
+      `SELECT expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, ` +
+      `delta, gamma, theta, vega, rho, in_the_money, theo, bid_size, ask_size, fetched_at ` +
+      `FROM options.option_contracts WHERE symbol = ${lit(symbol)} ` +
+      `AND run_id = ${lit(ud.run_id)} ORDER BY expiration, strike, type LIMIT ${R2SQL_LIMIT_MAX}`)
+      .then((r) => ({ rows: r, expirations: sortedUnique(r.map((x) => String(x.expiration))) })),
+    enrichSymbol(env, symbol),
+    liquidSymbols(env),
+  ]);
   return {
     underlying: {
       symbol: String(ud.symbol), name: strOrNull(ud.name), sector: strOrNull(ud.sector),
@@ -386,6 +461,9 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
     expirations,
     n_contracts: rows.length,
     liquid: syms.includes(symbol),
+    ohlc: enrich.ohlc,
+    realized_vol: enrich.realized_vol,
+    corporate_actions: enrich.corporate_actions,
   };
 }
 
