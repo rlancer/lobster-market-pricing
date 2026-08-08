@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {"name":"security_id","type":"string","required":true},
+    {"name":"ticker","type":"string","required":true},
+    {"name":"action_type","type":"string","required":true},
+    {"name":"ex_date","type":"string","required":true},
+    {"name":"numerator","type":"float64","required":false},
+    {"name":"denominator","type":"float64","required":false},
+    {"name":"amount","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "fields": [
+    {"name":"security_id","type":"string","required":true},
+    {"name":"ticker","type":"string","required":true},
+    {"name":"valid_from","type":"string","required":true},
+    {"name":"valid_to","type":"string","required":false},
+    {"name":"is_current","type":"int64","required":true},
+    {"name":"reason","type":"string","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

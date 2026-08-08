@@ -1,0 +1,12 @@
+{
+  "fields": [
+    {"name":"security_id","type":"string","required":true},
+    {"name":"ticker","type":"string","required":true},
+    {"name":"spot_price","type":"float64","required":false},
+    {"name":"name","type":"string","required":false},
+    {"name":"sector","type":"string","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

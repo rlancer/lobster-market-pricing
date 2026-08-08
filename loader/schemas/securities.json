@@ -1,0 +1,16 @@
+{
+  "fields": [
+    {"name":"security_id","type":"string","required":true},
+    {"name":"ticker","type":"string","required":true},
+    {"name":"name","type":"string","required":false},
+    {"name":"sector","type":"string","required":false},
+    {"name":"exchange","type":"string","required":false},
+    {"name":"currency","type":"string","required":false},
+    {"name":"figi","type":"string","required":false},
+    {"name":"composite_figi","type":"string","required":false},
+    {"name":"isin","type":"string","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

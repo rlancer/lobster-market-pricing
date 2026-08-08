@@ -23,3 +23,6 @@ loader/worker-configuration.d.ts
 
 # Loader resumable-load checkpoints (atomically written by loader/tools/load_sp500.py)
 .sp500-*-load-state.json
+
+# OHLC backfill resume state (written by loader/tools/ohlc_backfill.ts)
+loader/.backfill-state.json
