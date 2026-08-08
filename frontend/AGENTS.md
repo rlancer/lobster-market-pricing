@@ -33,32 +33,10 @@ MORE CLI:
   upgrade --apply    run after any @astryxdesign/core bump
 <!-- ASTRYX:END -->
 
-## Workflow: branch protection
+## Repo-wide workflow
 
-`main` is branch-protected — no direct pushes. Single-owner project, so no code
-review is required, but every change still goes through a PR:
-
-1. Create a feature branch: `git checkout -b feat/<slug>`.
-2. Commit your work there and push: `git push -u origin feat/<slug>`.
-3. Open a PR against `main` (`gh pr create --base main`), confirm the required
-   checks pass, then merge when ready (`gh pr merge <n> --merge`) and assume the
-   change is live.
-
-Do not amend or force-push after the PR is opened.
-
-## Always report the dev link with a PR
-
-Every PR (and every non-`main` branch push) auto-deploys to the **Cloudflare
-Pages dev project** `robs-options-slop-dev` via the `Deploy → dev` job in
-`.github/workflows/deploy.yml`. When you open a PR, also give the dev URL.
-
-The URL is the branch name with any `/` replaced by `-`:
-
-- `https://<branch-slug>.robs-options-slop-dev.pages.dev/`
-
-Example: branch `feat/free-openrouter-models` →
-`https://feat-free-openrouter-models.robs-options-slop-dev.pages.dev/`
-
-Confirm it went live: the `Deploy → dev` GitHub Action must succeed, and the URL
-should return HTTP 200. The next push to the branch redeploys the same URL.
+PR workflow, commit hygiene, and preview-link reporting live in the root
+`AGENTS.md`: every change ships as a PR against `main`, nothing is left
+uncommitted, and every task reports back the PR link + preview link. Read the
+root `AGENTS.md` before starting work.
 

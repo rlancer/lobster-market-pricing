@@ -14,6 +14,7 @@ import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
+import Docs from './Docs';
 
 // The header now holds a single consolidated status chip that links here; this
 // page is where all dataset status detail lives (refresh-run history + the live
@@ -102,6 +103,13 @@ const symbolRoute = createRoute({
   component: SymbolDetailView,
 });
 
+// Docs portal — how the platform works end to end (linked from the header ? icon).
+const docsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/docs',
+  component: Docs,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   marketRoute,
@@ -110,6 +118,7 @@ const routeTree = rootRoute.addChildren([
   aiRoute,
   monitorRoute,
   symbolRoute,
+  docsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

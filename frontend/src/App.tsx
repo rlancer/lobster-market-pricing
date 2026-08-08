@@ -44,6 +44,10 @@ const SECTIONS: Section[] = [
 // left nav — but the /monitor page still needs its own heading.
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', glyph: 'IO' };
 
+// The docs portal lives behind the header question-mark icon, not the left
+// nav — the /docs page still needs its own topbar heading.
+const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', glyph: '?' };
+
 function Layout() {
   const db = useDbReady();
   const navigate = useNavigate();
@@ -78,7 +82,7 @@ function Layout() {
       })
     : '–';
 
-  const active = [...SECTIONS, MONITOR_HEADING].find((s) =>
+  const active = [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
     s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
   );
 
@@ -145,6 +149,18 @@ function Layout() {
             <div className="topbar-tools">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
               <MonitorStatus />
+              <Link
+                to="/docs"
+                className={location.pathname === '/docs' ? 'docs-link active' : 'docs-link'}
+                title="Docs — how this platform works"
+                aria-label="Docs — how this platform works"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8.75" />
+                  <path d="M9.45 9.15a2.55 2.55 0 1 1 3.5 2.37c-.78.34-1.12.86-1.12 1.66v.22" />
+                  <circle cx="11.9" cy="16.3" r="1.05" fill="currentColor" stroke="none" />
+                </svg>
+              </Link>
             </div>
           </header>
 
