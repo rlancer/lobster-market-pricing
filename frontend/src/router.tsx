@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
   useNavigate,
   useParams,
 } from '@tanstack/react-router';
@@ -14,7 +15,7 @@ import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import Notebooks from './Notebooks';
 import SymbolDetail from './SymbolDetail';
-import Docs from './Docs';
+import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 
 // The header now holds a single consolidated status chip that links here; this
 // page is where all dataset status detail lives (refresh-run history + the live
@@ -103,12 +104,67 @@ const symbolRoute = createRoute({
   component: SymbolDetailView,
 });
 
-// Docs portal — how the platform works end to end (linked from the header ? icon).
-const docsRoute = createRoute({
+// Docs portal — broken out into one page per topic. /docs is the layout shell
+// (left nav + Outlet); /docs alone redirects to the Overview page.
+const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
-  component: Docs,
+  component: DocsLayout,
 });
+
+const docsIndexRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/',
+  beforeLoad: () => {
+    throw redirect({ to: '/docs/overview' });
+  },
+});
+
+const docsOverviewRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/overview',
+  component: DocsOverview,
+});
+
+const docsPipelineRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/pipeline',
+  component: DocsPipeline,
+});
+
+const docsBackendRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/backend',
+  component: DocsBackend,
+});
+
+const docsFrontendRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/frontend',
+  component: DocsFrontend,
+});
+
+const docsRunRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/run',
+  component: DocsRun,
+});
+
+const docsDeployRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/deploy',
+  component: DocsDeploy,
+});
+
+const docsRoute = docsLayoutRoute.addChildren([
+  docsIndexRoute,
+  docsOverviewRoute,
+  docsPipelineRoute,
+  docsBackendRoute,
+  docsFrontendRoute,
+  docsRunRoute,
+  docsDeployRoute,
+]);
 
 const routeTree = rootRoute.addChildren([
   indexRoute,

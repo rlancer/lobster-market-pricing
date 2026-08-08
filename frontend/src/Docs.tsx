@@ -1,11 +1,24 @@
 import type { ReactNode } from 'react';
+import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import './Docs.css';
 
 // ---------------------------------------------------------------------------
 // Docs portal — how the whole platform works, end to end. Pure static content
-// (no API calls); wired to the /docs route in router.tsx and linked from the
+// (no API calls). The portal is split into one page per topic (/docs/<page>);
+// DocsLayout is the shell (left nav + content), and each topic exports its own
+// page component. Wired to the /docs route tree in router.tsx; linked from the
 // header question-mark icon in App.tsx.
 // ---------------------------------------------------------------------------
+
+// Left-nav page registry — order matches the section numbers.
+const DOCS_PAGES = [
+  { to: '/docs/overview', num: '01', label: 'Overview & architecture' },
+  { to: '/docs/pipeline', num: '02', label: 'Data pipeline' },
+  { to: '/docs/backend', num: '03', label: 'Backend & API' },
+  { to: '/docs/frontend', num: '04', label: 'Frontend surfaces' },
+  { to: '/docs/run', num: '05', label: 'Run it locally' },
+  { to: '/docs/deploy', num: '06', label: 'Deployment' },
+];
 
 type FlowStep = { glyph: string; title: string; sub: ReactNode };
 
@@ -224,200 +237,249 @@ function Cards({ items }: { items: { title: string; sub?: string; body: string }
   );
 }
 
-export default function Docs() {
-  const jump = (id: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
+// ---------------------------------------------------------------------------
+// DocsLayout — shared shell: left page nav (sticky) + the active page's body.
+// ---------------------------------------------------------------------------
+export default function DocsLayout() {
+  const { pathname } = useLocation();
   return (
     <div className="docs">
-      <nav className="docs-toc" aria-label="Docs contents">
-        <span className="docs-toc-title">On this page</span>
-        <a href="#overview" onClick={jump('overview')}>Overview &amp; architecture</a>
-        <a href="#pipeline" onClick={jump('pipeline')}>Data pipeline</a>
-        <a href="#backend" onClick={jump('backend')}>Backend &amp; API</a>
-        <a href="#frontend" onClick={jump('frontend')}>Frontend surfaces</a>
-        <a href="#run" onClick={jump('run')}>Run it locally</a>
-        <a href="#deploy" onClick={jump('deploy')}>Deployment</a>
+      <nav className="docs-toc" aria-label="Docs pages">
+        <span className="docs-toc-title">Docs</span>
+        {DOCS_PAGES.map((p) => (
+          <Link
+            key={p.to}
+            to={p.to}
+            className={pathname === p.to ? 'docs-toc-link active' : 'docs-toc-link'}
+            aria-current={pathname === p.to ? 'page' : undefined}
+          >
+            <span className="docs-toc-num">{p.num}</span>
+            <span>{p.label}</span>
+          </Link>
+        ))}
       </nav>
 
       <div className="docs-body">
-        <div className="docs-hero">
-          <p>
-            Lobster MP is a free, end-to-end S&P&nbsp;500 options screener built on Cloudflare: CBOE delayed
-            quotes land in an Iceberg lake, a Worker serves that lake over R2 SQL, and this React app renders
-            it. This page explains how the whole thing works — where data comes from, how it moves, and where
-            each surface you see lives.
-          </p>
-          <ul className="docs-facts">
-            {FACTS.map(([n, label]) => (
-              <li key={label}><b>{n}</b><span>{label}</span></li>
-            ))}
-          </ul>
-        </div>
-
-        <Section id="overview" num="01" title="Overview & architecture">
-          <div className="docs-container">
-            <Flow />
-            <p className="docs-note">
-              The two Workers are the only runtime code. The loader (<code>loader/</code> → <code>cboe-to-r2</code>)
-              owns ingestion end-to-end — no cron, no schedule: a Durable Object alarm loop keeps itself armed.
-              The screener Worker (<code>worker/</code> → <code>screener-api</code>) is a thin SQL-string builder
-              + cache over the R2 SQL REST endpoint. The frontend is a plain <code>fetch()</code> client — no
-              WASM, no Parquet, no in-browser engine.
-            </p>
-          </div>
-          <Cards items={COMPONENTS.map((c) => ({ ...c, sub: c.dir }))} />
-        </Section>
-
-        <Section id="pipeline" num="02" title="Data pipeline">
-          <h3>How the continuous loader works</h3>
-          <p className="docs-lede">
-            A single <code>EtlScheduler</code> Durable Object runs a self-rescheduling alarm loop. Each pass:
-          </p>
-          <ol className="docs-ordered">
-            <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled S&amp;P&nbsp;500 manifest (<code>symbols/sp500.json</code>, 503 symbols), all enabled and due immediately.</li>
-            <li><b>Pick the batch</b> — due symbols (<code>enabled = 1 AND next_attempt_after &lt;= now</code>), stalest first, capped at <code>LOADER_BATCH_SIZE</code> (40).</li>
-            <li><b>Fetch &amp; normalize</b> — each symbol comes down from CBOE, is normalized to OCC form, and is published to Pipelines in symbol order with retries and idempotency keys (8 symbols fetched in parallel per pass).</li>
-            <li><b>Bookkeeping</b> — success resets the failure count and reschedules the reload at the cadence (15 min); failure increments <code>consecutive_failures</code> and doubles the backoff 60&nbsp;s → 5&nbsp;min → 30&nbsp;min (capped). No special-casing, no dead symbols.</li>
-            <li><b>Re-arm</b> — the alarm re-arms so the cycle never stops; every request to the loader also re-arms it, so a redeploy can’t strand the loop.</li>
-          </ol>
-          <p className="docs-callout">
-            <b>Market-hours gate.</b> Outside 09:30–16:00 ET (overnight, weekends, holidays) there is no new CBOE
-            data, so the loop sleeps one far-out alarm and skips passes entirely — no fetches, no Pipeline writes.
-          </p>
-          <h3>Jobs</h3>
-          <div className="docs-table-wrap">
-            <table className="docs-table">
-              <thead>
-                <tr><th>Job</th><th>Cadence</th><th>What it does</th></tr>
-              </thead>
-              <tbody>
-                {JOBS.map(([job, cadence, body]) => (
-                  <tr key={job}>
-                    <td><code>{job}</code></td>
-                    <td>{cadence}</td>
-                    <td>{body}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <h3>The lake</h3>
-          <p className="docs-lede">
-            Pipelines sink into the R2 Data Catalog as Iceberg tables under the <code>options.</code> schema.
-            These are what every query in this app reads:
-          </p>
-          <pre className="docs-code">{TABLES}</pre>
-          <p className="docs-note">
-            The old <code>options.underlyings</code> table was retired — descriptive facts now live in{' '}
-            <code>securities</code>, run-history snapshots in <code>underlying_snapshots</code>.
-          </p>
-        </Section>
-
-        <Section id="backend" num="03" title="Backend & API">
-          <p className="docs-lede">
-            The Worker (<code>worker/</code>) turns the lake into JSON. Every endpoint is read-only and cached
-            in-isolate: 5 minutes for data, 10 for the liquidity snapshot — data only changes when the loader
-            runs, so staleness is bounded.
-          </p>
-          <div className="docs-table-wrap">
-            <table className="docs-table">
-              <thead>
-                <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
-              </thead>
-              <tbody>
-                {ENDPOINTS.map((e) => (
-                  <tr key={e.path}>
-                    <td><code className="m-method">{e.method}</code></td>
-                    <td><code>{e.path}</code></td>
-                    <td>{e.desc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <h3>R2 SQL / DataFusion dialect notes</h3>
-          <ul className="docs-ordered doc-list">
-            {DIALECT_NOTES.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-          <p className="docs-callout">
-            <b>Freshness.</b> Uncached lake queries take 1–6&nbsp;s; cached responses are instant. To force
-            freshness sooner, redeploy the Worker (clears the isolate cache). Quotes themselves are CBOE-delayed
-            ~15 minutes — fine for a screener. Greeks are CBOE-supplied Black-Scholes: theta per calendar day,
-            vega/rho per 1.00 of vol/rate.
-          </p>
-          <h3>DuckDB vs R2 SQL — measured</h3>
-          <p className="docs-lede">
-            The lake is standard Iceberg REST, so a local DuckDB (≥ 1.4.0) can attach directly and pull the same
-            data the Worker queries. Verified against the live lake, seconds per query (best of 2):
-          </p>
-          <div className="docs-table-wrap">
-            <table className="docs-table">
-              <thead>
-                <tr><th>Query</th><th>DuckDB cold</th><th>DuckDB warm</th><th>R2 SQL</th></tr>
-              </thead>
-              <tbody>
-                {DUCKDB_RESULTS.map(([q, cold, warm, r2sql]) => (
-                  <tr key={q}>
-                    <td>{q}</td>
-                    <td>{cold}</td>
-                    <td>{warm}</td>
-                    <td>{r2sql}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <pre className="docs-code">{DUCKDB_CONNECT}</pre>
-          <ul className="docs-ordered doc-list">
-            {DUCKDB_VERDICT.map((v, i) => (
-              <li key={i}>{v}</li>
-            ))}
-          </ul>
-        </Section>
-
-        <Section id="frontend" num="04" title="Frontend surfaces">
-          <p className="docs-lede">
-            The React app (Vite + TanStack Router) is five surfaces on one shell — sidebar navigation plus a
-            header with the liquidity gate and dataset status. The question-mark icon in the header brings you
-            here.
-          </p>
-          <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
-        </Section>
-
-        <Section id="run" num="05" title="Run it locally">
-          <p className="docs-lede">
-            Everything is pinned via mise — Node 24, Python 3.12, wrangler. Two terminals:
-          </p>
-          <pre className="docs-code">{`mise trust && mise install   # one-time: trust + install pinned tools
-mise run sync                # npm install (frontend + worker)
-mise run worker-dev          # Cloudflare Worker  → http://127.0.0.1:8787
-mise run frontend            # Vite dev server    → http://127.0.0.1:5173`}</pre>
-          <p className="docs-note">
-            <code>frontend/.env</code> sets <code>VITE_API_BASE</code> to the deployed Worker. For local dev,
-            point it at <code>http://127.0.0.1:8787</code> or leave it empty to use the Vite <code>/api</code>{' '}
-            proxy. Secrets (<code>R2_SQL_TOKEN</code>, <code>LOADER_TOKEN</code>) live in{' '}
-            <code>.dev.vars</code> for local runs — see <code>.env.example</code>.
-          </p>
-        </Section>
-
-        <Section id="deploy" num="06" title="Deployment">
-          <ul className="docs-ordered doc-list">
-            <li><b>Worker</b> — <code>mise run worker-deploy</code> (wrangler deploy → screener-api.robertlancer.workers.dev).</li>
-            <li><b>Loader</b> — GitHub Action <code>deploy-loader.yml</code> on push to main: deploys <code>cboe-to-r2</code> and applies D1 migrations.</li>
-            <li><b>Frontend</b> — GitHub Action <code>deploy.yml</code> on push to main: builds and deploys to Cloudflare Pages (lobster.mp).</li>
-          </ul>
-          <p className="docs-note">
-            Credentials are the project’s de-facto secret store: every token lives in GitHub Actions secrets
-            plus wherever the runtime needs it (Worker secrets, <code>.env</code> / <code>.dev.vars</code>).
-          </p>
-        </Section>
+        <Outlet />
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Page: 01 · Overview & architecture
+// ---------------------------------------------------------------------------
+export function DocsOverview() {
+  return (
+    <>
+      <div className="docs-hero">
+        <p>
+          Lobster MP is a free, end-to-end S&P&nbsp;500 options screener built on Cloudflare: CBOE delayed
+          quotes land in an Iceberg lake, a Worker serves that lake over R2 SQL, and this React app renders
+          it. These pages explain how the whole thing works — where data comes from, how it moves, and where
+          each surface you see lives.
+        </p>
+        <ul className="docs-facts">
+          {FACTS.map(([n, label]) => (
+            <li key={label}><b>{n}</b><span>{label}</span></li>
+          ))}
+        </ul>
+      </div>
+
+      <Section id="overview" num="01" title="Overview & architecture">
+        <div className="docs-container">
+          <Flow />
+          <p className="docs-note">
+            The two Workers are the only runtime code. The loader (<code>loader/</code> → <code>cboe-to-r2</code>)
+            owns ingestion end-to-end — no cron, no schedule: a Durable Object alarm loop keeps itself armed.
+            The screener Worker (<code>worker/</code> → <code>screener-api</code>) is a thin SQL-string builder
+            + cache over the R2 SQL REST endpoint. The frontend is a plain <code>fetch()</code> client — no
+            WASM, no Parquet, no in-browser engine.
+          </p>
+        </div>
+        <Cards items={COMPONENTS.map((c) => ({ ...c, sub: c.dir }))} />
+      </Section>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 02 · Data pipeline
+// ---------------------------------------------------------------------------
+export function DocsPipeline() {
+  return (
+    <Section id="pipeline" num="02" title="Data pipeline">
+      <h3>How the continuous loader works</h3>
+      <p className="docs-lede">
+        A single <code>EtlScheduler</code> Durable Object runs a self-rescheduling alarm loop. Each pass:
+      </p>
+      <ol className="docs-ordered">
+        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled S&amp;P&nbsp;500 manifest (<code>symbols/sp500.json</code>, 503 symbols), all enabled and due immediately.</li>
+        <li><b>Pick the batch</b> — due symbols (<code>enabled = 1 AND next_attempt_after &lt;= now</code>), stalest first, capped at <code>LOADER_BATCH_SIZE</code> (40).</li>
+        <li><b>Fetch &amp; normalize</b> — each symbol comes down from CBOE, is normalized to OCC form, and is published to Pipelines in symbol order with retries and idempotency keys (8 symbols fetched in parallel per pass).</li>
+        <li><b>Bookkeeping</b> — success resets the failure count and reschedules the reload at the cadence (15 min); failure increments <code>consecutive_failures</code> and doubles the backoff 60&nbsp;s → 5&nbsp;min → 30&nbsp;min (capped). No special-casing, no dead symbols.</li>
+        <li><b>Re-arm</b> — the alarm re-arms so the cycle never stops; every request to the loader also re-arms it, so a redeploy can’t strand the loop.</li>
+      </ol>
+      <p className="docs-callout">
+        <b>Market-hours gate.</b> Outside 09:30–16:00 ET (overnight, weekends, holidays) there is no new CBOE
+        data, so the loop sleeps one far-out alarm and skips passes entirely — no fetches, no Pipeline writes.
+      </p>
+      <h3>Jobs</h3>
+      <div className="docs-table-wrap">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Job</th><th>Cadence</th><th>What it does</th></tr>
+          </thead>
+          <tbody>
+            {JOBS.map(([job, cadence, body]) => (
+              <tr key={job}>
+                <td><code>{job}</code></td>
+                <td>{cadence}</td>
+                <td>{body}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h3>The lake</h3>
+      <p className="docs-lede">
+        Pipelines sink into the R2 Data Catalog as Iceberg tables under the <code>options.</code> schema.
+        These are what every query in this app reads:
+      </p>
+      <pre className="docs-code">{TABLES}</pre>
+      <p className="docs-note">
+        The old <code>options.underlyings</code> table was retired — descriptive facts now live in{' '}
+        <code>securities</code>, run-history snapshots in <code>underlying_snapshots</code>.
+      </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 03 · Backend & API
+// ---------------------------------------------------------------------------
+export function DocsBackend() {
+  return (
+    <Section id="backend" num="03" title="Backend & API">
+      <p className="docs-lede">
+        The Worker (<code>worker/</code>) turns the lake into JSON. Every endpoint is read-only and cached
+        in-isolate: 5 minutes for data, 10 for the liquidity snapshot — data only changes when the loader
+        runs, so staleness is bounded.
+      </p>
+      <div className="docs-table-wrap">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            {ENDPOINTS.map((e) => (
+              <tr key={e.path}>
+                <td><code className="m-method">{e.method}</code></td>
+                <td><code>{e.path}</code></td>
+                <td>{e.desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h3>R2 SQL / DataFusion dialect notes</h3>
+      <ul className="docs-ordered doc-list">
+        {DIALECT_NOTES.map((n, i) => (
+          <li key={i}>{n}</li>
+        ))}
+      </ul>
+      <p className="docs-callout">
+        <b>Freshness.</b> Uncached lake queries take 1–6&nbsp;s; cached responses are instant. To force
+        freshness sooner, redeploy the Worker (clears the isolate cache). Quotes themselves are CBOE-delayed
+        ~15 minutes — fine for a screener. Greeks are CBOE-supplied Black-Scholes: theta per calendar day,
+        vega/rho per 1.00 of vol/rate.
+      </p>
+      <h3>DuckDB vs R2 SQL — measured</h3>
+      <p className="docs-lede">
+        The lake is standard Iceberg REST, so a local DuckDB (≥ 1.4.0) can attach directly and pull the same
+        data the Worker queries. Verified against the live lake, seconds per query (best of 2):
+      </p>
+      <div className="docs-table-wrap">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Query</th><th>DuckDB cold</th><th>DuckDB warm</th><th>R2 SQL</th></tr>
+          </thead>
+          <tbody>
+            {DUCKDB_RESULTS.map(([q, cold, warm, r2sql]) => (
+              <tr key={q}>
+                <td>{q}</td>
+                <td>{cold}</td>
+                <td>{warm}</td>
+                <td>{r2sql}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <pre className="docs-code">{DUCKDB_CONNECT}</pre>
+      <ul className="docs-ordered doc-list">
+        {DUCKDB_VERDICT.map((v, i) => (
+          <li key={i}>{v}</li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 04 · Frontend surfaces
+// ---------------------------------------------------------------------------
+export function DocsFrontend() {
+  return (
+    <Section id="frontend" num="04" title="Frontend surfaces">
+      <p className="docs-lede">
+        The React app (Vite + TanStack Router) is five surfaces on one shell — sidebar navigation plus a
+        header with the liquidity gate and dataset status. The question-mark icon in the header brings you
+        here.
+      </p>
+      <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 05 · Run it locally
+// ---------------------------------------------------------------------------
+export function DocsRun() {
+  return (
+    <Section id="run" num="05" title="Run it locally">
+      <p className="docs-lede">
+        Everything is pinned via mise — Node 24, Python 3.12, wrangler. Two terminals:
+      </p>
+      <pre className="docs-code">{`mise trust && mise install   # one-time: trust + install pinned tools
+mise run sync                # npm install (frontend + worker)
+mise run worker-dev          # Cloudflare Worker  → http://127.0.0.1:8787
+mise run frontend            # Vite dev server    → http://127.0.0.1:5173`}</pre>
+      <p className="docs-note">
+        <code>frontend/.env</code> sets <code>VITE_API_BASE</code> to the deployed Worker. For local dev,
+        point it at <code>http://127.0.0.1:8787</code> or leave it empty to use the Vite <code>/api</code>{' '}
+        proxy. Secrets (<code>R2_SQL_TOKEN</code>, <code>LOADER_TOKEN</code>) live in{' '}
+        <code>.dev.vars</code> for local runs — see <code>.env.example</code>.
+      </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 06 · Deployment
+// ---------------------------------------------------------------------------
+export function DocsDeploy() {
+  return (
+    <Section id="deploy" num="06" title="Deployment">
+      <ul className="docs-ordered doc-list">
+        <li><b>Worker</b> — <code>mise run worker-deploy</code> (wrangler deploy → screener-api.robertlancer.workers.dev).</li>
+        <li><b>Loader</b> — GitHub Action <code>deploy-loader.yml</code> on push to main: deploys <code>cboe-to-r2</code> and applies D1 migrations.</li>
+        <li><b>Frontend</b> — GitHub Action <code>deploy.yml</code> on push to main: builds and deploys to Cloudflare Pages (lobster.mp).</li>
+      </ul>
+      <p className="docs-note">
+        Credentials are the project’s de-facto secret store: every token lives in GitHub Actions secrets
+        plus wherever the runtime needs it (Worker secrets, <code>.env</code> / <code>.dev.vars</code>).
+      </p>
+    </Section>
+  );
+}
