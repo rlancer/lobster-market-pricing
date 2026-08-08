@@ -14,6 +14,7 @@ import {
 } from '@astryxdesign/core';
 import { type QueryResult } from './api';
 import { OpenRouterLogo } from './OpenRouterLogo';
+import { ChartView, type ChartSpec } from './Chart';
 import {
   askAi,
   clearApiKey,
@@ -62,6 +63,8 @@ const EXAMPLES = [
   'Which sectors have the richest put premiums (highest IV)?',
   'Show me ATM calls with delta near 0.5 and volume over 1,000',
   'What underlyings have the most open interest?',
+  'Chart the IV smile for NVDA',
+  'Show me the volatility surface (IV by strike and expiry) for AAPL',
 ];
 
 const uid = () => Math.random().toString(36).slice(2);
@@ -72,6 +75,7 @@ interface Msg {
   content: string;
   sql?: string | null;
   result?: QueryResult | null;
+  chart?: ChartSpec | null;
   error?: string;
   /** Epoch ms when the message was produced. */
   ts?: number;
@@ -254,7 +258,7 @@ function AiChat() {
       const res = await askAi(question, { onStatus: setStatus });
       setMsgs((m) => [
         ...m,
-        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, ts: Date.now(), model: getModel() },
+        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getModel() },
       ]);
     } catch (e) {
       setMsgs((m) => [
@@ -470,6 +474,7 @@ function AiChat() {
                     </div>
                   )}
                   {m.result && <ResultTable result={m.result} />}
+                  {m.chart && m.result && <ChartView result={m.result} spec={m.chart} />}
                   {m.role === 'assistant' && (m.ts !== undefined || m.model) && (
                     <ChatMessageMetadata
                       timestamp={m.ts !== undefined ? <Timestamp value={m.ts / 1000} format="time" /> : undefined}
