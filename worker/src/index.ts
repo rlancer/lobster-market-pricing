@@ -45,11 +45,15 @@ const LIQ_ATM_BAND = 0.1;
 const LIQ_MIN_ATM_CONTRACTS = 5;
 
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs
-// accumulate). Pick each symbol's newest underlying run.
+// accumulate). Pick each symbol's newest underlying run from the decoupled
+// options.underlying_snapshots table (security master facts live in
+// options.securities; the worker reads the denormalized name/sector here). The
+// `ticker` column plays the role `symbol` had in the retired underlyings table,
+// so it is aliased to keep every downstream query byte-identical.
 const LATEST_UNDERLYING =
-  "SELECT symbol, name, sector, spot_price, run_id, fetched_at " +
-  "FROM options.underlyings " +
-  "QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY fetched_at DESC) = 1";
+  "SELECT ticker AS symbol, name, sector, spot_price, run_id, fetched_at " +
+  "FROM options.underlying_snapshots " +
+  "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) = 1";
 
 // ---------------------------------------------------------------------------
 // Cache
