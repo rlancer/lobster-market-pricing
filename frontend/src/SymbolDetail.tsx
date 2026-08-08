@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts';
 import './SymbolDetail.css';
 import { api, type ChainContract, type SymbolDetail as Detail } from './api';
 import StrategiesPanel from './StrategiesPanel';
@@ -9,6 +12,9 @@ const fmtNum = (v: number | null | undefined, d = 2): string => {
 };
 const fmtInt = (v: number | null | undefined): string =>
   v === null || v === undefined || Number.isNaN(v) ? '–' : v.toLocaleString();
+/** Annualized fraction → percent, e.g. 0.253 → "25.3%". */
+const fmtPct = (v: number | null | undefined): string =>
+  v === null || v === undefined || Number.isNaN(v) ? '–' : `${(v * 100).toFixed(1)}%`;
 
 interface Props {
   symbol: string;
@@ -124,6 +130,40 @@ function SymbolDetail({ symbol, onBack }: Props) {
     return { strikes: chain.length, calls, puts, totalVol, totalOI };
   }, [chain]);
 
+  // 52w high/low + distance from the high, computed over the trailing-year bars.
+  const ohlcStats = useMemo(() => {
+    const bars = detail?.ohlc ?? [];
+    if (bars.length === 0) return null;
+    let high = -Infinity, low = Infinity;
+    let hiDate = '', loDate = '';
+    for (const b of bars) {
+      if (b.high != null && b.high > high) { high = b.high; hiDate = b.date; }
+      if (b.low != null && b.low < low) { low = b.low; loDate = b.date; }
+    }
+    const lastClose = bars[bars.length - 1].close ?? null;
+    const offHigh = lastClose != null && high > 0 && Number.isFinite(high)
+      ? ((lastClose - high) / high) * 100 : null;
+    return {
+      high: Number.isFinite(high) ? high : null,
+      low: Number.isFinite(low) ? low : null,
+      hiDate, loDate, offHigh, lastClose,
+    };
+  }, [detail?.ohlc]);
+
+  // Newest-first view of the last 10 bars with % change vs the prior session.
+  const recentBars = useMemo(() => {
+    const bars = detail?.ohlc ?? [];
+    return bars.slice(-10).reverse().map((b, i, arr) => {
+      const prevClose = arr[i + 1]?.close ?? null; // next in reversed = prior day
+      const chg = b.close != null && prevClose != null && prevClose !== 0
+        ? ((b.close - prevClose) / prevClose) * 100 : null;
+      return { ...b, chg };
+    });
+  }, [detail?.ohlc]);
+
+  const rv = detail?.realized_vol ?? null;
+  const corpActions = detail?.corporate_actions ?? [];
+
   return (
     <div className="symbol-detail">
       <div className="detail-bar">
@@ -144,6 +184,117 @@ function SymbolDetail({ symbol, onBack }: Props) {
           </div>
         )}
       </div>
+
+      {ohlcStats && (
+        <div className="ohlc-panel">
+          <div className="panel-title">Daily OHLC — trailing year</div>
+          <div className="ohlc-stats">
+            {ohlcStats.high != null && (
+              <span>52w high <b>{fmtNum(ohlcStats.high)}</b>
+                <span className="muted small">{ohlcStats.hiDate}</span>
+              </span>
+            )}
+            {ohlcStats.low != null && (
+              <span>52w low <b>{fmtNum(ohlcStats.low)}</b>
+                <span className="muted small">{ohlcStats.loDate}</span>
+              </span>
+            )}
+            {ohlcStats.offHigh != null && (
+              <span title={`Last close ${fmtNum(ohlcStats.lastClose)} vs 52w high`}>
+                off high{' '}
+                <b className={ohlcStats.offHigh < 0 ? 'down' : 'up'}>
+                  {fmtNum(ohlcStats.offHigh)}%
+                </b>
+              </span>
+            )}
+            {rv?.realized_vol_30d != null && (
+              <span title={`Realized vol (annualized) over trailing ${rv.n_returns_30 ?? 30} sessions, as of ${rv.as_of_date}`}>
+                RV30 <b>{fmtPct(rv.realized_vol_30d)}</b>
+              </span>
+            )}
+            {rv?.realized_vol_90d != null && (
+              <span title={`Realized vol (annualized) over trailing ${rv.n_returns_90 ?? 90} sessions, as of ${rv.as_of_date}`}>
+                RV90 <b>{fmtPct(rv.realized_vol_90d)}</b>
+              </span>
+            )}
+            {corpActions.map((a) => (
+              <span key={`${a.ex_date}:${a.action_type}`}
+                className={`chip ca-chip${a.action_type === 'SPLIT' ? ' ca-split' : ''}`}
+                title={a.action_type === 'DIVIDEND'
+                  ? `Ex-dividend ${fmtNum(a.amount)} per share`
+                  : `Split ${a.numerator ?? '?'}:${a.denominator ?? '?'}`}
+              >
+                {a.action_type === 'DIVIDEND'
+                  ? `Div ${a.ex_date} ${a.amount != null ? fmtNum(a.amount) : ''}`
+                  : `Split ${a.ex_date} ${a.numerator ?? '?'}:${a.denominator ?? '?'}`}
+              </span>
+            ))}
+          </div>
+          <div className="ohlc-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={detail?.ohlc} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <XAxis
+                  dataKey="date" axisLine={false} tickLine={false} minTickGap={48}
+                  tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                  tickFormatter={(d: string) => d.slice(5)}
+                />
+                <YAxis
+                  domain={['auto', 'auto']} axisLine={false} tickLine={false} width={48}
+                  tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                  tickFormatter={(v: number) => fmtNum(v, 0)}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--panel-2)', border: '1px solid var(--border)',
+                    borderRadius: 8, fontSize: 12, color: 'var(--text)',
+                  }}
+                  labelFormatter={(d) => `Close · ${String(d)}`}
+                  formatter={(v) => [fmtNum(v as number, 2), 'close']}
+                />
+                {spot != null && (
+                  <ReferenceLine y={spot} stroke="var(--accent)" strokeDasharray="3 3"
+                    label={{ value: `spot ${fmtNum(spot)}`, position: 'insideTopRight', fontSize: 10, fill: 'var(--accent)' }}
+                  />
+                )}
+                <Line type="monotone" dataKey="close" stroke="var(--accent)"
+                  dot={false} strokeWidth={1.5} connectNulls isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {recentBars.length > 0 && (
+            <div className="ohlc-table-wrap">
+              <table className="ohlc-table">
+                <thead>
+                  <tr>
+                    <th className="left">Date</th>
+                    <th className="right">Open</th>
+                    <th className="right">High</th>
+                    <th className="right">Low</th>
+                    <th className="right">Close</th>
+                    <th className="right">Chg%</th>
+                    <th className="right">Vol</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentBars.map((b) => (
+                    <tr key={b.date}>
+                      <td className="left muted">{b.date}</td>
+                      <td className="right num">{fmtNum(b.open)}</td>
+                      <td className="right num">{fmtNum(b.high)}</td>
+                      <td className="right num">{fmtNum(b.low)}</td>
+                      <td className="right num close-col">{fmtNum(b.close)}</td>
+                      <td className={`right num ${b.chg == null ? '' : b.chg >= 0 ? 'up' : 'down'}`}>
+                        {b.chg == null ? '–' : `${b.chg >= 0 ? '+' : ''}${fmtNum(b.chg)}%`}
+                      </td>
+                      <td className="right num">{fmtInt(b.volume)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading && <div className="muted">Loading {symbol}…</div>}
       {error && <div className="error">Error: {error}</div>}
