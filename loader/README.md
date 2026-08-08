@@ -16,9 +16,14 @@ enrichment path is provisioned + verified end-to-end in production.
 Infrastructure:
 
 - Catalog tables: `options.option_contracts`, `options.underlyings`,
-  `options.refresh_runs`, **`options.ohlc`, `options.realized_vol`**
+  `options.refresh_runs`, **`options.ohlc`, `options.realized_vol`**,
+  and the symbology/decoupled set **`options.securities`,
+  `options.symbol_history`, `options.underlying_snapshots`,
+  `options.corporate_actions`**
 - Jobs (D1 `job_state` ledger): `cboe-options` (continuous, market-gated, item
-  store `symbol_state`) and `ohlc-daily` (daily, ungated, whole universe)
+  store `symbol_state`), `ohlc-daily` (daily, ungated, whole universe), and
+  `ohlc-backfill` (item-scoped, resumable via the `ohlc_backfill_state` D1 item
+  store; run `POST /jobs/ohlc-backfill/trigger`)
 - Scheduler observability: `GET /jobs`, `GET /jobs/{id}`,
   `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`); `/loop/*` stay as
   cboe-options back-compat aliases for the monitor
@@ -32,21 +37,32 @@ The ingest token was rotated and stored in GitHub (2026-08-08) — the stream
 auth requires a Cloudflare API token with the **Workers Pipelines → Send**
 permission (other tokens return `401 / code 1014 "unauthorized to use this
 Pipeline"`). The Worker `/run`, `/loop/trigger`, and `/jobs/*/trigger` endpoints
-are protected by `LOADER_TOKEN`. OHLC `PIPELINE_OHLC_URL` /
-`PIPELINE_REALIZED_VOL_URL` are set as Worker secrets and ingest into
-`options.ohlc` / `options.realized_vol` (verified: committed → queryable via
+are protected by `LOADER_TOKEN`. `PIPELINE_OHLC_URL` /
+`PIPELINE_REALIZED_VOL_URL` / `PIPELINE_CORPORATE_ACTIONS_URL` /
+`PIPELINE_SECURITIES_URL` / `PIPELINE_SYMBOL_HISTORY_URL` /
+`PIPELINE_UNDERLYING_SNAPSHOTS_URL` are set as Worker secrets and ingest into
+the corresponding `options.*` tables (verified: committed → queryable via
 R2 SQL).
+
+The OHLC source is Yahoo chart v8 (`interval=1d`). The daily job uses
+`range=1y`; the `ohlc-backfill` job requests `period1`/`period2` + `events=div,split`.
+Realized volatility is computed off **adjusted** closes (split-safe); Yahoo
+dividend/split events are persisted to `options.corporate_actions`. `security_id`
+(`src/symbology.ts`) is a deterministic ticker-derived UUID shared by
+`securities`, `symbol_history`, `corporate_actions`, and the backfill item store.
 
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
-- `src/ohlc.ts` — OHLC + realized-vol fetch/normalize/publish prototype
+- `src/ohlc.ts` — Yahoo OHLC + realized-vol + corporate-actions fetch/normalize/publish (period1/period2 windows, adjclose-based realized vol)
+- `src/symbology.ts` — deterministic ticker-derived `security_id` (shared by securities / symbol_history / corporate_actions / backfill)
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`)
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, …)
+- `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure
