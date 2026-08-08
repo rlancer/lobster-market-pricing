@@ -285,6 +285,17 @@ button, select { cursor: pointer; }
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--color-accent-muted);
 }
+/* Question-mark glyph — same treatment as the "i" info bubble (liq-info-btn):
+   italic serif, vertically centered in the circular button, slightly larger
+   than the stroke-SVG glyph it replaces. */
+.docs-glyph {
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+}
 .content { padding-block: var(--spacing-6); }
 
 /* Dataset monitor page — refresh-run history sits above the live loader loop. */
