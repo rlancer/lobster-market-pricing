@@ -159,6 +159,32 @@ const DIALECT_NOTES = [
   <>Read-only by construction: only <code>SELECT</code> / <code>WITH</code> / <code>DESCRIBE</code> / <code>SHOW</code> / <code>EXPLAIN</code> are permitted.</>,
 ];
 
+// Measured against the live lake (option_contracts ≈ 2.29M rows, ~58 MB).
+// Seconds per query. "DuckDB cold" = first query in a fresh process (pulls
+// Parquet from R2); "DuckDB warm" = re-query in the same process (data cached
+// in memory); "R2 SQL" = server-side query (re-scans each time).
+const DUCKDB_RESULTS: [string, string, string, string][] = [
+  ['stats (counts / last)', '0.6', '0.2', '0.8–2.9'],
+  ['liquid_symbols (join + HAVING)', '5.6', '0.5', '1.2–1.6'],
+  ['screen_top (near-spot 50, top vol)', '14.9', '1.9', '3.4–3.8'],
+  ['symbol_detail AAPL (latest run)', '0.9', '0.7', '0.8'],
+  ['sectors (GROUP BY)', '0.26', '0.26', '0.6–1.7'],
+];
+
+const DUCKDB_CONNECT = `INSTALL iceberg; LOAD iceberg;   -- DuckDB ≥ 1.4.0
+INSTALL httpfs;  LOAD httpfs;
+CREATE SECRET r2_secret (TYPE ICEBERG, TOKEN '<R2_DATA_CATALOG_TOKEN>');
+ATTACH '<warehouse>' AS r2 (TYPE ICEBERG,
+  ENDPOINT 'https://catalog.cloudflarestorage.com/<account>/<bucket>');`;
+
+const DUCKDB_VERDICT = [
+  <>The lake is tiny (~58 MB compressed, nightly-refreshed) and the app’s R2 SQL volume stays inside the free tier (10 GB scanned / month, min 10 MB per query) — so DuckDB saves no meaningful money here. Both engines are effectively $0 at this scale.</>,
+  <>Cold-to-cold, R2 SQL is faster: it runs server-side adjacent to storage, so it never pays the client-side Parquet pull that makes a fresh DuckDB cold query up to ~15 s on the heavy screen.</>,
+  <>DuckDB is dramatically faster on repeats — sub-second vs 1–4 s — but only when it runs as a persistent process that keeps the lake cached across queries. The current Worker already gets “warm” behavior from its 5-min in-isolate result cache, so there is no latency win without standing up a new always-on DuckDB runtime (which would contradict this repo’s serverless, no-local-DB design).</>,
+  <>Where DuckDB genuinely helps is offline/ad-hoc analytics: pull the ~60 MB lake once into a local <code>.duckdb</code> file for unlimited free, sub-second, unconstrained SQL — real <code>OFFSET</code>, no 10,000-row LIMIT cap, no resource-gate 400s (limits the R2 SQL dialect imposes).</>,
+  <>Experiment scripts: <code>debug_nb/bench_duckdb_vs_r2sql.py</code>, <code>bench_cost.py</code> (gitignored, local only).</>,
+];
+
 function Flow() {
   return (
     <ol className="docs-flow">
@@ -324,6 +350,34 @@ export default function Docs() {
             ~15 minutes — fine for a screener. Greeks are CBOE-supplied Black-Scholes: theta per calendar day,
             vega/rho per 1.00 of vol/rate.
           </p>
+          <h3>DuckDB vs R2 SQL — measured</h3>
+          <p className="docs-lede">
+            The lake is standard Iceberg REST, so a local DuckDB (≥ 1.4.0) can attach directly and pull the same
+            data the Worker queries. Verified against the live lake, seconds per query (best of 2):
+          </p>
+          <div className="docs-table-wrap">
+            <table className="docs-table">
+              <thead>
+                <tr><th>Query</th><th>DuckDB cold</th><th>DuckDB warm</th><th>R2 SQL</th></tr>
+              </thead>
+              <tbody>
+                {DUCKDB_RESULTS.map(([q, cold, warm, r2sql]) => (
+                  <tr key={q}>
+                    <td>{q}</td>
+                    <td>{cold}</td>
+                    <td>{warm}</td>
+                    <td>{r2sql}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <pre className="docs-code">{DUCKDB_CONNECT}</pre>
+          <ul className="docs-ordered doc-list">
+            {DUCKDB_VERDICT.map((v, i) => (
+              <li key={i}>{v}</li>
+            ))}
+          </ul>
         </Section>
 
         <Section id="frontend" num="04" title="Frontend surfaces">
