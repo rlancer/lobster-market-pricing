@@ -385,6 +385,8 @@ function AiChat() {
             Your key is sent only to <b>openrouter.ai</b> from your browser. It is never
             uploaded to this site's servers. You can grab one at
             {' '}<a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>.
+            {' '}<b>Free models</b> (tagged “free” in the picker) work on a $0 account — no credit
+            card or deposit needed; they're rate-limited (~20 req/min).
           </p>
         </div>
       )}
@@ -425,7 +427,7 @@ function AiChat() {
                 </span>
                 <div className="ai-welcome-connect-text">
                   <b>Connect your model</b>
-                  <span>Sign in with OpenRouter to start — your key stays in your browser.</span>
+                  <span>Sign in with OpenRouter to start — free models need no card or deposit, and your key stays in your browser.</span>
                 </div>
                 <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
                   {oauthBusy ? 'Connecting…' : 'Connect with OpenRouter'}
