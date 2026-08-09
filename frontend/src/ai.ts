@@ -1080,6 +1080,31 @@ const ecoCalendarDef = toolDefinition({
 });
 
 // ---------------------------------------------------------------------------
+// Agent tool: general web search (Worker → Tavily)
+// ---------------------------------------------------------------------------
+// Fresh analyst/market commentary beyond the per-ticker news feed: sector
+// themes, macro reactions, "what happened / what is the latest take on X".
+// Hits /api/web_search (Tavily general search, proxied + cached by the
+// Worker); degrades to an error string, never a thrown tool. Results carry
+// source links the model can cite.
+const webSearchDef = toolDefinition({
+  name: 'web_search',
+  description:
+    'Search the web for fresh analyst/market commentary or current events ' +
+    '(capped at 5 results). Use when the user asks about recent market moves, ' +
+    'analyst opinions, sector themes, earnings reactions, or anything newer ' +
+    'than the per-ticker get_news feed. Cite the links you use in your answer.',
+  inputSchema: z.object({
+    query: z.string().describe('Search query, e.g. "NVDA analyst commentary this week".'),
+    max_results: z.number().int().min(1).max(5).optional().describe('Max results (default 5).'),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean(),
+    summary: z.string().describe('Numbered result list (title + source link) for reasoning.'),
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // TanStack AI agent: answer a question by writing + running SQL
 // ---------------------------------------------------------------------------
 interface AgentCapture {
@@ -1127,6 +1152,9 @@ function systemPrompt(schemaPrompt: string): string {
     '  eps_forecast, roughly earnings_date BETWEEN CURRENT_DATE AND',
     '  CURRENT_DATE + 14; (3) narrative: call get_news for the symbol(s) and',
     '  cite the headlines you use.',
+    '- For analyst/market commentary beyond one ticker (sector themes, macro',
+    '  reactions, "what happened" questions), call web_search and cite the',
+    '  links you use.',
     '- options.corporate_actions holds historical dividends (amount, ex_date)',
     '  and splits — mention recent ones when relevant.',
     '',
@@ -1386,6 +1414,20 @@ async function runAgent(
     };
   });
 
+  const webSearch = webSearchDef.server(async ({ query, max_results }) => {
+    const res = await api.webSearch(query, max_results);
+    if (res.error) {
+      return { ok: false, summary: `Web search temporarily unavailable: ${res.error}` };
+    }
+    if (!res.results.length) {
+      return { ok: true, summary: `No results found for "${res.query}".` };
+    }
+    return {
+      ok: true,
+      summary: res.results.map((r, i) => `${i + 1}. ${r.title} — ${r.link}`).join('\n'),
+    };
+  });
+
   const adapter = openaiCompatibleText(model, {
     baseURL: OPENROUTER_BASE,
     apiKey,
@@ -1423,7 +1465,7 @@ async function runAgent(
     // message: TanStack AI's message conversion deliberately drops role:'system'
     // UIMessages and ModelMessage has no 'system' role.
     systemPrompts: [systemPrompt(schemaPrompt)],
-    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, getNews, ecoCalendar],
+    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, getNews, ecoCalendar, webSearch],
     // More tools + multi-step slice/chart workflows need a slightly larger budget.
     agentLoopStrategy: maxIterations(10),
     modelOptions: {
