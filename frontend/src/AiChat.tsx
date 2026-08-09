@@ -11,6 +11,7 @@ import {
   Selector,
   Spinner,
   Timestamp,
+  Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
 import { Settings, SquarePen } from 'lucide-react';
@@ -160,9 +161,11 @@ function CopyButton({ text }: { text: string }) {
     }
   };
   return (
-    <button type="button" className="ai-sql-copy" onClick={copy} title="Copy SQL">
-      {copied ? 'Copied ✓' : 'Copy'}
-    </button>
+    <Tooltip content="Copy SQL" hasHoverIndication={false}>
+      <button type="button" className="ai-sql-copy" onClick={copy}>
+        {copied ? 'Copied ✓' : 'Copy'}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -337,7 +340,9 @@ function AiChat() {
           </div>
         </div>
         <div className="ai-head-actions">
-          <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} title={getApiKey() ? 'API key set' : 'No API key'} />
+          <Tooltip content={getApiKey() ? 'API key set' : 'No API key'} hasHoverIndication={false}>
+            <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} />
+          </Tooltip>
           <Selector
             label="Model"
             size="sm"
@@ -438,16 +443,17 @@ function AiChat() {
           {frames.map((f) => {
             const ageMin = Math.round((Date.now() - f.fetched_at) / 60000);
             return (
-              <span
+              <Tooltip
                 key={f.name}
-                className="ai-frame-chip"
-                title={`${f.row_count.toLocaleString()} rows · ${f.columns.length} cols · ${f.sql}`}
+                content={`${f.row_count.toLocaleString()} rows · ${f.columns.length} cols · ${f.sql}`}
+                hasHoverIndication={false}
               >
-                <b>{f.name}</b>
-                <span className="ai-frame-meta">
-                  {f.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}
-                </span>
-                <button
+                <span className="ai-frame-chip">
+                  <b>{f.name}</b>
+                  <span className="ai-frame-meta">
+                    {f.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}
+                  </span>
+                  <button
                   type="button"
                   className="ai-frame-drop"
                   onClick={() => dropFrame(f.name)}
@@ -455,7 +461,8 @@ function AiChat() {
                 >
                   ✕
                 </button>
-              </span>
+                </span>
+              </Tooltip>
             );
           })}
         </div>
@@ -526,12 +533,13 @@ function AiChat() {
                         <span>SQL</span>
                         <span className="ai-sql-actions">
                           <CopyButton text={m.sql} />
-                          <button
-                            onClick={() => openExplorerSql(m.sql!)}
-                            title="Open in SQL Lab"
-                          >
-                            Open in SQL Lab ↗
-                          </button>
+                          <Tooltip content="Open in SQL Lab" hasHoverIndication={false}>
+                            <button
+                              onClick={() => openExplorerSql(m.sql!)}
+                            >
+                              Open in SQL Lab ↗
+                            </button>
+                          </Tooltip>
                         </span>
                       </div>
                       <pre>{m.sql}</pre>

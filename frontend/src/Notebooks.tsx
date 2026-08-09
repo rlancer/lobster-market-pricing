@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Tooltip } from '@astryxdesign/core';
 import './Notebooks.css';
 import { api, type PremiumNotebook, type PremiumNotebookRow } from './api';
 
@@ -113,9 +114,8 @@ function PremiumTable({
           <tbody>
             {sorted.map((r, i) => (
               <tr key={`${r.symbol}-${i}`} className={kind === 'call' ? 'row-call' : 'row-put'}
-                  onClick={() => onPickSymbol(r.symbol)}
-                  title={`Click to explore ${r.symbol} option chain`}>
-                <td><b>{r.symbol}</b></td>
+                  onClick={() => onPickSymbol(r.symbol)}>
+                <td><Tooltip content={`Click to explore ${r.symbol} option chain`} hasHoverIndication={false}><b>{r.symbol}</b></Tooltip></td>
                 <td className="muted">{r.name ?? '–'}</td>
                 <td className="right">{fmtNum(r.spot)}</td>
                 <td>{fmtDate(r.expiration)}</td>
