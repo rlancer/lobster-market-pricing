@@ -92,8 +92,10 @@ FINRA publishes official, free, redistributable short-sale disclosure data (bi-m
 per symbol. Sentiment signal alongside options flow.
 
 ### 10. News / headlines
-GDELT (free, bulk) or plain RSS; low signal-per-effort and licensing/quality is poor.
-Skip unless the AI copilot needs them.
+Shipped for the AI copilot (PR #39): Yahoo Finance ticker RSS proxied by the
+Worker (`/api/news`, keyless) + Copilot `get_news` tool — the narrative half of
+"why is vol high". GDELT / bulk feeds remain low signal-per-effort; see
+PLAN-CHAT-ENRICHMENT.md Phase 3 for failover + relevance hardening.
 
 ---
 
@@ -121,6 +123,7 @@ Skip unless the AI copilot needs them.
 - [x] ETL scheduler foundation (`EtlScheduler`) — `loader/src/scheduler.ts` + job registry (`jobs/registry.ts`). Registered jobs: `cboe-options` (continuous, market-gated, item store `symbol_state`) and `ohlc-daily` (daily, ungated, whole S&P 500 universe, dry-run no-op until a Pipeline URL is set). Schedule ledger `job_state` (migration 0002).
 - [x] Wire `ohlc-daily` into the scheduler (`jobs/ohlc-daily.ts`): whole S&P 500 universe, daily cadence, ungated. Dry-run (no Pipeline URL) short-circuits to a no-op pass; with `PIPELINE_OHLC_URL`/`PIPELINE_REALIZED_VOL_URL` configured it fetches + normalizes + publishes per symbol (bounded concurrency; per-symbol failures collected, don't abort the batch). Verified: `src/jobs/ohlc-daily.test.ts` (dry-run no-op, publish end-to-end, per-symbol failure isolation) + dry-run `pass_completed` in `wrangler dev`.
 - [x] Provision `options.ohlc` / `options.realized_vol` Pipeline tables: streams `cboe_ohlc_v2`/`cboe_realized_vol_v2`, sinks `cboe_ohlc_sink`/`cboe_realized_vol_sink` (R2 Data Catalog → bucket `cboe-options-data`), pipelines wired. Ingest verified end-to-end (POST → committed → queryable via R2 SQL). `PIPELINE_OHLC_URL`/`PIPELINE_REALIZED_VOL_URL` and `PIPELINE_AUTH_TOKEN` set as Worker secrets; `R2_DATA_CATALOG_TOKEN` + `PIPELINE_AUTH_TOKEN` stored in GitHub secrets.
-- [ ] Dividends / ex-div (EDGAR `companyfacts`)
+- [ ] Dividends / ex-div forward dates (FMP BYOK — PLAN-CHAT-ENRICHMENT.md Phase 1a; *history* is already shipped via `options.corporate_actions`)
 - [ ] Risk-free rate (FRED / Treasury)
-- [ ] Earnings dates
+- [x] Earnings dates — shipped PR #39 (Nasdaq calendar → `options.earnings`, `earnings-daily` job, tests, probe); **Pipeline provisioning pending** → PLAN-CHAT-ENRICHMENT.md Phase 0
+- [x] News / headlines — shipped PR #39 (Yahoo ticker RSS → `/api/news` + Copilot `get_news`); failover/relevance hardening → PLAN-CHAT-ENRICHMENT.md Phase 3
