@@ -279,8 +279,8 @@
   line-height: var(--line-height-tight);
 }
 .ai-welcome-mascot {
-  width: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
-  height: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
+  width: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
+  height: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
   flex-shrink: 0;
 }
 .ai-welcome-hero p {
@@ -607,8 +607,8 @@
   .ai-welcome { gap: var(--spacing-5); padding-block: var(--spacing-4); }
   .ai-welcome-title { font-size: var(--font-size-2xl); }
   .ai-welcome-mascot {
-    width: calc(var(--size-element-lg) + var(--size-element-lg));
-    height: calc(var(--size-element-lg) + var(--size-element-lg));
+    width: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
+    height: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
   }
   .ai-examples { grid-template-columns: 1fr; gap: var(--spacing-0); }
   .ai-welcome-connect { align-items: stretch; flex-direction: column; text-align: center; }
