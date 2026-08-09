@@ -375,8 +375,14 @@ button, select { cursor: pointer; }
 }
 
 /* ===== Table ===== */
+/* NOTE: do not give .table-wrap any scrolling overflow (not even
+   `overflow-x: auto` alone) — the browser then makes THIS box the sticky
+   scroll container, so .screener thead th pins to the wrap (table top + 72px)
+   instead of the viewport: the header row lands on top of the second body row
+   and never sticks while page-scrolling. Wide tables instead overflow the
+   page, which scrolls horizontally. */
 .table-wrap {
-  overflow-x: auto;
+  overflow: visible;
   border: var(--border-width) solid var(--color-border-emphasized);
   border-radius: var(--radius-container);
   background: color-mix(in srgb, var(--panel) 94%, transparent);
