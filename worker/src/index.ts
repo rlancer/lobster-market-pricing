@@ -30,6 +30,11 @@ export interface Env {
   R2_SQL_BUCKET: string;
   R2_SQL_TOKEN: string; // secret
   CORS_ORIGIN?: string;
+  // Non-secret RSS feed URL templates for /api/news (Phase 3 failover). Each
+  // contains a `{symbol}` placeholder; defaults are in code. Overridable as
+  // wrangler vars / `--var` so the Yahoo→Bing fallback can be exercised in dev.
+  NEWS_YAHOO_URL_TEMPLATE?: string;
+  NEWS_BING_URL_TEMPLATE?: string;
   // Non-secret base URL of the continuous CBOE loader worker, used by the
   // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
   LOADER_BASE_URL?: string;
@@ -664,17 +669,43 @@ async function notebookPremium(env: Env, p: {
 // is memoized in-isolate for 10 min keyed by symbol (only successes cache;
 // failures retry on the next call).
 const NEWS_TTL_MS = 10 * 60 * 1000;
-const NEWS_FEED_TEMPLATE =
+const NEWS_YAHOO_TEMPLATE_DEFAULT =
   "https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US";
+const NEWS_BING_TEMPLATE_DEFAULT = "https://www.bing.com/news/search?q={symbol}&format=rss";
 const NEWS_DEFAULT_LIMIT = 8;
 const NEWS_MAX_LIMIT = 20;
 const NEWS_SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]*$/;
+// Embedded markup lives in the description CDATA; strip it, then cut the
+// cleaned snippet at a sentence boundary so it reads, never mid-word.
+const NEWS_SNIPPET_MAX = 240;
+
+type NewsSource = "yahoo" | "bing";
+
+// Post-extraction headline (before relevance ranking / source tagging).
+interface RawFeedItem {
+  title: string;
+  link: string;
+  published: string | null;
+  snippet: string;
+}
 
 interface NewsItem {
   title: string;
   link: string;
   published: string | null;
   snippet: string;
+  source: NewsSource;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function truncateAtSentence(s: string, max = NEWS_SNIPPET_MAX): string {
+  if (s.length <= max) return s;
+  const window = s.slice(0, max + 1);
+  const boundary = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "));
+  return (boundary >= max * 0.6 ? window.slice(0, boundary + 1) : window).trimEnd();
 }
 
 function decodeXml(s: string): string {
@@ -696,8 +727,8 @@ function stripTags(s: string): string {
 // Pull <item> blocks out of the RSS XML and normalize each to a headline.
 // Deliberately regex-based (the Worker has no XML dep); the feed shape is
 // stable enough that malformed items are skipped, not fatal.
-function parseRssItems(xml: string): NewsItem[] {
-  const items: NewsItem[] = [];
+function parseRssItems(xml: string): RawFeedItem[] {
+  const items: RawFeedItem[] = [];
   const itemRe = /<item[^>]*>([\s\S]*?)<\/item>/gi;
   let m: RegExpExecArray | null;
   while ((m = itemRe.exec(xml)) !== null) {
@@ -712,26 +743,65 @@ function parseRssItems(xml: string): NewsItem[] {
       title,
       link: grab("link").trim(),
       published: grab("pubDate").trim() || null,
-      snippet: stripTags(grab("description")).slice(0, 240),
+      snippet: stripTags(grab("description")),
     });
   }
   return items;
 }
 
-async function rssNews(env: Env, symbol: string): Promise<NewsItem[]> {
-  const url = NEWS_FEED_TEMPLATE.replace("{symbol}", encodeURIComponent(symbol));
+async function fetchFeed(
+  env: Env, symbol: string, template: string, source: NewsSource,
+): Promise<NewsItem[]> {
+  const url = template.replace("{symbol}", encodeURIComponent(symbol));
   const response = await fetch(url, {
     headers: {
       "user-agent": "screener-api/1.0",
       accept: "application/rss+xml, application/xml, text/xml, */*",
     },
   });
-  if (!response.ok) throw new Error(`news feed returned HTTP ${response.status}`);
-  return parseRssItems(await response.text()).slice(0, NEWS_MAX_LIMIT);
+  if (!response.ok) throw new Error(`${source} feed returned HTTP ${response.status}`);
+  return parseRssItems(await response.text())
+    .map((it) => ({ ...it, snippet: truncateAtSentence(it.snippet), source }))
+    .slice(0, NEWS_MAX_LIMIT);
+}
+
+// Rank headlines: ticker-specific stories first (case-insensitive, with
+// `.`/`-` ticker variants), each group newest-first; when ticker items exist
+// they crowd out the generic market feed in the slice step.
+function rankItems(items: NewsItem[], symbol: string): NewsItem[] {
+  const byNewest = (a: NewsItem, b: NewsItem) =>
+    (Date.parse(b.published || "") || 0) - (Date.parse(a.published || "") || 0);
+  const rx = new RegExp(`(^|[^A-Z0-9])${escapeRegExp(symbol)}([^A-Z0-9]|$)`, "i");
+  const ticker = items.filter((it) => rx.test(it.title)).sort(byNewest);
+  const other = items.filter((it) => !rx.test(it.title)).sort(byNewest);
+  return ticker.concat(other);
+}
+
+// Fetch with failover: Yahoo ticker feed first (unofficial); on non-200 or a
+// zero-item parse, fall back to Bing's keyless news RSS. Each source is cached
+// under its own key at the 10-min TTL so a failed Yahoo attempt never poisons
+// a cached Bing result.
+async function rssNews(env: Env, symbol: string): Promise<{ items: NewsItem[]; source: NewsSource }> {
+  let items: NewsItem[] = [];
+  try {
+    items = await cached<NewsItem[]>(`news:yahoo:${symbol}`, NEWS_TTL_MS, async () =>
+      rankItems(
+        await fetchFeed(env, symbol, env.NEWS_YAHOO_URL_TEMPLATE || NEWS_YAHOO_TEMPLATE_DEFAULT, "yahoo"),
+        symbol));
+  } catch {
+    items = []; // Yahoo failed — fall through to the fallback feed.
+  }
+  if (items.length > 0) return { items, source: "yahoo" };
+  const bing = await cached<NewsItem[]>(`news:bing:${symbol}`, NEWS_TTL_MS, async () =>
+    rankItems(
+      await fetchFeed(env, symbol, env.NEWS_BING_URL_TEMPLATE || NEWS_BING_TEMPLATE_DEFAULT, "bing"),
+      symbol));
+  if (bing.length === 0) throw new Error("news feeds returned no items");
+  return { items: bing, source: "bing" };
 }
 
 async function news(env: Env, symbolIn: string | null, limitIn: number): Promise<{
-  symbol: string; items: NewsItem[]; error?: string; fetched_at: string;
+  symbol: string; items: NewsItem[]; source?: NewsSource; error?: string; fetched_at: string;
 }> {
   const symbol = (symbolIn ?? "").trim().toUpperCase();
   const fetchedAt = () => new Date().toISOString();
@@ -740,16 +810,93 @@ async function news(env: Env, symbolIn: string | null, limitIn: number): Promise
   }
   const limit = clamp(limitIn || NEWS_DEFAULT_LIMIT, 1, NEWS_MAX_LIMIT);
   try {
-    const items = await cached<NewsItem[]>(`news:${symbol}`, NEWS_TTL_MS, () => rssNews(env, symbol));
-    return { symbol, items: items.slice(0, limit), fetched_at: fetchedAt() };
+    const { items, source } = await rssNews(env, symbol);
+    return { symbol, items: items.slice(0, limit), source, fetched_at: fetchedAt() };
   } catch (error) {
     return { symbol, items: [], error: String((error && (error as Error).message) || error), fetched_at: fetchedAt() };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// IV rank / percentile — /api/iv_rank
 // ---------------------------------------------------------------------------
+// "Is this IV expensive or cheap vs its own history?" The lake is append-only
+// with intraday chain snapshots, so per-symbol ATM-IV history exists. One
+// pre-aggregated query collapses each day to a single ATM-IV point (GROUP BY
+// fetched_at date dedupes the ~15-min snapshots), then rank_pct is the
+// fraction of the daily series at or below today's median — computed in JS.
+// Bounded (per-symbol + window cap) and cached 60 min; lake errors degrade to
+// a 200 with `points: []` + `error`, matching the /api/news contract.
+const IV_RANK_TTL_MS = 60 * 60 * 1000;
+const IV_RANK_DEFAULT_DAYS = 90;
+const IV_RANK_MAX_DAYS = 120;
+// Near-ATM moneyness band (5%) — pick the liquid, at-the-money contracts.
+const IV_RANK_ATM_BAND = 0.05;
+
+interface IvRankPoint { d: string; iv: number | null; }
+
+interface IvRankResponse {
+  symbol: string;
+  days: number;
+  points: IvRankPoint[];
+  rank_pct: number | null;
+  iv_now: number | null;
+  iv_median: number | null;
+  iv_min: number | null;
+  iv_max: number | null;
+  as_of: string | null;
+  error?: string;
+}
+
+async function ivRank(env: Env, symbolIn: string | null, daysIn: number): Promise<IvRankResponse> {
+  const symbol = (symbolIn ?? "").trim().toUpperCase();
+  const days = clamp(daysIn || IV_RANK_DEFAULT_DAYS, 1, IV_RANK_MAX_DAYS);
+  if (!NEWS_SYMBOL_RE.test(symbol)) {
+    return { symbol, days, points: [], rank_pct: null, iv_now: null, iv_median: null, iv_min: null, iv_max: null, as_of: null, error: "invalid symbol" };
+  }
+  // option_contracts has no spot column — the near-ATM band compares each
+  // contract's strike against the symbol's latest underlying spot, joined via
+  // LATEST_UNDERLYING (same pattern as the screen's moneyness filter).
+  const sql =
+    `SELECT CAST(c.fetched_at AS DATE) AS d, approx_median(c.implied_vol) AS iv ` +
+    `FROM options.option_contracts c ` +
+    `JOIN (${LATEST_UNDERLYING}) u ON u.symbol = c.symbol ` +
+    `WHERE c.symbol = ${lit(symbol)} AND c.implied_vol IS NOT NULL ` +
+    `AND u.spot_price IS NOT NULL AND u.spot_price > 0 ` +
+    `AND ABS(c.strike - u.spot_price) / u.spot_price <= ${IV_RANK_ATM_BAND} ` +
+    `AND CAST(c.fetched_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL '${days}' DAY AS DATE) ` +
+    `GROUP BY CAST(c.fetched_at AS DATE)`;
+  try {
+    const result = await cached<IvRankResponse>(`iv_rank:${symbol}:${days}`, IV_RANK_TTL_MS, async () => {
+      const rows = await r2sql(env, sql);
+      const points = rows
+        .map((r) => ({ d: String(r.d), iv: numOrNull(r.iv) }))
+        .sort((a, b) => a.d.localeCompare(b.d)); // chronological
+      const ivs = points.map((p) => p.iv).filter((v): v is number => v != null);
+      if (ivs.length === 0) {
+        return { symbol, days, points, rank_pct: null, iv_now: null, iv_median: null, iv_min: null, iv_max: null, as_of: null };
+      }
+      const sorted = [...ivs].sort((a, b) => a - b);
+      const iv_median = sorted[Math.floor(sorted.length / 2)];
+      const iv_min = sorted[0];
+      const iv_max = sorted[sorted.length - 1];
+      const last = points[points.length - 1];
+      const iv_now = last && last.iv != null ? last.iv : null;
+      const rank_pct = iv_now != null ? ivs.filter((v) => v <= iv_now).length / ivs.length : null;
+      return {
+        symbol, days,
+        points,
+        rank_pct: rank_pct != null ? Math.round(rank_pct * 1000) / 1000 : null,
+        iv_now, iv_median, iv_min, iv_max,
+        as_of: last ? last.d : null,
+      };
+    });
+    // cached() stores the error-less value; guarantee the shape typed here.
+    return result;
+  } catch (error) {
+    return { symbol, days, points: [], rank_pct: null, iv_now: null, iv_median: null, iv_min: null, iv_max: null, as_of: null, error: String((error && (error as Error).message) || error) };
+  }
+}
 function num(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function numOrNull(v: unknown): number | null { const n = Number(v); return v == null || !Number.isFinite(n) ? null : n; }
 function strOrNull(v: unknown): string | null { return v == null ? null : String(v); }
@@ -814,6 +961,8 @@ async function handle(env: Env, req: Request): Promise<Response> {
     return json(env, await symbols(env, q.get("q") ?? undefined, q.get("liquid_only") === "true", num(q.get("limit") ?? 50)));
   if (path === "/api/news")
     return json(env, await news(env, q.get("symbol"), q.get("limit") ? num(q.get("limit")) : NEWS_DEFAULT_LIMIT));
+  if (path === "/api/iv_rank")
+    return json(env, await ivRank(env, q.get("symbol"), q.get("days") ? num(q.get("days")) : IV_RANK_DEFAULT_DAYS));
   if (path === "/api/tables") return json(env, await schemaTables(env, q.get("force") === "1"));
   if (path === "/api/notebook/premium")
     return json(env, await notebookPremium(env, {
