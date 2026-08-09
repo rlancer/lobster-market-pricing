@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@astryxdesign/core/Button';
 import SymbolTypeahead from './SymbolTypeahead';
 import { api, type OptionRow } from './api';
-import { useWorkspace } from './App';
+import { useWorkspace } from './workspace';
 
 type SortKey =
   | 'volume' | 'open_interest' | 'strike' | 'implied_vol' | 'delta'

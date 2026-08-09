@@ -1,4 +1,4 @@
-import { useCallback, useContext, createContext, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { CircleHelp } from 'lucide-react';
 import './App.css';
@@ -7,25 +7,14 @@ import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type SectorRow, type Stats } from './api';
 import { isOAuthCallback } from './ai';
+import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
 // Workspace context — shared by the header (stats counts, liquidity gate) and
-// the route views (e.g. the screener reads liquidOnly/sectors).
+// the route views (e.g. the screener reads liquidOnly/sectors). The context,
+// value type, and useWorkspace hook live in ./workspace so this file only
+// exports components (React Fast Refresh requirement).
 // ---------------------------------------------------------------------------
-export interface WorkspaceValue {
-  liquidOnly: boolean;
-  setLiquidOnly: (v: boolean) => void;
-  stats: Stats | null;
-  sectors: SectorRow[];
-  updatedAt: string;
-}
-const WorkspaceContext = createContext<WorkspaceValue | null>(null);
-
-export function useWorkspace(): WorkspaceValue {
-  const v = useContext(WorkspaceContext);
-  if (!v) throw new Error('useWorkspace must be used within the app layout');
-  return v;
-}
 
 type Section = {
   to: string;
