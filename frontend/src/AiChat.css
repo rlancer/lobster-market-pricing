@@ -269,7 +269,10 @@
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-.ai-welcome-hero h1 {
+.ai-welcome-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
   margin: var(--spacing-0);
   color: var(--text);
   font-family: var(--font-family-heading);
@@ -277,6 +280,11 @@
   font-weight: var(--font-weight-bold);
   letter-spacing: -.03em;
   line-height: var(--line-height-tight);
+}
+.ai-welcome-mascot {
+  width: var(--size-element-xl);
+  height: var(--size-element-xl);
+  flex-shrink: 0;
 }
 .ai-welcome-hero p {
   margin: var(--spacing-0);
@@ -600,7 +608,7 @@
   .ai-settings-connect .ai-connect-btn { width: 100%; }
   .ai-messages { padding: var(--spacing-4) var(--spacing-3) var(--spacing-2); }
   .ai-welcome { gap: var(--spacing-5); padding-block: var(--spacing-4); }
-  .ai-welcome-hero h1 { font-size: var(--font-size-2xl); }
+  .ai-welcome-title { font-size: var(--font-size-2xl); }
   .ai-examples { grid-template-columns: 1fr; gap: var(--spacing-0); }
   .ai-welcome-connect { align-items: stretch; flex-direction: column; text-align: center; }
   .ai-composer-wrap { padding: var(--spacing-2) var(--spacing-3); }
