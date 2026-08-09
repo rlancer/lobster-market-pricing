@@ -95,19 +95,49 @@ not just the RSS feed.
 
 ## Phase 2 — Vol analytics from data we already have (no new sources)
 
-### 2a. IV rank / percentile table (high value, low cost)
-The lake is append-only with nightly chain snapshots → per-symbol ATM IV history
-exists. Today the chat can only compare IV vs realized vol; "IV percentile 92"
-needs history aggregation.
+### 2a. IV rank / percentile (high value, low cost)
+The lake is append-only with chain snapshots (refreshed ~15 min intraday by the
+continuous loader!) → per-symbol ATM IV history exists. Today the chat can only
+compare IV vs realized vol; "IV percentile 92" needs history aggregation.
 
-- Nightly batch DO job (mirror `realized_vol` pipeline): aggregate ATM IV per
-  symbol per snapshot, compute 1y percentile/rank of current IV → small table
-  `options.iv_rank` (symbol, rank_pct, iv_now, iv_median, n_days, run_id, fetched_at).
-- Do **not** do this on-demand via `/api/query` — window functions over the
-  full chain history are budget-gated and slow.
+**Design decision (2026-08-09): implement as a Worker endpoint, not a nightly
+lake table.** The nightly approach needs new infra (R2 SQL token on the loader
++ a new Pipelines sink) — both blocked on the same Pipelines-scoped token as
+Phase 0. The Worker already has lake access + the in-isolate cache, so this
+works today with zero new credentials:
 
-**Acceptance:** `options.iv_rank` exists; chat: "AAPL IV percentile 92 —
-expensive vs its own history and vs 30d realized of 22%".
+`GET /api/iv_rank?symbol=AAPL&days=90` → `{ symbol, days, points, rank_pct,
+iv_now, iv_median, iv_min, iv_max, as_of }`.
+
+- One pre-aggregated lake query (per-symbol, so bounded — the Copilot must
+  never be told to write this):
+  ```sql
+  SELECT CAST(fetched_at AS DATE) AS d, approx_median(implied_vol) AS iv
+  FROM options.option_contracts
+  WHERE symbol = '<SYM>' AND implied_vol IS NOT NULL
+    AND ABS(strike - spot_price) / NULLIF(spot_price, 0) <= 0.05
+    AND CAST(fetched_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL '<N>' DAY AS DATE)
+  GROUP BY CAST(fetched_at AS DATE)
+  ```
+  The GROUP BY dedupes intraday snapshots to one ATM-IV point per day.
+- `rank_pct` = fraction of the daily series ≤ `iv_now` (JS from returned rows);
+  `iv_now` = latest day's median; `as_of` = latest day.
+- Guards: `days` capped at 120 (default 90); near-ATM band + symbol filter
+  tight; `cached()` at a 60-min TTL; lake timeout/error → 200 with
+  `error` + `points: []` (same degrade-to-empty contract as `enrichSymbol`).
+  Litmus: a liquid name (AAPL/NVDA) returns ~60–90 points, `rank_pct` ∈ 0..1,
+  uncached ≤ ~15 s — tighten window/band if slower and say so in the PR.
+- Frontend: `api.ivRank(symbol, days?)` in `frontend/src/api.ts` (types next to
+  `NewsResponse`); add one line to the `systemPrompt()` Enrichment block in
+  `frontend/src/ai.ts`: "IV rank vs its own 90-day history is available via the
+  iv_rank endpoint — use it when the user asks if vol is rich or cheap."
+  No new Copilot tool, no UI in this phase.
+- **Revisit** materializing `options.iv_rank` (nightly batch, `realized_vol`
+  pattern) once the Pipelines token exists — the endpoint stays as the hot path.
+
+**Acceptance:** `/api/iv_rank?symbol=AAPL` returns a sane percentile with ~90
+daily points; chat: "AAPL IV percentile 92 — expensive vs its own history and
+vs 30d realized of 22%".
 
 ### 2b. One-shot `vol_context(symbol)` tool (polish)
 Today the model chains IV query → realized query → earnings → news across 3–4
@@ -116,19 +146,28 @@ round-trips. Optional; only if 2a lands and prompt guidance isn't enough.
 
 ---
 
-## Phase 3 — News hardening
+## Phase 3 — News hardening (`worker/src/index.ts` only)
 
-- **Feed failover**: Yahoo RSS is unofficial and has been flaky historically.
-  Bing News RSS is verified working — worker falls back to it when Yahoo 4xx/5xx
-  (or parse yields zero items).
+- **Feed failover**: the Yahoo ticker feed is unofficial and has been flaky
+  historically. On non-200 **or** zero parsed items from
+  `https://feeds.finance.yahoo.com/rss/2.0/headline?s={S}&region=US&lang=en-US`,
+  retry the same symbol against `https://www.bing.com/news/search?q={S}&format=rss`
+  (verified working, keyless). Response gains `source: "yahoo" | "bing"`. Both
+  URLs are **env-overridable templates** (defaults above) so the fallback path
+  can be exercised locally. Cache key per (symbol, source) at the existing
+  10-min TTL — a failed Yahoo attempt must not poison the Bing result.
 - **Relevance filtering**: the Yahoo ticker feed mixes in market-wide stories
-  ("VGT Puts 39 Cents…" on the AAPL feed). Heuristic: rank items by recency and
-  prefer titles mentioning the symbol; keep the rest as context only if short.
-- **Snippet cleanup**: descriptions carry embedded HTML; strip more aggressively
-  or truncate at sentence boundary.
+  ("VGT Puts 39 Cents…" on the AAPL feed). Rank items: titles containing the
+  symbol (case-insensitive, `.`/`-` variants) first, then by recency; when
+  ticker-specific items exist, drop obvious fluff beyond the top `limit`.
+- **Snippet cleanup**: strip ALL embedded HTML from descriptions, truncate to
+  ~240 chars at a sentence boundary.
+- Keep the degrade-to-empty contract (never 500; errors in the `error` field).
 
-**Acceptance:** `/api/news?symbol=AAPL` returns symbol-relevant headlines even if
-Yahoo's feed is down (Bing fallback path covered by a worker test/probe).
+**Acceptance:** `/api/news?symbol=AAPL` returns symbol-relevant headlines with
+`source:"yahoo"`; with `NEWS_YAHOO_URL_TEMPLATE` pointed at a 404 locally, the
+same call returns items with `source:"bing"`; invalid symbol keeps the error
+shape. Worker has no test runner — verification is `npx wrangler dev` + curl.
 
 ---
 
@@ -166,7 +205,7 @@ Yahoo's feed is down (Bing fallback path covered by a worker test/probe).
 | Yahoo RSS unofficial / can 404 | Bing RSS failover (Phase 3); FMP news as last resort |
 | BYOK worker passthrough surfaces user keys in logs | Never log headers; keys live only in request headers + localStorage; document in settings UI |
 | FMP/Tavily free-tier quotas changed | Both confirmed current (2026-08-08): FMP 250 req/day, Tavily 1,000 credits/mo |
-| IV-rank job scans large chain history | Nightly batch, bounded window (e.g. 260 snapshots), one small table out |
+| IV-rank endpoint scans chain history | Pre-aggregated GROUP BY, 90–120d window, near-ATM band, 60-min cache, degrade-to-empty |
 
 ## Suggested order
 
