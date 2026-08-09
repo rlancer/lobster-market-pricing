@@ -6,12 +6,14 @@ import {
   ChatComposer,
   ChatMessageMetadata,
   ChatSendButton,
+  IconButton,
   Markdown,
   Selector,
   Spinner,
   Timestamp,
   useChatStreamScroll,
 } from '@astryxdesign/core';
+import { Settings, SquarePen } from 'lucide-react';
 import { type QueryResult } from './api';
 import { OpenRouterLogo } from './OpenRouterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -359,8 +361,8 @@ function AiChat() {
             value={effort}
             onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
           />
-          <Button variant="ghost" size="sm" label="Settings" onClick={() => setShowSettings((s) => !s)} />
-          <Button variant="ghost" size="sm" label="New chat" onClick={newChat} />
+          <IconButton variant="ghost" size="sm" label="Settings" icon={<Settings size={16} />} tooltip="Settings" onClick={() => setShowSettings((s) => !s)} />
+          <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={newChat} />
         </div>
       </div>
 
