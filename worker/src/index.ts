@@ -831,22 +831,33 @@ async function ivRank(env: Env, symbolIn: string | null, daysIn: number): Promis
 // Macro / economic calendar — /api/econ_calendar
 // ---------------------------------------------------------------------------
 // "Binary-event weeks" (FOMC, CPI, jobs, PCE) lift broad implied vol, so the
-// Copilot gets the upcoming scheduled releases. Primary source is FRED's
-// releases/dates API (official, free key): with FRED_API_KEY set, the realtime
-// window = calendar window and the curated high-impact release names are
-// matched. Without a key, the endpoint falls back to the Federal Reserve's own
-// keyless calendar JSON (official; FOMC meetings/statements/minutes/press
-// conferences + Beige Book — the "Stat"/speech noise is filtered out).
-// Cached 12h: release schedules move on a quarterly-ish cadence and the Fed
-// JSON is ~0.5MB. Same degrade-to-empty contract as the other endpoints.
+// Copilot gets the upcoming scheduled releases. With FRED_API_KEY set, the
+// endpoint matches the curated high-impact macro release names (exact —
+// see below) from FRED's releases/dates API and merges in FOMC/Beige events
+// from the Fed's keyless calendar JSON (FRED emits daily placeholders for
+// unscheduled press releases, so FOMC dates come from the Fed calendar, which
+// pre-schedules them accurately). Without a key, only the Fed calendar is
+// used. Cached 12h: release schedules move on a quarterly-ish cadence and the
+// Fed JSON is ~0.5MB. Same degrade-to-empty contract as the other endpoints.
 const ECON_TTL_MS = 12 * 60 * 60 * 1000;
 const ECON_DEFAULT_DAYS = 30;
 const ECON_MAX_DAYS = 90;
 const FRED_API_URL = "https://api.stlouisfed.org/fred/releases/dates";
 const FED_CALENDAR_URL = "https://www.federalreserve.gov/json/calendar.json";
-// Curated high-impact FRED release names (case-insensitive substring match).
-const ECON_RELEASE_RE =
-  /fomc|consumer price index|employment situation|personal income and outlays|producer price index|gross domestic product|beige book|university of michigan|ism (manufacturing|services)/i;
+// Exact-match allowlist of high-impact macro releases. Substring matching
+// pulls in lookalikes ("Research Consumer Price Index", "Debt to Gross
+// Domestic Product Ratios"), and with include_release_dates_with_no_data=true
+// FRED returns a placeholder holder date for *every* day for unscheduled
+// press-release-style releases ("FOMC Press Release" appears daily) — hence
+// FOMC/Beige are sourced from the Fed calendar instead.
+const ECON_FRED_RELEASES = new Set([
+  "Consumer Price Index",
+  "Producer Price Index",
+  "Employment Situation",
+  "Personal Income and Outlays",
+  "Gross Domestic Product",
+  "Surveys of Consumers",
+]);
 // Fed-calendar event types that move broad vol (the rest are weekly H-stat
 // releases, speeches, and testimonies).
 const FED_CALENDAR_TYPES = new Set(["FOMC", "Beige"]);
@@ -859,6 +870,30 @@ interface EconCalendarResponse {
   provider: "fred" | "federalreserve";
   items: EconCalendarEvent[];
   error?: string;
+}
+
+// Upcoming FOMC (meetings/statements/minutes/press conferences) + Beige Book
+// from the Fed's keyless calendar JSON. Date = `month` + `days`; `days` can be
+// a comma list for recurring releases (take the first).
+async function fedCalendarEvents(days: number): Promise<EconCalendarEvent[]> {
+  const res = await fetch(FED_CALENDAR_URL);
+  if (!res.ok) throw new Error(`federalreserve calendar returned HTTP ${res.status}`);
+  const data = await res.json() as { events?: { title?: string; type?: string; month?: string; days?: string }[] };
+  const now = Date.now();
+  const endMs = now + days * 86400_000;
+  const items: EconCalendarEvent[] = [];
+  for (const e of data.events ?? []) {
+    if (!FED_CALENDAR_TYPES.has(e.type ?? "")) continue;
+    const day = Number((e.days ?? "").split(",")[0].trim());
+    if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+    const m = /^(\d{4})-(\d{2})$/.exec(e.month ?? "");
+    if (!m) continue;
+    const date = `${m[1]}-${m[2]}-${String(day).padStart(2, "0")}`;
+    const ts = Date.parse(date + "T00:00:00Z");
+    if (!Number.isFinite(ts) || ts < now || ts > endMs) continue;
+    items.push({ date, title: (e.title ?? "").trim() || String(e.type ?? ""), kind: "fed" });
+  }
+  return items.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarResponse> {
@@ -877,30 +912,13 @@ async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarRespo
         if (!res.ok) throw new Error(`fred releases/dates returned HTTP ${res.status}`);
         const data = await res.json() as { release_dates?: { release_name?: string; date?: string }[] };
         const items: EconCalendarEvent[] = (data.release_dates ?? [])
-          .filter((r) => r.date && r.release_name && ECON_RELEASE_RE.test(r.release_name))
-          .map((r) => ({ date: String(r.date), title: String(r.release_name).trim(), kind: "macro" as const }))
+          .filter((r) => r.date && r.release_name && ECON_FRED_RELEASES.has(r.release_name))
+          .map((r): EconCalendarEvent => ({ date: String(r.date), title: String(r.release_name).trim(), kind: "macro" }))
+          .concat(await fedCalendarEvents(days))
           .sort((a, b) => a.date.localeCompare(b.date));
         return { window_days: days, as_of: asOf(), provider: "fred", items };
       }
-      const res = await fetch(FED_CALENDAR_URL);
-      if (!res.ok) throw new Error(`federalreserve calendar returned HTTP ${res.status}`);
-      const data = await res.json() as { events?: { title?: string; type?: string; month?: string; days?: string }[] };
-      const now = Date.now();
-      const endMs = now + days * 86400_000;
-      const items: EconCalendarEvent[] = [];
-      for (const e of data.events ?? []) {
-        if (!FED_CALENDAR_TYPES.has(e.type ?? "")) continue;
-        // `days` can be a comma list for recurring releases; take the first.
-        const day = Number((e.days ?? "").split(",")[0].trim());
-        if (!Number.isFinite(day) || day < 1 || day > 31) continue;
-        const m = /^(\d{4})-(\d{2})$/.exec(e.month ?? "");
-        if (!m) continue;
-        const date = `${m[1]}-${m[2]}-${String(day).padStart(2, "0")}`;
-        const ts = Date.parse(date + "T00:00:00Z");
-        if (!Number.isFinite(ts) || ts < now || ts > endMs) continue;
-        items.push({ date, title: (e.title ?? "").trim() || String(e.type ?? ""), kind: "fed" });
-      }
-      items.sort((a, b) => a.date.localeCompare(b.date));
+      const items = await fedCalendarEvents(days);
       return { window_days: days, as_of: asOf(), provider: "federalreserve", items };
     });
   } catch (error) {
