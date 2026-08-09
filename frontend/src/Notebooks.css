@@ -132,7 +132,6 @@
   flex: 1;
 }
 .nb-count { color: var(--muted); font-size: 12px; }
-.nb-table .table-wrap { overflow-x: auto; }
 .nb-table table { width: 100%; }
 
 .nb-table td.ratio { font-weight: 700; color: var(--accent-2); }
