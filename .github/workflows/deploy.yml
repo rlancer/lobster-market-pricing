@@ -107,6 +107,16 @@ jobs:
         run: echo "${{ secrets.TAVILY_API_KEY }}" | npx wrangler secret put TAVILY_API_KEY --name screener-api
         working-directory: worker
 
+      # FRED key is optional (/api/econ_calendar falls back to the keyless Fed
+      # calendar); skipped until the secret exists.
+      - name: Set FRED_API_KEY secret on Worker (if configured)
+        if: secrets.FRED_API_KEY != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: echo "${{ secrets.FRED_API_KEY }}" | npx wrangler secret put FRED_API_KEY --name screener-api
+        working-directory: worker
+
       - name: Deploy screener-api Worker
         uses: cloudflare/wrangler-action@v3
         with:

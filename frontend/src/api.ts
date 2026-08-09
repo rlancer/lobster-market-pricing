@@ -177,6 +177,22 @@ export interface NewsResponse {
   fetched_at: string;
 }
 
+/** One scheduled macro/FOMC event from /api/econ_calendar. */
+export interface EconCalendarEvent {
+  date: string;
+  title: string;
+  kind: 'macro' | 'fed';
+}
+
+/** Response of /api/econ_calendar — degrades to `items: []` + `error`. */
+export interface EconCalendarResponse {
+  window_days: number;
+  as_of: string;
+  provider: 'fred' | 'federalreserve';
+  items: EconCalendarEvent[];
+  error?: string;
+}
+
 /** One daily ATM-IV point for /api/iv_rank (deduped per fetched_at date). */
 export interface IvRankPoint {
   d: string;
@@ -356,6 +372,9 @@ export const api = {
   // IV rank / percentile vs a symbol's own ATM-IV history (Worker lake query).
   ivRank: (symbol: string, days?: number) =>
     get<IvRankResponse>(`/api/iv_rank${qs({ symbol: symbol.toUpperCase(), days })}`),
+  // Upcoming macro/FOMC event dates (Worker → FRED releases/dates, Fed calendar fallback).
+  econCalendar: (days?: number) =>
+    get<EconCalendarResponse>(`/api/econ_calendar${qs({ days })}`),
   symbolDetail: (symbol: string) => get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
   notebookPremium: (params: {
     target_dte?: number;
