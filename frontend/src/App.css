@@ -9,7 +9,7 @@
   --accent-2: var(--color-text-cyan);
   --call: var(--color-success);
   --put: var(--color-error);
-  --topbar-h: calc(var(--spacing-12) + var(--spacing-4));
+  --topbar-h: var(--size-element-lg);
   font-family: var(--font-family-body);
 }
 
@@ -60,35 +60,11 @@ button, select { cursor: pointer; }
   color: var(--text);
   text-decoration: none;
 }
-.brand-lobster {
+.brand-sunglasses {
   display: block;
-  width: var(--size-element-lg);
-  height: var(--size-element-lg);
+  height: var(--size-element-md);
+  width: auto;
   flex-shrink: 0;
-}
-.topbar-heading {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-0-5);
-  min-width: 0;
-}
-.topbar-eyebrow {
-  color: var(--muted);
-  font-family: var(--font-family-code);
-  font-size: var(--font-size-xs);
-  letter-spacing: .06em;
-  line-height: var(--line-height-tight);
-  text-transform: uppercase;
-}
-.topbar-title {
-  overflow: hidden;
-  color: var(--text);
-  font-family: var(--font-family-heading);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .topbar-tools {
   display: flex;
@@ -365,15 +341,11 @@ button, select { cursor: pointer; }
     padding-inline: var(--spacing-3);
   }
   .app-brand-link {
-    flex: 1;
     gap: var(--spacing-2);
   }
-  .brand-lobster {
-    width: var(--size-element-md);
-    height: var(--size-element-md);
+  .brand-sunglasses {
+    height: var(--size-element-sm);
   }
-  .topbar-eyebrow { display: none; }
-  .topbar-title { font-size: var(--font-size-base); }
   .topbar-tools { gap: var(--spacing-1); }
   .topbar-tools .liq-filter,
   .topbar-tools .monitor-status { display: none; }
