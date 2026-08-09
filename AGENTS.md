@@ -15,8 +15,11 @@ against `main`**. Never direct-push, and never leave work uncommitted.
 1. Create a feature branch: `git checkout -b feat/<slug>`.
 2. Commit your work there and push: `git push -u origin feat/<slug>`.
 3. Open a PR against `main`: `gh pr create --base main`.
-4. Confirm the required checks pass, then merge when ready
-   (`gh pr merge <n> --merge`) and assume the change is live.
+4. Confirm the required checks pass, then **stop — do not merge the PR.**
+   Never self-merge or auto-merge: the maintainer reviews and merges
+   (`gh pr merge <n> --merge`), and only a merge deploys to production.
+   An open, green PR with both links reported is the completed deliverable —
+   merging is the maintainer's call.
 
 Do not amend or force-push after the PR is opened.
 
