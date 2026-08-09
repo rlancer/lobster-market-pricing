@@ -159,6 +159,22 @@ export interface CorporateAction {
   amount: number | null; // per-share cash dividend
 }
 
+/** One headline from the Worker's /api/news RSS proxy (Yahoo Finance ticker feed). */
+export interface NewsItem {
+  title: string;
+  link: string;
+  published: string | null;
+  snippet: string;
+}
+
+/** Response of /api/news — degrades to an empty item list with `error` on upstream failure. */
+export interface NewsResponse {
+  symbol: string;
+  items: NewsItem[];
+  error?: string;
+  fetched_at: string;
+}
+
 export interface SymbolDetail {
   underlying: {
     symbol: string;
@@ -312,6 +328,9 @@ export const api = {
   tables: (opts?: { force?: boolean }) =>
     get<TableInfo[]>(`/api/tables${qs({ force: opts?.force ? 1 : undefined })}`),
   query: (sql: string, limit?: number) => post<QueryResult>('/api/query', { sql, limit }),
+  // Per-ticker news headlines (Worker → Yahoo Finance RSS proxy, keyless).
+  news: (symbol: string, limit?: number) =>
+    get<NewsResponse>(`/api/news${qs({ symbol: symbol.toUpperCase(), limit })}`),
   symbolDetail: (symbol: string) => get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
   notebookPremium: (params: {
     target_dte?: number;

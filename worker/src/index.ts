@@ -652,6 +652,102 @@ async function notebookPremium(env: Env, p: {
 }
 
 // ---------------------------------------------------------------------------
+// News — /api/news (keyless RSS proxy for copilot enrichment)
+// ---------------------------------------------------------------------------
+// Narrative half of "why is this moving" for the AI copilot: per-ticker
+// headlines proxied server-side (a browser fetch of the feed would hit CORS)
+// from Yahoo Finance's RSS (verified live 2026-08-08 — finance.yahoo.com
+// 301-redirects to feeds.finance.yahoo.com, which fetch follows). The feed is
+// stripped to {title, link, published, snippet}. Upstream failures degrade to
+// an empty item list with an error string — never a 500 — so a chat turn is
+// never blocked by a news outage. The feed is slow-moving, so the parsed list
+// is memoized in-isolate for 10 min keyed by symbol (only successes cache;
+// failures retry on the next call).
+const NEWS_TTL_MS = 10 * 60 * 1000;
+const NEWS_FEED_TEMPLATE =
+  "https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US";
+const NEWS_DEFAULT_LIMIT = 8;
+const NEWS_MAX_LIMIT = 20;
+const NEWS_SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]*$/;
+
+interface NewsItem {
+  title: string;
+  link: string;
+  published: string | null;
+  snippet: string;
+}
+
+function decodeXml(s: string): string {
+  return s
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function stripTags(s: string): string {
+  return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Pull <item> blocks out of the RSS XML and normalize each to a headline.
+// Deliberately regex-based (the Worker has no XML dep); the feed shape is
+// stable enough that malformed items are skipped, not fatal.
+function parseRssItems(xml: string): NewsItem[] {
+  const items: NewsItem[] = [];
+  const itemRe = /<item[^>]*>([\s\S]*?)<\/item>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = itemRe.exec(xml)) !== null) {
+    const block = m[1];
+    const grab = (tag: string): string => {
+      const r = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i").exec(block);
+      return r ? decodeXml(r[1]) : "";
+    };
+    const title = stripTags(grab("title")).trim();
+    if (!title) continue;
+    items.push({
+      title,
+      link: grab("link").trim(),
+      published: grab("pubDate").trim() || null,
+      snippet: stripTags(grab("description")).slice(0, 240),
+    });
+  }
+  return items;
+}
+
+async function rssNews(env: Env, symbol: string): Promise<NewsItem[]> {
+  const url = NEWS_FEED_TEMPLATE.replace("{symbol}", encodeURIComponent(symbol));
+  const response = await fetch(url, {
+    headers: {
+      "user-agent": "screener-api/1.0",
+      accept: "application/rss+xml, application/xml, text/xml, */*",
+    },
+  });
+  if (!response.ok) throw new Error(`news feed returned HTTP ${response.status}`);
+  return parseRssItems(await response.text()).slice(0, NEWS_MAX_LIMIT);
+}
+
+async function news(env: Env, symbolIn: string | null, limitIn: number): Promise<{
+  symbol: string; items: NewsItem[]; error?: string; fetched_at: string;
+}> {
+  const symbol = (symbolIn ?? "").trim().toUpperCase();
+  const fetchedAt = () => new Date().toISOString();
+  if (!NEWS_SYMBOL_RE.test(symbol)) {
+    return { symbol, items: [], error: "invalid symbol", fetched_at: fetchedAt() };
+  }
+  const limit = clamp(limitIn || NEWS_DEFAULT_LIMIT, 1, NEWS_MAX_LIMIT);
+  try {
+    const items = await cached<NewsItem[]>(`news:${symbol}`, NEWS_TTL_MS, () => rssNews(env, symbol));
+    return { symbol, items: items.slice(0, limit), fetched_at: fetchedAt() };
+  } catch (error) {
+    return { symbol, items: [], error: String((error && (error as Error).message) || error), fetched_at: fetchedAt() };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function num(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
@@ -716,6 +812,8 @@ async function handle(env: Env, req: Request): Promise<Response> {
   if (path === "/api/sectors") return json(env, await sectors(env, q.get("liquid_only") === "true"));
   if (path === "/api/symbols")
     return json(env, await symbols(env, q.get("q") ?? undefined, q.get("liquid_only") === "true", num(q.get("limit") ?? 50)));
+  if (path === "/api/news")
+    return json(env, await news(env, q.get("symbol"), q.get("limit") ? num(q.get("limit")) : NEWS_DEFAULT_LIMIT));
   if (path === "/api/tables") return json(env, await schemaTables(env, q.get("force") === "1"));
   if (path === "/api/notebook/premium")
     return json(env, await notebookPremium(env, {

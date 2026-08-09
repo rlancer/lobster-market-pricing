@@ -71,6 +71,7 @@ const EXAMPLES = [
   'What underlyings have the most open interest?',
   'Chart the IV smile for NVDA',
   'Show me the volatility surface (IV by strike and expiry) for AAPL',
+  'Why is NVDA implied volatility so high right now?',
 ];
 
 const uid = () => Math.random().toString(36).slice(2);

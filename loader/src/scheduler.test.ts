@@ -288,7 +288,9 @@ describe("EtlScheduler — due-scan", () => {
     const db = new FakeDb();
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const due = await scheduler.dueJobs(Date.now());
-    expect(due.map((r) => r.job_id)).toEqual(["cboe-options", "ohlc-daily", "ohlc-backfill"]);
+    expect(due.map((r) => r.job_id)).toEqual([
+      "cboe-options", "ohlc-daily", "ohlc-backfill", "earnings-daily",
+    ]);
   });
 });
 
@@ -352,7 +354,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(3);
+    expect(list.jobs).toHaveLength(4);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -368,6 +370,11 @@ describe("EtlScheduler — job observability routes", () => {
     expect(backfill.scope).toBe("items");
     expect(backfill.enabled).toBe(1);
     expect(backfill.market_gated).toBe(0);
+    const earnings = byId.get("earnings-daily")!;
+    expect(earnings.scope).toBe("batch");
+    expect(earnings.enabled).toBe(1);
+    expect(earnings.market_gated).toBe(0);
+    expect(earnings.cadence_seconds).toBe(86400);
   });
 
   it("unknown job returns an error; trigger returns 404", async () => {

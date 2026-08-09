@@ -7,9 +7,12 @@ This package (the `loader/` directory of the `options-db` monorepo) loads the 50
 ## Current verified state
 
 - Scheduler: `EtlScheduler` Durable Object (`src/scheduler.ts`) runs a job
-  registry (`src/jobs/registry.ts`) with two jobs — `cboe-options` (item-scoped,
-  market-gated, item store `symbol_state`) and `ohlc-daily` (batch, daily,
-  ungated, whole-universe via `symbols/sp500.json`). Schedule ledger:
+  registry (`src/jobs/registry.ts`) with four jobs — `cboe-options` (item-scoped,
+  market-gated, item store `symbol_state`), `ohlc-daily` (batch, daily,
+  ungated, whole-universe via `symbols/sp500.json`), `ohlc-backfill`
+  (item-scoped, resumable, manual), and `earnings-daily` (batch, daily,
+  ungated, ~2-week Nasdaq earnings-calendar window → `options.earnings`).
+  Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`
   (Bearer `LOADER_TOKEN`). `/loop/*` remain cboe-options back-compat aliases
@@ -31,7 +34,8 @@ This package (the `loader/` directory of the `options-db` monorepo) loads the 50
 
 Runs via the `EtlScheduler` Durable Object alarm loop
 (`src/scheduler.ts`), dispatching registered jobs from `src/jobs/registry.ts`
-(`cboe-options` item-scoped + `ohlc-daily` batch). Key invariants when editing it:
+(`cboe-options` item-scoped, `ohlc-daily` batch, `ohlc-backfill` item-scoped,
+`earnings-daily` batch). Key invariants when editing it:
 
 - **Two-level state.** `job_state` (migration `0002`) is the per-job schedule
   ledger (enabled, cadence_seconds, market_gated, next_attempt_after,
@@ -93,6 +97,7 @@ CorporateActions: <PIPELINE_CORPORATE_ACTIONS_URL secret — stream cboe_corpora
 Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
 SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
 UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
+Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # pending provisioning
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2
