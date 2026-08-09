@@ -397,7 +397,7 @@ function AiChat() {
 
   return (
     <section className="ai-chat">
-      <header className="ai-head" aria-label="Lobster Chat controls">
+      <header className="ai-head" aria-label="Chat controls">
         <section className="ai-head-actions">
           <Tooltip content={getApiKey() ? 'OpenRouter connected' : 'OpenRouter not connected'} hasHoverIndication={false}>
             <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} />
@@ -516,9 +516,9 @@ function AiChat() {
           <section className="ai-welcome">
             <header className="ai-welcome-hero">
               <BlueLobsterLogo className="ai-welcome-mascot" />
-              <span className="ai-welcome-kicker">Research your options data</span>
               <h1 className="ai-welcome-title">Ask the Lobster</h1>
-              <p>Lobster Chat writes the SQL, runs it against your dataset, and returns the answer.</p>
+              <span className="ai-welcome-kicker">Research your options data</span>
+              <p>Chat writes the SQL, runs it against your dataset, and returns the answer.</p>
             </header>
             <nav className="ai-examples" aria-label="Suggested questions">
               {EXAMPLES.map((ex) => (

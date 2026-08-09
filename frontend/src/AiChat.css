@@ -1,4 +1,4 @@
-/* Lobster Chat is the working surface, not a card inside the app. */
+/* Chat is the working surface, not a card inside the app. */
 .ai-chat {
   display: flex;
   flex-direction: column;

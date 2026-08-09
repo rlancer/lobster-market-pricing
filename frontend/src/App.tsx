@@ -34,7 +34,7 @@ type Section = {
   exact?: boolean;
 };
 const SECTIONS: Section[] = [
-  { to: '/', label: 'Lobster Chat', heading: 'Lobster Chat', icon: Sparkles, exact: true },
+  { to: '/', label: 'Chat', heading: 'Chat', icon: Sparkles, exact: true },
   { to: '/market', label: 'Market', heading: 'Market screener', icon: ChartNoAxesCombined },
   { to: '/research', label: 'Research', heading: 'Notebooks & research', icon: BookOpen },
   { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', icon: Database },
