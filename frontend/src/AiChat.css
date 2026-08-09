@@ -270,9 +270,6 @@
   text-transform: uppercase;
 }
 .ai-welcome-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2);
   margin: var(--spacing-0);
   color: var(--text);
   font-family: var(--font-family-heading);
@@ -282,8 +279,8 @@
   line-height: var(--line-height-tight);
 }
 .ai-welcome-mascot {
-  width: var(--size-element-xl);
-  height: var(--size-element-xl);
+  width: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
+  height: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
   flex-shrink: 0;
 }
 .ai-welcome-hero p {
@@ -609,6 +606,10 @@
   .ai-messages { padding: var(--spacing-4) var(--spacing-3) var(--spacing-2); }
   .ai-welcome { gap: var(--spacing-5); padding-block: var(--spacing-4); }
   .ai-welcome-title { font-size: var(--font-size-2xl); }
+  .ai-welcome-mascot {
+    width: calc(var(--size-element-lg) + var(--size-element-lg));
+    height: calc(var(--size-element-lg) + var(--size-element-lg));
+  }
   .ai-examples { grid-template-columns: 1fr; gap: var(--spacing-0); }
   .ai-welcome-connect { align-items: stretch; flex-direction: column; text-align: center; }
   .ai-composer-wrap { padding: var(--spacing-2) var(--spacing-3); }

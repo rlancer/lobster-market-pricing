@@ -515,11 +515,9 @@ function AiChat() {
         {msgs.length === 0 && (
           <section className="ai-welcome">
             <header className="ai-welcome-hero">
+              <BlueLobsterLogo className="ai-welcome-mascot" />
               <span className="ai-welcome-kicker">Research your options data</span>
-              <h1 className="ai-welcome-title">
-                <BlueLobsterLogo className="ai-welcome-mascot" />
-                Ask the Lobster
-              </h1>
+              <h1 className="ai-welcome-title">Ask the Lobster</h1>
               <p>Lobster Chat writes the SQL, runs it against your dataset, and returns the answer.</p>
             </header>
             <nav className="ai-examples" aria-label="Suggested questions">
