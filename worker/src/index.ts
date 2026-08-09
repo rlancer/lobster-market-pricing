@@ -61,8 +61,21 @@ const LATEST_UNDERLYING =
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
-const RESULT_TTL_MS = 5 * 60 * 1000; // 5 min — data is nightly-refreshed
-const LIQ_TTL_MS = 10 * 60 * 1000;
+// TTL tiers: the lake is refreshed at most nightly (loader runs), so staleness
+// is bounded by the loader cadence, not by these values. Endpoints quote
+// different data at different rates:
+//   RESULT_TTL_MS — screener endpoints (stats, screen, underlyings…)
+//   LIQ_TTL_MS    — the liquid-underlyings set (recomputed from nightly data)
+//   QUERY_TTL_MS  — /api/query (arbitrary SQL) + symbol detail chains: the
+//                   heaviest lake compute; a 60-min memo bounds cross-user
+//                   repeat cost. The in-isolate Map dies with the isolate
+//                   (redeploy/eviction), so this is a bound, not a leak.
+//   REF_TTL_MS    — near-static reference rows (symbol/name/sector for the
+//                   typeahead); refreshed effectively only when names/constituents change.
+const RESULT_TTL_MS = 30 * 60 * 1000;
+const LIQ_TTL_MS = 60 * 60 * 1000;
+const QUERY_TTL_MS = 60 * 60 * 1000;
+const REF_TTL_MS = 12 * 60 * 60 * 1000;
 const R2SQL_LIMIT_MAX = 10000;
 
 interface CacheEntry { ts: number; val: unknown; }
@@ -75,6 +88,16 @@ function cached<T>(key: string, ttlMs: number, compute: () => Promise<T>): Promi
   return compute().then((val) => { cache.set(key, { ts: now, val }); return val; });
 }
 
+/** FNV-1a 32-bit hex — deterministic memo key for arbitrary SQL strings. */
+function sqlHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
 // ---------------------------------------------------------------------------
 // R2 SQL REST client
 // ---------------------------------------------------------------------------
@@ -84,7 +107,7 @@ function apiUrl(env: Env): string {
 
 interface R2Row { [k: string]: unknown; }
 
-async function r2sql(env: Env, sql: string, key?: string): Promise<R2Row[]> {
+async function r2sql(env: Env, sql: string, key?: string, ttlMs: number = RESULT_TTL_MS): Promise<R2Row[]> {
   const run = () => fetch(apiUrl(env), {
     method: "POST",
     headers: {
@@ -101,7 +124,7 @@ async function r2sql(env: Env, sql: string, key?: string): Promise<R2Row[]> {
     }
     return b.result?.rows ?? [];
   });
-  return key ? cached<R2Row[]>(key, RESULT_TTL_MS, run) : run();
+  return key ? cached<R2Row[]>(key, ttlMs, run) : run();
 }
 
 // ---------------------------------------------------------------------------
@@ -347,15 +370,21 @@ async function symbols(env: Env, q?: string, liquidOnly?: boolean, limit = 50): 
   let filter = "";
   if (liquidOnly) { const syms = await liquidSymbols(env); filter = `AND symbol IN ${inList(syms)}`; }
   const lim = clamp(limit, 1, 1000);
+  const liqTag = liquidOnly ? "L" : "A";
   if (!q) {
-    const rows = await r2sql(env, `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) WHERE true ${filter} ORDER BY symbol LIMIT ${lim}`, "syms_all_" + lim);
+    // Full universe pull (limit 1000 covers all ~500 symbols) — the reference
+    // tier: the browser caches this across sessions and filters client-side.
+    const rows = await r2sql(env,
+      `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) WHERE true ${filter} ORDER BY symbol LIMIT ${lim}`,
+      "syms_all_" + liqTag + "_" + lim, REF_TTL_MS);
     return rows.map(row);
   }
   const u = `%${q.toUpperCase()}%`;
   const rows = await r2sql(env,
     `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ` +
     `WHERE (UPPER(symbol) LIKE ${lit(u)} OR UPPER(COALESCE(name,'')) LIKE ${lit(u)}) ${filter} ` +
-    `ORDER BY CASE WHEN UPPER(symbol) = ${lit(q.toUpperCase())} THEN 0 WHEN UPPER(symbol) LIKE ${lit(q.toUpperCase() + "%")} THEN 1 ELSE 2 END, symbol LIMIT ${lim}`);
+    `ORDER BY CASE WHEN UPPER(symbol) = ${lit(q.toUpperCase())} THEN 0 WHEN UPPER(symbol) LIKE ${lit(q.toUpperCase() + "%")} THEN 1 ELSE 2 END, symbol LIMIT ${lim}`,
+    "syms_q_" + liqTag + "_" + q.toUpperCase() + "_" + lim, REF_TTL_MS);
   return rows.map(row);
 }
 function row(r: R2Row): { symbol: string; name: string | null; sector: string | null } {
@@ -436,18 +465,20 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
   contracts: Row[]; expirations: string[]; n_contracts: number; liquid: boolean;
   ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
 }> {
-  const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`);
+  const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`, "symu_" + symbol, QUERY_TTL_MS);
   if (!u.length) {
     return { underlying: null, contracts: [], expirations: [], n_contracts: 0, liquid: false, ohlc: [], realized_vol: null, corporate_actions: [] };
   }
   const ud = u[0];
-  // contracts for the latest run of this symbol + enrichment, in parallel
+  // contracts for the latest run of this symbol + enrichment, in parallel.
+  // The chain key embeds run_id, so a new loader run naturally invalidates it.
   const [{ rows, expirations }, enrich, syms] = await Promise.all([
     r2sql(env,
       `SELECT expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, ` +
       `delta, gamma, theta, vega, rho, in_the_money, theo, bid_size, ask_size, fetched_at ` +
       `FROM options.option_contracts WHERE symbol = ${lit(symbol)} ` +
-      `AND run_id = ${lit(ud.run_id)} ORDER BY expiration, strike, type LIMIT ${R2SQL_LIMIT_MAX}`)
+      `AND run_id = ${lit(ud.run_id)} ORDER BY expiration, strike, type LIMIT ${R2SQL_LIMIT_MAX}`,
+      "symc_" + symbol + "_" + ud.run_id, QUERY_TTL_MS)
       .then((r) => ({ rows: r, expirations: sortedUnique(r.map((x) => String(x.expiration))) })),
     enrichSymbol(env, symbol),
     liquidSymbols(env),
@@ -556,7 +587,11 @@ async function runQuery(env: Env, sqlIn: string, limit = 1000): Promise<{ column
     return { columns: [], rows: [], row_count: 0, truncated: false, limit, error: "CROSS JOIN is not allowed (cartesian products of large tables). Join on a key with WHERE filters instead." };
   const lim = clamp(limit, 1, R2SQL_LIMIT_MAX);
   try {
-    const rows = await r2sql(env, `SELECT * FROM (${cleaned}) AS __q LIMIT ${lim}`);
+    // Memoize by full outer SQL: identical queries (the chat frame pulls, SQL
+    // Lab reruns) hit the isolate cache instead of the lake. QUERY_TTL_MS is a
+    // bound, not a leak — the Map dies with the isolate and data refreshes nightly.
+    const outer = `SELECT * FROM (${cleaned}) AS __q LIMIT ${lim}`;
+    const rows = await r2sql(env, outer, "q_" + sqlHash(outer), QUERY_TTL_MS);
     const columns = rows.length ? Object.keys(rows[0]) : [];
     return { columns, rows, row_count: rows.length, truncated: rows.length >= lim, limit: lim };
   } catch (e) {
@@ -607,7 +642,8 @@ async function notebookPremium(env: Env, p: {
     "calls_ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY type ORDER BY premium_ratio DESC NULLS LAST) AS trn FROM ranked WHERE prn = 1)\n" +
     "SELECT symbol, name, sector, spot, expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, delta, in_the_money, premium, moneyness, premium_ratio\n" +
     "FROM calls_ranked WHERE trn <= " + lit(limit) + " ORDER BY type, premium_ratio DESC NULLS LAST";
-  const rows = (await r2sql(env, sql)) as Row[];
+  const rows = (await r2sql(env, sql,
+    "nb_" + `${targetDte}_${tol}_${band}_${minVol}_${p.liquid_only ? "L" : "A"}_${limit}`, QUERY_TTL_MS)) as Row[];
   return {
     notebook: "45-day-premium-leaders", target_dte: targetDte, tolerance: tol,
     moneyness_band: band, min_volume: minVol,

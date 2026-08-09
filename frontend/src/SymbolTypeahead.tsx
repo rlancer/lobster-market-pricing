@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { api, type SymbolSuggestion } from './api';
+import type { SymbolSuggestion } from './api';
+import { searchSymbols } from './symbolCache';
 import './SymbolTypeahead.css';
 
 interface Props {
@@ -18,11 +19,11 @@ export default function SymbolTypeahead({ value, onSelect, onChange, liquidOnly 
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // debounced search
+  // debounced search — hits the cross-session localStorage universe cache first
   const search = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const res = await api.symbols(q, liquidOnly);
+      const res = await searchSymbols(q, liquidOnly);
       setItems(res);
       setActive(res.length ? 0 : -1);
     } catch {
