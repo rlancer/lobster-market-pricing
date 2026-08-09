@@ -1,0 +1,15 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"earnings_date","type":"string","required":true},
+    {"name":"time","type":"string","required":false},
+    {"name":"name","type":"string","required":false},
+    {"name":"fiscal_q","type":"string","required":false},
+    {"name":"eps_forecast","type":"float64","required":false},
+    {"name":"est_count","type":"int64","required":false},
+    {"name":"last_year_eps","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

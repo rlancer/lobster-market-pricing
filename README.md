@@ -151,6 +151,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits |
+| `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Yahoo Finance ticker RSS proxy, keyless; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
@@ -185,6 +186,9 @@ in-memory.
 Browse the Iceberg lake and run arbitrary read-only SQL:
 
 - Tables: `options.option_contracts`, `options.underlyings`, `options.refresh_runs`
+- Upcoming-earnings rows (`options.earnings`, via the `earnings-daily` loader
+  job) auto-appear in `options.*`, so the Copilot can query/join them with no
+  extra wiring.
 - Sample queries use the `options.` schema prefix
 - Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted (read-only)
 - Backed by `GET /api/tables` and `POST /api/query`

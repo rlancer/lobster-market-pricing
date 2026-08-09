@@ -22,9 +22,11 @@ Infrastructure:
   `options.underlyings` table was **retired** at cutover — descriptive facts
   live in `securities`, run-history snapshots in `underlying_snapshots`.
 - Jobs (D1 `job_state` ledger): `cboe-options` (continuous, market-gated, item
-  store `symbol_state`), `ohlc-daily` (daily, ungated, whole universe), and
+  store `symbol_state`), `ohlc-daily` (daily, ungated, whole universe),
   `ohlc-backfill` (item-scoped, resumable via the `ohlc_backfill_state` D1 item
-  store; run `POST /jobs/ohlc-backfill/trigger`)
+  store; run `POST /jobs/ohlc-backfill/trigger`), and `earnings-daily` (daily,
+  ungated; ~2-week Nasdaq earnings-calendar window filtered to the S&P 500
+  universe → `options.earnings`)
 - Scheduler observability: `GET /jobs`, `GET /jobs/{id}`,
   `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`); `/loop/*` stay as
   cboe-options back-compat aliases for the monitor
@@ -52,6 +54,42 @@ dividend/split events are persisted to `options.corporate_actions`. `security_id
 (`src/symbology.ts`) is a deterministic ticker-derived UUID shared by
 `securities`, `symbol_history`, `corporate_actions`, and the backfill item store.
 
+### Earnings calendar (`earnings-daily`)
+
+Fetches the **Nasdaq earnings calendar** (`api.nasdaq.com/api/calendar/earnings?date=YYYY-MM-DD`,
+keyless, browser-ish `User-Agent`) for today + the next 13 days, filters to the
+S&P 500 manifest, and publishes normalized rows to `options.earnings`
+(`symbol`, `earnings_date`, `time` in {after-hours, pre-market, null}, `name`,
+`fiscal_q`, `eps_forecast`, `est_count`, `last_year_eps`, `source`, `run_id`,
+`fetched_at`). The lake is append-only, so consumers keep the newest run per
+`(symbol, earnings_date)` with `QUALIFY` — the same latest-wins pattern as OHLC.
+Verified live against the real calendar 2026-08-08 (the probe
+`tools/earnings_probe.ts` prints per-date calendar vs. S&P 500 row counts).
+
+**Provisioning is required before the job publishes** (it dry-runs until the
+pipeline URL is set). Create stream, sink, and table, then set the secret —
+the local OAuth token lacks the Pipelines scope, so this is a dashboard / gated
+token step:
+
+```powershell
+cd loader
+# 1. create stream cboe_earnings_v2 with schemas/earnings.json,
+#    sink cboe_earnings_sink (creates options.earnings table),
+#    and pipeline cboe_earnings_pipeline (stream → sink)
+npx wrangler pipelines stream create cboe_earnings_v2   --schema schemas/earnings.json
+npx wrangler pipelines sink create  cboe_earnings_sink  --table options.earnings --bucket ...
+# (exact flags per `wrangler pipelines --help`; a token with
+#  Workloads/Pipelines write + R2 Data Catalog write is required)
+# 2. set the ingest URL as a Worker secret (it may be unauthenticated — same
+#    cred-URL model as the other cboe_* streams):
+npx wrangler secret put PIPELINE_EARNINGS_URL
+# 3. confirm S&P 500 rows land, then trigger a sync:
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/jobs/earnings-daily/trigger -Headers @{ Authorization = "Bearer $env:LOADER_TOKEN" }
+```
+
+Once `options.earnings` exists it auto-appears in the Worker's `/api/tables`,
+so the AI Copilot can query it (and join it to chains) with no further wiring.
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
@@ -59,11 +97,12 @@ dividend/split events are persisted to `options.corporate_actions`. `security_id
 - `src/symbology.ts` — deterministic ticker-derived `security_id` (shared by securities / symbol_history / corporate_actions / backfill)
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`)
+- `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, …)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure

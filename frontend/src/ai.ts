@@ -1042,6 +1042,32 @@ const renderChartDef = toolDefinition({
 });
 
 // ---------------------------------------------------------------------------
+// Agent tool: fetch recent news headlines for a symbol (Worker RSS proxy)
+// ---------------------------------------------------------------------------
+// Narrative half of "why is this moving": the lake has no news, so the model
+// pulls headlines when a vol/OI/price question needs context. Hits the
+// keyless /api/news endpoint (Yahoo Finance ticker RSS proxied + cached by the
+// Worker); upstream failures degrade to an error string, never a thrown tool,
+// so a news outage cannot block the answer. Headlines carry source links the
+// model can cite.
+const newsDef = toolDefinition({
+  name: 'get_news',
+  description:
+    'Fetch recent news headlines for ONE symbol (e.g. "AAPL"). Use this when ' +
+    'the user asks WHY a stock, its option volume, or its implied volatility ' +
+    'is high or unusual — the lake has no news. Pair it with an IV vs ' +
+    'realized-vol query and an options.earnings check for event risk.',
+  inputSchema: z.object({
+    symbol: z.string().describe('Ticker symbol, e.g. "AAPL".'),
+    limit: z.number().int().min(1).max(20).optional().describe('Max headlines (default 8).'),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean(),
+    summary: z.string().describe('Numbered headline list (title + source link) for reasoning.'),
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // TanStack AI agent: answer a question by writing + running SQL
 // ---------------------------------------------------------------------------
 interface AgentCapture {
@@ -1073,6 +1099,18 @@ function systemPrompt(schemaPrompt: string): string {
     '- Read-only engine: only SELECT/WITH/DESCRIBE/SHOW/EXPLAIN are allowed; CROSS JOIN is rejected.',
     '- Expensive queries are budget-gated or time out: avoid joins of 3+ large tables with no WHERE filter, COUNT(DISTINCT x)/(DISTINCT) across joins or high-cardinality columns, ARRAY_AGG/STRING_AGG, and window functions over large partitions. Prefer WHERE filters + GROUP BY and the approx_* aggregates (approx_distinct, approx_median, approx_percentile_cont).',
     '- Filter before joining; join tables on keys (symbol, run_id) rather than scanning everything.',
+    '',
+    'Enrichment (why-is-it-moving / vol-context questions):',
+    '- The lake has no news. When the user asks WHY something moved or why vol',
+    '  is high, answer in up to three parts: (1) expensive or cheap: compare the',
+    '  chain\'s implied_vol against options.realized_vol (latest per-symbol row:',
+    '  realized_vol_30d / realized_vol_90d); (2) binary events: check',
+    '  options.earnings for upcoming reports — earnings_date + time +',
+    '  eps_forecast, roughly earnings_date BETWEEN CURRENT_DATE AND',
+    '  CURRENT_DATE + 14; (3) narrative: call get_news for the symbol(s) and',
+    '  cite the headlines you use.',
+    '- options.corporate_actions holds historical dividends (amount, ex_date)',
+    '  and splits — mention recent ones when relevant.',
     '',
     '- After you have the results, answer the user\'s question in plain English:',
     'mention specific symbols, sectors, and numbers where useful. If no rows were',
@@ -1302,6 +1340,20 @@ async function runAgent(
     return { ok: true, error: null };
   });
 
+  const getNews = newsDef.server(async ({ symbol, limit }) => {
+    const res = await api.news(symbol.trim().toUpperCase(), limit);
+    if (res.error) {
+      return { ok: false, summary: `News temporarily unavailable: ${res.error}` };
+    }
+    if (!res.items.length) {
+      return { ok: true, summary: `No recent headlines found for ${res.symbol}.` };
+    }
+    return {
+      ok: true,
+      summary: res.items.map((n, i) => `${i + 1}. ${n.title} — ${n.link}`).join('\n'),
+    };
+  });
+
   const adapter = openaiCompatibleText(model, {
     baseURL: OPENROUTER_BASE,
     apiKey,
@@ -1339,7 +1391,7 @@ async function runAgent(
     // message: TanStack AI's message conversion deliberately drops role:'system'
     // UIMessages and ModelMessage has no 'system' role.
     systemPrompts: [systemPrompt(schemaPrompt)],
-    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart],
+    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, getNews],
     // More tools + multi-step slice/chart workflows need a slightly larger budget.
     agentLoopStrategy: maxIterations(10),
     modelOptions: {

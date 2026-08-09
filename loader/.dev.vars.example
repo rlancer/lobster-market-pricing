@@ -20,6 +20,7 @@
 #   npx wrangler secret put PIPELINE_SECURITIES_URL    # stream cboe_securities_v2 (symbology master)
 #   npx wrangler secret put PIPELINE_SYMBOL_HISTORY_URL    # stream cboe_symbol_history_v2
 #   npx wrangler secret put PIPELINE_UNDERLYING_SNAPSHOTS_URL # stream cboe_underlying_snapshots_v2
+#   npx wrangler secret put PIPELINE_EARNINGS_URL       # stream cboe_earnings_v2 (earnings-daily job)
 #   npx wrangler secret put PIPELINE_AUTH_TOKEN        # required (streams are authenticated)
 #
 # For local runs against the deployed Worker, leave the URLs blank here and let
@@ -36,4 +37,5 @@ PIPELINE_CORPORATE_ACTIONS_URL=
 PIPELINE_SECURITIES_URL=
 PIPELINE_SYMBOL_HISTORY_URL=
 PIPELINE_UNDERLYING_SNAPSHOTS_URL=
+PIPELINE_EARNINGS_URL=
 PIPELINE_AUTH_TOKEN=
