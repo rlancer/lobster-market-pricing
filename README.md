@@ -13,7 +13,7 @@ loader/ (in this repo):
                                         │
                                         ▼
 options-db Worker (worker/):
-  /api/* → R2 SQL REST endpoint → JSON (cached 5–10 min in-isolate)
+  /api/* → R2 SQL REST endpoint → JSON (in-isolate cache, 30 min–12 h by tier)
                                         │
                                         ▼
 options-db frontend (Vite + React):
@@ -23,8 +23,9 @@ options-db frontend (Vite + React):
 The Worker is the only runtime component on this side. It's a thin SQL-string
 builder + cache over the R2 SQL REST endpoint — exactly what the old FastAPI
 backend was over DuckDB, ported to DataFusion SQL. Uncached lake queries take
-1–6 s; the Worker caches them 5–10 min (data is nightly-refreshed) so cached
-responses are instant.
+1–6 s; the Worker memoizes them in-isolate (data is nightly-refreshed, so
+staleness is bounded and the cache is safe to keep for 30 min–12 h per data
+tier) so repeat/cached responses are instant.
 
 ## Repo layout
 
@@ -216,9 +217,15 @@ escaping; sort columns are whitelisted). Key dialect constraints:
   symbols, ~1M contracts). This repo only reads the lake.
 - Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per
   calendar day, `vega`/`rho` per 1.00 of vol/rate).
-- The Worker cache is time-based (5 min). Data changes only on nightly loader
-  runs, so staleness is bounded. To force freshness sooner, redeploy the
-  Worker (clears the isolate cache).
+- The Worker cache is in-isolate and tiered by how quickly the underlying data
+  changes (all bounded by the nightly refresh): screener endpoints 30 min, the
+  liquid-underlyings set 60 min, `/api/query` + symbol chains 60 min
+  (hash-keyed by SQL, so the chat's frame pulls and SQL Lab reruns share one
+  lake fetch), and the symbol typeahead reference rows 12 h. The frontend keeps
+  the full symbol universe in localStorage for 24 h and searches it
+  client-side, so ticker search works across browser restarts with zero lake
+  queries. To force freshness sooner, redeploy the Worker (clears the isolate
+  cache) or reload with cleared site storage.
 
 ## Production build
 

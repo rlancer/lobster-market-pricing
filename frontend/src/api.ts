@@ -300,6 +300,10 @@ export const api = {
   sectors: (liquid_only?: boolean) => get<SectorRow[]>(`/api/sectors${qs({ liquid_only })}`),
   symbols: (q: string, liquid_only?: boolean) =>
     get<SymbolSuggestion[]>(`/api/symbols${qs({ q: q || undefined, liquid_only })}`),
+  // Full symbol universe (names/sectors) for the cross-session typeahead cache;
+  // the server caps at 1000 and the lake holds ~500 underlyings.
+  symbolsAll: (liquid_only?: boolean) =>
+    get<SymbolSuggestion[]>(`/api/symbols${qs({ liquid_only, limit: 1000 })}`),
   liquidity: () => get<LiquidityInfo>('/api/liquidity'),
   screen: (params: Record<string, string | number | boolean | undefined>) =>
     get<ScreenResponse>(`/api/screen${qs(params)}`),
