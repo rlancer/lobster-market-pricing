@@ -30,8 +30,9 @@ export interface Env {
   R2_SQL_BUCKET: string;
   R2_SQL_TOKEN: string; // secret
   CORS_ORIGIN?: string;
-  // Tavily news-search API key (secret) for /api/news. Stored on the deployed
-  // Worker and mirrored as a GitHub secret; never sent to the browser.
+  // Tavily search API key (secret) for /api/news and /api/web_search. Stored
+  // on the deployed Worker and mirrored as a GitHub secret; never sent to the
+  // browser.
   TAVILY_API_KEY: string;
   // FRED (St. Louis Fed) API key (secret) for /api/econ_calendar — optional:
   // with it set, the calendar uses FRED releases/dates for the full macro
@@ -747,6 +748,76 @@ async function news(env: Env, symbolIn: string | null, limitIn: number): Promise
 }
 
 // ---------------------------------------------------------------------------
+// Web search — /api/web_search (Tavily general search proxy)
+// ---------------------------------------------------------------------------
+// Open-ended web search for fresh analyst/market commentary beyond the
+// per-ticker news feed: "what are analysts saying about X", "what happened
+// with sector Y", "latest take on theme Z". Same Tavily key + proxy shape as
+// /api/news but without the news-topic pin or recency window, so the model can
+// surface current articles/notes with citable links. Results are stripped to
+// {title, link, snippet, source}, capped at 5, snippets trimmed to ~240 chars,
+// and memoized in-isolate for 10 min keyed by the lowercased query (only
+// successes cache — failures retry on the next call). Upstream failures
+// degrade to a 200 with an empty `results` list + `error` — never a 500 — so a
+// search outage cannot block a chat turn.
+const WEB_SEARCH_TTL_MS = 10 * 60 * 1000;
+const WEB_SEARCH_DEFAULT_LIMIT = 5;
+const WEB_SEARCH_MAX_LIMIT = 5;
+const WEB_SEARCH_QUERY_MAX = 200;
+
+interface WebSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+  source: string | null;
+}
+
+async function tavilySearch(env: Env, query: string): Promise<WebSearchResult[]> {
+  const response = await fetch(TAVILY_API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${env.TAVILY_API_KEY}`,
+    },
+    body: JSON.stringify({
+      query,
+      include_answer: false,
+      include_raw_content: false,
+      search_depth: "basic",
+      max_results: WEB_SEARCH_MAX_LIMIT,
+    }),
+  });
+  if (!response.ok) throw new Error(`tavily search returned HTTP ${response.status}`);
+  const data = await response.json() as { results?: { title?: string; url?: string; content?: string; source?: string | null }[] };
+  return (data.results ?? [])
+    .map((r): WebSearchResult => ({
+      title: (r.title ?? "").trim(),
+      link: (r.url ?? "").trim(),
+      snippet: truncateAtSentence((r.content ?? "").trim()),
+      source: (r.source ?? "").trim() || null,
+    }))
+    .filter((it) => it.title)
+    .slice(0, WEB_SEARCH_MAX_LIMIT);
+}
+
+async function webSearch(env: Env, queryIn: string | null, limitIn: number): Promise<{
+  query: string; results: WebSearchResult[]; error?: string; fetched_at: string;
+}> {
+  const query = (queryIn ?? "").trim();
+  const fetchedAt = () => new Date().toISOString();
+  if (!query || query.length > WEB_SEARCH_QUERY_MAX) {
+    return { query, results: [], error: "invalid query", fetched_at: fetchedAt() };
+  }
+  const limit = clamp(limitIn || WEB_SEARCH_DEFAULT_LIMIT, 1, WEB_SEARCH_MAX_LIMIT);
+  try {
+    const results = await cached<WebSearchResult[]>(`websearch:${query.toLowerCase()}`, WEB_SEARCH_TTL_MS, () => tavilySearch(env, query));
+    return { query, results: results.slice(0, limit), fetched_at: fetchedAt() };
+  } catch (error) {
+    return { query, results: [], error: String((error && (error as Error).message) || error), fetched_at: fetchedAt() };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // IV rank / percentile — /api/iv_rank
 // ---------------------------------------------------------------------------
 // "Is this IV expensive or cheap vs its own history?" The lake is append-only
@@ -989,6 +1060,8 @@ async function handle(env: Env, req: Request): Promise<Response> {
     return json(env, await symbols(env, q.get("q") ?? undefined, q.get("liquid_only") === "true", num(q.get("limit") ?? 50)));
   if (path === "/api/news")
     return json(env, await news(env, q.get("symbol"), q.get("limit") ? num(q.get("limit")) : NEWS_DEFAULT_LIMIT));
+  if (path === "/api/web_search")
+    return json(env, await webSearch(env, q.get("q"), q.get("limit") ? num(q.get("limit")) : WEB_SEARCH_DEFAULT_LIMIT));
   if (path === "/api/iv_rank")
     return json(env, await ivRank(env, q.get("symbol"), q.get("days") ? num(q.get("days")) : IV_RANK_DEFAULT_DAYS));
   if (path === "/api/econ_calendar")

@@ -177,6 +177,22 @@ export interface NewsResponse {
   fetched_at: string;
 }
 
+/** One result from the Worker's /api/web_search proxy (Tavily general search). */
+export interface WebSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+  source: string | null;
+}
+
+/** Response of /api/web_search — degrades to an empty result list with `error` on upstream failure. */
+export interface WebSearchResponse {
+  query: string;
+  results: WebSearchResult[];
+  error?: string;
+  fetched_at: string;
+}
+
 /** One scheduled macro/FOMC event from /api/econ_calendar. */
 export interface EconCalendarEvent {
   date: string;
@@ -369,6 +385,10 @@ export const api = {
   // Per-ticker news headlines (Worker → Tavily news search).
   news: (symbol: string, limit?: number) =>
     get<NewsResponse>(`/api/news${qs({ symbol: symbol.toUpperCase(), limit })}`),
+  // Open web search (Worker → Tavily general search), for fresh analyst/market
+  // commentary beyond the per-ticker news feed.
+  webSearch: (q: string, limit?: number) =>
+    get<WebSearchResponse>(`/api/web_search${qs({ q, limit })}`),
   // IV rank / percentile vs a symbol's own ATM-IV history (Worker lake query).
   ivRank: (symbol: string, days?: number) =>
     get<IvRankResponse>(`/api/iv_rank${qs({ symbol: symbol.toUpperCase(), days })}`),
