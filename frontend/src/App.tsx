@@ -97,7 +97,7 @@ function Layout() {
         <aside className="sidebar">
           <header className="brand" aria-label="Lobster MP">
             <BlueLobsterLogo className="brand-lobster" />
-            <p className="brand-tagline">Mind the left tail.</p>
+            <p className="brand-tagline">Ask the lobster</p>
           </header>
 
           <nav className="sidenav" aria-label="Workspace">
