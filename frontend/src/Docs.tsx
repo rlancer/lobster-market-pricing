@@ -80,7 +80,7 @@ const FLOW: FlowStep[] = [
     title: 'Frontend · Vite + React',
     sub: (
       <>
-        Plain <code>fetch('/api/*')</code> client — screener, copilot, SQL lab,
+        Plain <code>fetch('/api/*')</code> client — screener, Lobster Chat, SQL lab,
         monitor — and this page.
       </>
     ),
@@ -109,7 +109,7 @@ const COMPONENTS = [
   {
     dir: 'frontend/',
     title: 'React UI',
-    body: 'Vite + React + TanStack Router. Market screener, AI copilot, notebooks, SQL lab, monitor — plus the docs portal you are reading.',
+    body: 'Vite + React + TanStack Router. Market screener, Lobster Chat, notebooks, SQL lab, monitor — plus the docs portal you are reading.',
   },
 ];
 
@@ -140,7 +140,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
 const SURFACES = [
   {
     route: '/',
-    title: 'Copilot',
+    title: 'Lobster Chat',
     body: 'Natural-language questions → DataFusion SQL, run via /api/query, answered with the result tables. Bring your own OpenRouter key — it stays in your browser. Deep-links into the SQL Lab.',
   },
   {
