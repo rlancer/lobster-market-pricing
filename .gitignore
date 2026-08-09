@@ -3,6 +3,8 @@ webwright_run/
 debug_nb/
 frontend/node_modules/
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
 worker/node_modules/
 loader/node_modules/
 *.pyc
