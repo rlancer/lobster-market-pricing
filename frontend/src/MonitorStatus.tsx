@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { api, type RefreshRun } from './api';
-import { useWorkspace } from './App';
+import { useWorkspace } from './workspace';
 import './MonitorStatus.css';
 
 /**

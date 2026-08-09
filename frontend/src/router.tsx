@@ -7,7 +7,7 @@ import {
   useParams,
 } from '@tanstack/react-router';
 import App from './App';
-import { useWorkspace } from './App';
+import { useWorkspace } from './workspace';
 import MarketView from './MarketView';
 import Explorer from './Explorer';
 import AiChat from './AiChat';
