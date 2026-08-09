@@ -48,12 +48,41 @@ Confirm the preview went live (the `Deploy → dev` GitHub Action succeeded and
 the URL returns HTTP 200) before marking the task complete. The next push to
 the branch redeploys the same URL.
 
+> **Preview URLs (verified 2026-08-09):** the `<branch-slug>` URL above 404s
+> in this repo — `pages deploy --branch` with a `/` in the name produces only
+> hash-form deployment URLs. Get the real per-branch URL from
+> `npx wrangler pages deployment list --project-name robs-options-slop-dev`,
+> or use the stable dev URL below; either must return HTTP 200.
+
 **Stable dev URL** — every dev build is also deployed to the project's
 production branch (`dev`), i.e. `https://robs-options-slop-dev.pages.dev/`.
 That URL is constant and gets clobbered by each deploy (no stable history).
 Because the origin never changes, browser localStorage (the OpenRouter login
 in the Copilot) persists there across deploys — use that URL for manual
 testing instead of a per-branch URL, which requires re-logging in each time.
+
+## Operational gotchas (learned the hard way — do not rediscover)
+
+- **The local wrangler OAuth token HAS Pipelines read+write** (stream/sink/
+  pipeline create all work). `wrangler whoami`'s scope list omits Pipelines —
+  don't trust it. Only credentials that cannot be retrieved from anywhere:
+  GitHub secret values (read-back is impossible) and stream ingest URLs are
+  subdomain-credentials (never commit them).
+- **Windows + wrangler:** never spawn `npx` directly from code
+  (`execFileSync('npx', …)` fails — it's a `.cmd` shim). Invoke Node directly:
+  `process.execPath, [<repo>/node_modules/wrangler/bin/wrangler.js, ...args]`.
+  Read/forward root `.env` secrets (R2_DATA_CATALOG_TOKEN,
+  PIPELINE_AUTH_TOKEN, WRANGLER_R2_SQL_AUTH_TOKEN) in-process; never echo them.
+- **Scheduler sleeps while the US market is closed** (global
+  `MARKET_HOURS_ENABLED`) — even ungated jobs wait for the next market open.
+  To verify a new pipeline immediately, publish through it directly (same code
+  path a job uses) instead of waiting for a pass. Lake sinks flush on a ~300 s
+  roll interval — data appears up to ~5 min after ingest.
+- **Worker redeploys preserve secrets** (R2_SQL_TOKEN, PIPELINE_*_URL, …);
+  CI needs only `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`.
+- **Edit-tool hazard:** `read`/`grep` elide long bodies as `{ … }` — never
+  anchor a text edit on that literal ellipsis text; it will corrupt the real
+  body (happened in `frontend/src/api.ts`). Use `:raw` reads for unknown text.
 
 ## Repo map
 
