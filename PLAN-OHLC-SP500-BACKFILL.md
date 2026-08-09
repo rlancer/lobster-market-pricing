@@ -333,7 +333,7 @@ npx wrangler r2 sql query <acct>_cboe-options-data "SELECT security_id, ticker, 
 
 - **Iceberg immutability:** any schema "change" is a table recreate (new sink). We add
   new tables rather than ALTER. Keep `underlyings` publishing until the cutover ships.
-- **Folder name:** `load` runs under `options-db` monorepo; all loader work under `loader/`.
+- **Folder name:** `load` runs under `lobster-market-pricing` monorepo; all loader work under `loader/`.
 - **Yahoo licensing:** personal screener OK; not for commercial redistribution via `/api/query`.
 - **Batch vs item scope:** a 2y backfill over 500 symbols on unauth Yahoo will take hours;
   make it item-scoped/resumable, not a single monolithic `ohlc-daily` pass.

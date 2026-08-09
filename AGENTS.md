@@ -33,7 +33,7 @@ Do not amend or force-push after the PR is opened.
 
 Every completed task reports back **both** links:
 
-1. **PR link** — `https://github.com/rlancer/options-db/pull/<n>`.
+1. **PR link** — `https://github.com/rlancer/lobster-market-pricing/pull/<n>`.
 2. **Preview link** — the Cloudflare Pages dev deploy. Any non-`main` branch
    push or PR auto-deploys to the `robs-options-slop-dev` Pages project via
    the `Deploy → dev` job in `.github/workflows/deploy.yml`. The URL is the

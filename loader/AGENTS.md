@@ -2,7 +2,7 @@
 
 ## Scope
 
-This package (the `loader/` directory of the `options-db` monorepo) loads the 503-symbol S&P 500 manifest from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). The loader itself is a Worker (fetch/normalize/publish in `src/run-symbols.ts`); `tools/load_sp500.py` is a Python driver for one-shot full loads.
+This package (the `loader/` directory of the `lobster-market-pricing` monorepo) loads the 503-symbol S&P 500 manifest from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). The loader itself is a Worker (fetch/normalize/publish in `src/run-symbols.ts`); `tools/load_sp500.py` is a Python driver for one-shot full loads.
 
 ## Current verified state
 
