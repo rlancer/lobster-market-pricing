@@ -35,6 +35,7 @@ import {
   setEffort,
   setModel,
   startOAuthFlow,
+  type AgentProgress,
   type ChatSession,
   type DataFrame,
   type ModelGroup,
@@ -88,6 +89,25 @@ interface Msg {
   ts?: number;
   /** Model that answered (assistant only). */
   model?: string;
+}
+
+/** One row in the live tool feed inside the busy bubble. */
+interface ToolRow {
+  /** Stream toolCallId — stable per call, so repeated tools stay distinct rows. */
+  callId: string;
+  name: string;
+  display: string;
+  args: string;
+  /** null while running; true/false once the tool ended. */
+  ok: boolean | null;
+  summary: string;
+}
+
+/** Immutably apply a patch to the row with `callId` (no-op when absent). */
+function patchTool(tools: ToolRow[], callId: string, patch: Partial<ToolRow>): ToolRow[] {
+  const i = tools.findIndex((t) => t.callId === callId);
+  if (i === -1) return tools;
+  return tools.map((t, idx) => (idx === i ? { ...t, ...patch } : t));
 }
 
 function fmtCell(v: unknown): string {
@@ -186,6 +206,12 @@ function AiChat() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Live agent progress: streamed reasoning tokens + the tool feed, shown in
+  // the busy bubble and reset per question.
+  const [reasoning, setReasoning] = useState('');
+  const [writing, setWriting] = useState(false);
+  const [tools, setTools] = useState<ToolRow[]>([]);
+  const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -254,7 +280,13 @@ function AiChat() {
   const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
   useEffect(() => {
     scrollIfLocked();
-  }, [scrollIfLocked, msgs, busy, status]);
+  }, [scrollIfLocked, msgs, busy, status, reasoning]);
+
+  // Keep the streaming Thinking block pinned to the newest tokens.
+  useEffect(() => {
+    const el = thinkingRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [reasoning]);
 
   const saveKey = () => {
     setApiKey(key);
@@ -285,12 +317,47 @@ function AiChat() {
     }
     setInput('');
     setError(null);
+    // Fresh progress panel per question.
+    setReasoning('');
+    setWriting(false);
+    setTools([]);
     const now = Date.now();
     setMsgs((m) => [...m, { id: uid(), role: 'user', content: question, ts: now }]);
     setBusy(true);
     setStatus('Starting…');
     try {
-      const res = await askAi(question, session, { onStatus: setStatus });
+      const res = await askAi(question, session, {
+        onStatus: setStatus,
+        onProgress: (p: AgentProgress) => {
+          switch (p.kind) {
+            case 'status':
+              setStatus(p.status);
+              break;
+            case 'reasoning':
+              setReasoning((r) => r + p.delta);
+              break;
+            case 'tool_start':
+              setTools((ts) => [
+                ...ts,
+                { callId: p.callId, name: p.name, display: p.display, args: '', ok: null, summary: '' },
+              ]);
+              break;
+            case 'tool_args':
+              setTools((ts) => patchTool(ts, p.callId, { args: p.args }));
+              break;
+            case 'tool_end':
+              setTools((ts) => patchTool(ts, p.callId, { ok: p.ok, summary: p.summary }));
+              break;
+            case 'answer':
+              setWriting(true);
+              setStatus('Writing answer…');
+              break;
+            case 'error':
+              setStatus('Something went wrong');
+              break;
+          }
+        },
+      });
       setMsgs((m) => [
         ...m,
         { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getModel() },
@@ -562,8 +629,38 @@ function AiChat() {
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">✦</span>
             <div className="ai-bubble ai-busy">
-              <Spinner size="md" />
-              <span>{status || 'Thinking…'}</span>
+              <div className="ai-busy-head">
+                <Spinner size="md" />
+                <span className="ai-busy-status">{status || 'Thinking…'}</span>
+              </div>
+              {reasoning && (
+                <details className="ai-thinking" open={busy}>
+                  <summary>Thinking</summary>
+                  <div className="ai-thinking-body" ref={thinkingRef}>{reasoning}</div>
+                </details>
+              )}
+              {tools.length > 0 && (
+                <div className="ai-tool-feed">
+                  {tools.map((t) => (
+                    <div
+                      className={`ai-tool-row${t.ok === null ? '' : t.ok ? ' ok' : ' fail'}`}
+                      key={t.callId}
+                    >
+                      <span className="ai-tool-name">
+                        <span className="ai-tool-state" aria-hidden="true">
+                          {t.ok === null ? <Spinner size="sm" shade="subtle" /> : t.ok ? '✓' : '✗'}
+                        </span>
+                        {t.display}
+                      </span>
+                      {t.args && <code className="ai-tool-args">{t.args}</code>}
+                      {t.ok !== null && t.summary && (
+                        <span className="ai-tool-summary" title={t.summary}>{t.summary}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {writing && <div className="ai-busy-writing">Writing answer…</div>}
             </div>
           </div>
         )}

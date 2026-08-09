@@ -473,9 +473,103 @@
 }
 .ai-text { white-space: pre-wrap; }
 .ai-busy {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  max-width: min(520px, 100%);
+  color: var(--muted);
+}
+.ai-busy-head {
+  display: flex;
   align-items: center;
   gap: 10px;
+}
+.ai-busy-status {
+  font-weight: var(--font-weight-medium);
+  color: var(--text);
+}
+.ai-thinking {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-element);
+  background: var(--panel);
+  overflow: hidden;
+  min-width: 0;
+}
+.ai-thinking summary {
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.ai-thinking summary:hover { color: var(--text); }
+.ai-thinking-body {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+.ai-tool-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ai-tool-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+  background: var(--panel);
+  min-width: 0;
+}
+.ai-tool-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text);
+}
+.ai-tool-state {
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  flex-shrink: 0;
+}
+.ai-tool-row.ok .ai-tool-state { color: var(--color-success); }
+.ai-tool-row.fail .ai-tool-state { color: var(--color-error); }
+.ai-tool-args {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-code);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.ai-tool-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.ai-busy-writing {
+  font-size: var(--font-size-sm);
   color: var(--muted);
 }
 .ai-err { color: var(--color-error); font-size: 13px; }
