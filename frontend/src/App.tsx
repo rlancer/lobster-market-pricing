@@ -95,12 +95,9 @@ function Layout() {
     <WorkspaceContext.Provider value={value}>
       <div className="app">
         <aside className="sidebar">
-          <header className="brand">
-            <span className="brand-mark"><BlueLobsterLogo className="brand-lobster" /></span>
-            <span className="brand-text">
-              <h1>Lobster MP</h1>
-              <small>Options intelligence</small>
-            </span>
+          <header className="brand" aria-label="Lobster MP">
+            <BlueLobsterLogo className="brand-lobster" />
+            <p className="brand-tagline">Mind the left tail.</p>
           </header>
 
           <nav className="sidenav" aria-label="Workspace">
