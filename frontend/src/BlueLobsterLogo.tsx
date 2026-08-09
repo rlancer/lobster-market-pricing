@@ -42,17 +42,31 @@ export function BlueLobsterLogo({
         <path d="M39 65C37 74 30 81 18 87C29 90 40 87 46 82L48 91L52 81C57 84 63 85 69 83C61 77 57 71 56 65C51 70 44 70 39 65Z" />
       </g>
 
-      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="2">
-        <path d="M38 46H58M39 57H57" />
+      <g
+        fill="var(--color-background-card)"
+        stroke="var(--color-icon-blue)"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      >
+        <path d="M38 41L43 38L48 44L53 38L58 41L57 60C56 65 53 69 48 71C43 69 40 65 39 60L38 41Z" />
       </g>
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="1.5">
+        <path d="M43 39L48 45L53 39M48 45V68" />
+      </g>
+      <rect x="51" y="48" width="4.5" height="2.5" rx="1.25" fill="var(--color-accent)" />
 
-      <g fill="var(--color-background-body)" stroke="var(--color-icon-blue)" strokeWidth="1.5">
-        <circle cx="43" cy="30" r="3.2" />
-        <circle cx="53" cy="30" r="3.2" />
+      <g
+        fill="var(--color-background-body)"
+        stroke="var(--color-text-primary)"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      >
+        <rect x="39" y="27" width="8" height="6" rx="2" />
+        <rect x="49" y="27" width="8" height="6" rx="2" />
+        <path d="M47 29.5H49M39 29L37 28M57 29L59 28" fill="none" />
       </g>
-      <g fill="var(--color-icon-blue)">
-        <circle cx="44" cy="30" r="1.2" />
-        <circle cx="52" cy="30" r="1.2" />
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="1.2">
+        <path d="M41 29L43 28M51 29L53 28" />
       </g>
       <path
         d="M42 36Q48 42 54 36"
