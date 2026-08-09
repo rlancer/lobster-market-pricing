@@ -159,20 +159,42 @@ export interface CorporateAction {
   amount: number | null; // per-share cash dividend
 }
 
-/** One headline from the Worker's /api/news RSS proxy (Yahoo Finance ticker feed). */
+/** One headline from the Worker's /api/news RSS proxy (Yahoo/Bing ticker feed). */
 export interface NewsItem {
   title: string;
   link: string;
   published: string | null;
   snippet: string;
+  source: 'yahoo' | 'bing';
 }
 
 /** Response of /api/news — degrades to an empty item list with `error` on upstream failure. */
 export interface NewsResponse {
   symbol: string;
   items: NewsItem[];
+  source?: 'yahoo' | 'bing';
   error?: string;
   fetched_at: string;
+}
+
+/** One daily ATM-IV point for /api/iv_rank (deduped per fetched_at date). */
+export interface IvRankPoint {
+  d: string;
+  iv: number | null;
+}
+
+/** Response of /api/iv_rank — IV percentile vs a symbol's own history. */
+export interface IvRankResponse {
+  symbol: string;
+  days: number;
+  points: IvRankPoint[];
+  rank_pct: number | null;
+  iv_now: number | null;
+  iv_median: number | null;
+  iv_min: number | null;
+  iv_max: number | null;
+  as_of: string | null;
+  error?: string;
 }
 
 export interface SymbolDetail {
@@ -331,6 +353,9 @@ export const api = {
   // Per-ticker news headlines (Worker → Yahoo Finance RSS proxy, keyless).
   news: (symbol: string, limit?: number) =>
     get<NewsResponse>(`/api/news${qs({ symbol: symbol.toUpperCase(), limit })}`),
+  // IV rank / percentile vs a symbol's own ATM-IV history (Worker lake query).
+  ivRank: (symbol: string, days?: number) =>
+    get<IvRankResponse>(`/api/iv_rank${qs({ symbol: symbol.toUpperCase(), days })}`),
   symbolDetail: (symbol: string) => get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
   notebookPremium: (params: {
     target_dte?: number;
