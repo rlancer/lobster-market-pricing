@@ -508,20 +508,26 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
 }
 
 // ---------------------------------------------------------------------------
-// Lake schema (/api/tables) — D1-backed cache
+// Lake schema (/api/tables) — D1-backed cache, serve-stale + background refresh
 // ---------------------------------------------------------------------------
 // The schema payload is expensive to compute: SHOW TABLES, then per table
 // DESCRIBE + COUNT(*) + a 3-row sample — several R2 SQL round trips against
-// the lake. The AI copilot loads it on every chat question and the SQL Lab
-// sidebar on every mount, so the computed payload is cached in D1 and only
-// recomputed when stale or on explicit ?force=1. The payload changes only
-// when the loader publishes new tables/columns or data lands, so the TTL
-// bounds staleness and self-heals; the SQL Lab refresh button forces an
-// immediate recompute. D1 failures degrade to live compute (the R2 SQL lake
-// remains the source of truth — the cache is a performance layer only).
+// the lake (~8s). The AI copilot loads it on every chat question and the SQL
+// Lab sidebar on every mount, so users must NEVER block on that compute: fresh
+// rows serve immediately, stale rows serve the cached payload instantly while
+// a background refresh (ctx.waitUntil) recomputes, and a throttled background
+// probe diffs the lake's table/column shape against the cache so loader schema
+// changes refresh proactively instead of waiting for the next TTL expiry. Only
+// an explicit ?force=1 (SQL Lab refresh) or a truly empty cache (first-ever
+// call on a fresh D1) computes synchronously. D1 failures degrade to live
+// compute (the R2 SQL lake remains the source of truth — the cache is a
+// performance layer only).
 const SCHEMA_TTL_MS = 10 * 60 * 1000; // schema structure is near-static
 const SCHEMA_CACHE_KEY = "lake_tables";
 const SCHEMA_SAMPLE_LIMIT = 3;
+// Background change-detection cadence: on fresh reads, diff the lake's shape
+// against the cached payload at most once per interval, per isolate.
+const SCHEMA_PROBE_INTERVAL_MS = 60 * 1000;
 
 interface LakeTable {
   name: string;
@@ -551,22 +557,21 @@ async function loadLakeTables(env: Env): Promise<LakeTable[]> {
   );
 }
 
-/** Schema payload served by /api/tables: D1 when fresh, live compute when stale/forced. */
-async function schemaTables(env: Env, force: boolean): Promise<LakeTable[]> {
-  if (!force) {
-    try {
-      const row = await env.SCHEMA_DB.prepare(
-        "SELECT payload, expires_at FROM schema_cache WHERE key = ?1",
-      ).bind(SCHEMA_CACHE_KEY).first<{ payload: string; expires_at: number }>();
-      if (row && Date.now() < row.expires_at) {
-        return JSON.parse(row.payload) as LakeTable[];
-      }
-    } catch (e) {
-      // D1 read failed — fall back to live compute; the lake is authoritative.
-      console.error("schema cache read failed, computing live", e);
-    }
+/** Read the cached payload row; null when missing or D1 read fails. */
+async function readSchemaRow(env: Env): Promise<{ payload: string; expires_at: number } | null> {
+  try {
+    return (await env.SCHEMA_DB.prepare(
+      "SELECT payload, expires_at FROM schema_cache WHERE key = ?1",
+    ).bind(SCHEMA_CACHE_KEY).first<{ payload: string; expires_at: number }>()) ?? null;
+  } catch (e) {
+    // D1 read failed — the caller falls back to live compute; the lake is
+    // authoritative, the cache is a performance layer only.
+    console.error("schema cache read failed", e);
+    return null;
   }
-  const tables = await loadLakeTables(env);
+}
+
+async function writeSchemaRow(env: Env, tables: LakeTable[]): Promise<void> {
   try {
     await env.SCHEMA_DB.prepare(
       "INSERT INTO schema_cache (key, payload, expires_at) VALUES (?1, ?2, ?3) " +
@@ -576,6 +581,113 @@ async function schemaTables(env: Env, force: boolean): Promise<LakeTable[]> {
     // D1 write failed — serve the freshly computed payload anyway.
     console.error("schema cache write failed", e);
   }
+}
+
+// Single-flight guard: at most one background refresh per isolate.
+let schemaRefreshRunning = false;
+let lastSchemaProbeAt = 0;
+
+/** Recompute the payload from the lake and upsert into D1 (background-safe). */
+async function refreshLakeSchema(env: Env): Promise<void> {
+  if (schemaRefreshRunning) return;
+  schemaRefreshRunning = true;
+  try {
+    await writeSchemaRow(env, await loadLakeTables(env));
+  } catch (e) {
+    // Lake/D1 hiccup — leave the (stale) row in place; the next read that
+    // finds it stale retries the refresh. Never surfaced to the user.
+    console.error("background schema refresh failed", e);
+  } finally {
+    schemaRefreshRunning = false;
+  }
+}
+
+/** Fingerprint of the cached payload: sorted "table:column" pairs. */
+function schemaFingerprint(tables: LakeTable[]): string {
+  const pairs: string[] = [];
+  for (const t of tables) for (const c of t.columns) pairs.push(`${t.name}:${c.name}`);
+  return pairs.sort().join("|");
+}
+
+/** Background diff of the lake's current shape vs the cached payload. */
+async function probeLakeSchema(env: Env, payload: string): Promise<void> {
+  const cached = JSON.parse(payload) as LakeTable[];
+  let listed: { table_name?: unknown }[];
+  try {
+    listed = await r2sql(env, "SHOW TABLES IN options");
+  } catch (e) {
+    console.error("schema change probe failed", e);
+    return;
+  }
+  const tableNames = listed.map((t) => String(t.table_name)).sort();
+  const cachedNames = cached.map((t) => t.name).sort();
+  if (tableNames.join("|") !== cachedNames.join("|")) {
+    // Table added/removed — skip the column pass, refresh now.
+    console.log("lake schema changed (tables) — refreshing schema cache in background");
+    await refreshLakeSchema(env);
+    return;
+  }
+  // Table set matches — diff columns via one DESCRIBE per table. The lake has
+  // a handful of `options.*` tables, so this is a few cheap metadata calls.
+  try {
+    const shaped = await Promise.all(
+      tableNames.map(async (name) => ({
+        name,
+        cols: (await r2sql(env, `DESCRIBE options.${name}`)) as { column_name?: unknown }[],
+      })),
+    );
+    const current = shaped
+      .flatMap((t) => t.cols.map((c) => `${t.name}:${String(c.column_name)}`))
+      .sort()
+      .join("|");
+    if (current !== schemaFingerprint(cached)) {
+      console.log("lake schema changed (columns) — refreshing schema cache in background");
+      await refreshLakeSchema(env);
+    }
+  } catch (e) {
+    console.error("schema column probe failed", e);
+  }
+}
+
+/** Throttled probe kick-off from the fresh-read path (never blocks the request). */
+function maybeProbeSchema(ctx: ExecutionContext, env: Env, payload: string): void {
+  const now = Date.now();
+  if (now - lastSchemaProbeAt < SCHEMA_PROBE_INTERVAL_MS) return;
+  lastSchemaProbeAt = now;
+  ctx.waitUntil(probeLakeSchema(env, payload));
+}
+
+/**
+ * Schema payload served by /api/tables — users never wait on the ~8s lake
+ * recompute. Fresh rows serve immediately (plus a throttled background
+ * change-detection probe); stale rows serve the cached payload instantly while
+ * the refresh runs in the background via ctx.waitUntil; only a truly empty
+ * cache (first-ever call on a fresh D1) or an explicit ?force=1 (SQL Lab
+ * refresh) computes synchronously. Trade-off: after a TTL expiry a reader sees
+ * the previous payload for at most one refresh cycle (~10s) instead of an 8s
+ * stall, and background refreshes also fire when the lake's shape changes.
+ */
+async function schemaTables(env: Env, ctx: ExecutionContext, force: boolean): Promise<LakeTable[]> {
+  const row = await readSchemaRow(env);
+  if (force) {
+    // Explicit user intent (SQL Lab refresh): recompute now, serve fresh.
+    const tables = await loadLakeTables(env);
+    await writeSchemaRow(env, tables);
+    return tables;
+  }
+  if (row) {
+    if (Date.now() < row.expires_at) {
+      maybeProbeSchema(ctx, env, row.payload);
+      return JSON.parse(row.payload) as LakeTable[];
+    }
+    // Stale — serve the cached payload now, refresh in the background.
+    ctx.waitUntil(refreshLakeSchema(env));
+    return JSON.parse(row.payload) as LakeTable[];
+  }
+  // Nothing cached yet: compute once synchronously so there is a row for every
+  // future read. One-time cost per environment (prod's cache is already warm).
+  const tables = await loadLakeTables(env);
+  await writeSchemaRow(env, tables);
   return tables;
 }
 
@@ -1037,7 +1149,7 @@ function json(env: Env, data: unknown, status = 200): Response {
   }));
 }
 
-async function handle(env: Env, req: Request): Promise<Response> {
+async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
   const q = url.searchParams;
@@ -1066,7 +1178,7 @@ async function handle(env: Env, req: Request): Promise<Response> {
     return json(env, await ivRank(env, q.get("symbol"), q.get("days") ? num(q.get("days")) : IV_RANK_DEFAULT_DAYS));
   if (path === "/api/econ_calendar")
     return json(env, await econCalendar(env, q.get("days") ? num(q.get("days")) : ECON_DEFAULT_DAYS));
-  if (path === "/api/tables") return json(env, await schemaTables(env, q.get("force") === "1"));
+  if (path === "/api/tables") return json(env, await schemaTables(env, ctx, q.get("force") === "1"));
   if (path === "/api/notebook/premium")
     return json(env, await notebookPremium(env, {
       target_dte: q.get("target_dte") ? num(q.get("target_dte")) : undefined,
@@ -1118,12 +1230,12 @@ async function handle(env: Env, req: Request): Promise<Response> {
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (req.method === "OPTIONS") {
       return cors(env, new Response(null, { status: 204 }));
     }
     try {
-      return await handle(env, req);
+      return await handle(env, req, ctx);
     } catch (e) {
       return json(env, { error: String(e) }, 500);
     }
