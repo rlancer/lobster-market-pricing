@@ -1031,14 +1031,14 @@ const renderChartDef = toolDefinition({
 });
 
 // ---------------------------------------------------------------------------
-// Agent tool: fetch recent news headlines for a symbol (Worker RSS proxy)
+// Agent tool: fetch recent news headlines for a symbol (Worker → Tavily)
 // ---------------------------------------------------------------------------
 // Narrative half of "why is this moving": the lake has no news, so the model
 // pulls headlines when a vol/OI/price question needs context. Hits the
-// keyless /api/news endpoint (Yahoo Finance ticker RSS proxied + cached by the
-// Worker); upstream failures degrade to an error string, never a thrown tool,
-// so a news outage cannot block the answer. Headlines carry source links the
-// model can cite.
+// /api/news endpoint (Tavily news search, proxied + cached by the Worker);
+// upstream failures degrade to an error string, never a thrown tool, so a news
+// outage cannot block the answer. Headlines carry source links the model can
+// cite.
 const newsDef = toolDefinition({
   name: 'get_news',
   description:

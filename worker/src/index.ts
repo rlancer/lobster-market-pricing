@@ -30,11 +30,9 @@ export interface Env {
   R2_SQL_BUCKET: string;
   R2_SQL_TOKEN: string; // secret
   CORS_ORIGIN?: string;
-  // Non-secret RSS feed URL templates for /api/news (Phase 3 failover). Each
-  // contains a `{symbol}` placeholder; defaults are in code. Overridable as
-  // wrangler vars / `--var` so the Yahoo→Bing fallback can be exercised in dev.
-  NEWS_YAHOO_URL_TEMPLATE?: string;
-  NEWS_BING_URL_TEMPLATE?: string;
+  // Tavily news-search API key (secret) for /api/news. Stored on the deployed
+  // Worker and mirrored as a GitHub secret; never sent to the browser.
+  TAVILY_API_KEY: string;
   // Non-secret base URL of the continuous CBOE loader worker, used by the
   // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
   LOADER_BASE_URL?: string;
@@ -657,37 +655,28 @@ async function notebookPremium(env: Env, p: {
 }
 
 // ---------------------------------------------------------------------------
-// News — /api/news (keyless RSS proxy for copilot enrichment)
+// News — /api/news (Tavily news search proxy)
 // ---------------------------------------------------------------------------
 // Narrative half of "why is this moving" for the AI copilot: per-ticker
-// headlines proxied server-side (a browser fetch of the feed would hit CORS)
-// from Yahoo Finance's RSS (verified live 2026-08-08 — finance.yahoo.com
-// 301-redirects to feeds.finance.yahoo.com, which fetch follows). The feed is
-// stripped to {title, link, published, snippet}. Upstream failures degrade to
-// an empty item list with an error string — never a 500 — so a chat turn is
-// never blocked by a news outage. The feed is slow-moving, so the parsed list
-// is memoized in-isolate for 10 min keyed by symbol (only successes cache;
-// failures retry on the next call).
+// headlines via Tavily's licensed news-search API. The worker holds the
+// TAVILY_API_KEY secret (server-side — never reaches the browser, unlike the
+// unofficial Yahoo/Bing RSS endpoints it replaces). Tavily returns
+// relevance-sorted, symbol-scoped results, which we strip to
+// {title, link, published, snippet, source}. Upstream failures degrade to an
+// empty item list with an error string — never a 500 — so a chat turn is
+// never blocked by a news outage. Results are memoized in-isolate for 10 min
+// keyed by symbol (only successes cache; failures retry on the next call).
 const NEWS_TTL_MS = 10 * 60 * 1000;
-const NEWS_YAHOO_TEMPLATE_DEFAULT =
-  "https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US";
-const NEWS_BING_TEMPLATE_DEFAULT = "https://www.bing.com/news/search?q={symbol}&format=rss";
 const NEWS_DEFAULT_LIMIT = 8;
 const NEWS_MAX_LIMIT = 20;
 const NEWS_SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]*$/;
-// Embedded markup lives in the description CDATA; strip it, then cut the
-// cleaned snippet at a sentence boundary so it reads, never mid-word.
 const NEWS_SNIPPET_MAX = 240;
+const TAVILY_API_URL = "https://api.tavily.com/search";
+// News-only recency window (days) — keeps results current without spending the
+// free monthly credit pool on stale stories.
+const TAVILY_NEWS_DAYS = 7;
 
-type NewsSource = "yahoo" | "bing";
-
-// Post-extraction headline (before relevance ranking / source tagging).
-interface RawFeedItem {
-  title: string;
-  link: string;
-  published: string | null;
-  snippet: string;
-}
+type NewsSource = "tavily";
 
 interface NewsItem {
   title: string;
@@ -697,10 +686,6 @@ interface NewsItem {
   source: NewsSource;
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function truncateAtSentence(s: string, max = NEWS_SNIPPET_MAX): string {
   if (s.length <= max) return s;
   const window = s.slice(0, max + 1);
@@ -708,96 +693,35 @@ function truncateAtSentence(s: string, max = NEWS_SNIPPET_MAX): string {
   return (boundary >= max * 0.6 ? window.slice(0, boundary + 1) : window).trimEnd();
 }
 
-function decodeXml(s: string): string {
-  return s
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
-
-function stripTags(s: string): string {
-  return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-// Pull <item> blocks out of the RSS XML and normalize each to a headline.
-// Deliberately regex-based (the Worker has no XML dep); the feed shape is
-// stable enough that malformed items are skipped, not fatal.
-function parseRssItems(xml: string): RawFeedItem[] {
-  const items: RawFeedItem[] = [];
-  const itemRe = /<item[^>]*>([\s\S]*?)<\/item>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = itemRe.exec(xml)) !== null) {
-    const block = m[1];
-    const grab = (tag: string): string => {
-      const r = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i").exec(block);
-      return r ? decodeXml(r[1]) : "";
-    };
-    const title = stripTags(grab("title")).trim();
-    if (!title) continue;
-    items.push({
-      title,
-      link: grab("link").trim(),
-      published: grab("pubDate").trim() || null,
-      snippet: stripTags(grab("description")),
-    });
-  }
-  return items;
-}
-
-async function fetchFeed(
-  env: Env, symbol: string, template: string, source: NewsSource,
-): Promise<NewsItem[]> {
-  const url = template.replace("{symbol}", encodeURIComponent(symbol));
-  const response = await fetch(url, {
+async function tavilyNews(env: Env, symbol: string): Promise<NewsItem[]> {
+  const response = await fetch(TAVILY_API_URL, {
+    method: "POST",
     headers: {
-      "user-agent": "screener-api/1.0",
-      accept: "application/rss+xml, application/xml, text/xml, */*",
+      "content-type": "application/json",
+      authorization: `Bearer ${env.TAVILY_API_KEY}`,
     },
+    body: JSON.stringify({
+      query: `${symbol} stock news`,
+      topic: "news",
+      search_depth: "basic",
+      max_results: NEWS_MAX_LIMIT,
+      days: TAVILY_NEWS_DAYS,
+      include_answer: false,
+      include_raw_content: false,
+    }),
   });
-  if (!response.ok) throw new Error(`${source} feed returned HTTP ${response.status}`);
-  return parseRssItems(await response.text())
-    .map((it) => ({ ...it, snippet: truncateAtSentence(it.snippet), source }))
+  if (!response.ok) throw new Error(`tavily news returned HTTP ${response.status}`);
+  const data = await response.json() as { results?: { title?: string; url?: string; content?: string; published_date?: string | null }[] };
+  return (data.results ?? [])
+    .map((r): NewsItem => ({
+      title: (r.title ?? "").trim(),
+      link: (r.url ?? "").trim(),
+      published: r.published_date || null,
+      snippet: truncateAtSentence((r.content ?? "").trim()),
+      source: "tavily",
+    }))
+    .filter((it) => it.title)
     .slice(0, NEWS_MAX_LIMIT);
-}
-
-// Rank headlines: ticker-specific stories first (case-insensitive, with
-// `.`/`-` ticker variants), each group newest-first; when ticker items exist
-// they crowd out the generic market feed in the slice step.
-function rankItems(items: NewsItem[], symbol: string): NewsItem[] {
-  const byNewest = (a: NewsItem, b: NewsItem) =>
-    (Date.parse(b.published || "") || 0) - (Date.parse(a.published || "") || 0);
-  const rx = new RegExp(`(^|[^A-Z0-9])${escapeRegExp(symbol)}([^A-Z0-9]|$)`, "i");
-  const ticker = items.filter((it) => rx.test(it.title)).sort(byNewest);
-  const other = items.filter((it) => !rx.test(it.title)).sort(byNewest);
-  return ticker.concat(other);
-}
-
-// Fetch with failover: Yahoo ticker feed first (unofficial); on non-200 or a
-// zero-item parse, fall back to Bing's keyless news RSS. Each source is cached
-// under its own key at the 10-min TTL so a failed Yahoo attempt never poisons
-// a cached Bing result.
-async function rssNews(env: Env, symbol: string): Promise<{ items: NewsItem[]; source: NewsSource }> {
-  let items: NewsItem[] = [];
-  try {
-    items = await cached<NewsItem[]>(`news:yahoo:${symbol}`, NEWS_TTL_MS, async () =>
-      rankItems(
-        await fetchFeed(env, symbol, env.NEWS_YAHOO_URL_TEMPLATE || NEWS_YAHOO_TEMPLATE_DEFAULT, "yahoo"),
-        symbol));
-  } catch {
-    items = []; // Yahoo failed — fall through to the fallback feed.
-  }
-  if (items.length > 0) return { items, source: "yahoo" };
-  const bing = await cached<NewsItem[]>(`news:bing:${symbol}`, NEWS_TTL_MS, async () =>
-    rankItems(
-      await fetchFeed(env, symbol, env.NEWS_BING_URL_TEMPLATE || NEWS_BING_TEMPLATE_DEFAULT, "bing"),
-      symbol));
-  if (bing.length === 0) throw new Error("news feeds returned no items");
-  return { items: bing, source: "bing" };
 }
 
 async function news(env: Env, symbolIn: string | null, limitIn: number): Promise<{
@@ -810,8 +734,8 @@ async function news(env: Env, symbolIn: string | null, limitIn: number): Promise
   }
   const limit = clamp(limitIn || NEWS_DEFAULT_LIMIT, 1, NEWS_MAX_LIMIT);
   try {
-    const { items, source } = await rssNews(env, symbol);
-    return { symbol, items: items.slice(0, limit), source, fetched_at: fetchedAt() };
+    const items = await cached<NewsItem[]>(`news:${symbol}`, NEWS_TTL_MS, () => tavilyNews(env, symbol));
+    return { symbol, items: items.slice(0, limit), source: "tavily", fetched_at: fetchedAt() };
   } catch (error) {
     return { symbol, items: [], error: String((error && (error as Error).message) || error), fetched_at: fetchedAt() };
   }
