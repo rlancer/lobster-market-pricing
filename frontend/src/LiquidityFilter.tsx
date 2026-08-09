@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Tooltip } from '@astryxdesign/core';
 import { api, type LiquidityInfo } from './api';
 import './LiquidityFilter.css';
 
@@ -43,16 +44,17 @@ export default function LiquidityFilter({ checked, onChange }: Props) {
         <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
         <span className="liq-label">Tradable names only</span>
       </label>
-      <button
-        type="button"
-        className="liq-info-btn"
-        aria-label="Liquidity criteria"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        title="How is tradability determined?"
-      >
-        i
-      </button>
+      <Tooltip content="How is tradability determined?" hasHoverIndication={false}>
+        <button
+          type="button"
+          className="liq-info-btn"
+          aria-label="Liquidity criteria"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          i
+        </button>
+      </Tooltip>
       {open && (
         <div className="liq-popover" role="dialog" aria-label="Liquidity criteria">
           <div className="liq-popover-title">

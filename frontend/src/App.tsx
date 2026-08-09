@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { Tooltip } from '@astryxdesign/core';
 import { CircleHelp } from 'lucide-react';
 import './App.css';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -139,14 +140,15 @@ function Layout() {
             <div className="topbar-tools">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
               <MonitorStatus />
-              <Link
-                to="/docs"
-                className={location.pathname.startsWith('/docs') ? 'docs-link active' : 'docs-link'}
-                title="Docs — how this platform works"
-                aria-label="Docs — how this platform works"
-              >
-                <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
-              </Link>
+              <Tooltip content="Docs — how this platform works" hasHoverIndication={false}>
+                <Link
+                  to="/docs"
+                  className={location.pathname.startsWith('/docs') ? 'docs-link active' : 'docs-link'}
+                  aria-label="Docs — how this platform works"
+                >
+                  <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
+                </Link>
+              </Tooltip>
             </div>
           </header>
 

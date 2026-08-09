@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@astryxdesign/core/Button';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import SymbolTypeahead from './SymbolTypeahead';
 import { api, type OptionRow } from './api';
 import { useWorkspace } from './workspace';
@@ -230,9 +231,8 @@ export default function MarketView() {
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className={r.type === 'call' ? 'row-call' : 'row-put'}
-                  onClick={() => navigate({ to: '/symbol/$symbol', params: { symbol: r.symbol } })}
-                  title={`Click to explore ${r.symbol} option chain`}>
-                <td><b>{r.symbol}</b></td>
+                  onClick={() => navigate({ to: '/symbol/$symbol', params: { symbol: r.symbol } })}>
+                <td><Tooltip content={`Click to explore ${r.symbol} option chain`} hasHoverIndication={false}><b>{r.symbol}</b></Tooltip></td>
                 <td className="muted">{r.name ?? '–'}</td>
                 <td><span className={`badge ${r.type}`}>{r.type}</span></td>
                 <td>{fmtDate(r.expiration)}</td>

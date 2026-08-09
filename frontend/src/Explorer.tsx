@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearch } from '@tanstack/react-router';
+import { Tooltip } from '@astryxdesign/core';
 import './Explorer.css';
 import { api, type QueryResult, type TableInfo } from './api';
 
@@ -138,14 +139,15 @@ function Explorer() {
             <ul className="column-list">
               {activeCols.map((c) => (
                 <li key={c.name}>
+                  <Tooltip content="Click to append to query" hasHoverIndication={false}>
                   <button
                     className="col-btn"
-                    title="Click to append to query"
                     onClick={() => insertName(c.name)}
                   >
                     <span className="col-name">{c.name}</span>
                     <span className="col-type">{c.type}</span>
                   </button>
+                  </Tooltip>
                 </li>
               ))}
             </ul>

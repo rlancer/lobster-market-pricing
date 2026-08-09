@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { Tooltip } from '@astryxdesign/core';
 import { api, type RefreshRun } from './api';
 import { useWorkspace } from './workspace';
 import './MonitorStatus.css';
@@ -35,19 +36,23 @@ export default function MonitorStatus() {
   const tone = latest ? toneOf(latest.status) : 'ok';
 
   return (
-    <button
-      type="button"
-      className="monitor-status"
-      onClick={() => navigate({ to: '/monitor' })}
-      title={`${stats ? 'Dataset ready' : '…'} — data as of ${latest?.as_of_date ?? 'n/a'} · ${latest?.status ?? ''}. Open the monitor for full status.`}
+    <Tooltip
+      content={`${stats ? 'Dataset ready' : '…'} — data as of ${latest?.as_of_date ?? 'n/a'} · ${latest?.status ?? ''}. Open the monitor for full status.`}
+      hasHoverIndication={false}
     >
-      <span className={`ms-dot ${tone}`} aria-hidden="true" />
-      <span className="ms-ready">{stats ? 'Dataset ready' : '…'}</span>
-      {latest && (
-        <span className="ms-data">
-          Data · {latest.as_of_date || 'n/a'}
-        </span>
-      )}
-    </button>
+      <button
+        type="button"
+        className="monitor-status"
+        onClick={() => navigate({ to: '/monitor' })}
+      >
+        <span className={`ms-dot ${tone}`} aria-hidden="true" />
+        <span className="ms-ready">{stats ? 'Dataset ready' : '…'}</span>
+        {latest && (
+          <span className="ms-data">
+            Data · {latest.as_of_date || 'n/a'}
+          </span>
+        )}
+      </button>
+    </Tooltip>
   );
 }

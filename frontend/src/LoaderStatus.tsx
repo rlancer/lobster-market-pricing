@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Tooltip } from '@astryxdesign/core';
 import { api, type LoaderFilter, type LoaderStatus, type LoaderSymbol } from './api';
 import './LoaderStatus.css';
 
@@ -281,8 +282,10 @@ export default function LoaderStatus() {
                       ? `${fmtDur(s.backoff_seconds * 1000)} · retry ${rel(s.next_attempt_after)}`
                       : '–'}
                   </td>
-                  <td className="ls-err" title={s.last_error ?? ''}>
-                    {s.last_error ? truncate(s.last_error, 60) : '–'}
+                  <td className="ls-err">
+                    <Tooltip content={s.last_error ?? ''} isEnabled={!!s.last_error} hasHoverIndication={false}>
+                      <span>{s.last_error ? truncate(s.last_error, 60) : '–'}</span>
+                    </Tooltip>
                   </td>
                 </tr>
               );

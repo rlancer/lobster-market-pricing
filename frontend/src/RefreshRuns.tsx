@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Tooltip } from '@astryxdesign/core';
 import { api, type RefreshRun } from './api';
 import './RefreshRuns.css';
 
@@ -63,16 +64,17 @@ export default function RefreshRuns() {
 
   return (
     <div className="refresh-runs" ref={wrapRef}>
+      <Tooltip content="How fresh is the data? Click for run history." hasHoverIndication={false}>
       <button
         type="button"
         className="rr-trigger"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        title="How fresh is the data? Click for run history."
       >
         <span className={`rr-dot ${statusTone(latest.status)}`} aria-hidden="true" />
         <span>Data · {latest.as_of_date || 'n/a'} · {latest.status}</span>
       </button>
+    </Tooltip>
       {open && (
         <div className="rr-popover" role="dialog" aria-label="Refresh run history">
           <div className="rr-popover-title">
@@ -103,7 +105,7 @@ export default function RefreshRuns() {
                   <tbody>
                     {runs.map((r) => (
                       <tr key={r.run_id}>
-                        <td className="rr-id" title={r.run_id}>{shortId(r.run_id)}</td>
+                        <td className="rr-id"><Tooltip content={r.run_id} hasHoverIndication={false}><span>{shortId(r.run_id)}</span></Tooltip></td>
                         <td>{r.as_of_date || '–'}</td>
                         <td>{fmtDateTime(r.completed_at)}</td>
                         <td className="rr-syms">

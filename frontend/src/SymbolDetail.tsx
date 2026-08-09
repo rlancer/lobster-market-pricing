@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import { Tooltip as AstryxTooltip } from '@astryxdesign/core';
 import './SymbolDetail.css';
 import { api, type ChainContract, type SymbolDetail as Detail } from './api';
 import StrategiesPanel from './StrategiesPanel';
@@ -177,7 +178,9 @@ function SymbolDetail({ symbol, onBack }: Props) {
               <span>{detail?.n_contracts.toLocaleString() ?? '–'} contracts</span>
               <span>{detail?.expirations.length ?? 0} expirations</span>
               {detail?.liquid === false && (
-                <span className="chip illiquid" title="This underlying does not pass the global liquidity filter.">illiquid</span>
+                <AstryxTooltip content="This underlying does not pass the global liquidity filter." hasHoverIndication={false}>
+                <span className="chip illiquid">illiquid</span>
+              </AstryxTooltip>
               )}
               {u.fetched_at && <span className="muted small">updated {u.fetched_at.slice(0, 19)}</span>}
             </div>
@@ -200,34 +203,45 @@ function SymbolDetail({ symbol, onBack }: Props) {
               </span>
             )}
             {ohlcStats.offHigh != null && (
-              <span title={`Last close ${fmtNum(ohlcStats.lastClose)} vs 52w high`}>
+              <AstryxTooltip content={`Last close ${fmtNum(ohlcStats.lastClose)} vs 52w high`} hasHoverIndication={false}>
+              <span>
                 off high{' '}
                 <b className={ohlcStats.offHigh < 0 ? 'down' : 'up'}>
                   {fmtNum(ohlcStats.offHigh)}%
                 </b>
               </span>
+            </AstryxTooltip>
             )}
             {rv?.realized_vol_30d != null && (
-              <span title={`Realized vol (annualized) over trailing ${rv.n_returns_30 ?? 30} sessions, as of ${rv.as_of_date}`}>
+              <AstryxTooltip content={`Realized vol (annualized) over trailing ${rv.n_returns_30 ?? 30} sessions, as of ${rv.as_of_date}`} hasHoverIndication={false}>
+              <span>
                 RV30 <b>{fmtPct(rv.realized_vol_30d)}</b>
               </span>
+            </AstryxTooltip>
             )}
             {rv?.realized_vol_90d != null && (
-              <span title={`Realized vol (annualized) over trailing ${rv.n_returns_90 ?? 90} sessions, as of ${rv.as_of_date}`}>
+              <AstryxTooltip content={`Realized vol (annualized) over trailing ${rv.n_returns_90 ?? 90} sessions, as of ${rv.as_of_date}`} hasHoverIndication={false}>
+              <span>
                 RV90 <b>{fmtPct(rv.realized_vol_90d)}</b>
               </span>
+            </AstryxTooltip>
             )}
             {corpActions.map((a) => (
-              <span key={`${a.ex_date}:${a.action_type}`}
-                className={`chip ca-chip${a.action_type === 'SPLIT' ? ' ca-split' : ''}`}
-                title={a.action_type === 'DIVIDEND'
+              <AstryxTooltip
+                key={`${a.ex_date}:${a.action_type}`}
+                content={a.action_type === 'DIVIDEND'
                   ? `Ex-dividend ${fmtNum(a.amount)} per share`
                   : `Split ${a.numerator ?? '?'}:${a.denominator ?? '?'}`}
+                hasHoverIndication={false}
+              >
+              <span
+                className={`chip ca-chip${a.action_type === 'SPLIT' ? ' ca-split' : ''}`}
               >
                 {a.action_type === 'DIVIDEND'
                   ? `Div ${a.ex_date} ${a.amount != null ? fmtNum(a.amount) : ''}`
                   : `Split ${a.ex_date} ${a.numerator ?? '?'}:${a.denominator ?? '?'}`}
               </span>
+              </AstryxTooltip>
             ))}
           </div>
           <div className="ohlc-chart">
@@ -394,8 +408,14 @@ function SymbolDetail({ symbol, onBack }: Props) {
                       <td className="right num call-col">{fmtNum(call?.ask)}</td>
                       <td className="right num">{fmtNum(call?.last)}</td>
                       {/* strike (center) */}
-                      <td className={`strike-cell${isATM ? ' strike-atm' : ''}`} title={moneyness !== null ? `${moneyness >= 0 ? '+' : ''}${moneyness.toFixed(1)}% vs spot` : ''}>
-                        {fmtNum(strike, 0)}
+                      <td className={`strike-cell${isATM ? ' strike-atm' : ''}`}>
+                        <AstryxTooltip
+                          content={moneyness == null ? '' : `${moneyness >= 0 ? '+' : ''}${moneyness.toFixed(1)}% vs spot`}
+                          isEnabled={moneyness !== null}
+                          hasHoverIndication={false}
+                        >
+                          <span>{fmtNum(strike, 0)}</span>
+                        </AstryxTooltip>
                       </td>
                       {/* puts (right) */}
                       <td className="right num">{fmtNum(put?.last)}</td>
