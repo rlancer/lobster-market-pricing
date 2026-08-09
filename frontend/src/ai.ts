@@ -19,7 +19,8 @@
 //   3. Return { answer, sql, result } (last executed SQL/transform + result for the UI).
 
 import { chat, toolDefinition, maxIterations } from '@tanstack/ai';
-import { openaiCompatibleText } from '@tanstack/ai-openai/compatible';
+import { OpenAICompatibleChatAdapter } from '@tanstack/ai-openai/compatible';
+import OpenAI from 'openai';
 import { z } from 'zod';
 import { api } from './api';
 import type { QueryResult } from './api';
@@ -1107,6 +1108,35 @@ const webSearchDef = toolDefinition({
 // ---------------------------------------------------------------------------
 // TanStack AI agent: answer a question by writing + running SQL
 // ---------------------------------------------------------------------------
+// OpenAI-compatible adapter subclass that surfaces provider reasoning deltas.
+// OpenRouter's DeepSeek stream (and several other reasoning providers) ships
+// thinking tokens in `delta.reasoning` / `delta.reasoning_details` (older
+// variants use `delta.reasoning_content`), but the stock compatible adapter's
+// `extractReasoning` hook is a no-op — those tokens would silently die at the
+// adapter boundary. Overriding the hook feeds them into the standard
+// REASONING_MESSAGE_CONTENT stream so live reasoning reaches the chat UI.
+class ReasoningCompatibleTextAdapter extends OpenAICompatibleChatAdapter<string, Record<string, unknown>> {
+  protected override extractReasoning(chunk: unknown): { text: string } | undefined {
+    if (!chunk || typeof chunk !== 'object') return undefined;
+    if (!('choices' in chunk) || !Array.isArray(chunk.choices) || chunk.choices.length === 0) return undefined;
+    const choice = chunk.choices[0];
+    if (!choice || typeof choice !== 'object' || !('delta' in choice)) return undefined;
+    const delta = choice.delta;
+    if (!delta || typeof delta !== 'object') return undefined;
+    if ('reasoning' in delta && typeof delta.reasoning === 'string') return { text: delta.reasoning };
+    if ('reasoning_content' in delta && typeof delta.reasoning_content === 'string') {
+      return { text: delta.reasoning_content };
+    }
+    if ('reasoning_details' in delta && Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
+      const item = delta.reasoning_details[delta.reasoning_details.length - 1];
+      if (item && typeof item === 'object' && 'text' in item && typeof item.text === 'string') {
+        return { text: item.text };
+      }
+    }
+    return undefined;
+  }
+}
+
 interface AgentCapture {
   sql: string | null;
   result: QueryResult | null;
@@ -1206,8 +1236,17 @@ async function runAgent(
   session: ChatSession,
   capture: AgentCapture,
   onStatus?: AskCallbacks['onStatus'],
+  onProgress?: AskCallbacks['onProgress'],
 ): Promise<string> {
   const schemaPrompt = schemaToPrompt(schema);
+
+  // Status-line updates flow through BOTH callbacks: the legacy onStatus
+  // string channel (kept for back-compat) and the structured progress feed,
+  // so the live panel sees every milestone.
+  const emitStatus = (s: string) => {
+    onStatus?.(s);
+    onProgress?.({ kind: 'status', status: s });
+  };
 
   const checkSchema = checkSchemaDef.server(async ({ sql }) => {
     const issues = validateSqlSchema(sql, schema);
@@ -1229,7 +1268,7 @@ async function runAgent(
     }
 
     const materialize = !!save_as?.trim();
-    onStatus?.(materialize ? 'Running query & caching rows…' : 'Running query…');
+    emitStatus(materialize ? 'Running query & caching rows…' : 'Running query…');
     const res = await api.query(sql, materialize ? FRAME_QUERY_LIMIT : 200);
     capture.sql = sql;
     capture.result = res;
@@ -1290,7 +1329,7 @@ async function runAgent(
       }
       try {
         const sliced = sliceFrame(f, { where, sort, limit, project });
-        onStatus?.('Filtering cached data…');
+        emitStatus('Filtering cached data…');
         const res: QueryResult = {
           columns: sliced.columns,
           rows: sliced.rows,
@@ -1337,7 +1376,7 @@ async function runAgent(
         summary: `No cached frame '${frame}'.`,
       };
     }
-    onStatus?.('Refreshing cached data…');
+    emitStatus('Refreshing cached data…');
     const res = await api.query(f.sql, FRAME_QUERY_LIMIT);
     capture.sql = f.sql;
     capture.result = res;
@@ -1428,19 +1467,23 @@ async function runAgent(
     };
   });
 
-  const adapter = openaiCompatibleText(model, {
-    baseURL: OPENROUTER_BASE,
-    apiKey,
-    // BYOK: the key is owned by the user, stored only in their browser, and
-    // sent straight to OpenRouter — there is no server in this AI path that
-    // could leak it. That is exactly the case `dangerouslyAllowBrowser` is for
-    // (it disables the OpenAI SDK's default browser-key guard).
-    dangerouslyAllowBrowser: true,
-    defaultHeaders: {
-      'HTTP-Referer': window.location.origin,
-      'X-Title': APP_TITLE,
-    },
-  });
+  const adapter = new ReasoningCompatibleTextAdapter(
+    new OpenAI({
+      baseURL: OPENROUTER_BASE,
+      apiKey,
+      // BYOK: the key is owned by the user, stored only in their browser, and
+      // sent straight to OpenRouter — there is no server in this AI path that
+      // could leak it. That is exactly the case `dangerouslyAllowBrowser` is for
+      // (it disables the OpenAI SDK's default browser-key guard).
+      dangerouslyAllowBrowser: true,
+      defaultHeaders: {
+        'HTTP-Referer': window.location.origin,
+        'X-Title': APP_TITLE,
+      },
+    }),
+    model,
+    'openai-compatible',
+  );
 
   // Thread prior turns of this chat (text only; data lives in the frames) so
   // follow-ups can refer to earlier results. Capped to bound token cost.
@@ -1482,20 +1525,79 @@ async function runAgent(
   // The final assistant text comes after the last tool call; drop any text the
   // model emitted before deciding to call a tool.
   let answer = '';
+  // toolCallId -> tool name, so args/end events (which only carry the id) can
+  // resolve the label — including when parallel calls stream interleaved.
+  const toolNameById = new Map<string, string>();
+  // toolCallId -> accumulated argument text. TOOL_CALL_ARGS deltas arrive as
+  // partial JSON chunks, so the preview must be built up per call.
+  const toolArgsById = new Map<string, string>();
+  // Reasoning is streamed live via REASONING_MESSAGE_CONTENT when the adapter
+  // supports it; STEP_FINISHED (thinking-step deltas) is only a fallback so a
+  // model that emits both never double-renders the same tokens.
+  let sawReasoning = false;
+  // Tool-args deltas are throttled so a long JSON stream doesn't re-render the
+  // row on every token; ~120ms is smooth without being chatty.
+  let lastArgsEmitAt = 0;
+  // 'answer' marks the start of the final text (after the last tool call).
+  let sawToolEnd = false;
+  let notifiedAnswer = false;
+  const emitToolEnd = (callId: string, name: string, ok: boolean, summary: string) => {
+    onProgress?.({ kind: 'tool_end', name, callId, ok, summary });
+  };
+  // The engine delivers execution outcomes as TOOL_CALL_RESULT with the
+  // validated tool output JSON-stringified into `content` ({ok, summary,
+  // error} per the outputSchema) — parse it back for the feed row.
+  const toolEndFromResult = (callId: string, content: unknown, state: unknown) => {
+    const name = toolNameById.get(callId) ?? '';
+    let ok = state !== 'output-error';
+    let summary = '';
+    if (typeof content === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(content);
+        if (parsed && typeof parsed === 'object' && 'ok' in parsed && typeof parsed.ok === 'boolean') {
+          ok = parsed.ok;
+        }
+        if (parsed && typeof parsed === 'object' && 'summary' in parsed && typeof parsed.summary === 'string') {
+          summary = parsed.summary;
+        }
+      } catch {
+        summary = content;
+      }
+      if (!summary) summary = content;
+    }
+    emitToolEnd(callId, name, ok, summary);
+  };
   for await (const ev of stream) {
-    if (ev.type === 'TOOL_CALL_END') {
+    if (ev.type === 'TOOL_CALL_START') {
+      const name = evToolName(ev) ?? '';
+      if (name) toolNameById.set(ev.toolCallId, name);
+      onProgress?.({
+        kind: 'tool_start',
+        name,
+        display: TOOL_LABELS[name] ?? humanizeTool(name),
+        callId: ev.toolCallId,
+      });
+    } else if (ev.type === 'TOOL_CALL_ARGS') {
+      toolArgsById.set(ev.toolCallId, (toolArgsById.get(ev.toolCallId) ?? '') + ev.delta);
+      const now = Date.now();
+      if (now - lastArgsEmitAt >= TOOL_ARGS_THROTTLE_MS) {
+        lastArgsEmitAt = now;
+        onProgress?.({
+          kind: 'tool_args',
+          name: toolNameById.get(ev.toolCallId) ?? '',
+          callId: ev.toolCallId,
+          args: toolArgsById.get(ev.toolCallId) ?? '',
+        });
+      }
+    } else if (ev.type === 'TOOL_CALL_END') {
+      const name = toolNameById.get(ev.toolCallId) ?? evToolName(ev) ?? '';
       // Capture a chart spec the model declared, paired with the last result,
       // so the UI can render it alongside the answer. Only keep text emitted
       // after the last tool call (the final answer).
       // Some adapters emit the tool name on `toolName` (deprecated) rather than
       // `toolCallName`, and `input` may arrive as a JSON string — accept any of
       // these so capture never silently drops a requested chart.
-      let toolName: string | undefined = ev.toolCallName;
-      if (toolName === undefined && 'toolName' in ev) {
-        const tn = ev.toolName;
-        if (typeof tn === 'string') toolName = tn;
-      }
-      if (toolName === 'render_chart') {
+      if (name === 'render_chart') {
         let input: unknown = ev.input;
         if (typeof input === 'string') {
           try { input = JSON.parse(input); } catch { /* keep raw */ }
@@ -1507,10 +1609,35 @@ async function runAgent(
           }
         }
       }
+      // The engine's DECLARATION TOOL_CALL_END carries no outcome — the
+      // result arrives on TOOL_CALL_RESULT below. Some engine paths do attach
+      // the validated output to this event; accept that defensively.
+      const out = ev.output;
+      if (out && typeof out === 'object' && 'ok' in out && typeof out.ok === 'boolean') {
+        let summary = '';
+        if ('summary' in out && typeof out.summary === 'string') summary = out.summary;
+        emitToolEnd(ev.toolCallId, name, out.ok, summary);
+      }
       answer = '';
+      sawToolEnd = true;
+    } else if (ev.type === 'TOOL_CALL_RESULT') {
+      toolEndFromResult(ev.toolCallId, ev.content, ev.state);
+    } else if (ev.type === 'REASONING_MESSAGE_CONTENT' && typeof ev.delta === 'string' && ev.delta) {
+      sawReasoning = true;
+      onProgress?.({ kind: 'reasoning', delta: ev.delta });
+    } else if (ev.type === 'STEP_FINISHED' && !sawReasoning) {
+      // Fallback thinking blocks for adapters that don't surface reasoning
+      // deltas — only until real reasoning content takes over.
+      const chunk = typeof ev.delta === 'string' ? ev.delta : typeof ev.content === 'string' ? ev.content : '';
+      if (chunk) onProgress?.({ kind: 'reasoning', delta: chunk });
     } else if (ev.type === 'TEXT_MESSAGE_CONTENT' && typeof ev.delta === 'string') {
+      if (sawToolEnd && !notifiedAnswer) {
+        notifiedAnswer = true;
+        onProgress?.({ kind: 'answer' });
+      }
       answer += ev.delta;
     } else if (ev.type === 'RUN_ERROR') {
+      onProgress?.({ kind: 'error', message: ev.message || 'The model request failed.' });
       throw new Error(ev.message || 'The model request failed.');
     }
   }
@@ -1520,8 +1647,47 @@ async function runAgent(
 // ---------------------------------------------------------------------------
 // Public pipeline: ask a question → get answer + SQL + result
 // ---------------------------------------------------------------------------
+// Live progress events streamed to the UI while the agent loop runs: status
+// milestones, live reasoning tokens, and the tool feed (start → streaming
+// args → end with ok/summary). The 'answer' event marks the start of the
+// final text and 'error' a failed run.
+export type AgentProgress =
+  | { kind: 'status'; status: string }
+  | { kind: 'reasoning'; delta: string }
+  | { kind: 'tool_start'; name: string; display: string; callId: string }
+  | { kind: 'tool_args'; name: string; callId: string; args: string }
+  | { kind: 'tool_end'; name: string; callId: string; ok: boolean; summary: string }
+  | { kind: 'answer' }
+  | { kind: 'error'; message: string };
+
+// Human-facing tool labels for the progress feed.
+const TOOL_LABELS: Record<string, string> = {
+  run_query: 'SQL query',
+  check_schema: 'Check schema',
+  list_frames: 'List frames',
+  filter_frame: 'Filter frame',
+  refresh_frame: 'Refresh frame',
+  render_chart: 'Render chart',
+  get_news: 'News',
+  eco_calendar: 'Eco calendar',
+  web_search: 'Web search',
+};
+
+const humanizeTool = (name: string): string => TOOL_LABELS[name] ?? name.replaceAll('_', ' ');
+
+// Tool-args deltas are throttled to ~120ms — smooth streaming without a
+// re-render per token.
+const TOOL_ARGS_THROTTLE_MS = 120;
+
+/** Resolve a tool name from a stream event, honoring the deprecated alias. */
+function evToolName(ev: { toolCallName?: unknown; toolName?: unknown }): string | undefined {
+  const n = ev.toolCallName ?? ev.toolName;
+  return typeof n === 'string' ? n : undefined;
+}
+
 export interface AskCallbacks {
   onStatus?: (status: string) => void;
+  onProgress?: (p: AgentProgress) => void;
 }
 
 export interface AskResult {
@@ -1543,7 +1709,12 @@ export async function askAi(
   const model = getModel();
   const capture: AgentCapture = { sql: null, result: null, chart: null };
 
-  opts.onStatus?.('Reading schema…');
+  const emitStatus = (s: string) => {
+    opts.onStatus?.(s);
+    opts.onProgress?.({ kind: 'status', status: s });
+  };
+
+  emitStatus('Reading schema…');
   let schema: SchemaContext;
   try {
     schema = await buildSchemaContext();
@@ -1551,10 +1722,10 @@ export async function askAi(
     throw new Error(`Failed to read schema: ${e}`);
   }
 
-  opts.onStatus?.('Reasoning over the data…');
+  emitStatus('Reasoning over the data…');
   let answer: string;
   try {
-    answer = await runAgent(question, apiKey, model, schema, session, capture, opts.onStatus);
+    answer = await runAgent(question, apiKey, model, schema, session, capture, opts.onStatus, opts.onProgress);
   } catch (e) {
     // If the agent itself errored but a query already ran, still surface the
     // (partial) result rather than dropping it.
