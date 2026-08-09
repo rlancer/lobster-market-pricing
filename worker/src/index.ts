@@ -33,6 +33,11 @@ export interface Env {
   // Tavily news-search API key (secret) for /api/news. Stored on the deployed
   // Worker and mirrored as a GitHub secret; never sent to the browser.
   TAVILY_API_KEY: string;
+  // FRED (St. Louis Fed) API key (secret) for /api/econ_calendar — optional:
+  // with it set, the calendar uses FRED releases/dates for the full macro
+  // schedule (FOMC, CPI, PCE, jobs, …); without it, the endpoint falls back to
+  // the Federal Reserve's keyless calendar JSON (FOMC + Beige Book only).
+  FRED_API_KEY?: string;
   // Non-secret base URL of the continuous CBOE loader worker, used by the
   // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
   LOADER_BASE_URL?: string;
@@ -821,6 +826,87 @@ async function ivRank(env: Env, symbolIn: string | null, daysIn: number): Promis
     return { symbol, days, points: [], rank_pct: null, iv_now: null, iv_median: null, iv_min: null, iv_max: null, as_of: null, error: String((error && (error as Error).message) || error) };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Macro / economic calendar — /api/econ_calendar
+// ---------------------------------------------------------------------------
+// "Binary-event weeks" (FOMC, CPI, jobs, PCE) lift broad implied vol, so the
+// Copilot gets the upcoming scheduled releases. Primary source is FRED's
+// releases/dates API (official, free key): with FRED_API_KEY set, the realtime
+// window = calendar window and the curated high-impact release names are
+// matched. Without a key, the endpoint falls back to the Federal Reserve's own
+// keyless calendar JSON (official; FOMC meetings/statements/minutes/press
+// conferences + Beige Book — the "Stat"/speech noise is filtered out).
+// Cached 12h: release schedules move on a quarterly-ish cadence and the Fed
+// JSON is ~0.5MB. Same degrade-to-empty contract as the other endpoints.
+const ECON_TTL_MS = 12 * 60 * 60 * 1000;
+const ECON_DEFAULT_DAYS = 30;
+const ECON_MAX_DAYS = 90;
+const FRED_API_URL = "https://api.stlouisfed.org/fred/releases/dates";
+const FED_CALENDAR_URL = "https://www.federalreserve.gov/json/calendar.json";
+// Curated high-impact FRED release names (case-insensitive substring match).
+const ECON_RELEASE_RE =
+  /fomc|consumer price index|employment situation|personal income and outlays|producer price index|gross domestic product|beige book|university of michigan|ism (manufacturing|services)/i;
+// Fed-calendar event types that move broad vol (the rest are weekly H-stat
+// releases, speeches, and testimonies).
+const FED_CALENDAR_TYPES = new Set(["FOMC", "Beige"]);
+
+interface EconCalendarEvent { date: string; title: string; kind: "macro" | "fed"; }
+
+interface EconCalendarResponse {
+  window_days: number;
+  as_of: string;
+  provider: "fred" | "federalreserve";
+  items: EconCalendarEvent[];
+  error?: string;
+}
+
+async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarResponse> {
+  const days = clamp(daysIn || ECON_DEFAULT_DAYS, 1, ECON_MAX_DAYS);
+  const asOf = () => new Date().toISOString();
+  try {
+    return await cached<EconCalendarResponse>(`econ:${days}`, ECON_TTL_MS, async () => {
+      if (env.FRED_API_KEY) {
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+        const end = new Date(Date.now() + days * 86400_000);
+        const url =
+          `${FRED_API_URL}?api_key=${encodeURIComponent(env.FRED_API_KEY)}&file_type=json` +
+          `&realtime_start=${iso(new Date())}&realtime_end=${iso(end)}` +
+          `&include_release_dates_with_no_data=true&sort_order=asc&limit=1000`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`fred releases/dates returned HTTP ${res.status}`);
+        const data = await res.json() as { release_dates?: { release_name?: string; date?: string }[] };
+        const items: EconCalendarEvent[] = (data.release_dates ?? [])
+          .filter((r) => r.date && r.release_name && ECON_RELEASE_RE.test(r.release_name))
+          .map((r) => ({ date: String(r.date), title: String(r.release_name).trim(), kind: "macro" as const }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        return { window_days: days, as_of: asOf(), provider: "fred", items };
+      }
+      const res = await fetch(FED_CALENDAR_URL);
+      if (!res.ok) throw new Error(`federalreserve calendar returned HTTP ${res.status}`);
+      const data = await res.json() as { events?: { title?: string; type?: string; month?: string; days?: string }[] };
+      const now = Date.now();
+      const endMs = now + days * 86400_000;
+      const items: EconCalendarEvent[] = [];
+      for (const e of data.events ?? []) {
+        if (!FED_CALENDAR_TYPES.has(e.type ?? "")) continue;
+        // `days` can be a comma list for recurring releases; take the first.
+        const day = Number((e.days ?? "").split(",")[0].trim());
+        if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+        const m = /^(\d{4})-(\d{2})$/.exec(e.month ?? "");
+        if (!m) continue;
+        const date = `${m[1]}-${m[2]}-${String(day).padStart(2, "0")}`;
+        const ts = Date.parse(date + "T00:00:00Z");
+        if (!Number.isFinite(ts) || ts < now || ts > endMs) continue;
+        items.push({ date, title: (e.title ?? "").trim() || String(e.type ?? ""), kind: "fed" });
+      }
+      items.sort((a, b) => a.date.localeCompare(b.date));
+      return { window_days: days, as_of: asOf(), provider: "federalreserve", items };
+    });
+  } catch (error) {
+    return { window_days: days, as_of: asOf(), provider: env.FRED_API_KEY ? "fred" : "federalreserve", items: [], error: String((error && (error as Error).message) || error) };
+  }
+}
 function num(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function numOrNull(v: unknown): number | null { const n = Number(v); return v == null || !Number.isFinite(n) ? null : n; }
 function strOrNull(v: unknown): string | null { return v == null ? null : String(v); }
@@ -887,6 +973,8 @@ async function handle(env: Env, req: Request): Promise<Response> {
     return json(env, await news(env, q.get("symbol"), q.get("limit") ? num(q.get("limit")) : NEWS_DEFAULT_LIMIT));
   if (path === "/api/iv_rank")
     return json(env, await ivRank(env, q.get("symbol"), q.get("days") ? num(q.get("days")) : IV_RANK_DEFAULT_DAYS));
+  if (path === "/api/econ_calendar")
+    return json(env, await econCalendar(env, q.get("days") ? num(q.get("days")) : ECON_DEFAULT_DAYS));
   if (path === "/api/tables") return json(env, await schemaTables(env, q.get("force") === "1"));
   if (path === "/api/notebook/premium")
     return json(env, await notebookPremium(env, {

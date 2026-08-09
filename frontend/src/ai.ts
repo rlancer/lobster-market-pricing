@@ -1057,6 +1057,29 @@ const newsDef = toolDefinition({
 });
 
 // ---------------------------------------------------------------------------
+// Agent tool: upcoming macro / FOMC calendar (binary-event weeks)
+// ---------------------------------------------------------------------------
+// Macro events (FOMC, CPI, jobs, PCE) lift broad implied vol — "why is
+// everything rich" almost always has a calendar component. Hits
+// /api/econ_calendar (FRED releases/dates, keyless Fed-calendar fallback,
+// cached by the Worker); degrades to an error string, never a thrown tool.
+const ecoCalendarDef = toolDefinition({
+  name: 'eco_calendar',
+  description:
+    'Fetch scheduled macro events for the next ~30 days (FOMC meetings, ' +
+    'statements, minutes, Beige Book, CPI, jobs, PCE...). Use when the user ' +
+    'asks about binary-event weeks, macro drivers of broad vol, or what is ' +
+    'coming up for the market at large.',
+  inputSchema: z.object({
+    days: z.number().int().min(7).max(90).optional().describe('Window in days (default 30).'),
+  }),
+  outputSchema: z.object({
+    ok: z.boolean(),
+    summary: z.string().describe('Numbered list of upcoming events (date + name).'),
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // TanStack AI agent: answer a question by writing + running SQL
 // ---------------------------------------------------------------------------
 interface AgentCapture {
@@ -1093,6 +1116,9 @@ function systemPrompt(schemaPrompt: string): string {
     '- IV rank vs its own 90-day history is available via the iv_rank endpoint —',
     '  use it (/api/iv_rank?symbol=X&days=N, rank_pct in 0..1) when the user asks',
     '  if vol is rich or cheap.',
+    '- Binary macro events (FOMC, CPI, jobs, PCE) lift broad vol — call',
+    '  eco_calendar when the user asks about macro drivers or upcoming event',
+    '  weeks before blaming a single name.',
     '- The lake has no news. When the user asks WHY something moved or why vol',
     '  is high, answer in up to three parts: (1) expensive or cheap: compare the',
     '  chain\'s implied_vol against options.realized_vol (latest per-symbol row:',
@@ -1346,6 +1372,20 @@ async function runAgent(
     };
   });
 
+  const ecoCalendar = ecoCalendarDef.server(async ({ days }) => {
+    const res = await api.econCalendar(days);
+    if (res.error) {
+      return { ok: false, summary: `Macro calendar temporarily unavailable: ${res.error}` };
+    }
+    if (!res.items.length) {
+      return { ok: true, summary: 'No scheduled macro events in the requested window.' };
+    }
+    return {
+      ok: true,
+      summary: res.items.map((e, i) => `${i + 1}. ${e.date} — ${e.title}`).join('\n'),
+    };
+  });
+
   const adapter = openaiCompatibleText(model, {
     baseURL: OPENROUTER_BASE,
     apiKey,
@@ -1383,7 +1423,7 @@ async function runAgent(
     // message: TanStack AI's message conversion deliberately drops role:'system'
     // UIMessages and ModelMessage has no 'system' role.
     systemPrompts: [systemPrompt(schemaPrompt)],
-    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, getNews],
+    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, getNews, ecoCalendar],
     // More tools + multi-step slice/chart workflows need a slightly larger budget.
     agentLoopStrategy: maxIterations(10),
     modelOptions: {
