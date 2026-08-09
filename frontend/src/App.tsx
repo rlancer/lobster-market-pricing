@@ -12,7 +12,7 @@ import {
 } from '@astryxdesign/core';
 import { BookOpen, ChartNoAxesCombined, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
-import { BlueLobsterLogo } from './BlueLobsterLogo';
+import { Sunglasses } from './Sunglasses';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type SectorRow, type Stats } from './api';
@@ -34,7 +34,7 @@ type Section = {
   exact?: boolean;
 };
 const SECTIONS: Section[] = [
-  { to: '/', label: 'Lobster Chat', heading: 'Lobster Chat', icon: Sparkles, exact: true },
+  { to: '/', label: 'Chat', heading: 'Chat', icon: Sparkles, exact: true },
   { to: '/market', label: 'Market', heading: 'Market screener', icon: ChartNoAxesCombined },
   { to: '/research', label: 'Research', heading: 'Notebooks & research', icon: BookOpen },
   { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', icon: Database },
@@ -145,11 +145,7 @@ function Layout() {
           <HStack as="header" className="topbar" gap={3} vAlign="center">
             <MobileNavToggle label="Open apps" />
             <Link to="/" className="app-brand-link" aria-label="Lobster MP home">
-              <BlueLobsterLogo className="brand-lobster" />
-              <span className="topbar-heading">
-                <span className="topbar-eyebrow">{active?.label ?? 'Workspace'}</span>
-                <span className="topbar-title">{active?.heading ?? 'Lobster MP'}</span>
-              </span>
+              <Sunglasses className="brand-sunglasses" />
             </Link>
             <section className="topbar-tools" aria-label="Workspace controls">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
