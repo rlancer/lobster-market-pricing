@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import { Tooltip } from '@astryxdesign/core';
-import { CircleHelp } from 'lucide-react';
+import {
+  AppShell,
+  HStack,
+  MobileNav,
+  MobileNavToggle,
+  SideNav,
+  SideNavItem,
+  Tooltip,
+  useAppShellMobile,
+} from '@astryxdesign/core';
+import { BookOpen, ChartNoAxesCombined, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import LiquidityFilter from './LiquidityFilter';
@@ -21,23 +30,44 @@ type Section = {
   to: string;
   label: string;
   heading: string;
-  glyph: string;
+  icon: LucideIcon;
   exact?: boolean;
 };
 const SECTIONS: Section[] = [
-  { to: '/', label: 'Copilot', heading: 'Options Copilot', glyph: 'AI', exact: true },
-  { to: '/market', label: 'Market', heading: 'Market screener', glyph: 'MK' },
-  { to: '/research', label: 'Research', heading: 'Notebooks & research', glyph: 'RX' },
-  { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', glyph: 'QL' },
+  { to: '/', label: 'Copilot', heading: 'Options Copilot', icon: Sparkles, exact: true },
+  { to: '/market', label: 'Market', heading: 'Market screener', icon: ChartNoAxesCombined },
+  { to: '/research', label: 'Research', heading: 'Notebooks & research', icon: BookOpen },
+  { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', icon: Database },
 ];
 
-// The Monitor lives in the header (as the consolidated status chip), not the
-// left nav — but the /monitor page still needs its own heading.
-const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', glyph: 'IO' };
+// Monitor and docs remain secondary destinations in the compact header.
+const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
+const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 
-// The docs portal lives behind the header question-mark icon, not the left
-// nav — the /docs page still needs its own topbar heading.
-const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', glyph: '?' };
+const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
+  ({ href = '/', ...props }, ref) => <Link ref={ref} to={href as '/'} {...props} />,
+);
+RouterLink.displayName = 'RouterLink';
+
+function WorkspaceNavigation({ activeTo }: { activeTo?: string }) {
+  const { closeMobileNav } = useAppShellMobile();
+
+  return (
+    <SideNav className="workspace-nav">
+      {SECTIONS.map((section) => (
+        <SideNavItem
+          key={section.to}
+          as={RouterLink}
+          href={section.to}
+          label={section.label}
+          icon={section.icon}
+          isSelected={activeTo === section.to}
+          onClick={closeMobileNav}
+        />
+      ))}
+    </SideNav>
+  );
+}
 
 function Layout() {
   const db = useDbReady();
@@ -91,50 +121,37 @@ function Layout() {
 
   const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, sectors, updatedAt };
 
+  const navigation = <WorkspaceNavigation activeTo={active?.to} />;
+  const isCopilot = location.pathname === '/' || location.pathname === '/ai';
+
   return (
     <WorkspaceContext.Provider value={value}>
-      <div className="app">
-        <aside className="sidebar">
-          <header className="brand" aria-label="Lobster MP">
-            <BlueLobsterLogo className="brand-lobster" />
-            <p className="brand-tagline">Ask the lobster</p>
-          </header>
-
-          <nav className="sidenav" aria-label="Workspace">
-            {SECTIONS.map((s) => (
-              <Link
-                key={s.to}
-                to={s.to}
-                className={[
-                  'side-item',
-                  active?.to === s.to ? 'active' : '',
-                ].join(' ')}
-                activeOptions={{ exact: s.exact }}
-                search={s.to === '/lab' ? { sql: undefined } : undefined}
-              >
-                <span className="side-glyph" aria-hidden="true">{s.glyph}</span>
-                <span className="side-label">{s.label}</span>
-              </Link>
-            ))}
-          </nav>
-
-          <section className="sidebar-stats" aria-label="Dataset summary">
-            <header className="sidebar-stats-head"><span>Market ledger</span><span className="ledger-live">Live</span></header>
-            <p className="stat-row"><span>Symbols</span><b>{stats?.underlyings ?? '–'}</b></p>
-            <p className="stat-row"><span>Contracts</span><b>{stats?.contracts?.toLocaleString() ?? '–'}</b></p>
-            <p className="stat-row calls"><span>Calls</span><b>{stats?.calls?.toLocaleString() ?? '–'}</b></p>
-            <p className="stat-row puts"><span>Puts</span><b>{stats?.puts?.toLocaleString() ?? '–'}</b></p>
-          </section>
-
-          <footer className="sidebar-foot">
-            <span className="mantra">CBOE lake · research surface</span>
-          </footer>
-        </aside>
-
-        <section className="main-col">
-          <header className="topbar">
-            <span className="topbar-heading"><span className="topbar-eyebrow">Workspace · {active?.label ?? 'Overview'}</span><h2 className="topbar-title">{active?.heading ?? 'Lobster MP'}</h2></span>
-            <div className="topbar-tools">
+      <AppShell
+        className="app"
+        height="fill"
+        variant="section"
+        contentPadding={0}
+        sideNav={navigation}
+        mobileNav={{
+          hasToggle: false,
+          breakpoint: 'md',
+          content: (
+            <MobileNav header="Apps" side="start">
+              {navigation}
+            </MobileNav>
+          ),
+        }}
+        topNav={(
+          <HStack as="header" className="topbar" gap={3} vAlign="center">
+            <MobileNavToggle label="Open apps" />
+            <Link to="/" className="app-brand-link" aria-label="Lobster MP home">
+              <BlueLobsterLogo className="brand-lobster" />
+              <span className="topbar-heading">
+                <span className="topbar-eyebrow">{active?.label ?? 'Workspace'}</span>
+                <span className="topbar-title">{active?.heading ?? 'Lobster MP'}</span>
+              </span>
+            </Link>
+            <section className="topbar-tools" aria-label="Workspace controls">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
               <MonitorStatus />
               <Tooltip content="Docs — how this platform works" hasHoverIndication={false}>
@@ -146,19 +163,14 @@ function Layout() {
                   <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
                 </Link>
               </Tooltip>
-            </div>
-          </header>
-
-          <main className="content">
-            <Outlet />
-          </main>
-
-          <footer className="app-footer">
-            <span>Research only · Quotes may be delayed</span>
-            <span>CBOE / Cloudflare / Iceberg</span>
-          </footer>
+            </section>
+          </HStack>
+        )}
+      >
+        <section className={isCopilot ? 'content content-copilot' : 'content'}>
+          <Outlet />
         </section>
-      </div>
+      </AppShell>
     </WorkspaceContext.Provider>
   );
 }

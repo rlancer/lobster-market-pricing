@@ -66,13 +66,10 @@ function ensureModelPresent(groups: ModelGroup[], model: string) {
 }
 
 const EXAMPLES = [
-  'Find the most liquid call options expiring within 30 days',
-  'Which sectors have the richest put premiums (highest IV)?',
-  'Show me ATM calls with delta near 0.5 and volume over 1,000',
-  'What underlyings have the most open interest?',
+  'Find the most liquid calls expiring within 30 days',
+  'Which sectors have the richest put premiums?',
   'Chart the IV smile for NVDA',
-  'Show me the volatility surface (IV by strike and expiry) for AAPL',
-  'Why is NVDA implied volatility so high right now?',
+  'What underlyings have the most open interest?',
 ];
 
 const uid = () => Math.random().toString(36).slice(2);
@@ -398,52 +395,36 @@ function AiChat() {
     : undefined;
 
   return (
-    <div className="ai-chat">
-      <div className="ai-head">
-        <div className="ai-title">
-          <span className="ai-mark" aria-hidden="true">λ</span>
-          <div>
-            <h2>Options Copilot</h2>
-            <p>Ask in plain English — SQL runs locally on your dataset.</p>
-          </div>
-        </div>
-        <div className="ai-head-actions">
-          <Tooltip content={getApiKey() ? 'API key set' : 'No API key'} hasHoverIndication={false}>
+    <section className="ai-chat">
+      <header className="ai-head" aria-label="Copilot controls">
+        <section className="ai-head-actions">
+          <Tooltip content={getApiKey() ? 'OpenRouter connected' : 'OpenRouter not connected'} hasHoverIndication={false}>
             <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} />
           </Tooltip>
-          <Selector
-            label="Model"
-            size="sm"
-            isLabelHidden
-            hasSearch
-            isLoading={modelsLoading}
-            searchPlaceholder="Search models…"
-            width={236}
-            options={ensureModelPresent(modelGroups, model)}
-            value={model}
-            onChange={(m) => { if (m) saveModel(m); }}
-          />
-          <Selector
-            label="Reasoning effort"
-            size="sm"
-            isLabelHidden
-            width={120}
-            isDisabled={effortDisabled}
-            disabledMessage={effortDisabledMessage}
-            options={EFFORT_OPTIONS}
-            value={effort}
-            onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
-          />
+          <span className="ai-head-model">
+            <Selector
+              label="Model"
+              size="sm"
+              isLabelHidden
+              hasSearch
+              isLoading={modelsLoading}
+              searchPlaceholder="Search models…"
+              width={236}
+              options={ensureModelPresent(modelGroups, model)}
+              value={model}
+              onChange={(m) => { if (m) saveModel(m); }}
+            />
+          </span>
           <IconButton variant="ghost" size="sm" label="Settings" icon={<Settings size={16} />} tooltip="Settings" onClick={() => setShowSettings((s) => !s)} />
           <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={newChat} />
-        </div>
-      </div>
+        </section>
+      </header>
 
       {showSettings && (
         <div className="ai-settings">
           <div className="ai-settings-connect">
             <span className="or-badge" aria-hidden="true">
-              <OpenRouterLogo width={32} height={24} color="#7F3DFF" />
+              <OpenRouterLogo width={32} height={24} color="var(--color-accent)" />
             </span>
             <span className="ai-settings-label">
               <b>Sign in with OpenRouter</b>
@@ -493,11 +474,6 @@ function AiChat() {
               className="ai-settings-effort"
             />
           </div>
-          <p className="ai-settings-note">
-            Your key is sent only to <b>openrouter.ai</b> from your browser. It is never
-            uploaded to this site's servers. You can grab one at
-            {' '}<a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>.
-          </p>
         </div>
       )}
 
@@ -534,46 +510,29 @@ function AiChat() {
         </div>
       )}
 
-      <div className="ai-messages" ref={scrollRef}>
+      <section className="ai-messages" ref={scrollRef}>
         {msgs.length === 0 && (
           <section className="ai-welcome">
             <header className="ai-welcome-hero">
-              <figure className="ai-welcome-mark" aria-label="Volatility smile curve">
-                <svg viewBox="0 0 240 76" role="img" aria-hidden="true">
-                  <path className="smile-grid" d="M8 18H232M8 38H232M8 58H232M40 8V68M80 8V68M120 8V68M160 8V68M200 8V68" />
-                  <path className="smile-curve" d="M12 14C50 55 83 62 120 62C157 62 190 55 228 14" />
-                  <circle cx="120" cy="62" r="4" />
-                </svg>
-                <figcaption>Implied volatility / strike</figcaption>
-              </figure>
-              <span className="ai-welcome-kicker">Natural-language market research</span>
-              <h1>Interrogate the volatility surface</h1>
-              <p>
-                Ask a market question. Copilot writes the SQL and runs it against
-                <b> option_contracts</b>, <b>underlyings</b> and <b>refresh_runs</b>.
-              </p>
+              <span className="ai-welcome-kicker">Research your options data</span>
+              <h1>Ask the options market</h1>
+              <p>Copilot writes the SQL, runs it against your dataset, and returns the answer.</p>
             </header>
-            <div className="ai-examples">
+            <nav className="ai-examples" aria-label="Suggested questions">
               {EXAMPLES.map((ex) => (
                 <button key={ex} className="ai-example-card" onClick={() => send(ex)} disabled={busy}>
-                  <span className="ai-example-arrow" aria-hidden="true">↗</span>
                   <span>{ex}</span>
+                  <span className="ai-example-arrow" aria-hidden="true">↗</span>
                 </button>
               ))}
-            </div>
+            </nav>
             {!getApiKey() && (
-              <div className="ai-welcome-connect">
-                <span className="or-badge" aria-hidden="true">
-                  <OpenRouterLogo width={30} height={22} color="#7F3DFF" />
-                </span>
-                <div className="ai-welcome-connect-text">
-                  <b>Connect your model</b>
-                  <span>Sign in with OpenRouter to start — your key stays in your browser.</span>
-                </div>
+              <section className="ai-welcome-connect" aria-label="Connect OpenRouter">
+                <p><b>Connect OpenRouter</b> to ask your first question.</p>
                 <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-                  {oauthBusy ? 'Connecting…' : 'Connect with OpenRouter'}
+                  {oauthBusy ? 'Connecting…' : 'Connect'}
                 </button>
-              </div>
+              </section>
             )}
           </section>
         )}
@@ -664,15 +623,15 @@ function AiChat() {
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="ai-composer-wrap">
+      <footer className="ai-composer-wrap">
         <ChatComposer
           value={input}
           onChange={setInput}
           onSubmit={(v) => send(v)}
           isDisabled={busy}
-          placeholder='Try "find ATM puts with high IV in the Tech sector"…'
+          placeholder='Ask about liquidity, volatility, or a ticker…'
           sendButton={
             getApiKey() ? (
               <ChatSendButton />
@@ -681,11 +640,8 @@ function AiChat() {
             )
           }
         />
-        <div className="ai-foot">
-          Enter to send · Shift+Enter for newline · Bring your own key · SQL never leaves your browser
-        </div>
-      </div>
-    </div>
+      </footer>
+    </section>
   );
 }
 
