@@ -125,5 +125,5 @@ PLAN-CHAT-ENRICHMENT.md Phase 3 for failover + relevance hardening.
 - [x] Provision `options.ohlc` / `options.realized_vol` Pipeline tables: streams `cboe_ohlc_v2`/`cboe_realized_vol_v2`, sinks `cboe_ohlc_sink`/`cboe_realized_vol_sink` (R2 Data Catalog → bucket `cboe-options-data`), pipelines wired. Ingest verified end-to-end (POST → committed → queryable via R2 SQL). `PIPELINE_OHLC_URL`/`PIPELINE_REALIZED_VOL_URL` and `PIPELINE_AUTH_TOKEN` set as Worker secrets; `R2_DATA_CATALOG_TOKEN` + `PIPELINE_AUTH_TOKEN` stored in GitHub secrets.
 - [ ] Dividends / ex-div forward dates (FMP BYOK — PLAN-CHAT-ENRICHMENT.md Phase 1a; *history* is already shipped via `options.corporate_actions`)
 - [ ] Risk-free rate (FRED / Treasury)
-- [x] Earnings dates — shipped PR #39 (Nasdaq calendar → `options.earnings`, `earnings-daily` job, tests, probe); **Pipeline provisioning pending** → PLAN-CHAT-ENRICHMENT.md Phase 0
+- [x] Earnings dates — shipped PR #39 (Nasdaq calendar → `options.earnings`, `earnings-daily` job, tests, probe); **pipeline provisioned + live 2026-08-09** (23 rows ingested, auto-refresh daily) → PLAN-CHAT-ENRICHMENT.md Phase 0
 - [x] News / headlines — shipped PR #39 (Yahoo ticker RSS → `/api/news` + Copilot `get_news`); failover/relevance hardening → PLAN-CHAT-ENRICHMENT.md Phase 3
