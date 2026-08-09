@@ -12,11 +12,11 @@ loader/ (in this repo):
   CBOE → Cloudflare Pipelines → R2 Data Catalog Iceberg tables
                                         │
                                         ▼
-options-db Worker (worker/):
+lobster-market-pricing Worker (worker/):
   /api/* → R2 SQL REST endpoint → JSON (in-isolate cache, 30 min–12 h by tier)
                                         │
                                         ▼
-options-db frontend (Vite + React):
+lobster-market-pricing frontend (Vite + React):
   fetch('/api/*') → render
 ```
 
@@ -30,7 +30,7 @@ tier) so repeat/cached responses are instant.
 ## Repo layout
 
 ```
-options-db/
+lobster-market-pricing/
 ├── mise.toml              # tool versions + tasks (Node, wrangler)
 ├── worker/                # Cloudflare Worker backend (R2 SQL → JSON)
 │   ├── src/index.ts        # all endpoints, R2 SQL client, in-isolate cache

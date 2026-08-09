@@ -1,6 +1,6 @@
 # Data Lake Enrichment — Free Data Sources
 
-Brainstorm + plan for enriching the `options-db` data lake (Cloudflare R2 Iceberg)
+Brainstorm + plan for enriching the `lobster-market-pricing` data lake (Cloudflare R2 Iceberg)
 with additional free data. Current lake: `options.option_contracts` (strikes, greeks,
 bid/ask/last, volume/OI, expiration), `options.underlyings` (symbol, spot, name, sector),
 `options.refresh_runs`.

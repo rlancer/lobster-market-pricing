@@ -1,9 +1,9 @@
 # Security Audit — Bill-Shock Focus
 
 **Date:** 2026-08-06
-**Scope:** `rlancer/options-db` and `rlancer/options-lake` (both **public** GitHub repos)
+**Scope:** `rlancer/lobster-market-pricing` and `rlancer/options-lake` (both **public** GitHub repos)
 
-> **Note (2026-08-06):** The two audited repos have been merged into a single monorepo (`options-db`). The former `rlancer/options-lake` loader is now `loader/` within this repo. Findings below reference the old repo names for provenance; the affected code now lives at `loader/` (Pipeline URL exposure), `worker/` (screener API), and root `.env` (secret hygiene).
+> **Note (2026-08-06):** The two audited repos have been merged into a single monorepo (`lobster-market-pricing`). The former `rlancer/options-lake` loader is now `loader/` within this repo. Findings below reference the old repo names for provenance; the affected code now lives at `loader/` (Pipeline URL exposure), `worker/` (screener API), and root `.env` (secret hygiene).
 
 **Goal:** Identify security issues that could cause a surprise Cloudflare bill. Not exhaustive; focused on cost-abuse vectors.
 
@@ -50,7 +50,7 @@ The README documents that the streams are unauthenticated, and the Worker never 
 
 ## 🟠 HIGH — Screener `/api/query` unbounded compute, no rate limit
 
-**Repo:** `rlancer/options-db` (findings `SCREENER-001`, `SCREENER-003`, `SCREENER-004`, `SCREENER-002`, `SCREENER-UNAUTH-PUBLIC-API`)
+**Repo:** `rlancer/lobster-market-pricing` (findings `SCREENER-001`, `SCREENER-003`, `SCREENER-004`, `SCREENER-002`, `SCREENER-UNAUTH-PUBLIC-API`)
 
 The screener-api Worker has no auth and no rate limit on any endpoint. The cost multiplier is `POST /api/query`:
 
@@ -81,7 +81,7 @@ The container has `sleepAfter=10m`, so each unauthenticated ping to `/health` or
 
 ### M2. Permissive `r2-cors.json` (origins `*`) in screener git history
 
-**Repo:** `rlancer/options-db` (commits `887c95f`, `5324d86`, finding `R2-CORS-PERMISSIVE-IN-HISTORY`)
+**Repo:** `rlancer/lobster-market-pricing` (commits `887c95f`, `5324d86`, finding `R2-CORS-PERMISSIVE-IN-HISTORY`)
 
 A `r2-cors.json` with `origins:["*"]` existed and was deleted. If that CORS rule was ever applied to the `cboe-options-data` bucket's public/dev domain, any site could read bucket objects. Current configs have no `r2_buckets` binding — clean. Dashboard state can't be verified from the repos.
 
@@ -89,7 +89,7 @@ A `r2-cors.json` with `origins:["*"]` existed and was deleted. If that CORS rule
 
 ### M3. `/api/query` reads any schema, not just `options.*`
 
-**Repo:** `rlancer/options-db` (`worker/src/index.ts:378-386`, finding `SCREENER-002`)
+**Repo:** `rlancer/lobster-market-pricing` (`worker/src/index.ts:378-386`, finding `SCREENER-002`)
 
 `runQuery` allowlists the first keyword but not the tables. A caller can `SHOW TABLES` or query any table in the same bucket. Currently only `options.*` exists, so low practical impact today, but any future table becomes exfiltrable.
 
