@@ -1,5 +1,3 @@
-import { useId } from 'react';
-
 export function BlueLobsterLogo({
   className,
   width = 40,
@@ -9,8 +7,6 @@ export function BlueLobsterLogo({
   width?: number | string;
   height?: number | string;
 }) {
-  const gradientId = useId();
-
   return (
     <svg
       viewBox="0 0 96 96"
@@ -20,37 +16,51 @@ export function BlueLobsterLogo({
       aria-hidden="true"
       focusable="false"
     >
-      <defs>
-        <linearGradient id={gradientId} x1="24" y1="12" x2="72" y2="88" gradientUnits="userSpaceOnUse">
-          <stop stopColor="var(--color-icon-blue)" />
-          <stop offset="1" stopColor="var(--color-border-blue)" />
-        </linearGradient>
-      </defs>
-
-      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="3.2">
-        <path d="M41 22C34 13 26 7 17 3" />
-        <path d="M55 22C62 13 70 7 79 3" />
-        <path d="M37 38L25 34M35 46L22 46M37 54L25 59" />
-        <path d="M59 38L71 34M61 46L74 46M59 54L71 59" />
+      <g
+        fill="none"
+        stroke="var(--color-icon-blue)"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="3.5"
+      >
+        <path d="M41 26C33 17 23 12 13 14" />
+        <path d="M55 26C63 17 73 12 83 14" />
+        <path d="M37 37C31 34 27 33 23 34" />
+        <path d="M59 37C65 34 69 33 73 35" />
+        <path d="M38 48L27 53M58 48L68 52" />
       </g>
 
-      <g fill={`url(#${gradientId})`} stroke="var(--color-icon-blue)" strokeWidth="1.8" strokeLinejoin="round">
-        <path fillRule="evenodd" d="M32 39C27 29 19 21 10 24C1 27 0 40 7 47C14 53 24 49 31 43L32 39ZM10 31C15 28 21 31 25 36C20 34 15 36 11 40C8 38 7 34 10 31Z" />
-        <path fillRule="evenodd" d="M64 39C69 29 77 21 86 24C95 27 96 40 89 47C82 53 72 49 65 43L64 39ZM86 31C81 28 75 31 71 36C76 34 81 36 85 40C88 38 89 34 86 31Z" />
-        <path d="M32 36C37 30 40 27 42 26L39 43L31 44Z" />
-        <path d="M64 36C59 30 56 27 54 26L57 43L65 44Z" />
-        <path d="M38 23C40 17 44 14 48 14C52 14 56 17 58 23L57 37H39L38 23Z" />
-        <path d="M39 37H57L58 47H38L39 37Z" />
-        <path d="M38 47H58L56 58H40L38 47Z" />
-        <path d="M40 58H56L54 68H42L40 58Z" />
-        <path d="M42 68H54L52 77H44L42 68Z" />
-        <path d="M44 77L32 88L45 85L48 93L51 85L64 88L52 77H44Z" />
+      <g
+        fill="var(--color-border-blue)"
+        stroke="var(--color-icon-blue)"
+        strokeLinejoin="round"
+        strokeWidth="2.5"
+      >
+        <path d="M36 40C30 30 22 24 13 25C4 26 1 36 5 44C10 54 22 56 31 49L38 44L36 40ZM12 33C17 30 23 33 27 39C21 37 16 39 11 43C8 40 8 35 12 33Z" fillRule="evenodd" />
+        <path d="M60 40C65 32 72 27 79 29C87 31 90 39 86 46C82 53 73 53 66 48L58 44L60 40ZM78 36C74 34 70 36 67 40C72 39 76 41 79 44C82 41 82 38 78 36Z" fillRule="evenodd" />
+        <path d="M37 29C39 23 43 20 48 20C53 20 57 23 59 29L58 61C56 69 52 73 48 73C44 73 40 69 38 61L37 29Z" />
+        <path d="M39 65C37 74 30 81 18 87C29 90 40 87 46 82L48 91L52 81C57 84 63 85 69 83C61 77 57 71 56 65C51 70 44 70 39 65Z" />
       </g>
 
-      <g fill="var(--color-background-body)" stroke="var(--color-icon-blue)" strokeWidth="1.4">
-        <circle cx="43" cy="23" r="2.4" />
-        <circle cx="53" cy="23" r="2.4" />
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="2">
+        <path d="M38 46H58M39 57H57" />
       </g>
+
+      <g fill="var(--color-background-body)" stroke="var(--color-icon-blue)" strokeWidth="1.5">
+        <circle cx="43" cy="30" r="3.2" />
+        <circle cx="53" cy="30" r="3.2" />
+      </g>
+      <g fill="var(--color-icon-blue)">
+        <circle cx="44" cy="30" r="1.2" />
+        <circle cx="52" cy="30" r="1.2" />
+      </g>
+      <path
+        d="M42 36Q48 42 54 36"
+        fill="none"
+        stroke="var(--color-background-body)"
+        strokeLinecap="round"
+        strokeWidth="2.5"
+      />
     </svg>
   );
 }
