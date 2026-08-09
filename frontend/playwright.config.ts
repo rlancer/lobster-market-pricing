@@ -47,9 +47,11 @@ export default defineConfig({
   // OpenRouter key is rate-limited by account; one worker, no parallel chat.
   workers: 1,
   fullyParallel: false,
-  // Answer content from openrouter/auto is nondeterministic: a full run can
-  // occasionally end with an empty final message. One retry absorbs that class
-  // of flake; endpoint-utilization assertions are deterministic either way.
+  // Answer content from the pinned model (deepseek/deepseek-v4-flash-0731,
+  // see spec CHAT_MODEL) is far more consistent than openrouter/auto, but a
+  // full run can still occasionally end with an empty final message. One
+  // retry absorbs that residual flake; endpoint-utilization assertions are
+  // deterministic either way.
   retries: 1,
   timeout: 300_000,
   expect: { timeout: 20_000 },

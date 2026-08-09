@@ -25,13 +25,18 @@ import { expect, test, type Page } from '@playwright/test';
 
 const KEY = process.env.OPENROUTER_API_KEY ?? '';
 const LOCAL_WORKER = 'http://127.0.0.1:8787';
+// Pin the chat model for determinism: openrouter/auto re-routes per request,
+// so every run could get a different model (the citation-style and loop-length
+// variance we saw locally). deepseek/deepseek-v4-flash-0731 is tool-capable
+// per the OpenRouter catalog and is the model this suite exercises.
+const CHAT_MODEL = 'deepseek/deepseek-v4-flash-0731';
 
-/** Open the chat with the OpenRouter key pre-seeded (BYOK localStorage). */
+/** Open the chat with the OpenRouter key + model pre-seeded (BYOK localStorage). */
 async function openChat(page: Page): Promise<void> {
-  await page.addInitScript((k: string) => {
+  await page.addInitScript(({ k, m }: { k: string; m: string }) => {
     localStorage.setItem('openinterest_ai_key', k);
-    // Default model is openrouter/auto when unset — leave it unset.
-  }, KEY);
+    localStorage.setItem('openinterest_ai_model', m);
+  }, { k: KEY, m: CHAT_MODEL });
   await page.goto('/');
   // Key indicator goes green once the app sees the stored key.
   await expect(page.locator('.ai-key-dot.ok')).toBeVisible();
@@ -78,15 +83,15 @@ const STOP = new Set([
 
 /**
  * How many distinctive words from the fetched tool payload (headline/search
- * titles) appear in the last answer. Citation format varies by model (links,
- * named outlets, or plain retelling), so this checks the answer is actually
- * grounded in the tool's output rather than training-data priors — robust to
- * any citation style.
+ * titles + snippets) appear in the last answer. Models paraphrase titles but
+ * summarize snippet content, so matching against both keeps the check robust
+ * while still proving the answer is grounded in the tool's output rather than
+ * training-data priors.
  */
-async function titleOverlap(page: Page, items: { title?: string }[]): Promise<number> {
+async function contentOverlap(page: Page, items: { title?: string; snippet?: string }[]): Promise<number> {
   const text = (await page.locator('.ai-msg.ai-assistant .ai-bubble .ai-text').last().innerText()).toLowerCase();
   const tokens = new Set(
-    items.flatMap((i) => (i.title ?? '').toLowerCase().split(/[^a-z0-9]+/))
+    items.flatMap((i) => `${i.title ?? ''} ${i.snippet ?? ''}`.toLowerCase().split(/[^a-z0-9]+/))
       .filter((w) => w.length > 3 && !STOP.has(w)),
   );
   return [...tokens].filter((w) => text.includes(w)).length;
@@ -126,7 +131,7 @@ test.describe('Copilot tool usage (chat → worker → upstream)', () => {
     const text = await lastAnswer(page, 540_000);
     expect(text.toLowerCase()).toContain('nvda');
     // Answer must be built on the fetched headlines (any citation style).
-    expect(await titleOverlap(page, payload.items), 'answer should reflect fetched headlines').toBeGreaterThanOrEqual(2);
+    expect(await contentOverlap(page, payload.items), 'answer should reflect fetched headlines').toBeGreaterThanOrEqual(2);
     await page.screenshot({ path: 'test-results/chat-news.png', fullPage: true });
   });
 
@@ -150,14 +155,14 @@ test.describe('Copilot tool usage (chat → worker → upstream)', () => {
     expect(text.length).toBeGreaterThan(60);
     // Answer must be built on the fetched search results (any citation style
     // the model chooses — links, named outlets, or plain retelling).
-    expect(await titleOverlap(page, payload.results), 'answer should reflect fetched search results').toBeGreaterThanOrEqual(2);
+    expect(await contentOverlap(page, payload.results), 'answer should reflect fetched search results').toBeGreaterThanOrEqual(2);
     await page.screenshot({ path: 'test-results/chat-web-search.png' });
   });
 
   test('routes a "what is coming up" vol question to eco_calendar', async ({ page }) => {
     test.skip(!KEY, 'No OpenRouter key (set OPENROUTER_API_KEY or root .env OPEN_ROUTER_LOCAL_DEV_KEY)');
-    // Agent loops on openrouter/auto can churn several tool iterations for a
-    // fuzzy macro question; budget ~10 min for completion.
+    // Agent loops can churn several tool iterations for a fuzzy macro question;
+    // budget ~10 min for completion.
     test.setTimeout(600_000);
     await openChat(page);
 
