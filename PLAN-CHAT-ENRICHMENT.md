@@ -19,8 +19,8 @@ new tables need **zero Copilot wiring**. Batch data lands via the loader
 - [x] **Earnings calendar → `options.earnings`** — `loader/src/earnings.ts` +
   `jobs/earnings-daily.ts` + `schemas/earnings.json` + tests + probe
   (`tools/earnings_probe.ts`). Source: Nasdaq calendar API (keyless, browser-UA),
-  ~2-week window, filtered to the S&P 500 manifest. **Dry-runs until the
-  pipeline exists** — provisioning is Phase 0 below.
+  ~2-week window, filtered to the S&P 500 manifest. **Provisioned and live in
+  production** (2026-08-09; 23 rows ingested + queryable) — see Phase 0.
 - [x] **News → `GET /api/news`** — `worker/src/index.ts`: Yahoo Finance ticker
   RSS proxied server-side (keyless), stripped to `{title, link, published,
   snippet}`, 10-min in-isolate cache, degrade-to-empty on upstream failure.
@@ -37,25 +37,33 @@ new tables need **zero Copilot wiring**. Batch data lands via the loader
 
 ---
 
-## Phase 0 — Provision the earnings pipeline (the only blocker; do this first)
+## Phase 0 — Earnings pipeline — DONE (2026-08-09)
 
-The job, schema, and tests are done; **no data flows** until the stream/sink/table
-exist and the secret is set. The local wrangler OAuth token has no Pipelines
-scope, so this needs an account token with **Workers Pipelines write** (+ R2
-Data Catalog write for the sink).
+Provisioned with the local wrangler OAuth token — it **does** have Pipelines
+write (the earlier "needs a separate token" claim was wrong; `whoami`'s scope
+list just doesn't enumerate Pipelines, but create/list all worked):
 
-1. Create stream `cboe_earnings_v2` with `loader/schemas/earnings.json`.
-2. Create sink `cboe_earnings_sink` (sink creates `options.earnings` — never
-   pre-create the Iceberg table; see `loader/AGENTS.md`).
-3. Wire pipeline stream → sink; store ingest URL as Worker secret
-   `PIPELINE_EARNINGS_URL` (`cd loader && npx wrangler secret put PIPELINE_EARNINGS_URL`).
-4. Trigger once: `POST /jobs/earnings-daily/trigger` (Bearer `LOADER_TOKEN`).
+1. Stream `cboe_earnings_v2` (authenticated HTTP ingest, `schemas/earnings.json`)
+   — id `565156522a3a4cdab2e2b0b3693cfee6`.
+2. Sink `cboe_earnings_sink` (R2 Data Catalog → created `options.earnings`;
+   never pre-create the table) — id `6558635e08fb46e3b31a1d30086fbeb9`.
+3. Pipeline `cboe_earnings_pipeline`: `INSERT INTO cboe_earnings_sink SELECT *
+   FROM cboe_earnings_v2` — id `c7099a34df2444c791e47c985a581267`.
+4. `PIPELINE_EARNINGS_URL` secret set on the `cboe-to-r2` Worker; loader
+   redeployed with the `earnings-daily` job (registered, enabled, due).
+5. First ingestion published directly through the pipeline (the scheduler loop
+   sleeps until Monday's market open and `LOADER_TOKEN` is GitHub-only, so the
+   trigger endpoint wasn't used): 23 S&P-500 rows landed for 2026-08-10..20.
 
-**Acceptance:** `GET /api/tables?force=1` lists `options.earnings`; R2 SQL
-`SELECT COUNT(*) FROM options.earnings` > 0; Copilot "does NVDA report this
-week?" returns rows; `/jobs/earnings-daily` shows a successful `last_pass`.
+**Acceptance (all verified on prod):** `/api/tables?force=1` lists `earnings`
+(23 rows); R2 SQL `SELECT … FROM options.earnings` returns SPG/CSCO/WMT/TGT/
+ADI/HD… with `time`, `eps_forecast`, `est_count`; a `CURRENT_DATE`-windowed
+`/api/query` (the Copilot's exact pattern) returns rows. From Monday the
+`earnings-daily` job keeps the ~2-week window fresh automatically (daily,
+ungated; append-only + latest-wins dedupe per (symbol, earnings_date)).
 
-Exact command checklist lives in `loader/README.md` → "Earnings calendar".
+> Provisioning recipe (for future tables) lives in `loader/README.md` →
+> "Earnings calendar".
 
 ---
 
@@ -209,7 +217,7 @@ shape. Worker has no test runner — verification is `npx wrangler dev` + curl.
 
 ## Suggested order
 
-1. **Phase 0** (unblock earnings — needs the Pipelines-scoped token)
+1. ~~**Phase 0** (unblock earnings — needs the Pipelines-scoped token)~~ — **DONE 2026-08-09**: stream/sink/pipeline provisioned, 23 rows live; `earnings-daily` auto-refreshes from Monday's market open
 2. **Phase 3** (news failover + relevance — small, pure worker)
 3. **Phase 2a** (IV rank — unlocks the flagship "why is vol high" answer)
 4. **Phase 1** (BYOK FMP/Tavily — user-optional, bigger UI surface)

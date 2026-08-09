@@ -66,10 +66,14 @@ S&P 500 manifest, and publishes normalized rows to `options.earnings`
 Verified live against the real calendar 2026-08-08 (the probe
 `tools/earnings_probe.ts` prints per-date calendar vs. S&P 500 row counts).
 
-**Provisioning is required before the job publishes** (it dry-runs until the
-pipeline URL is set). Create stream, sink, and table, then set the secret —
-the local OAuth token lacks the Pipelines scope, so this is a dashboard / gated
-token step:
+**Provisioned and live (2026-08-09)** — stream `cboe_earnings_v2`, sink
+`cboe_earnings_sink` (created `options.earnings`), pipeline
+`cboe_earnings_pipeline` (`INSERT INTO cboe_earnings_sink SELECT * FROM
+cboe_earnings_v2`), `PIPELINE_EARNINGS_URL` set as a Worker secret; first
+ingestion verified (23 S&P-500 rows → R2 SQL). The `earnings-daily` job
+auto-refreshes the ~2-week window daily (ungated). The commands below are the
+recipe for any future table (a token with Pipelines write + R2 Data Catalog
+write is required; the local OAuth token has both):
 
 ```powershell
 cd loader

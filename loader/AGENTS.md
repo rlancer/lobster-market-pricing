@@ -97,7 +97,7 @@ CorporateActions: <PIPELINE_CORPORATE_ACTIONS_URL secret — stream cboe_corpora
 Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
 SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
 UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
-Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # pending provisioning
+Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # provisioned 2026-08-09
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2
