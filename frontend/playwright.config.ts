@@ -47,7 +47,10 @@ export default defineConfig({
   // OpenRouter key is rate-limited by account; one worker, no parallel chat.
   workers: 1,
   fullyParallel: false,
-  retries: 0,
+  // Answer content from openrouter/auto is nondeterministic: a full run can
+  // occasionally end with an empty final message. One retry absorbs that class
+  // of flake; endpoint-utilization assertions are deterministic either way.
+  retries: 1,
   timeout: 300_000,
   expect: { timeout: 20_000 },
   reporter: [['list'], ['html', { open: 'never' }]],
