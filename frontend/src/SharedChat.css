@@ -1,0 +1,93 @@
+/* Shared-chat page — a public artifact, not the workspace shell. Reuses the
+   chat message/SQL classes from AiChat.css (imported below; Vite dedupes). */
+@import './AiChat.css';
+
+.share-app {
+  background: var(--panel);
+}
+.share-head {
+  min-height: var(--size-element-lg);
+  padding: var(--spacing-2) var(--spacing-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--panel);
+}
+.share-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  color: var(--text);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.share-brand-logo {
+  width: var(--size-element-lg);
+  height: var(--size-element-lg);
+  flex-shrink: 0;
+}
+.share-brand-name {
+  font-family: var(--font-family-heading);
+  font-size: var(--font-size-md);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.share-brand-name b { color: var(--text); }
+.share-brand-name em {
+  font-style: normal;
+  color: var(--muted);
+  margin-inline-start: var(--spacing-1);
+}
+.share-head-spacer { flex: 1; }
+.share-open {
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.share-open:hover { text-decoration: underline; }
+
+.share-content {
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-5);
+  padding: var(--spacing-6) var(--spacing-4) var(--spacing-10);
+}
+.share-title {
+  margin: 0;
+  font-family: var(--font-family-heading);
+  font-size: var(--font-size-2xl);
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.share-meta {
+  margin: var(--spacing-1) 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+.share-msgs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+.share-state {
+  margin: var(--spacing-8) auto;
+  max-width: 46ch;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-3);
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+.share-state-title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  color: var(--text);
+}

@@ -377,6 +377,38 @@ export interface ChatHistorySaveResponse {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Copilot chat shares (Worker POST /api/share/chat → D1 shared_chats)
+// ---------------------------------------------------------------------------
+/** Response of POST /api/share/chat — the share_id slug is the implicit capability (public, unlisted link). */
+export interface ShareChatResponse {
+  share_id: string;
+  /** Canonical path — prefix with window.location.origin for the shareable URL. */
+  url: string;
+}
+
+/**
+ * One message in a shared transcript — ChatHistoryMessage widened with
+ * optional `tools`. v1 captures messages + SQL only; the field is
+ * schema-ready for a future ToolRow snapshot (see PLAN-SHARE-CHAT).
+ */
+export interface SharedChatMessage extends ChatHistoryMessage {
+  tools?: { name: string; args?: string; ok?: boolean; summary?: string }[];
+}
+
+/** Response of GET /api/share/:id — public, unlisted, read-only. No auth: the id is the key. */
+export interface SharedChat {
+  share_id: string;
+  title: string | null;
+  mode: 'free' | 'byok';
+  model: string | null;
+  /** Epoch ms the share was created. */
+  created_at: number;
+  messages: SharedChatMessage[];
+  /** The last assistant SQL, denormalized for a future alert-rerun feature. */
+  source_sql: string | null;
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(API_BASE + path);
   if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
@@ -462,6 +494,15 @@ export const api = {
   // persistence. The table itself is admin-only (see /api/admin/chat_history).
   saveChatHistory: (record: ChatHistoryRecord) =>
     post<ChatHistorySaveResponse>('/api/chat/history', record),
+  // Share the current conversation as a public unlisted link (D1
+  // shared_chats). Unlike saveChatHistory this FAILS LOUDLY — the user
+  // explicitly asked for the artifact, so errors surface for a retry.
+  shareChat: (record: ChatHistoryRecord) =>
+    post<ShareChatResponse>('/api/share/chat', record),
+  // Fetch a public shared transcript. No auth; unknown/expired ids 404
+  // identically. The share_id is high-entropy, so the URL is the capability.
+  sharedChat: (shareId: string) =>
+    get<SharedChat>(`/api/share/${encodeURIComponent(shareId)}`),
 };
 
 import { useState, useEffect } from 'react';

@@ -1665,6 +1665,297 @@ async function adminChatHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Copilot chat shares — public unlisted transcripts in D1
+// ---------------------------------------------------------------------------
+// POST /api/share/chat snapshots a conversation (the same ChatHistoryRecord
+// shape the lake capture uses, normalized by the SAME pass-1 normalizer) into
+// shared_chats (migration 0003) and returns /share/<share_id>. The share_id
+// is base62 of 18 random bytes — high entropy makes the URL an implicit
+// capability: anyone with the link can view, nobody can enumerate. Unlike the
+// best-effort lake capture, a share is explicitly user-requested, so it
+// either succeeds or fails loudly (502 on D1 failure, 413/429 on budget/rate)
+// letting the user retry. No auth — the id is the key; reads are cached
+// public, max-age=60 via json().
+//
+// Row budgets. D1 caps a row at 2,000,000 bytes, and the lake strike caps are
+// LOOSER than that allows (100 msg × 20k content + 20k sql → ~4 MB worst
+// case). Pass 2 (normalizeShareRecord) applies share-only tightening (content
+// ≤ 5,000 chars, sql ≤ 10,000 chars, ≤ 20 tool entries per message), then
+// truncates OLDEST turns first when the serialized messages JSON exceeds 1.2
+// MB of UTF-8 bytes, then verifies the assembled row stays under the 2 MB D1
+// ceiling before INSERT. All sizes are UTF-8 BYTES (TextEncoder.byteLength) —
+// JS string length counts UTF-16 units, and CJK/emoji expand 2–3× per unit,
+// which would overflow the row silently.
+//
+// Abuse levers (no client fingerprinting — the site's privacy stance is "no
+// login, no personal data"): created_ip/created_ua set server-side from the
+// request headers and NEVER served; oversized raw bodies rejected (413) before
+// JSON.parse; and a D1-backed per-IP rate check (429) that survives isolate
+// recycling. An in-isolate Map is only a cheap first filter, never a
+// stand-alone control.
+const SHARE_RAW_BODY_MAX = 1_300_000;       // reject raw body before JSON.parse (413)
+const SHARE_MESSAGES_MAX_BYTES = 1_200_000; // serialized messages JSON, UTF-8 bytes
+const SHARE_ROW_MAX_BYTES = 2_000_000;      // D1 row ceiling (messages + source_sql + columns)
+const SHARE_MAX_CONTENT = 5_000;            // chars — per message content
+const SHARE_MAX_SQL = 10_000;               // chars — per message sql
+const SHARE_MAX_TOOLS = 20;                 // tool entries per message
+const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
+const SHARE_MAX_TITLE = 120;                // chars — auto-derived title
+const SHARE_RATE_WINDOW_MS = 10 * 60_000;   // per-IP window
+const SHARE_RATE_LIMIT = 20;                // shares per window per IP
+const SHARE_ID_BYTES = 18;
+const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;  // base62 slug; rejects junk lookups
+const BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/** UTF-8 byte length of a string (D1 row/message caps are byte budgets). */
+function utf8Bytes(s: string): number {
+  return new TextEncoder().encode(s).byteLength;
+}
+
+/** base62 of N random bytes — the URL slug / implicit capability. */
+function base62Encode(bytes: Uint8Array): string {
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  let out = "";
+  while (n > 0n) {
+    out = BASE62_ALPHABET[Number(n % 62n)] + out;
+    n /= 62n;
+  }
+  return out || "0";
+}
+
+// In-isolate first filter only (per-IP recent-share timestamps). NOT a
+// stand-alone control: it dies with the isolate and consecutive requests from
+// one IP routinely land on different isolates — the D1 COUNT in createShare
+// is the authoritative check.
+const shareRateLocal = new Map<string, number[]>();
+function shareRateHitLocal(ip: string): boolean {
+  if (!ip) return false;
+  const t = Date.now();
+  if (shareRateLocal.size > 10_000) {
+    // Sweep stale entries so a many-IP fan-out can't grow the map unboundedly.
+    for (const [k, v] of shareRateLocal) {
+      const alive = v.filter((ts) => t - ts < SHARE_RATE_WINDOW_MS);
+      if (alive.length === 0) shareRateLocal.delete(k);
+      else shareRateLocal.set(k, alive);
+    }
+  }
+  const list = (shareRateLocal.get(ip) ?? []).filter((ts) => t - ts < SHARE_RATE_WINDOW_MS);
+  shareRateLocal.set(ip, list);
+  return list.length >= SHARE_RATE_LIMIT;
+}
+function shareRateRecordLocal(ip: string): void {
+  if (!ip) return;
+  const list = shareRateLocal.get(ip) ?? [];
+  list.push(Date.now());
+  shareRateLocal.set(ip, list);
+}
+
+/**
+ * Pass 2 — share-only tightening on top of the lake normalizer's output.
+ * The shipped caps (20k chars, no byte budget) are looser than the D1 row
+ * allows, so every message gets the tighter per-field caps here, then the
+ * serialized JSON is trimmed to the 1.2 MB byte budget (oldest turns first,
+ * then older assistant sql). Returns the trimmed messages + the denormalized
+ * source_sql (last assistant sql, the future-alerts keystone) + auto title
+ * (first user question). Never throws.
+ */
+function normalizeShareRecord(pass1: Record<string, unknown>): {
+  messages: Record<string, unknown>[];
+  sourceSql: string | null;
+  title: string | null;
+} {
+  const messages = (JSON.parse(String(pass1.messages)) as unknown[]).map((m) => {
+    const rec = m && typeof m === "object" ? (m as Record<string, unknown>) : {};
+    const role = rec.role === "assistant" ? "assistant" : "user";
+    const out: Record<string, unknown> = { role };
+    if (typeof rec.content === "string" && rec.content) out.content = rec.content.slice(0, SHARE_MAX_CONTENT);
+    if (typeof rec.sql === "string" && rec.sql) out.sql = rec.sql.slice(0, SHARE_MAX_SQL);
+    if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) out.ts = rec.ts;
+    if (Array.isArray(rec.tools)) {
+      // The schema tolerates tools (future ToolRow capture); v1 client never
+      // sends them, so this is a defensive cap, not a UI feature.
+      const tools = rec.tools
+        .slice(0, SHARE_MAX_TOOLS)
+        .map((t) => {
+          const tr = t && typeof t === "object" ? (t as Record<string, unknown>) : {};
+          const name = str(tr.name)?.slice(0, 80) ?? "";
+          if (!name) return null;
+          const tool: Record<string, unknown> = { name };
+          if (typeof tr.args === "string" && tr.args) tool.args = tr.args.slice(0, SHARE_MAX_TOOL_ARG);
+          if (tr.ok === true || tr.ok === false) tool.ok = tr.ok;
+          if (tr.summary != null && tr.summary !== "") tool.summary = str(tr.summary)!.slice(0, 500);
+          return tool;
+        })
+        .filter((t): t is Record<string, unknown> => t !== null);
+      if (tools.length) out.tools = tools;
+    }
+    return out;
+  });
+
+  const title =
+    (messages.find((m) => m.role === "user" && typeof m.content === "string" && m.content)?.content as
+      | string
+      | undefined)?.slice(0, SHARE_MAX_TITLE) ?? null;
+
+  // Byte budget: drop oldest turns first (a share is judged by its tail),
+  // then older sql, then hard-backstop truncation. The tighter per-field caps
+  // bound a single message far below the budget, so the loop is deterministic.
+  const bytes = () => utf8Bytes(JSON.stringify(messages));
+  while (messages.length > 1 && bytes() > SHARE_MESSAGES_MAX_BYTES) messages.shift();
+  if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
+    for (const m of [...messages].reverse()) delete m.sql; // newest last to lose sql
+  }
+  if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
+    for (const m of [...messages].reverse()) delete m.tools;
+  }
+  let guard = 0;
+  while (bytes() > SHARE_MESSAGES_MAX_BYTES && messages.length > 0 && guard++ < 10_000) {
+    const oldest = messages[0];
+    const content = String(oldest.content ?? "");
+    if (!content) {
+      messages.shift(); // already empty — drop the turn
+      continue;
+    }
+    oldest.content = content.slice(0, Math.floor(content.length / 2));
+    if (!oldest.content) delete oldest.content;
+  }
+
+  const lastAssistant = [...messages].reverse().find(
+    (m) => m.role === "assistant" && typeof m.sql === "string" && m.sql,
+  );
+  return { messages, sourceSql: lastAssistant ? String(lastAssistant.sql) : null, title };
+}
+
+/**
+ * POST /api/share/chat — mint a public share for a conversation.
+ * Body: the full ChatHistoryRecord (the lake capture shape — the pass-1
+ * normalizer requires started_at/ended_at ISO timestamps + non-empty messages).
+ */
+async function createShare(env: Env, req: Request): Promise<Response> {
+  // Oversized raw body → 413 before JSON.parse (bounds parse cost, keeps the
+  // D1 row budget honest). Content-Length is byte-accurate when present; the
+  // text() read re-checks actual UTF-8 byte length regardless.
+  const contentLength = Number(req.headers.get("Content-Length") ?? "0");
+  if (contentLength > SHARE_RAW_BODY_MAX) return json(env, { error: "payload too large" }, 413);
+  let raw: string;
+  try {
+    raw = await req.text();
+  } catch {
+    return json(env, { error: "invalid JSON body" }, 400);
+  }
+  if (utf8Bytes(raw) > SHARE_RAW_BODY_MAX) return json(env, { error: "payload too large" }, 413);
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return json(env, { error: "invalid JSON body" }, 400);
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return json(env, { error: "invalid JSON body" }, 400);
+  }
+
+  // Abuse signals set server-side only — never accepted from the body (the
+  // exact chat-history capture pattern). CF-Connecting-IP is set by Cloudflare.
+  const ip = (req.headers.get("CF-Connecting-IP") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
+  const ua = (req.headers.get("User-Agent") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
+
+  // Pass 1 — the SHARED lake normalizer, verbatim (identical validation and
+  // failure modes to the R2 capture: mode, ISO timestamps, roles, caps).
+  let pass1: Record<string, unknown>;
+  try {
+    pass1 = normalizeChatHistoryRecord(body, ip, ua);
+  } catch (e) {
+    return json(env, { error: String((e && (e as Error).message) || e) }, 400);
+  }
+
+  // Rate check: cheap in-isolate filter first, then the D1-backed COUNT that
+  // survives isolate recycling and spans colocations (served by
+  // idx_shared_chats_ip). 429 past the threshold — the honest lever for bulk
+  // share creation.
+  if (shareRateHitLocal(ip)) return json(env, { error: "rate limited" }, 429);
+  const recent = await env.SCHEMA_DB.prepare(
+    "SELECT COUNT(*) AS n FROM shared_chats WHERE created_ip = ?1 AND created_at > ?2",
+  ).bind(ip, Date.now() - SHARE_RATE_WINDOW_MS).first<{ n: number }>();
+  if ((recent?.n ?? 0) >= SHARE_RATE_LIMIT) return json(env, { error: "rate limited" }, 429);
+
+  // Pass 2 — share-only tightening + budgets.
+  const { messages, sourceSql, title } = normalizeShareRecord(pass1);
+  const messagesJson = JSON.stringify(messages);
+  // Assembled-row check: messages JSON + source_sql + column overhead must sit
+  // under the D1 2 MB row ceiling — a share can never 500 on INSERT.
+  const rowBytes = utf8Bytes(messagesJson) + utf8Bytes(sourceSql ?? "") + 512;
+  if (rowBytes > SHARE_ROW_MAX_BYTES) return json(env, { error: "payload too large" }, 413);
+
+  const shareId = base62Encode(crypto.getRandomValues(new Uint8Array(SHARE_ID_BYTES)));
+  const now = Date.now();
+  try {
+    await env.SCHEMA_DB.prepare(
+      `INSERT INTO shared_chats
+         (share_id, chat_id, title, mode, model, messages, source_sql, created_ip, created_ua, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`,
+    ).bind(
+      shareId,
+      String(pass1.chat_id),
+      title,
+      String(pass1.mode),
+      pass1.model ? String(pass1.model) : null,
+      messagesJson,
+      sourceSql,
+      ip || null,
+      ua || null,
+      now,
+    ).run();
+  } catch (dbErr) {
+    // Explicitly user-requested → fail LOUDLY so they can retry (unlike the
+    // best-effort lake capture, where D1-buffering absorbs write failures).
+    console.error("share create failed", dbErr);
+    return json(env, { error: "storage unavailable" }, 502);
+  }
+  shareRateRecordLocal(ip);
+  return json(env, { share_id: shareId, url: "/share/" + shareId });
+}
+
+/**
+ * GET /api/share/:id — public read of a shared transcript. No auth (the
+ * share_id is the capability); unknown or expired ids are indistinguishable
+ * 404s. created_ip / created_ua are never selected — privacy by construction.
+ */
+async function getSharedChat(env: Env, shareId: string): Promise<Response> {
+  if (!SHARE_ID_RE.test(shareId)) return json(env, { error: "not found" }, 404);
+  const row = await env.SCHEMA_DB.prepare(
+    `SELECT share_id, title, mode, model, messages, source_sql, created_at, expires_at
+     FROM shared_chats WHERE share_id = ?1`,
+  ).bind(shareId).first<{
+    share_id: string;
+    title: string | null;
+    mode: string;
+    model: string | null;
+    messages: string;
+    source_sql: string | null;
+    created_at: number;
+    expires_at: number | null;
+  }>();
+  if (!row) return json(env, { error: "not found" }, 404);
+  if (row.expires_at && row.expires_at < Date.now()) return json(env, { error: "not found" }, 404);
+  let messages: unknown = null;
+  try {
+    messages = JSON.parse(row.messages);
+  } catch {
+    /* rows are written by us; tolerate a corrupt one rather than 500 */
+  }
+  return json(env, {
+    share_id: row.share_id,
+    title: row.title,
+    mode: row.mode,
+    model: row.model,
+    created_at: row.created_at,
+    messages,
+    source_sql: row.source_sql,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -1794,6 +2085,13 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
     return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
   }
+
+  // Copilot chat shares: create (open, user-requested) + public read. The id
+  // IS the capability — no auth, and unknown ids 404 identically to expired.
+  if (path === "/api/share/chat" && req.method === "POST")
+    return await createShare(env, req);
+  if (path.startsWith("/api/share/"))
+    return await getSharedChat(env, path.slice("/api/share/".length));
 
   // Free anonymous chats on the site's OpenRouter credit.
   if (path === "/api/free/quota") return json(env, await freeQuotaPayload(env));

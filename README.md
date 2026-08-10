@@ -170,6 +170,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 | `GET /api/free/quota` | Free anonymous-chat credit gate: `{remaining, limit}` for the site's OpenRouter key (see AI Copilot) |
 | `POST /api/free/v1/chat/completions` | OpenAI-compatible SSE proxy for free anonymous Copilot chats — see below |
+| `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url}`) |
+| `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned |
 
 ### `/api/screen` query parameters
 
@@ -227,6 +229,22 @@ forwarded. The throttle is the credit on that key, not a per-user quota;
 credit is exhausted the proxy returns `402 free_credit_exhausted` and the UI
 pivots to the BYOK connect gate. The metered Tavily tools (`get_news`,
 `web_search`) are excluded from the free path.
+
+**Sharing** — the chat header's Share button (enabled once a turn has
+completed) snapshots the conversation into D1 `shared_chats` (migration 0003)
+and returns a public, unlisted link `/share/<share_id>`. The `share_id` is
+base62 of 18 random bytes, so the URL is the capability: anyone with the link
+can view, nobody can enumerate, and a fresh incognito tab renders the
+read-only transcript (user + assistant bubbles, SQL blocks) with no key or
+login. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
+10,000 chars), a byte budget on the serialized transcript (≤ 1.2 MB of UTF-8
+bytes, oldest turns dropped first — never JS string length, which miscounts
+CJK/emoji), a whole-row check against D1's 2 MB ceiling, oversized-body 413
+before JSON parse, and a per-IP creation rate cap (20 / 10 min → 429).
+`created_ip`/`created_ua` are captured server-side (the chat-history capture
+pattern) and never served. The denormalized `source_sql` column (the last
+assistant SQL) is the anchor for a future "rerun this SQL on an interval"
+alerts feature — see the worker's share section for the schema rationale.
 
 ## R2 SQL / DataFusion notes
 

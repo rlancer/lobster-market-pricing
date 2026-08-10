@@ -11,6 +11,7 @@ import { useWorkspace } from './workspace';
 import MarketView from './MarketView';
 import Explorer from './Explorer';
 import AiChat from './AiChat';
+import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import Notebooks from './Notebooks';
@@ -104,6 +105,14 @@ const symbolRoute = createRoute({
   component: SymbolDetailView,
 });
 
+// Public unlisted transcript page — standalone chrome (see App.tsx: /share/*
+// renders a bare Outlet; SharedChat provides its own minimal shell).
+const shareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/share/$shareId',
+  component: SharedChat,
+});
+
 // Docs portal — broken out into one page per topic. /docs is the layout shell
 // (left nav + Outlet); /docs alone redirects to the Overview page.
 const docsLayoutRoute = createRoute({
@@ -181,6 +190,7 @@ const routeTree = rootRoute.addChildren([
   aiRoute,
   monitorRoute,
   symbolRoute,
+  shareRoute,
   docsRoute,
 ]);
 
