@@ -1072,8 +1072,9 @@ const newsDef = toolDefinition({
 // ---------------------------------------------------------------------------
 // Macro events (FOMC, CPI, jobs, PCE) lift broad implied vol — "why is
 // everything rich" almost always has a calendar component. Hits
-// /api/econ_calendar (FRED releases/dates, keyless Fed-calendar fallback,
-// cached by the Worker); degrades to an error string, never a thrown tool.
+// /api/econ_calendar (now backed by the lake's options.econ_calendar table with
+// a live FRED/Fed-cache fallback; cached by the Worker); degrades to an error
+// string, never a thrown tool.
 const ecoCalendarDef = toolDefinition({
   name: 'eco_calendar',
   description:
@@ -1472,7 +1473,9 @@ async function runAgent(
     }
     return {
       ok: true,
-      summary: res.items.map((e, i) => `${i + 1}. ${e.date} — ${e.title}`).join('\n'),
+      summary: res.items
+        .map((e, i) => `${i + 1}. ${e.date}${e.time ? ` ${e.time}` : ''} — ${e.title}`)
+        .join('\n'),
     };
   });
 

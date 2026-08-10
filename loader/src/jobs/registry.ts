@@ -3,6 +3,7 @@ import { cboeOptionsJob } from "./cboe-options.js";
 import { ohlcDailyJob } from "./ohlc-daily.js";
 import { ohlcBackfillJob } from "./ohlc-backfill.js";
 import { earningsDailyJob } from "./earnings-daily.js";
+import { fredEconDailyJob } from "./fred-econ-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -23,5 +24,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     ohlcDailyJob(env),
     ohlcBackfillJob(env),
     earningsDailyJob(env),
+    fredEconDailyJob(env),
   ];
 }

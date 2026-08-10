@@ -94,6 +94,38 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/jobs/earnings-daily/tr
 Once `options.earnings` exists it auto-appears in the Worker's `/api/tables`,
 so the AI Copilot can query it (and join it to chains) with no further wiring.
 
+### Econ / FOMC calendar (`fred-econ-daily`)
+
+Fetches the scheduled **high-impact macro releases** (CPI, PPI, Employment
+Situation, GDP, Personal Income, Surveys of Consumers) from FRED's release-date
+API plus **FOMC/Beige Book** events from the Federal Reserve's keyless calendar
+JSON, and publishes normalized rows to `options.econ_calendar` (`event_date`,
+`title`, `kind` in {macro, fed}, `source` in {fred, federalreserve},
+`event_time` "HH:MM" ET (Fed FOMC/Beige only; null for FRED releases), `run_id`,
+`fetched_at`). Batch-scoped, ungated, daily cadence; each pass syncs the window
+(~2y back → ~400d forward) one source at a time so a per-source failure is
+recorded without aborting the rest — the same isolation model as `earnings-daily`.
+
+Why these two sources: FRED `releases/dates` (plural) ignores `release_id`,
+emits daily placeholders for press releases (FOMC), and truncates at 1000 rows,
+so the loader calls the singular `/fred/release/dates` per allowlisted
+`release_id` with `include_release_dates_with_no_data=true` (real scheduled
+dates, historical + forward). FOMC/Beige dates come from the Fed calendar JSON
+(2017 → year-end, decision-day dates), which the screener Worker's
+`/api/econ_calendar` reads from the lake with a live-fetch fallback. The
+historical FOMC rows enable realized binary-event-impact joins against
+`options.ohlc`. Verified live 2026-08-10 (`tools/econ_probe.ts` prints per-source
+row counts; ~28-29 dates per FRED release, ~59 FOMC/Beige events).
+
+**Provisioned and live (2026-08-10)** — stream `cboe_econ_v2`, sink
+`cboe_econ_sink` (created `options.econ_calendar`), pipeline
+`cboe_econ_pipeline` (`INSERT INTO cboe_econ_sink SELECT * FROM cboe_econ_v2`),
+`PIPELINE_ECON_URL` + `FRED_API_KEY` set as Worker secrets; first ingestion
+published directly through the pipeline (230 rows → R2 SQL). The `fred-econ-daily`
+job auto-refreshes the window daily (ungated). Provisioning recipe is identical
+to the earnings block above with names `cboe_econ_v2` / `cboe_econ_sink` /
+`cboe_econ_pipeline` and `schemas/econ_calendar.json`.
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
