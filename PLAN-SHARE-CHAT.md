@@ -1,5 +1,10 @@
 # Share Chat — Plan & Design
 
+> **Transient in-flight runbook** (see root `AGENTS.md` → "Documentation policy —
+> no `PLAN-*.md` rollups"): this file lives on the feature branch only and is
+> **deleted on ship** — fold the still-live facts into `README.md` and the
+> per-package `AGENTS.md` files in the implementation PR.
+
 Explore a **share-a-chat** feature for the Lobster Copilot: a Share button in
 the chat header turns the current conversation into a **public, unlisted,
 read-only URL** that renders the transcript. Shared chats live in **D1** (not
@@ -77,12 +82,25 @@ CREATE INDEX IF NOT EXISTS idx_shared_chats_created ON shared_chats(created_at);
   unguessable; it is the auth. Stored as the PK so the URL lookup is a single
   point read.
 - **`chat_id`** — links a share back to the conversation's R2 lake capture
-  (`options.chat_history`) when that feature lands. Keeps the two stores
-  correlatable without coupling them. `NULL` is fine pre-merge (see §5).
-- **`messages`** — the full transcript as JSON, the same `{role, content, sql,
-  ts}` shape the chat-history capture already produces (`ChatHistoryMessage`
-  in `frontend/src/api.ts`). Reuses the existing client trimmer, so the worker
-  validation is shared with `/api/chat/history`.
+  (`options.chat_history`, **shipped on main** — PR #70/#73) so the two stores
+  stay correlatable without coupling them. `NULL` is fine for pre-capture chats.
+- **`messages`** — the full transcript as JSON. Shape is an **extension of the
+  shipped `ChatHistoryMessage`** (`{role, content, sql?, ts?}` in
+  `frontend/src/api.ts`), widened with an optional `tools?` field:
+
+  ```jsonc
+  // per message (assistant only, optional):
+  { "role": "assistant", "content": "…", "sql": "SELECT …",
+    "tools": [ { "name": "run_query", "args": "…", "ok": true, "summary": "32 rows" } ] }
+  ```
+
+  **Tool-call capture does not exist today** — `ToolRow[]` in `AiChat.tsx` is
+  live-only UI state (cleared per question, never persisted), so the shipped
+  chat-history rows and shares would both be tool-free. Adding it is purely
+  additive to this JSON blob (no migration), but requires the client to
+  snapshot completed `ToolRow`s into the assistant message before it clears
+  them. Recommend: v1 shares show messages + SQL only (already available);
+  tool-call display is a small follow-on that the schema already tolerates.
 - **`source_sql`** — **this is the alerts-ready keystone.** Denormalized last
   executed SQL. A future alert is "rerun `source_sql` on an interval and
   notify me when <condition>", so having the query as a first-class column
@@ -91,6 +109,30 @@ CREATE INDEX IF NOT EXISTS idx_shared_chats_created ON shared_chats(created_at);
   unit a user wants to alert on ("share this and alert me when it changes").
 - **`expires_at`** — optional TTL gives a cheap "unshare" lever (revocable
   links) without a separate permission model. `NULL` = permanent.
+
+### Size budget — the D1 2 MB row limit is the real constraint
+
+D1 caps a string/BLOB **and an entire table row at 2,000,000 bytes** (official
+limits page). The shipped chat-history capture allows **100 messages × 20,000
+chars** of content + another 20,000 of sql each — a worst case of ~4 MB of
+JSON, **2× over the D1 row ceiling**. The R2 lake has no such per-row limit
+(which is why the pipeline target can keep loose caps); the share row in D1
+cannot.
+
+Hard rules for the share endpoint:
+
+1. **Per-share byte budget:** reject (413) or truncate when the serialized
+   `messages` JSON exceeds **1.5 MB**. Truncation trims **oldest turns first**
+   (a share is judged by its tail), then drops `sql` from older assistant
+   messages before touching the newest exchange.
+2. **Tighter per-field caps than the lake row:** `content` ≤ 5,000 chars,
+   `sql` ≤ 10,000 chars, `tools` ≤ 20 entries per message — the share is a
+   display artifact; nobody needs a 20k-char SQL blob in a link.
+3. Enforce server-side in `normalizeShareRecord` (the client cannot be
+   trusted), reusing the caps the shipped normalizer already defines.
+
+The `source_sql` column is exempt from the message budget (one row's last SQL
+only, already ≤ 10k after the per-field cap).
 
 ### Future `scheduled_alerts` (RECOMMENDED, NOT created now)
 
@@ -151,14 +193,42 @@ Route via `path.startsWith("/api/share/")` (mirrors `/api/symbol/`).
 No auth — the id is the capability. Cache `Cache-Control: public, max-age=60`
 (via `json(env, …)` default) so repeated recipients don't re-hit D1.
 
-### Abuse posture
+### Abuse tracking — fingerprinting: NO, server-side signals: YES
 
-Public unauthenticated POST = a spam vector (like `/api/free/*`). The
-`/api/free/*` plan already anticipates Turnstile + IP rate limits (§6.4 of
-PLAN-FREE-CHATS.md); the share endpoint should re-use whatever gate lands
-there. A cheap immediate lever: cap shares per IP in-isolate (a `Map` of
-recent share POSTs, like the existing `cached()` helper) and a body-size cap.
-Not built in this PR — noted as required hardening before wide rollout.
+**Decision: no client fingerprinting.** Canvas/WebGL/font fingerprinting is (a)
+privacy-hostile for a site whose positioning is "no login, no personal data"
+(the Settings privacy note says exactly that), (b) trivially defeated by a
+determined abuser (headless browsers, rotating fingerprints, incognito), and
+(c) useless for the actual abuse surface, which is **bulk share creation** —
+the abuser is a script, not a browser identity. The client is already
+untrusted for the chat-history capture (server sets `ip`/`user_agent`, never
+the client); the same rule applies here.
+
+**What we do instead — server-side abuse signals, additive cheap levers:**
+
+1. **`created_ip` (CF-Connecting-IP) + `created_ua` on the share row** — the
+   exact pattern the shipped chat-history capture uses (`index.ts` reads
+   `CF-Connecting-IP` / `User-Agent`, never accepts them from the body). These
+   are **admin-only**: excluded from `GET /api/share/:id` responses and never
+   rendered client-side. They make abuse *queryable*:
+   `SELECT created_ip, COUNT(*) FROM shared_chats GROUP BY created_ip ORDER BY 2 DESC`
+   — the owner can see a spammer without any browser cooperation.
+2. **In-isolate IP rate limit on `POST /api/share/chat`** (a `Map` of recent
+   share POSTs per IP, reusing the `cached()` helper pattern) — cheap, no
+   storage, dies with the isolate. Covers bursts, not a patient attacker.
+3. **Body caps feed into the limit** — the 1.5 MB / 100-message / per-field
+   caps (§2) bound the cost of each POST, so abuse is bounded per request even
+   when the rate limit is bypassed.
+4. **Turnstile gate on `/api/free/*` when it lands** (the free-chat runbook's
+   hardening) applies to the share endpoint too — one shared gate, server
+   verified.
+
+If a real spammer appears despite 1–4, the additive next step is an admin
+review surface (`GET /api/admin/shares?ip=…`, mirroring the shipped
+`/api/admin/chat_history` endpoint) — still no fingerprinting, still no client
+trust. Fingerprinting stays off the table unless the owner explicitly decides
+the privacy cost is worth it, which the current product stance argues
+against.
 
 ---
 
@@ -197,20 +267,23 @@ the Share button has the full transcript in hand — no new capture logic.
 
 ## 5. Relationship to the R2 chat-history capture
 
-The user's mental model ("we now have chat history on R2") refers to the
-**Copilot chat-history capture** (`feat/chat-history-lake-table`, commit
-`073f4f3`): per-turn records published to `options.chat_history` via the
+The **Copilot chat-history capture is shipped** (PR #70, hardened by #73 —
+"buffer-first" ingest with background publish): `POST /api/chat/history`
+publishes per-turn records to `options.chat_history` via the
 `cboe_chat_history_v2` pipeline, **admin-only** (excluded from `/api/tables`,
-blocked in `/api/query`, read via `GET /api/admin/chat_history` with
-`ADMIN_TOKEN`).
+blocked in `/api/query` without `ADMIN_TOKEN`, read via
+`GET /api/admin/chat_history`). Migration `0002_pending_chat_history.sql`
+(buffered rows on pipeline failure) is already applied to `origin/main`.
 
-> **Note:** that work is on an **unmerged branch**, not `origin/main` at the
-> time of writing. The share plan is designed to land either order:
->
-> - **Share first, history later:** the share rows still carry `chat_id` and a
->   `chat_id` PK-compatible index; the history merge then just correlates.
-> - **History first, share later:** the share worker reuses the branch's
->   transcript normalizer and `chat_id` generation verbatim.
+Everything the share feature needs from it is **already on main**:
+
+- `chat_id` — the browser generates a per-conversation `crypto.randomUUID()`
+  (`AiChat.tsx`) and sends it with every turn; the share POST reuses it as-is.
+- The transcript normalizer (`normalizeChatHistoryRecord` in `index.ts`) —
+  caps, stripping, and validation are shared verbatim; the share endpoint
+  calls the same path (or a thin wrapper that adds the share fields).
+- `ChatHistoryMessage`/`ChatHistoryRecord` types in `frontend/src/api.ts` —
+  the share API extends these rather than inventing parallel types.
 
 The two stores are deliberately **different** and this is correct:
 
@@ -219,7 +292,7 @@ The two stores are deliberately **different** and this is correct:
 | Purpose | private admin analytics/abuse | public unlisted artifact |
 | Access | `ADMIN_TOKEN` only | link-capability (public) |
 | Rows | one per turn, full series | one per share, snapshot |
-| PII | `ip` / `user_agent` captured | none (other than the user's own words) |
+| PII | `ip` / `user_agent` captured | `created_ip`/`created_ua` captured server-side, admin-only, never served |
 | Read path | `GET /api/admin/chat_history` | `GET /api/share/:id` |
 
 A shared chat is a **projection** of a conversation, not the analytics copy —
@@ -230,11 +303,10 @@ needs to render it.
 
 ## 6. Migration naming
 
-`origin/main` currently has `0001_schema_cache.sql`. The unmerged chat-history
-branch adds `0002_pending_chat_history.sql`. This PR uses **`0003_shared_chats.sql`**
-so the two don't collide regardless of merge order (wrangler applies migrations
-in filename order; two `0002`s would double-apply). If the history branch merges
-first, `0003` is still correct.
+`origin/main` has `0001_schema_cache.sql` + `0002_pending_chat_history.sql`
+(chat-history, shipped). This feature uses **`0003_shared_chats.sql`** —
+sequential after the shipped set, no collision. The schema is additive only;
+no migration ever alters `shared_chats` once it lands.
 
 ---
 
@@ -244,14 +316,20 @@ first, `0003` is still correct.
    returns `{ share_id, url }`; `GET /api/share/<id>` returns the stored chat;
    an unknown/past-expiry id returns 404.
 2. D1: after the POST, `SELECT * FROM shared_chats` shows one row with
-   `source_sql` = last assistant sql, `messages` parsed back to the transcript.
-3. UI: Share button enabled after a chat turn; clicking it produces a copyable
+   `source_sql` = last assistant sql, `messages` parsed back to the transcript,
+   `created_ip`/`created_ua` populated from the request headers.
+3. **Size budget:** a transcript whose serialized JSON exceeds 1.5 MB is
+   rejected (413) or truncated oldest-first; a per-message content/sql over
+   the per-field caps is trimmed, not dropped. No D1 insert ever exceeds the
+   2 MB row limit.
+4. UI: Share button enabled after a chat turn; clicking it produces a copyable
    URL; navigating to `/share/<id>` renders the read-only transcript (user +
    assistant bubbles, SQL visible).
-4. No key required to view a share (loads in a fresh incognito tab).
-5. Privacy: the share row contains no `ip`/`user_agent`; the lake
-   `chat_history` table stays admin-only.
-6. Frontend build/lint + worker `tsc` clean; preview deploy HTTP 200.
+5. No key required to view a share (loads in a fresh incognito tab).
+6. Privacy: `ip`/`user_agent` appear **nowhere** in `GET /api/share/:id`
+   responses (abuse columns are server-only); the lake `chat_history` table
+   stays admin-only.
+7. Frontend build/lint + worker `tsc` clean; preview deploy HTTP 200.
 
 ## 8. Open questions / follow-ups
 
@@ -259,7 +337,11 @@ first, `0003` is still correct.
   `expires_at` enough? (Recommend: `DELETE /api/share/:id` + `expires_at`
   later, both trivial on this schema.)
 - **Title:** auto-derive from the first user question now; editing later.
-- **Rate limiting:** ship unthrottled for the initial rollout, add the
-  `/api/free/*` Turnstile/IP gate when it lands.
+- **Tool-call capture:** v1 renders messages + SQL; capturing `ToolRow`s into
+  the transcript (so shares show what tools ran) is a small additive follow-on
+  — schema already tolerates it via the `tools?` field.
+- **Rate limiting:** an in-isolate per-IP cap on share POSTs ships with the
+  feature; the `/api/free/*` Turnstile gate extends to the share endpoint when
+  it lands. Client fingerprinting stays off the table (§3).
 - **Alert feature** is explicitly out of scope here — §2 proves the schema
   accommodates it additively; build it as its own PR when the time comes.
