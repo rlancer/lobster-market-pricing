@@ -2,9 +2,9 @@ import type { ItemJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
 import type { OhlcEnv } from "../ohlc.js";
 import { publishOhlcRange } from "../ohlc.js";
 import { securityIdForTicker } from "../symbology.js";
-import sp500 from "../../symbols/sp500.json";
+import universe from "../../symbols/universe.json";
 
-const SYMBOLS = Array.isArray(sp500.symbols) ? sp500.symbols : [];
+const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
@@ -21,8 +21,8 @@ export function windowBounds(nowMs: number): { period1: number; period2: number 
   return { period1, period2 };
 }
 
-// S&P 500 2y OHLC backfill: item-scoped (resumable per-symbol), ungated, run
-// manually via POST /jobs/ohlc-backfill/trigger or by seeding the item store.
+// Merged-universe 2y OHLC backfill: item-scoped (resumable per-symbol), ungated,
+// run manually via POST /jobs/ohlc-backfill/trigger or by seeding the item store.
 // Item store `ohlc_backfill_state` mirrors symbol_state so a long run against
 // unauth Yahoo (which throttles) picks up where it left off.
 //
@@ -39,6 +39,7 @@ export function ohlcBackfillJob(env: SchedulerEnv): ItemJob {
     scope: "items",
     itemTable: "ohlc_backfill_state",
     itemIdColumn: "symbol",
+    seedSize: () => SYMBOLS.length,
     seedItems: async (db) => {
       const now = Date.now();
       const base = num(env, "LOADER_BACKOFF_BASE_SECONDS", 60);

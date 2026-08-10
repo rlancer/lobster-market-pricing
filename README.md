@@ -1,6 +1,6 @@
-# S&P 500 Options Screener
+# US Equities + ETF Options Screener
 
-A free, end-to-end options screener for the S&P 500:
+A free, end-to-end options screener for US equities (S&P 500 + Nasdaq-100) and the major ETFs:
 
 - **Data source:** CBOE delayed quotes (official exchange data, includes Greeks) loaded into a Cloudflare-hosted Apache Iceberg lake by the in-repo loader (`loader/`: CBOE → Cloudflare Pipelines → R2 Data Catalog). This repo consumes that lake directly over **R2 SQL** — no local database, no Parquet, no in-browser DuckDB.
 - **Backend:** a lightweight **Cloudflare Worker** (`worker/`) that queries the Iceberg lake over the R2 SQL REST API and returns JSON. Deployed via `wrangler deploy`.
@@ -43,8 +43,9 @@ lobster-market-pricing/
 └── loader/                # CBOE → Pipelines → R2 Data Catalog loader (Worker + Container)
     ├── src/index.js         # Worker endpoint + Container routing (cboe-to-r2)
     ├── container/loader.py  # CBOE fetch, OCC normalization, batching, refresh publication
-    ├── tools/load_sp500.py  # resumable S&P 500 symbol driver
-    ├── symbols/             # sp500.json manifest + constituents (name/sector enrichment)
+    ├── tools/load_sp500.py  # resumable symbol driver (one-shot loads)
+    ├── tools/refresh_universe.py  # rebuild symbols/universe.json (see loader/AGENTS.md)
+    ├── symbols/             # universe.json (S&P 500 + Nasdaq-100 + ETFs) + sp500.json constituents
     ├── schemas/             # Pipeline input schemas
     ├── Dockerfile           # container image (Python 3.12)
     └── wrangler.jsonc       # Worker + Container config (Pipeline URLs are secrets, not vars)
@@ -248,8 +249,8 @@ escaping; sort columns are whitelisted). Key dialect constraints:
   official and redistributable — safe to land in the lake and serve through
   `/api/query`. Yahoo-sourced data (OHLC, news RSS) is personal-use only and
   must not be re-exposed to third parties through the public query endpoint.
-- The in-repo loader (`loader/`, deployed Worker `cboe-to-r2`) owns CBOE ingestion (nightly run, ~502
-  symbols, ~1M contracts). This repo only reads the lake.
+- The in-repo loader (`loader/`, deployed Worker `cboe-to-r2`) owns CBOE ingestion (nightly run, 583
+  symbols across the S&P 500, Nasdaq-100 delta, and major ETFs, ~1M+ contracts). This repo only reads the lake.
 - Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per
   calendar day, `vega`/`rho` per 1.00 of vol/rate).
 - The Worker cache is in-isolate and tiered by how quickly the underlying data

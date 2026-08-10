@@ -618,7 +618,7 @@ function AiChat() {
               <BlueLobsterLogo className="ai-welcome-mascot" />
               <h1 className="ai-welcome-title">Ask the Lobster</h1>
               <p className="ai-welcome-data">
-                Live options chains for every S&P 500 company — calls &amp; puts, strikes,
+                Live options chains for US equities and the major ETFs — calls &amp; puts, strikes,
                 implied vol, open interest, volume, greeks — plus spot quotes, IV rank,
                 realized vol, earnings, corporate actions, news, web search, and the macro calendar.
               </p>

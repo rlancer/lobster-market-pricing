@@ -10,7 +10,7 @@ const NOTEBOOKS: { id: NotebookId; name: string; description: string }[] = [
     id: 'premium-45d',
     name: '45 DTE premium scan',
     description:
-      'For each S&P 500 name, the expiration closest to 45 DTE is selected. ' +
+      'For each underlying in the universe (S&P 500 + Nasdaq-100 + ETFs), the expiration closest to 45 DTE is selected. ' +
       'Within a ±moneyness band of spot, the single call and single put with ' +
       'the highest option price as a proportion of the underlying spot ' +
       '(premium richness) are ranked. Puts and calls are shown independently.',

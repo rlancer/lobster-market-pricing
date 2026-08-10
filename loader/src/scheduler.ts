@@ -73,7 +73,7 @@ export interface JobRunResult {
 //     due batch, runs the handler, and applies per-item backoff.
 //   - "batch": whole-universe — the job processes its full `universe()` each
 //     pass and its frequency is governed by its job_state cadence (e.g.
-//     ohlc-daily → all S&P 500, once a day). No item store.
+//     ohlc-daily → all merged-universe symbols, once a day). No item store.
 export interface JobBase {
   id: string;
   marketGated: boolean;
@@ -86,6 +86,10 @@ export interface ItemJob extends JobBase {
   itemTable: string;
   itemIdColumn: string;
   seedItems(db: D1Database): Promise<void>;
+  // Expected item-store row count after seeding. Lets the scheduler re-seed
+  // additively when the universe grows (e.g. adding ETFs) without touching
+  // existing per-item progress. Legacy jobs omit it → seed only when empty.
+  seedSize?: () => number;
 }
 
 export interface BatchJob extends JobBase {
@@ -457,12 +461,17 @@ export class EtlScheduler {
     return list;
   }
 
-  // Seed an item-scoped job's item store when it is empty.
+  // Seed an item-scoped job's item store. Seeds when the store is empty
+  // (legacy jobs without `seedSize`) or smaller than the job's expected item
+  // count, so a universe expansion (e.g. adding ETFs) seeds its new items
+  // without touching existing per-item progress. seedItems uses INSERT OR
+  // IGNORE, so a re-seed only adds missing rows.
   async seedIfEmpty(spec: ItemJob): Promise<boolean> {
     const row = await this.db().prepare(
       `SELECT COUNT(*) AS c FROM ${spec.itemTable}`
     ).first();
-    if (row && (row.c as number) > 0) return false;
+    const expected = spec.seedSize ? spec.seedSize() : 1;
+    if (row && (row.c as number) >= expected) return false;
     await spec.seedItems(this.db());
     return true;
   }
