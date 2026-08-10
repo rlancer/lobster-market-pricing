@@ -17,9 +17,11 @@
 //     singular `/fred/release/dates` per allowlisted release_id with
 //     `include_release_dates_with_no_data=true`, which returns the release's
 //     REAL scheduled dates (historical + forward; CPI verified through 2026-12).
-//   - FOMC/Beige dates come from the Fed calendar JSON (2017-01 .. 2026-12,
-//     historical AND forward), which pre-schedules meeting/press-conference
-//     dates accurately — FRED cannot provide them.
+//   - FOMC/Beige dates + TIMES come from the Fed calendar JSON (2017-01 ..
+//     2026-12, historical AND forward), which pre-schedules
+//     meeting/press-conference dates and ET release times ("2:00 p.m." →
+//     "14:00") accurately — FRED cannot provide them. FRED macro releases
+//     have no release time in the API, so their event_time is null.
 
 // ---------------------------------------------------------------------------
 // Sources
@@ -54,7 +56,7 @@ export const ECON_SOURCE_FRED = "fred";
 export const ECON_SOURCE_FED = "federalreserve";
 
 export const ECON_FIELDS = [
-  "event_date", "title", "kind", "source", "run_id", "fetched_at",
+  "event_date", "title", "kind", "source", "event_time", "run_id", "fetched_at",
 ] as const;
 
 export const HTTP_RETRIES_DEFAULT = 3;
@@ -77,6 +79,7 @@ export interface EconRow {
   title: string; // canonical display title
   kind: "macro" | "fed"; // macro = FRED release; fed = FOMC/Beige Book
   source: string; // ECON_SOURCE_FRED | ECON_SOURCE_FED
+  event_time: string | null; // "HH:MM" ET (24h); null when the source has no time
 }
 
 export interface EconPublishResult {
@@ -170,6 +173,19 @@ function fedTitle(raw: unknown, type: string): string {
   }
   if (type === "Beige") return "Beige Book";
   return t || type;
+}
+
+// Normalize Fed-calendar times ("2:00 p.m.", "8:30 a.m.") to "HH:MM" ET (24h).
+// The Fed schedules in US Eastern wall-clock; null when unparseable/missing.
+function normalizeEventTime(raw: unknown): string | null {
+  const s = strip(raw);
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)$/i.exec(s);
+  if (!m) return null;
+  let h = Number(m[1]) % 12;
+  if (/p/i.test(m[3])) h += 12;
+  const min = m[2];
+  return `${String(h).padStart(2, "0")}:${min}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +299,7 @@ export async function fetchFredRelease(releaseId: number, env: EconEnv): Promise
     const r = asRecord(raw);
     const date = strip(r?.date);
     if (FRED_DATE.test(date)) {
-      rows.push({ event_date: date, title: name, kind: "macro", source: ECON_SOURCE_FRED });
+      rows.push({ event_date: date, title: name, kind: "macro", source: ECON_SOURCE_FRED, event_time: null });
     }
   }
   return rows;
@@ -313,6 +329,7 @@ export async function fetchFedCalendar(env: EconEnv): Promise<EconRow[]> {
       title: fedTitle(e?.title, type),
       kind: "fed",
       source: ECON_SOURCE_FED,
+      event_time: normalizeEventTime(e?.time),
     });
   }
   return rows;
@@ -353,7 +370,7 @@ export function normalizeEconRecords(
   return rows.map((r) => {
     const rec: Record<string, unknown> = {
       event_date: r.event_date, title: r.title, kind: r.kind, source: r.source,
-      run_id: runId, fetched_at: fetchedAt,
+      event_time: r.event_time, run_id: runId, fetched_at: fetchedAt,
     };
     const out: Record<string, unknown> = {};
     for (const f of ECON_FIELDS) out[f] = rec[f];

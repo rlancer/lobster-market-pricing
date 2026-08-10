@@ -1473,7 +1473,9 @@ async function runAgent(
     }
     return {
       ok: true,
-      summary: res.items.map((e, i) => `${i + 1}. ${e.date} — ${e.title}`).join('\n'),
+      summary: res.items
+        .map((e, i) => `${i + 1}. ${e.date}${e.time ? ` ${e.time}` : ''} — ${e.title}`)
+        .join('\n'),
     };
   });
 

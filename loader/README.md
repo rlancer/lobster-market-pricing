@@ -100,7 +100,8 @@ Fetches the scheduled **high-impact macro releases** (CPI, PPI, Employment
 Situation, GDP, Personal Income, Surveys of Consumers) from FRED's release-date
 API plus **FOMC/Beige Book** events from the Federal Reserve's keyless calendar
 JSON, and publishes normalized rows to `options.econ_calendar` (`event_date`,
-`title`, `kind` in {macro, fed}, `source` in {fred, federalreserve}, `run_id`,
+`title`, `kind` in {macro, fed}, `source` in {fred, federalreserve},
+`event_time` "HH:MM" ET (Fed FOMC/Beige only; null for FRED releases), `run_id`,
 `fetched_at`). Batch-scoped, ungated, daily cadence; each pass syncs the window
 (~2y back → ~400d forward) one source at a time so a per-source failure is
 recorded without aborting the rest — the same isolation model as `earnings-daily`.

@@ -20,13 +20,14 @@ const FRED_PAYLOAD = {
 
 // Fixture: Fed calendar events — a mix of FOMC/Beige types plus data-entry
 // title variants (" FOMC Minutes", "FOMC meeting") that must collapse onto the
-// canonical titles, and a non-matching type that must be dropped.
+// canonical titles, and a non-matching type that must be dropped. Times are
+// Fed ET wall-clock strings ("2:00 p.m." → "14:00").
 const FED_PAYLOAD = {
   events: [
-    { title: "FOMC Meeting", type: "FOMC", month: "2026-09", days: "16" },
-    { title: " FOMC Minutes", type: "FOMC", month: "2026-10", days: "7" },
-    { title: "FOMC meeting", type: "FOMC", month: "2026-01", days: "28" },
-    { title: "Beige Book", type: "Beige", month: "2026-09", days: "2" },
+    { title: "FOMC Meeting", type: "FOMC", month: "2026-09", days: "16", time: "2:00 p.m." },
+    { title: " FOMC Minutes", type: "FOMC", month: "2026-10", days: "7", time: "2:00 p.m." },
+    { title: "FOMC meeting", type: "FOMC", month: "2026-01", days: "28", time: "8:30 a.m." },
+    { title: "Beige Book", type: "Beige", month: "2026-09", days: "2", time: "2:00 p.m." },
     { title: "H.4.1", type: "Stat", month: "2026-09", days: "1" }, // dropped
   ],
 };
@@ -127,9 +128,13 @@ describe("publishEconSource", () => {
         "FOMC Minutes",
       ]);
       expect(rows.every((r) => r.kind === "fed" && r.source === "federalreserve")).toBe(true);
-      // Decision-day date derived from month + days.
+      // Decision-day date derived from month + days; ET time normalized to HH:MM.
       const meeting = rows.find((r) => r.title === "FOMC Meeting" && r.event_date === "2026-09-16");
       expect(meeting).toBeTruthy();
+      expect(meeting!.event_time).toBe("14:00");
+      // a.m. path: "FOMC meeting" (2026-01-28) → "08:30".
+      const am = rows.find((r) => r.event_date === "2026-01-28");
+      expect(am!.event_time).toBe("08:30");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -182,7 +187,7 @@ describe("publishEconSource", () => {
 describe("normalizeEconRecords", () => {
   it("emits records in ECON_FIELDS order with run_id and fetched_at", () => {
     const rows = normalizeEconRecords(
-      [{ event_date: "2026-09-16", title: "FOMC Meeting", kind: "fed", source: "federalreserve" }],
+      [{ event_date: "2026-09-16", title: "FOMC Meeting", kind: "fed", source: "federalreserve", event_time: "14:00" }],
       "run-1",
       "2026-08-10T12:00:00.000Z",
     );
@@ -191,6 +196,7 @@ describe("normalizeEconRecords", () => {
       title: "FOMC Meeting",
       kind: "fed",
       source: "federalreserve",
+      event_time: "14:00",
       run_id: "run-1",
       fetched_at: "2026-08-10T12:00:00.000Z",
     });

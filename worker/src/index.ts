@@ -1062,7 +1062,7 @@ const ECON_FRED_RELEASES = new Set([
 // releases, speeches, and testimonies).
 const FED_CALENDAR_TYPES = new Set(["FOMC", "Beige"]);
 
-interface EconCalendarEvent { date: string; title: string; kind: "macro" | "fed"; }
+interface EconCalendarEvent { date: string; title: string; kind: "macro" | "fed"; time?: string; }
 
 interface EconCalendarResponse {
   window_days: number;
@@ -1074,11 +1074,21 @@ interface EconCalendarResponse {
 
 // Upcoming FOMC (meetings/statements/minutes/press conferences) + Beige Book
 // from the Fed's keyless calendar JSON. Date = `month` + `days`; `days` can be
-// a comma list for recurring releases (take the first).
+// a comma list for recurring releases (take the first). `time` is the Fed's ET
+// wall-clock release time, normalized to "HH:MM" (matches the lake's
+// options.econ_calendar.event_time).
+function normalizeEventTime(raw: string | undefined | null): string | undefined {
+  if (!raw) return undefined;
+  const m = /^(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)$/i.exec(raw.trim());
+  if (!m) return undefined;
+  let h = Number(m[1]) % 12;
+  if (/p/i.test(m[3])) h += 12;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+}
 async function fedCalendarEvents(days: number): Promise<EconCalendarEvent[]> {
   const res = await fetch(FED_CALENDAR_URL);
   if (!res.ok) throw new Error(`federalreserve calendar returned HTTP ${res.status}`);
-  const data = await res.json() as { events?: { title?: string; type?: string; month?: string; days?: string }[] };
+  const data = await res.json() as { events?: { title?: string; type?: string; month?: string; days?: string; time?: string }[] };
   const now = Date.now();
   const endMs = now + days * 86400_000;
   const items: EconCalendarEvent[] = [];
@@ -1091,7 +1101,8 @@ async function fedCalendarEvents(days: number): Promise<EconCalendarEvent[]> {
     const date = `${m[1]}-${m[2]}-${String(day).padStart(2, "0")}`;
     const ts = Date.parse(date + "T00:00:00Z");
     if (!Number.isFinite(ts) || ts < now || ts > endMs) continue;
-    items.push({ date, title: (e.title ?? "").trim() || String(e.type ?? ""), kind: "fed" });
+    const time = normalizeEventTime(e.time);
+    items.push({ date, title: (e.title ?? "").trim() || String(e.type ?? ""), kind: "fed", ...(time ? { time } : {}) });
   }
   return items.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -1115,10 +1126,10 @@ async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarRespo
         const rows = await r2sql(
           env,
           "WITH latest AS (" +
-            "SELECT event_date, title, kind, source, fetched_at, " +
+            "SELECT event_date, title, kind, source, event_time, fetched_at, " +
             "ROW_NUMBER() OVER (PARTITION BY event_date, title ORDER BY fetched_at DESC) rn " +
             "FROM options.econ_calendar) " +
-            `SELECT event_date, title, kind, source FROM latest ` +
+            `SELECT event_date, title, kind, source, event_time FROM latest ` +
             `WHERE rn = 1 AND event_date >= ${lit(start)} AND event_date <= ${lit(end)} ` +
             `ORDER BY event_date, title LIMIT ${R2SQL_LIMIT_MAX}`,
           "econ_lake:" + days,
@@ -1129,6 +1140,7 @@ async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarRespo
             date: String(r.event_date),
             title: String(r.title),
             kind: r.kind === "fed" ? "fed" : "macro",
+            ...(r.event_time ? { time: String(r.event_time) } : {}),
           }));
           lakeProvider = rows.some((r) => r.source === ECON_SOURCE_FRED)
             ? "fred"

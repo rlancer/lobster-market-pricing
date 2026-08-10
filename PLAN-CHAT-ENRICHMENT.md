@@ -187,7 +187,10 @@ shape. Worker has no test runner — verification is `npx wrangler dev` + curl.
   pipeline `cboe_econ_pipeline`, `fred-econ-daily` job, daily ungated). The
   Worker's `/api/econ_calendar` now reads the lake's upcoming window with a
   live-fetch fallback. Historical FOMC rows (2017 → year-end) enable realized
-  binary-event-impact joins against `options.ohlc`. The original caveat — "the
+  binary-event-impact joins against `options.ohlc`. Fed FOMC/Beige rows carry
+  `event_time` (ET "HH:MM", e.g. FOMC decision 14:00, press conference 14:30)
+  surfaced in `/api/econ_calendar` and the `eco_calendar` tool — the macro
+  releases have no time in the FRED API, so theirs is null. The original caveat — "the
   per-symbol earnings table already covers most 'why is vol high' questions" —
   still holds for macro-context chat; the lake table's value is the *historical
   FOMC join key* the live endpoint could never provide.

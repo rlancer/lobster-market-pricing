@@ -198,6 +198,7 @@ export interface EconCalendarEvent {
   date: string;
   title: string;
   kind: 'macro' | 'fed';
+  time?: string; // "HH:MM" ET (24h) — present for FOMC/Beige (Fed calendar)
 }
 
 /** Response of /api/econ_calendar — degrades to `items: []` + `error`. */

@@ -4,6 +4,7 @@
     {"name":"title","type":"string","required":true},
     {"name":"kind","type":"string","required":true},
     {"name":"source","type":"string","required":true},
+    {"name":"event_time","type":"string","required":false},
     {"name":"run_id","type":"string","required":true},
     {"name":"fetched_at","type":"string","required":true}
   ]
