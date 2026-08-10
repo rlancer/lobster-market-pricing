@@ -137,23 +137,6 @@ jobs:
           fi
         working-directory: worker
 
-      # Admin bearer token guarding GET /api/admin/chat_history (the only read
-      # path for the admin-only options.chat_history lake table). Same guarded
-      # pattern: synced here because GitHub secrets are the project's de-facto
-      # secrets manager, and skipped (leaving an existing value intact) until
-      # the GitHub secret exists.
-      - name: Set ADMIN_TOKEN secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.ADMIN_TOKEN }}" ]; then
-            echo "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api
-          else
-            echo "ADMIN_TOKEN not set — skipping (chat history admin endpoint stays closed)"
-          fi
-        working-directory: worker
-
       - name: Deploy screener-api Worker
         uses: cloudflare/wrangler-action@v3
         with:

@@ -346,37 +346,6 @@ export interface FreeQuota {
   model: string;
 }
 
-// ---------------------------------------------------------------------------
-// Copilot chat history (Worker POST /api/chat/history → options.chat_history)
-// ---------------------------------------------------------------------------
-/** One message in a recorded transcript — stripped of bulky UI state (query result tables, chart specs, error stacks). */
-export interface ChatHistoryMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  sql?: string;
-  /** Epoch ms when the message was produced. */
-  ts?: number;
-}
-
-/** Body of POST /api/chat/history. The Worker adds server-side fields (ip, user_agent) and never trusts them from the client. */
-export interface ChatHistoryRecord {
-  /** Per-conversation id (stable across turns; one row per turn records the full conversation so far). */
-  chat_id: string;
-  /** 'free' (site OpenRouter credit) | 'byok' (user key). */
-  mode: 'free' | 'byok';
-  model?: string;
-  started_at: string;
-  ended_at: string;
-  messages: ChatHistoryMessage[];
-}
-
-/** Response of POST /api/chat/history — best-effort; `stored` is false when the pipeline is unavailable (buffered in D1). */
-export interface ChatHistorySaveResponse {
-  ok: boolean;
-  stored: boolean;
-  error?: string;
-}
-
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(API_BASE + path);
   if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
@@ -456,12 +425,6 @@ export const api = {
     sort?: 'symbol' | 'last_success_at' | 'consecutive_failures';
     order?: 'asc' | 'desc';
   }) => get<LoaderSymbolsResponse>(`/loader/symbols${qs(params ?? {})}`),
-  // Save a completed Copilot chat turn to the lake (options.chat_history).
-  // Best-effort: the Worker buffers into D1 when the pipeline hiccups, and
-  // failures are swallowed by the caller — a chat is never blocked by history
-  // persistence. The table itself is admin-only (see /api/admin/chat_history).
-  saveChatHistory: (record: ChatHistoryRecord) =>
-    post<ChatHistorySaveResponse>('/api/chat/history', record),
 };
 
 import { useState, useEffect } from 'react';

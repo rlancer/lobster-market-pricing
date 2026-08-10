@@ -12,19 +12,3 @@ OPEN_ROUTER_KEY=
 
 # Optional override for local dev; defaults to the production loader.
 LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
-
-# Admin bearer token guarding GET /api/admin/chat_history (the only read path
-# for the options.chat_history lake table). Generate a long random value;
-# deployed via `wrangler secret put ADMIN_TOKEN` + a GitHub secret. No value =
-# admin endpoint 401s and /api/query stays closed to chat_history.
-ADMIN_TOKEN=
-
-# Pipeline stream ingest for Copilot chat history (cboe_chat_history_v2) —
-# POST /api/chat/history publishes one record per chat turn to
-# options.chat_history. The URL subdomain is the credential: set as a Worker
-# secret, never commit. Posting without a value is a silent no-op (dev).
-PIPELINE_CHAT_HISTORY_URL=
-
-# Pipelines → Send scoped API token (same value as the loader's
-# PIPELINE_AUTH_TOKEN in the root .env) authorizing the stream ingest POST.
-PIPELINE_AUTH_TOKEN=

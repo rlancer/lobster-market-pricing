@@ -15,7 +15,7 @@ import {
   useChatStreamScroll,
 } from '@astryxdesign/core';
 import { Settings, SquarePen } from 'lucide-react';
-import { api, type ChatHistoryMessage, type ChatHistoryRecord, type FreeQuota, type QueryResult } from './api';
+import { api, type FreeQuota, type QueryResult } from './api';
 import { OpenRouterLogo } from './OpenRouterLogo';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -218,50 +218,6 @@ function AiChat() {
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  // Chat-history capture state (server-side lake record via /api/chat/history).
-  // chatId is per conversation (stable across turns — one lake row per turn
-  // carries the full conversation so far, so an admin can dedupe by chat_id);
-  // startedAt pins the conversation start; msgsRef always mirrors the latest
-  // msgs (the send closure is stale); userMsgRef tracks this turn's user
-  // message so the transcript is built without duplicates.
-  const chatIdRef = useRef<string>(crypto.randomUUID());
-  const startedAtRef = useRef<number | null>(null);
-  const msgsRef = useRef<Msg[]>([]);
-  const userMsgRef = useRef<Msg | null>(null);
-  useEffect(() => {
-    msgsRef.current = msgs;
-  }, [msgs]);
-
-  // Fire-and-forget save of the completed turn to the lake: previous turns +
-  // this turn's user + assistant messages, trimmed to {role, content, sql, ts}
-  // (bulky query-result tables and chart specs stay in the session, not the
-  // lake). Best-effort — failures are swallowed; a chat is never blocked by
-  // history persistence.
-  const saveTranscript = useCallback((assistant: Msg) => {
-    const chatId = chatIdRef.current;
-    if (!chatId) return;
-    const user = userMsgRef.current;
-    const prior = msgsRef.current.filter((m) => m !== user && m.id !== assistant.id);
-    const turns: ChatHistoryMessage[] = [...prior, ...(user ? [user] : []), assistant]
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.sql ? { sql: m.sql } : {}),
-        ...(m.ts ? { ts: m.ts } : {}),
-      }))
-      .slice(-100); // bounds the POST body; the Worker enforces the same cap
-    const record: ChatHistoryRecord = {
-      chat_id: chatId,
-      mode: getApiKey() ? 'byok' : 'free',
-      model: getApiKey() ? getModel() : FREE_MODEL,
-      started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
-      ended_at: new Date().toISOString(),
-      messages: turns,
-    };
-    api.saveChatHistory(record).catch(() => {
-      /* best-effort */
-    });
-  }, []);
 
   // Per-chat data cache ("frames"): named snapshots of query results the agent
   // materializes (run_query save_as) and slices locally (filter_frame). Holds
@@ -392,10 +348,7 @@ function AiChat() {
     setWriting(false);
     setTools([]);
     const now = Date.now();
-    if (startedAtRef.current === null) startedAtRef.current = now;
-    const userMsg: Msg = { id: uid(), role: 'user', content: question, ts: now };
-    userMsgRef.current = userMsg;
-    setMsgs((m) => [...m, userMsg]);
+    setMsgs((m) => [...m, { id: uid(), role: 'user', content: question, ts: now }]);
     setBusy(true);
     setStatus('Starting…');
     try {
@@ -431,9 +384,10 @@ function AiChat() {
           }
         },
       });
-      const assistantMsg: Msg = { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getApiKey() ? getModel() : FREE_MODEL };
-      setMsgs((m) => [...m, assistantMsg]);
-      saveTranscript(assistantMsg);
+      setMsgs((m) => [
+        ...m,
+        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getApiKey() ? getModel() : FREE_MODEL },
+      ]);
       syncFrames();
     } catch (e) {
       // Free credit ran out mid-chat: pivot to the BYOK connect gate (CTA in
@@ -443,9 +397,10 @@ function AiChat() {
         setStatus('Free credit exhausted');
         return;
       }
-      const errorMsg: Msg = { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() };
-      setMsgs((m) => [...m, errorMsg]);
-      saveTranscript(errorMsg);
+      setMsgs((m) => [
+        ...m,
+        { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() },
+      ]);
     } finally {
       setBusy(false);
       setStatus('');
@@ -460,9 +415,6 @@ function AiChat() {
     setFrames([]);
     setMsgs([]);
     setError(null);
-    chatIdRef.current = crypto.randomUUID();
-    startedAtRef.current = null;
-    userMsgRef.current = null;
   };
 
   const openExplorerSql = (sql: string) => {
@@ -525,16 +477,14 @@ function AiChat() {
             </button>
           </div>
           <div className="ai-settings-divider"><span>or paste a key manually</span></div>
-          <p className="ai-free-note">
-            {!getApiKey() && (
-              <>Free chats are paid for by this site's OpenRouter credit — no account needed. </>
-            )}
-            Chat transcripts are stored anonymously (no name, no login) and are only visible to the
-            site owner.
-            {!getApiKey() && quota && quota.remaining > 0 && !quota.is_free_tier && (
-              <> Free credit: ${quota.remaining.toFixed(2)} left.</>
-            )}
-          </p>
+          {!getApiKey() && (
+            <p className="ai-free-note">
+              Free chats are paid for by this site's OpenRouter credit — no account, and we store nothing about you.
+              {quota && quota.remaining > 0 && !quota.is_free_tier && (
+                <> Free credit: ${quota.remaining.toFixed(2)} left.</>
+              )}
+            </p>
+          )}
           <div className="ai-settings-row">
             <label>
               <span>OpenRouter API key <em className="ai-local">stored locally in your browser</em></span>
