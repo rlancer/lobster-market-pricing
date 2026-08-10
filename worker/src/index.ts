@@ -56,6 +56,20 @@ export interface Env {
   // Non-secret base URL of the continuous CBOE loader worker, used by the
   // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
   LOADER_BASE_URL?: string;
+  // Admin bearer token (secret) for GET /api/admin/chat_history — the only
+  // public read path for options.chat_history. The table is excluded from
+  // /api/tables and blocked in /api/query for everyone without this token.
+  ADMIN_TOKEN?: string;
+  // Pipeline stream ingest URL for Copilot chat history (secret; the URL
+  // subdomain is the credential). POST /api/chat/history publishes one
+  // normalized record per chat turn to cboe_chat_history_v2 →
+  // options.chat_history. Same "URL is the credential" model as the loader's
+  // PIPELINE_*_URL secrets.
+  PIPELINE_CHAT_HISTORY_URL?: string;
+  // Pipelines → Send scoped API token (secret, same value as the loader's
+  // PIPELINE_AUTH_TOKEN) authorizing stream ingest POSTs — the streams reject
+  // unrelated tokens with 401 code 1014.
+  PIPELINE_AUTH_TOKEN?: string;
   // D1 cache for the computed lake-schema payload (/api/tables). See
   // worker/migrations/0001_schema_cache.sql and `schemaTables` below.
   SCHEMA_DB: D1Database;
@@ -550,24 +564,36 @@ interface LakeTable {
   sample: Record<string, unknown>[];
 }
 
+// Lake tables that must NEVER surface to users: options.chat_history holds
+// full Copilot transcripts (admin-only by design). Excluded here from the
+// /api/tables payload AND from the background change-probe's name diff (both
+// sides must compare the same filtered set or the probe would see a permanent
+// mismatch and churn a refresh every interval). /api/query separately blocks
+// references to these tables unless the request carries ADMIN_TOKEN.
+const PRIVATE_LAKE_TABLES = new Set(["chat_history"]);
+const PRIVATE_LAKE_TABLES_RE = /\bchat_history\b/;
+const isPublicLakeTable = (name: string): boolean => !PRIVATE_LAKE_TABLES.has(name);
+
 /** Compute the full schema payload straight from the lake (uncached). */
 async function loadLakeTables(env: Env): Promise<LakeTable[]> {
   const list = await r2sql(env, "SHOW TABLES IN options");
   return Promise.all(
-    list.map(async (t): Promise<LakeTable> => {
-      const name = String(t.table_name);
-      const [cols, cnt, sample] = await Promise.all([
-        r2sql(env, `DESCRIBE options.${name}`),
-        r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
-        r2sql(env, `SELECT * FROM options."${name}" LIMIT ${SCHEMA_SAMPLE_LIMIT}`, "tbl_sample_" + name),
-      ]);
-      return {
-        name,
-        row_count: num(cnt[0]?.n),
-        columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
-        sample: sample as Record<string, unknown>[],
-      };
-    }),
+    list
+      .map((t) => String(t.table_name))
+      .filter(isPublicLakeTable)
+      .map(async (name): Promise<LakeTable> => {
+        const [cols, cnt, sample] = await Promise.all([
+          r2sql(env, `DESCRIBE options.${name}`),
+          r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
+          r2sql(env, `SELECT * FROM options."${name}" LIMIT ${SCHEMA_SAMPLE_LIMIT}`, "tbl_sample_" + name),
+        ]);
+        return {
+          name,
+          row_count: num(cnt[0]?.n),
+          columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
+          sample: sample as Record<string, unknown>[],
+        };
+      }),
   );
 }
 
@@ -633,7 +659,10 @@ async function probeLakeSchema(env: Env, payload: string): Promise<void> {
     console.error("schema change probe failed", e);
     return;
   }
-  const tableNames = listed.map((t) => String(t.table_name)).sort();
+  const tableNames = listed
+    .map((t) => String(t.table_name))
+    .filter(isPublicLakeTable)
+    .sort();
   const cachedNames = cached.map((t) => t.name).sort();
   if (tableNames.join("|") !== cachedNames.join("|")) {
     // Table added/removed — skip the column pass, refresh now.
@@ -1324,6 +1353,285 @@ async function freeChat(env: Env, req: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
+// Copilot chat history — capture + admin-only read
+// ---------------------------------------------------------------------------
+// The browser posts each completed chat turn to POST /api/chat/history; the
+// worker normalizes it and publishes one record per turn to the
+// cboe_chat_history_v2 stream → options.chat_history (append-only, one row
+// per turn with the full conversation so far under the conversation's
+// chat_id — consumers keep the newest row per chat_id, the lake's standard
+// latest-wins pattern).
+//
+// Access control. The table is PRIVATE: it is excluded from /api/tables (see
+// PRIVATE_LAKE_TABLES above) and /api/query refuses any SQL referencing it
+// unless the request carries the admin token. The only read path is
+// GET /api/admin/chat_history (Bearer ADMIN_TOKEN) — no admin UI, the
+// endpoint is the admin surface.
+//
+// Capture is best-effort and server-side. `ip` (CF-Connecting-IP) and
+// `user_agent` (request header) are recorded for abuse tracking and are never
+// accepted from the client body. `user_id` is intentionally NOT populated
+// (no login yet) — the column is reserved for the future per-user history
+// feature, where the worker will set it from the auth session, never from the
+// client. When the pipeline publish fails the record is buffered in D1
+// (pending_chat_history, migration 0002) and drained on later calls, so
+// transient pipeline hiccups don't lose transcripts. A chat is never blocked
+// by history persistence: all failures return 2xx to the browser.
+const CHAT_HISTORY_MAX_MESSAGES = 100;
+const CHAT_HISTORY_MAX_CONTENT = 20_000; // chars per message / sql / url
+const CHAT_HISTORY_MAX_AUX = 512; // ip / user_agent / chat_id / model length
+const CHAT_HISTORY_DRAIN_BATCH = 10; // pending rows re-published per call
+const CHAT_HISTORY_MAX_ATTEMPTS = 5; // per pending row, then left for manual
+const PIPELINE_HTTP_RETRIES = 3; // mirror the loader's requestJson retry policy
+const PIPELINE_RETRY_BACKOFF_MS = 500;
+// Hard cap on a single ingest POST so a stalled pipeline can never hold a
+// browser connection slot indefinitely (the browser fires the history save
+// fire-and-forget; a hung fetch would occupy one of Chromium's per-host
+// connections and could delay the user's NEXT api call). Missed ingest →
+// D1 buffer + later drain, so timeout-safe.
+const PIPELINE_POST_TIMEOUT_MS = 10_000;
+const LOADER_UA = "cboe-to-r2/0.2"; // loader User-Agent convention for Pipeline POSTs
+const CHAT_HISTORY_ADMIN_LIMIT_MAX = 500;
+
+function str(v: unknown): string | null {
+  return v == null ? null : String(v);
+}
+
+/** Constant-time string comparison for the admin token (length is not secret). */
+function secureEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.length !== eb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.length; i++) diff |= (ea[i] ?? 0) ^ (eb[i] ?? 0);
+  return diff === 0;
+}
+
+/** True when the request carries the ADMIN_TOKEN bearer secret. */
+function adminAuthorized(req: Request, env: Env): boolean {
+  const expected = env.ADMIN_TOKEN;
+  if (!expected) return false;
+  const header = req.headers.get("Authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  return token.length > 0 && secureEqual(token, expected);
+}
+
+// Get the messages array out of an unknown JSON node (each entry is an object
+// or we throw — a malformed transcript is a client bug, reject it).
+function chatMessageRecord(v: unknown): Record<string, unknown> {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  throw new Error("each message must be an object");
+}
+
+/** Validate + normalize a client transcript into a lake record. Throws on bad input. */
+function normalizeChatHistoryRecord(
+  body: Record<string, unknown>,
+  ip: string,
+  ua: string,
+): Record<string, unknown> {
+  const chatId = str(body.chat_id)?.trim().slice(0, CHAT_HISTORY_MAX_AUX);
+  if (!chatId) throw new Error("chat_id is required");
+  const mode = str(body.mode);
+  if (mode !== "free" && mode !== "byok") throw new Error("mode must be 'free' or 'byok'");
+  const startedAt = str(body.started_at)!;
+  const endedAt = str(body.ended_at)!;
+  if (!startedAt || !endedAt || !Number.isFinite(Date.parse(startedAt)) || !Number.isFinite(Date.parse(endedAt)))
+    throw new Error("started_at and ended_at must be ISO timestamps");
+  if (!Array.isArray(body.messages) || body.messages.length === 0)
+    throw new Error("messages must be a non-empty array");
+
+  // Strip to {role, content, sql?, ts?} — drops bulky UI state (query result
+  // tables, chart specs, error stacks) that would bloat the record and has no
+  // analytic value; content/sql are the history.
+  const messages = body.messages.slice(0, CHAT_HISTORY_MAX_MESSAGES).map((m) => {
+    const rec = chatMessageRecord(m);
+    const role = rec.role;
+    if (role !== "user" && role !== "assistant") throw new Error("each message needs role 'user' | 'assistant'");
+    const out: Record<string, unknown> = {
+      role,
+      content: typeof rec.content === "string" ? rec.content.slice(0, CHAT_HISTORY_MAX_CONTENT) : "",
+    };
+    if (typeof rec.sql === "string" && rec.sql) out.sql = rec.sql.slice(0, CHAT_HISTORY_MAX_CONTENT);
+    if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) out.ts = rec.ts;
+    return out;
+  });
+
+  const record: Record<string, unknown> = {
+    chat_id: chatId,
+    mode,
+    started_at: startedAt,
+    ended_at: endedAt,
+    messages: JSON.stringify(messages),
+    source: "copilot",
+    fetched_at: new Date().toISOString(),
+  };
+  const model = str(body.model)?.trim().slice(0, CHAT_HISTORY_MAX_AUX);
+  if (model) record.model = model;
+  if (ip) record.ip = ip;
+  if (ua) record.user_agent = ua;
+  return record;
+}
+
+// POST a payload to a Pipeline stream with the loader User-Agent, idempotency
+// key and retry/backoff parity with the loader's requestJson (retry only on
+// 5xx/transport; 4xx hard-fails). The idempotency key is only sent when a
+// token is present (same as the loader).
+async function pipelinePost(
+  env: Env,
+  url: string,
+  payload: unknown,
+  idempotencyKey: string,
+): Promise<void> {
+  const authToken = env.PIPELINE_AUTH_TOKEN || "";
+  let lastErr: unknown = new Error("pipeline post failed");
+  for (let attempt = 0; attempt <= PIPELINE_HTTP_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": LOADER_UA,
+          ...(authToken
+            ? { authorization: `Bearer ${authToken}`, "idempotency-key": idempotencyKey }
+            : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(PIPELINE_POST_TIMEOUT_MS),
+      });
+      if (res.ok) return;
+      if (res.status < 500) throw new Error(`pipeline rejected record (HTTP ${res.status})`);
+      lastErr = new Error(`pipeline HTTP ${res.status}`);
+    } catch (e) {
+      lastErr = e;
+    }
+    if (attempt < PIPELINE_HTTP_RETRIES) {
+      await new Promise((r) => setTimeout(r, PIPELINE_RETRY_BACKOFF_MS * 2 ** attempt));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+// Re-publish buffered pending_chat_history rows (oldest first), deleting each
+// row once the pipeline accepts it. Failures increment `attempts` (capped at
+// CHAT_HISTORY_MAX_ATTEMPTS; beyond the cap the row is left for manual
+// inspection). Never throws — run via ctx.waitUntil.
+async function drainPendingChatHistory(env: Env): Promise<void> {
+  if (!env.PIPELINE_CHAT_HISTORY_URL) return;
+  try {
+    const rows = await env.SCHEMA_DB.prepare(
+      "SELECT id, chat_id, payload, attempts FROM pending_chat_history ORDER BY created_at ASC LIMIT ?1",
+    ).bind(CHAT_HISTORY_DRAIN_BATCH).all<{ id: number; chat_id: string; payload: string; attempts: number }>();
+    for (const row of rows.results ?? []) {
+      try {
+        await pipelinePost(env, env.PIPELINE_CHAT_HISTORY_URL, JSON.parse(row.payload), `chat:${row.chat_id}`);
+        await env.SCHEMA_DB.prepare("DELETE FROM pending_chat_history WHERE id = ?1").bind(row.id).run();
+      } catch (e) {
+        console.error("pending chat-history re-publish failed", e);
+        if (row.attempts < CHAT_HISTORY_MAX_ATTEMPTS) {
+          await env.SCHEMA_DB.prepare(
+            "UPDATE pending_chat_history SET attempts = attempts + 1 WHERE id = ?1",
+          ).bind(row.id).run();
+        }
+      }
+    }
+  } catch (e) {
+    console.error("pending chat-history drain failed", e);
+  }
+}
+
+/** POST /api/chat/history — capture one completed chat turn into the lake. */
+async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json() as Record<string, unknown>;
+  } catch {
+    return json(env, { ok: false, error: "invalid JSON body" }, 400);
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return json(env, { ok: false, error: "invalid JSON body" }, 400);
+  }
+
+  // Abuse-tracking metadata is captured server-side only — never trusted from
+  // the client body. CF-Connecting-IP is set by Cloudflare on every request.
+  const ip = (req.headers.get("CF-Connecting-IP") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
+  const ua = (req.headers.get("User-Agent") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
+
+  let record: Record<string, unknown>;
+  try {
+    record = normalizeChatHistoryRecord(body, ip, ua);
+  } catch (e) {
+    return json(env, { ok: false, error: String((e && (e as Error).message) || e) }, 400);
+  }
+
+  if (!env.PIPELINE_CHAT_HISTORY_URL) {
+    // Not configured (local dev without secrets): accept the turn silently so
+    // history capture never breaks a chat.
+    return json(env, { ok: true, stored: false }, 200);
+  }
+
+  try {
+    await pipelinePost(env, env.PIPELINE_CHAT_HISTORY_URL, [record], `chat:${String(record.chat_id)}`);
+  } catch (e) {
+    // Pipeline hiccup — buffer for a later drain instead of dropping.
+    console.error(`chat history publish failed for ${String(record.chat_id)}`, e);
+    try {
+      await env.SCHEMA_DB.prepare(
+        "INSERT INTO pending_chat_history (chat_id, payload, attempts, created_at) VALUES (?1, ?2, 0, ?3)",
+      ).bind(record.chat_id, JSON.stringify(record), Date.now()).run();
+    } catch (dbErr) {
+      console.error("pending chat-history buffer failed", dbErr);
+    }
+    return json(env, { ok: true, stored: false, error: "pipeline unavailable; buffered for retry" }, 202);
+  }
+  ctx.waitUntil(drainPendingChatHistory(env));
+  return json(env, { ok: true, stored: true });
+}
+
+/** GET /api/admin/chat_history — newest-first transcripts (Bearer ADMIN_TOKEN). */
+async function adminChatHistory(
+  env: Env,
+  limitIn: number,
+  beforeIn: string | null,
+): Promise<{
+  ok: boolean;
+  limit: number;
+  before: string | null;
+  items: { chat_id: string; mode: string; model: string | null; user_id: string | null; ip: string | null; user_agent: string | null; started_at: string; ended_at: string; source: string; fetched_at: string; messages: unknown }[];
+  as_of: string;
+}> {
+  const limit = clamp(limitIn || 100, 1, CHAT_HISTORY_ADMIN_LIMIT_MAX);
+  const before = beforeIn && Number.isFinite(Date.parse(beforeIn)) ? beforeIn : null;
+  // No cache key: rows land within seconds of a chat, so admin reads must be
+  // live. `before` is an ISO fetched_at cursor (R2 SQL has no OFFSET).
+  const where = before ? `WHERE fetched_at < ${lit(before)}` : "";
+  const rows = await r2sql(env,
+    `SELECT chat_id, mode, model, user_id, ip, user_agent, started_at, ended_at, messages, source, fetched_at ` +
+    `FROM options.chat_history ${where} ORDER BY fetched_at DESC LIMIT ${limit}`);
+  const items = rows.map((r) => {
+    let messages: unknown = null;
+    try {
+      messages = JSON.parse(String(r.messages ?? "null"));
+    } catch {
+      messages = null;
+    }
+    return {
+      chat_id: String(r.chat_id),
+      mode: String(r.mode),
+      model: strOrNull(r.model),
+      user_id: strOrNull(r.user_id),
+      ip: strOrNull(r.ip),
+      user_agent: strOrNull(r.user_agent),
+      started_at: String(r.started_at),
+      ended_at: String(r.ended_at),
+      source: String(r.source),
+      fetched_at: String(r.fetched_at),
+      messages,
+    };
+  });
+  return { ok: true, limit, before, items, as_of: new Date().toISOString() };
+}
+
+// ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -1437,7 +1745,21 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   if (path === "/api/query" && req.method === "POST") {
     const body = await req.json() as { sql?: string; limit?: number };
-    return json(env, await runQuery(env, body.sql ?? "", body.limit ?? 1000));
+    const sql = body.sql ?? "";
+    // Private tables (options.chat_history) are admin-only: block any SQL that
+    // references them unless the request carries ADMIN_TOKEN.
+    if (!adminAuthorized(req, env) && PRIVATE_LAKE_TABLES_RE.test(sql.toLowerCase())) {
+      return json(env, { error: "query references a private table" }, 403);
+    }
+    return json(env, await runQuery(env, sql, body.limit ?? 1000));
+  }
+
+  // Copilot chat history: capture (open, best-effort) + admin-only read.
+  if (path === "/api/chat/history" && req.method === "POST")
+    return await saveChatHistory(env, ctx, req);
+  if (path === "/api/admin/chat_history" && req.method === "GET") {
+    if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
+    return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
   }
 
   // Free anonymous chats on the site's OpenRouter credit.
