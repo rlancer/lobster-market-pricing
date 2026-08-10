@@ -1,0 +1,81 @@
+name: Force loader pass (market-closed override)
+
+# One-click operator lever to run loader passes while the US market is closed
+# (e.g. backfill the closing session's CBOE data) without flipping
+# MARKET_HOURS_ENABLED=false on the Worker. Dispatches
+# `POST /jobs/{job}/trigger?force=1` against the cboe-to-r2 loader — one pass
+# per call, token-protected at the Worker edge using the LOADER_TOKEN GitHub
+# secret (never printed, never needed locally). The loader loop resumes its
+# normal wake/sleep schedule afterwards.
+#
+# Each pass processes up to LOADER_BATCH_SIZE (40) due items; a job with more
+# due items (e.g. 80 newly added universe symbols) needs a second pass — set
+# `passes` accordingly or just dispatch again. See loader/AGENTS.md
+# "Market-closed override".
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Loader job to force'
+        type: choice
+        options:
+          - cboe-options
+          - ohlc-backfill
+          - ohlc-daily
+          - earnings-daily
+          - fred-econ-daily
+        default: cboe-options
+      passes:
+        description: 'Number of forced passes to run (each handles up to 40 due items)'
+        type: number
+        default: 2
+
+permissions:
+  contents: read
+
+jobs:
+  force-pass:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Force loader pass(es)
+        env:
+          LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+          LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+          JOB: ${{ inputs.job }}
+          PASSES: ${{ inputs.passes }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LOADER_TOKEN:-}" ]; then
+            echo "::error::LOADER_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          for i in $(seq 1 "$PASSES"); do
+            echo "== forced pass $i/$PASSES: $JOB?force=1 =="
+            resp=$(curl -sS -X POST \
+              -H "Authorization: Bearer $LOADER_TOKEN" \
+              -w '\n__HTTP_%{http_code}' \
+              "$LOADER_URL/jobs/$JOB/trigger?force=1")
+            body="${resp%__HTTP_*}"
+            code="${resp##*__HTTP_}"
+            echo "$body"
+            if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+              echo "::error::pass $i returned HTTP $code — did not complete"
+              exit 1
+            fi
+            sleep 5  # let D1 settle between passes so each sees the updated due set
+          done
+
+      - name: Report job status
+        env:
+          LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+          JOB: ${{ inputs.job }}
+        run: |
+          {
+            echo "## Forced pass summary — \`$JOB\`"
+            echo '```json'
+            curl -sS "$LOADER_URL/jobs/$JOB"
+            echo '```'
+            echo "Next regular loop pass depends on the job's own cadence and the"
+            echo "market-hours gate (see loader/AGENTS.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
