@@ -44,7 +44,7 @@ lobster-market-pricing/
     ├── src/index.js         # Worker endpoint + Container routing (cboe-to-r2)
     ├── container/loader.py  # CBOE fetch, OCC normalization, batching, refresh publication
     ├── tools/load_sp500.py  # resumable symbol driver (one-shot loads)
-    ├── tools/refresh_universe.py  # rebuild symbols/universe.json (see PLAN-UNIVERSE.md)
+    ├── tools/refresh_universe.py  # rebuild symbols/universe.json (see loader/AGENTS.md)
     ├── symbols/             # universe.json (S&P 500 + Nasdaq-100 + ETFs) + sp500.json constituents
     ├── schemas/             # Pipeline input schemas
     ├── Dockerfile           # container image (Python 3.12)
