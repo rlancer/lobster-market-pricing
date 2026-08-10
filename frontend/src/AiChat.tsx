@@ -436,9 +436,11 @@ function AiChat() {
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
         <section className="ai-head-actions">
-          <Tooltip content={getApiKey() ? 'OpenRouter connected' : 'OpenRouter not connected'} hasHoverIndication={false}>
-            <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} />
-          </Tooltip>
+          {getApiKey() && (
+            <Tooltip content="OpenRouter connected" hasHoverIndication={false}>
+              <span className="ai-key-dot ok" />
+            </Tooltip>
+          )}
           {getApiKey() && (
             <span className="ai-head-model">
               <Selector
