@@ -1373,10 +1373,12 @@ async function freeChat(env: Env, req: Request): Promise<Response> {
 // accepted from the client body. `user_id` is intentionally NOT populated
 // (no login yet) — the column is reserved for the future per-user history
 // feature, where the worker will set it from the auth session, never from the
-// client. When the pipeline publish fails the record is buffered in D1
-// (pending_chat_history, migration 0002) and drained on later calls, so
-// transient pipeline hiccups don't lose transcripts. A chat is never blocked
-// by history persistence: all failures return 2xx to the browser.
+// client. Records are buffered in D1 (pending_chat_history, migration 0002)
+// BEFORE the response and published in a background waitUntil task, so the
+// pipeline's occasionally-slow ingest never holds a browser connection slot;
+// failures leave the row pending and a later call drains it (no transcript
+// loss). A chat is never blocked by history persistence: all failures return
+// 2xx to the browser.
 const CHAT_HISTORY_MAX_MESSAGES = 100;
 const CHAT_HISTORY_MAX_CONTENT = 20_000; // chars per message / sql / url
 const CHAT_HISTORY_MAX_AUX = 512; // ip / user_agent / chat_id / model length
@@ -1511,10 +1513,27 @@ async function pipelinePost(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
-// Re-publish buffered pending_chat_history rows (oldest first), deleting each
-// row once the pipeline accepts it. Failures increment `attempts` (capped at
-// CHAT_HISTORY_MAX_ATTEMPTS; beyond the cap the row is left for manual
-// inspection). Never throws — run via ctx.waitUntil.
+// Publish ONE pending row, deleting it once the pipeline accepts the record.
+// Failures increment `attempts` (capped at CHAT_HISTORY_MAX_ATTEMPTS; beyond
+// the cap the row is left for manual inspection). Returns nothing — errors
+// are logged and absorbed (this runs in the background).
+async function publishPendingRow(env: Env, row: { id: number; chat_id: string; payload: string; attempts: number }): Promise<void> {
+  if (!env.PIPELINE_CHAT_HISTORY_URL) return;
+  try {
+    await pipelinePost(env, env.PIPELINE_CHAT_HISTORY_URL, JSON.parse(row.payload), `chat:${row.chat_id}`);
+    await env.SCHEMA_DB.prepare("DELETE FROM pending_chat_history WHERE id = ?1").bind(row.id).run();
+  } catch (e) {
+    console.error("pending chat-history publish failed", e);
+    if (row.attempts < CHAT_HISTORY_MAX_ATTEMPTS) {
+      await env.SCHEMA_DB.prepare(
+        "UPDATE pending_chat_history SET attempts = attempts + 1 WHERE id = ?1",
+      ).bind(row.id).run();
+    }
+  }
+}
+
+// Re-publish buffered pending_chat_history rows (oldest first). Never throws —
+// run via ctx.waitUntil.
 async function drainPendingChatHistory(env: Env): Promise<void> {
   if (!env.PIPELINE_CHAT_HISTORY_URL) return;
   try {
@@ -1522,24 +1541,24 @@ async function drainPendingChatHistory(env: Env): Promise<void> {
       "SELECT id, chat_id, payload, attempts FROM pending_chat_history ORDER BY created_at ASC LIMIT ?1",
     ).bind(CHAT_HISTORY_DRAIN_BATCH).all<{ id: number; chat_id: string; payload: string; attempts: number }>();
     for (const row of rows.results ?? []) {
-      try {
-        await pipelinePost(env, env.PIPELINE_CHAT_HISTORY_URL, JSON.parse(row.payload), `chat:${row.chat_id}`);
-        await env.SCHEMA_DB.prepare("DELETE FROM pending_chat_history WHERE id = ?1").bind(row.id).run();
-      } catch (e) {
-        console.error("pending chat-history re-publish failed", e);
-        if (row.attempts < CHAT_HISTORY_MAX_ATTEMPTS) {
-          await env.SCHEMA_DB.prepare(
-            "UPDATE pending_chat_history SET attempts = attempts + 1 WHERE id = ?1",
-          ).bind(row.id).run();
-        }
-      }
+      await publishPendingRow(env, row);
     }
   } catch (e) {
     console.error("pending chat-history drain failed", e);
   }
 }
 
-/** POST /api/chat/history — capture one completed chat turn into the lake. */
+/**
+ * POST /api/chat/history — capture one completed chat turn into the lake.
+ *
+ * Durability-first: the normalized record is buffered in D1 (pending_chat_history)
+ * BEFORE the response, then published to the pipeline in a background
+ * waitUntil task (the pipeline POST can take ~1s — occasionally much longer —
+ * and must never hold the browser's connection slot: the browser fires this
+ * fire-and-forget and other API calls share Chromium's per-host connections).
+ * A background failure leaves the row pending (attempts+1); a later
+ * /api/chat/history call's drain re-publishes it, so no transcript is lost.
+ */
 async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): Promise<Response> {
   let body: Record<string, unknown>;
   try {
@@ -1569,21 +1588,26 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
     return json(env, { ok: true, stored: false }, 200);
   }
 
+  let rowId: number;
+  let payload: string;
   try {
-    await pipelinePost(env, env.PIPELINE_CHAT_HISTORY_URL, [record], `chat:${String(record.chat_id)}`);
-  } catch (e) {
-    // Pipeline hiccup — buffer for a later drain instead of dropping.
-    console.error(`chat history publish failed for ${String(record.chat_id)}`, e);
-    try {
-      await env.SCHEMA_DB.prepare(
-        "INSERT INTO pending_chat_history (chat_id, payload, attempts, created_at) VALUES (?1, ?2, 0, ?3)",
-      ).bind(record.chat_id, JSON.stringify(record), Date.now()).run();
-    } catch (dbErr) {
-      console.error("pending chat-history buffer failed", dbErr);
-    }
-    return json(env, { ok: true, stored: false, error: "pipeline unavailable; buffered for retry" }, 202);
+    payload = JSON.stringify(record);
+    const inserted = await env.SCHEMA_DB.prepare(
+      "INSERT INTO pending_chat_history (chat_id, payload, attempts, created_at) VALUES (?1, ?2, 0, ?3)",
+    ).bind(record.chat_id, payload, Date.now()).run();
+    rowId = Number(inserted.meta.last_row_id);
+  } catch (dbErr) {
+    // D1 down — drop the record rather than hold the request (capture is
+    // best-effort by design; a chat is never blocked by history persistence).
+    console.error("pending chat-history buffer failed", dbErr);
+    return json(env, { ok: true, stored: false, error: "buffer unavailable" }, 202);
   }
-  ctx.waitUntil(drainPendingChatHistory(env));
+
+  // Background publish (new row first, then any backlog) — never in the path.
+  ctx.waitUntil((async () => {
+    await publishPendingRow(env, { id: rowId, chat_id: String(record.chat_id), payload, attempts: 0 });
+    await drainPendingChatHistory(env);
+  })());
   return json(env, { ok: true, stored: true });
 }
 
