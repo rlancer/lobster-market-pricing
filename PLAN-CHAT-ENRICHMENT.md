@@ -181,7 +181,7 @@ shape. Worker has no test runner — verification is `npx wrangler dev` + curl.
 
 ## Phase 4 — Calendar extras
 
-- **Economic / FOMC calendar — DONE (2026-08-10, PR #??)**: FRED per-release
+- **Economic / FOMC calendar — DONE (2026-08-10, PR #66)**: FRED per-release
   `release/dates` (singular, per allowlisted `release_id`) + Fed calendar JSON →
   `options.econ_calendar` (stream `cboe_econ_v2`, sink `cboe_econ_sink`,
   pipeline `cboe_econ_pipeline`, `fred-econ-daily` job, daily ungated). The
