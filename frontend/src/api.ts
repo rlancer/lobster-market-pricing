@@ -335,7 +335,15 @@ export interface LoaderSymbolsResponse {
 // the deployed Worker URL; in local dev it can point at `http://127.0.0.1:8787`
 // or be left empty to use the Vite `/api` proxy.
 // ---------------------------------------------------------------------------
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? '';
+export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? '';
+
+/** Free anonymous chat credit (Worker /api/free/quota). */
+export interface FreeQuota {
+  remaining: number;
+  limit: number;
+  is_free_tier: boolean;
+  model: string;
+}
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(API_BASE + path);
@@ -405,6 +413,9 @@ export const api = {
     limit?: number;
   }) => get<PremiumNotebook>(`/api/notebook/premium${qs(params)}`),
   loaderStatus: () => get<LoaderStatus>('/loader/status'),
+  // Free anonymous chat credit (site OpenRouter key): remaining/limit model the
+  // gate; 402 free_credit_exhausted from /api/free/* pivots the UI to BYOK.
+  freeQuota: () => get<FreeQuota>('/api/free/quota'),
   loaderSymbols: (params?: {
     filter?: LoaderFilter;
     q?: string;

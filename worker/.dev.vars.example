@@ -4,5 +4,11 @@
 
 R2_SQL_TOKEN=
 
+# OpenRouter site key funding free anonymous Copilot chats (/api/free/*).
+# Mirror the value from the root `.env` OPEN_ROUTER_KEY. Deployed as a Worker
+# secret (`wrangler secret put OPEN_ROUTER_KEY`) + a GitHub secret for redeploys.
+# Never commit the value.
+OPEN_ROUTER_KEY=
+
 # Optional override for local dev; defaults to the production loader.
 LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev

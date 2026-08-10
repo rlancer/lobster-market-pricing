@@ -1,7 +1,11 @@
 // AI copilot for the options screener.
-// Runs entirely client-side (BYOK): the user's OpenRouter API key is stored in
-// localStorage and sent directly from the browser to OpenRouter — no backend
-// proxy, no per-user billing for the site owner.
+// Two modes:
+//   - BYOK (default): the user's OpenRouter API key lives in localStorage and
+//     goes straight from the browser to OpenRouter — no server in that path.
+//   - Free (no key): chats are funded by the site's OpenRouter credit through
+//     the Worker proxy (/api/free/v1, model pinned + allowlisted, max_tokens
+//     clamped). The metered Tavily tools (get_news / web_search) are excluded;
+//     402 free_credit_exhausted pivots the UI to the BYOK connect gate.
 //
 // Flow per question (TanStack AI agent loop):
 //   1. Gather schema context (tables, columns, types, row counts, sample rows)
@@ -22,12 +26,18 @@ import { chat, toolDefinition, maxIterations } from '@tanstack/ai';
 import { OpenAICompatibleChatAdapter } from '@tanstack/ai-openai/compatible';
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { api } from './api';
+import { api, API_BASE } from './api';
 import type { QueryResult } from './api';
 import type { ChartSpec } from './Chart';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const APP_TITLE = 'Open Interest Options Workspace';
+
+// Free-tier chat model: the site's OpenRouter key funds anonymous chats
+// through the Worker proxy (/api/free/v1). Pinned to the priced alias so the
+// free tier follows OpenRouter price/availability drops; the Worker
+// re-validates it server-side (allowlist) and clamps max_tokens.
+export const FREE_MODEL = '~deepseek/deepseek-v4-flash-latest';
 
 // ---------------------------------------------------------------------------
 // Per-chat data cache ("frames")
@@ -1143,7 +1153,7 @@ interface AgentCapture {
   chart: ChartSpec | null;
 }
 
-function systemPrompt(schemaPrompt: string): string {
+function systemPrompt(schemaPrompt: string, freeMode = false): string {
   return [
     'You are a senior quant developer writing DataFusion SQL (R2 SQL) against an options market Iceberg lake.',
     '',
@@ -1180,11 +1190,23 @@ function systemPrompt(schemaPrompt: string): string {
     '  realized_vol_30d / realized_vol_90d); (2) binary events: check',
     '  options.earnings for upcoming reports — earnings_date + time +',
     '  eps_forecast, roughly earnings_date BETWEEN CURRENT_DATE AND',
-    '  CURRENT_DATE + 14; (3) narrative: call get_news for the symbol(s) and',
-    '  cite the headlines you use.',
-    '- For analyst/market commentary beyond one ticker (sector themes, macro',
-    '  reactions, "what happened" questions), call web_search and cite the',
-    '  links you use.',
+    '  CURRENT_DATE + 14;' +
+      (freeMode
+        ? ' (3) narrative: web search and news are unavailable in the free tier —' +
+          '  explain the move from the data (realized vs implied vol, earnings,' +
+          '  corporate actions) without claiming a headline or search source.'
+        : ' (3) narrative: call get_news for the symbol(s) and' +
+          '  cite the headlines you use.'),
+    ...(freeMode
+      ? [
+          '- Web search and get_news are NOT available in the free tier — do not',
+          '  call them; answer from the lake data and the tools you have.',
+        ]
+      : [
+          '- For analyst/market commentary beyond one ticker (sector themes, macro',
+          '  reactions, "what happened" questions), call web_search and cite the',
+          '  links you use.',
+        ]),
     '- options.corporate_actions holds historical dividends (amount, ex_date)',
     '  and splits — mention recent ones when relevant.',
     '',
@@ -1235,6 +1257,7 @@ async function runAgent(
   schema: SchemaContext,
   session: ChatSession,
   capture: AgentCapture,
+  freeMode: boolean,
   onStatus?: AskCallbacks['onStatus'],
   onProgress?: AskCallbacks['onProgress'],
 ): Promise<string> {
@@ -1469,8 +1492,12 @@ async function runAgent(
 
   const adapter = new ReasoningCompatibleTextAdapter(
     new OpenAI({
-      baseURL: OPENROUTER_BASE,
-      apiKey,
+      // Free path: no browser key, so the request proxies through the Worker's
+      // /api/free/v1 (site-key-funded, model allowlisted server-side) with a
+      // dummy apiKey that the proxy drops. BYOK: the user's key goes straight
+      // to OpenRouter — no server in that path could leak it.
+      baseURL: freeMode ? `${API_BASE}/api/free/v1` : OPENROUTER_BASE,
+      apiKey: freeMode ? 'free' : apiKey,
       // BYOK: the key is owned by the user, stored only in their browser, and
       // sent straight to OpenRouter — there is no server in this AI path that
       // could leak it. That is exactly the case `dangerouslyAllowBrowser` is for
@@ -1501,14 +1528,22 @@ async function runAgent(
     },
   ];
 
+  // Free tier excludes the metered Tavily tools (get_news / web_search hit our
+  // Tavily key — free users must not burn the 1,000-credit monthly pool). The
+  // cheap tools (FRED is keyless-free) stay.
+  const tools = [
+    runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, ecoCalendar,
+    ...(freeMode ? [] : [getNews, webSearch]),
+  ];
+
   const stream = chat({
     adapter,
     messages,
     // systemPrompt is threaded via the `systemPrompts` option, NOT a system
     // message: TanStack AI's message conversion deliberately drops role:'system'
     // UIMessages and ModelMessage has no 'system' role.
-    systemPrompts: [systemPrompt(schemaPrompt)],
-    tools: [runQuery, checkSchema, listFrames, filterFrame, refreshFrame, renderChart, getNews, ecoCalendar, webSearch],
+    systemPrompts: [systemPrompt(schemaPrompt, freeMode)],
+    tools,
     // More tools + multi-step slice/chart workflows need a slightly larger budget.
     agentLoopStrategy: maxIterations(10),
     modelOptions: {
@@ -1685,6 +1720,24 @@ function evToolName(ev: { toolCallName?: unknown; toolName?: unknown }): string 
   return typeof n === 'string' ? n : undefined;
 }
 
+/**
+ * The site's free-chat credit ran out (Worker 402 free_credit_exhausted).
+ * The UI pivots to the BYOK connect gate instead of showing a generic failure.
+ */
+export class FreeCreditExhausted extends Error {
+  constructor(message = "Free credit's out — connect OpenRouter to keep chatting") {
+    super(message);
+    this.name = 'FreeCreditExhausted';
+  }
+}
+
+/** True for a 402 credit-exhausted failure from the free proxy (any shape). */
+function isCreditExhaustedError(e: unknown): boolean {
+  if (e && typeof e === 'object' && 'status' in e && e.status === 402) return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.includes('free_credit_exhausted') || msg.includes('402');
+}
+
 export interface AskCallbacks {
   onStatus?: (status: string) => void;
   onProgress?: (p: AgentProgress) => void;
@@ -1704,9 +1757,11 @@ export async function askAi(
   opts: AskCallbacks = {},
 ): Promise<AskResult> {
   const apiKey = getApiKey();
-  if (!apiKey) throw new Error('No API key configured. Set it in the settings panel first.');
-
-  const model = getModel();
+  // No browser key → free chat on the site's OpenRouter credit, proxied by the
+  // Worker (/api/free/v1). BYOK users never touch the free path.
+  const freeMode = !apiKey;
+  // Free path ignores the model picker: the proxy pins + re-validates FREE_MODEL.
+  const model = freeMode ? FREE_MODEL : getModel();
   const capture: AgentCapture = { sql: null, result: null, chart: null };
 
   const emitStatus = (s: string) => {
@@ -1725,8 +1780,11 @@ export async function askAi(
   emitStatus('Reasoning over the data…');
   let answer: string;
   try {
-    answer = await runAgent(question, apiKey, model, schema, session, capture, opts.onStatus, opts.onProgress);
+    answer = await runAgent(question, apiKey, model, schema, session, capture, freeMode, opts.onStatus, opts.onProgress);
   } catch (e) {
+    // 402 free_credit_exhausted must always surface — even mid-chat after a
+    // successful tool call — so the UI pivots to the connect gate.
+    if (freeMode && isCreditExhaustedError(e)) throw new FreeCreditExhausted();
     // If the agent itself errored but a query already ran, still surface the
     // (partial) result rather than dropping it.
     if (capture.result) {

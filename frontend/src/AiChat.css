@@ -51,6 +51,27 @@
   opacity: 0.45;
   cursor: default;
 }
+
+/* Free-tier credit chip (no key): balance left on the site's OpenRouter key. */
+.ai-free-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  color: var(--color-success);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+/* Settings privacy note for free anonymous chats. */
+.ai-free-note {
+  margin: var(--spacing-2) 0 var(--spacing-0);
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
 .ai-remove { color: var(--color-error); }
 .ai-remove:hover:not(:disabled) { border-color: var(--color-error); }
 

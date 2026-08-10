@@ -39,6 +39,20 @@ export interface Env {
   // schedule (FOMC, CPI, PCE, jobs, …); without it, the endpoint falls back to
   // the Federal Reserve's keyless calendar JSON (FOMC + Beige Book only).
   FRED_API_KEY?: string;
+  // OpenRouter site key (secret) funding free anonymous Copilot chats
+  // (/api/free/*). Mirrored into worker/.dev.vars for local `wrangler dev` and
+  // set as a Worker secret (+ GitHub secret for redeploys); never sent to the
+  // browser. The free proxy forwards with this Bearer and drops any client
+  // Authorization header.
+  OPEN_ROUTER_KEY: string;
+  // Free-chat config: pinned model alias (allowlisted server-side — the only
+  // model the free proxy accepts) and the per-chat output-token cap
+  // (reasoning tokens count against it on OpenRouter). Both non-secret vars.
+  FREE_MODEL?: string;
+  FREE_MAX_OUTPUT_TOKENS?: string;
+  // Dev/test override: "1" forces the free-chat credit gate closed (402) so
+  // the exhausted path can be verified / e2e'd without draining the key.
+  FREE_CREDIT_EXHAUSTED?: string;
   // Non-secret base URL of the continuous CBOE loader worker, used by the
   // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
   LOADER_BASE_URL?: string;
@@ -1115,6 +1129,146 @@ function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, 
 function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr)).sort(); }
 
 // ---------------------------------------------------------------------------
+// Free anonymous chats — /api/free/*
+// ---------------------------------------------------------------------------
+// Every visitor can chat in the Copilot for free, funded by the site's own
+// OpenRouter key (OPEN_ROUTER_KEY secret). The throttle is the *credit on that
+// key*, not a per-user quota: open iff the live balance is positive and the
+// key carries purchased credits (!is_free_tier — an unfunded key would serve
+// OpenRouter's 50 req/day free tier, not our credit, so it counts as
+// exhausted). Balance is read live from /auth/key and cached in-isolate ~60s,
+// so the gate is soft (worst-case overshoot between checks is pennies) and
+// topping the key back up re-opens free mode with no redeploy. Exhausted ⇒
+// 402 { error: { code: "free_credit_exhausted" } }; the browser pivots to the
+// BYOK connect gate. No fingerprint, no D1 rows, no per-user counting — the
+// OpenRouter dashboard + this quota endpoint are the accounting.
+//
+// The proxy is a byte-level OpenAI-compatible pass-through (stream: true
+// always) so the browser's TanStack AI loop, tool parsing and streaming UI
+// work unchanged. The client Authorization header is never read — only
+// OPEN_ROUTER_KEY is ever forwarded. The client only ever targets
+// FREE_MODEL (allowlisted) and max_tokens is clamped to the per-chat spend
+// cap; reasoning tokens count against it on OpenRouter.
+const FREE_MODEL_DEFAULT = '~deepseek/deepseek-v4-flash-latest';
+const FREE_MAX_OUTPUT_TOKENS_DEFAULT = 4096;
+const FREE_QUOTA_TTL_MS = 60 * 1000;
+const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1';
+const FREE_QUOTA_KEY = 'free:quota';
+
+function freeModel(env: Env): string {
+  return env.FREE_MODEL?.trim() || FREE_MODEL_DEFAULT;
+}
+
+function freeMaxOutputTokens(env: Env): number {
+  const v = Number(env.FREE_MAX_OUTPUT_TOKENS);
+  return Number.isFinite(v) && v > 0 ? Math.round(v) : FREE_MAX_OUTPUT_TOKENS_DEFAULT;
+}
+
+interface FreeCredit {
+  remaining: number;
+  limit: number;
+  is_free_tier: boolean;
+}
+
+/** Live balance on the site key, cached in-isolate ~60s (only successes cache). */
+async function freeCredit(env: Env): Promise<FreeCredit> {
+  return cached<FreeCredit>(FREE_QUOTA_KEY, FREE_QUOTA_TTL_MS, async () => {
+    const res = await fetch(`${OPENROUTER_API_URL}/auth/key`, {
+      headers: { Authorization: `Bearer ${env.OPEN_ROUTER_KEY}` },
+    });
+    if (!res.ok) throw new Error(`OpenRouter key check failed (${res.status})`);
+    const j = (await res.json()) as {
+      data?: { usage?: number; limit?: number; limit_remaining?: number; is_free_tier?: boolean };
+    };
+    const d = j.data ?? {};
+    const limit = typeof d.limit === 'number' ? d.limit : -1;
+    const remaining =
+      typeof d.limit_remaining === 'number'
+        ? d.limit_remaining
+        : limit >= 0 && typeof d.usage === 'number'
+          ? limit - d.usage
+          : 0;
+    return { remaining, limit, is_free_tier: d.is_free_tier === true };
+  });
+}
+
+/** True when anonymous chats may run: funded key with positive balance. */
+function freeGateOpen(credit: FreeCredit, env: Env): boolean {
+  if (env.FREE_CREDIT_EXHAUSTED === '1') return false;
+  return credit.remaining > 0 && !credit.is_free_tier;
+}
+
+function freeQuotaPayload(env: Env): Promise<{ remaining: number; limit: number; is_free_tier: boolean; model: string }> {
+  return freeCredit(env).then((credit) => ({
+    remaining: freeGateOpen(credit, env) ? Math.max(0, credit.remaining) : 0,
+    limit: credit.limit,
+    is_free_tier: credit.is_free_tier,
+    model: freeModel(env),
+  }));
+}
+
+/**
+ * POST /api/free/v1/chat/completions — OpenAI-compatible SSE pass-through on
+ * the site key. Forces model = FREE_MODEL (allowlist: reject any other),
+ * clamps max_tokens to the spend cap, forces stream: true, and never forwards
+ * a client Authorization header (the API key field is stripped too). Returns
+ * the upstream response through cors(); body untouched.
+ */
+async function freeChat(env: Env, req: Request): Promise<Response> {
+  const credit = await freeCredit(env);
+  if (!freeGateOpen(credit, env)) {
+    return json(env, { error: { code: 'free_credit_exhausted', remaining: 0 } }, 402);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return json(env, { error: 'invalid JSON body' }, 400);
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return json(env, { error: 'invalid JSON body' }, 400);
+  }
+
+  const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
+  if (requestedModel && requestedModel !== freeModel(env)) {
+    return json(env, { error: `model not allowed on the free tier (only ${freeModel(env)})` }, 400);
+  }
+
+  const maxTokens = typeof body.max_tokens === 'number' && Number.isFinite(body.max_tokens)
+    ? Math.min(Math.max(Math.round(body.max_tokens), 1), freeMaxOutputTokens(env))
+    : freeMaxOutputTokens(env);
+
+  // Rebuild the payload: force the pinned model / stream / cap, and drop any
+  // client-supplied credentials (api_key, Authorization is never read anyway).
+  const payload: Record<string, unknown> = { ...body, model: freeModel(env), max_tokens: maxTokens, stream: true };
+  delete payload.api_key;
+  delete payload.authorization;
+
+  const upstream = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.OPEN_ROUTER_KEY}`,
+      // OpenRouter attribution (same as the BYOK path): the site is the
+      // referer for anonymous visitors.
+      'HTTP-Referer': req.headers.get('Origin') ?? 'https://robs-options-slop-dev.pages.dev',
+      'X-Title': 'Open Interest Options Workspace',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  // Observability: no user data to redact — model + spend cap + outcome only.
+  console.log(JSON.stringify({ freeChat: true, model: freeModel(env), outputTokens: maxTokens, httpStatus: upstream.status }));
+
+  const resp = new Response(upstream.body, {
+    status: upstream.status,
+    headers: { 'Content-Type': upstream.headers.get('Content-Type') ?? 'text/event-stream' },
+  });
+  return cors(env, resp);
+}
+
+// ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -1139,7 +1293,12 @@ async function loaderGet(env: Env, path: string, cacheKey: string): Promise<unkn
 function cors(env: Env, resp: Response): Response {
   resp.headers.set("Access-Control-Allow-Origin", env.CORS_ORIGIN ?? "*");
   resp.headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  resp.headers.set("Access-Control-Allow-Headers", "Content-Type");
+  // The OpenAI SDK (free-chat proxy) sends Authorization, HTTP-Referer /
+  // X-Title, and a version-dependent X-Stainless-* header set — a fixed list
+  // would break whenever the SDK adds one. The worker is already CORS-open
+  // (CORS_ORIGIN "*") and ignores client headers, so allow any header (no
+  // credentials are ever sent, which is what `*` requires).
+  resp.headers.set("Access-Control-Allow-Headers", "*");
   return resp;
 }
 
@@ -1225,6 +1384,11 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     const body = await req.json() as { sql?: string; limit?: number };
     return json(env, await runQuery(env, body.sql ?? "", body.limit ?? 1000));
   }
+
+  // Free anonymous chats on the site's OpenRouter credit.
+  if (path === "/api/free/quota") return json(env, await freeQuotaPayload(env));
+  if (path === "/api/free/v1/chat/completions" && req.method === "POST")
+    return await freeChat(env, req);
 
   return json(env, { error: "not found" }, 404);
 }

@@ -15,7 +15,7 @@ import {
   useChatStreamScroll,
 } from '@astryxdesign/core';
 import { Settings, SquarePen } from 'lucide-react';
-import { type QueryResult } from './api';
+import { api, type FreeQuota, type QueryResult } from './api';
 import { OpenRouterLogo } from './OpenRouterLogo';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -25,6 +25,8 @@ import {
   createSession,
   FALLBACK_MODEL_GROUPS,
   fetchAvailableModels,
+  FREE_MODEL,
+  FreeCreditExhausted,
   getApiKey,
   getEffort,
   getModel,
@@ -209,6 +211,10 @@ function AiChat() {
   const [reasoning, setReasoning] = useState('');
   const [writing, setWriting] = useState(false);
   const [tools, setTools] = useState<ToolRow[]>([]);
+  // Free anonymous chats (no browser key): the site's OpenRouter credit
+  // balance (chip) + whether the credit is out (composer pivots to BYOK).
+  const [quota, setQuota] = useState<FreeQuota | null>(null);
+  const [freeExhausted, setFreeExhausted] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -264,6 +270,30 @@ function AiChat() {
     };
   }, []);
 
+  // Free-tier credit balance. Fetched on mount (and whenever a key appears /
+  // disappears): a key present means BYOK, so the chip + exhausted gate clear.
+  // After each free chat the balance is re-read (send()'s finally) so the chip
+  // tracks spend. A failed fetch leaves the gate open — a live 402 still
+  // pivots it.
+  const refreshFreeQuota = useCallback(() => {
+    if (getApiKey()) {
+      setQuota(null);
+      setFreeExhausted(false);
+      return;
+    }
+    api.freeQuota().then(setQuota).catch(() => setQuota(null));
+  }, []);
+
+  useEffect(() => {
+    refreshFreeQuota();
+  }, [key, refreshFreeQuota]);
+
+  // Free credit exhausted: quota reports 0 / unfunded key, or the free proxy
+  // returned 402 mid-chat (FreeCreditExhausted). When gated, the composer
+  // submits to the BYOK connect flow instead of chatting.
+  const quotaExhausted = quota !== null && (quota.remaining <= 0 || quota.is_free_tier);
+  const freeGated = !getApiKey() && (freeExhausted || quotaExhausted);
+
   const connect = async () => {
     setOauthBusy(true);
     setError(null);
@@ -288,6 +318,7 @@ function AiChat() {
 
   const saveKey = () => {
     setApiKey(key);
+    setKeyState(key);
     setShowSettings(false);
     setError(null);
   };
@@ -308,11 +339,8 @@ function AiChat() {
   const send = useCallback(async (q: string) => {
     const question = q.trim();
     if (!question || busy) return;
-    if (!getApiKey()) {
-      setShowSettings(true);
-      setError('Add your OpenRouter API key to get started — it stays in your browser.');
-      return;
-    }
+    // No key → free chat on the site's OpenRouter credit (Worker /api/free/v1).
+    // A key present → BYOK, byte-identical to before.
     setInput('');
     setError(null);
     // Fresh progress panel per question.
@@ -358,10 +386,17 @@ function AiChat() {
       });
       setMsgs((m) => [
         ...m,
-        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getModel() },
+        { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getApiKey() ? getModel() : FREE_MODEL },
       ]);
       syncFrames();
     } catch (e) {
+      // Free credit ran out mid-chat: pivot to the BYOK connect gate (CTA in
+      // the composer + welcome panel) instead of dumping an error bubble.
+      if (e instanceof FreeCreditExhausted) {
+        setFreeExhausted(true);
+        setStatus('Free credit exhausted');
+        return;
+      }
       setMsgs((m) => [
         ...m,
         { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() },
@@ -369,8 +404,10 @@ function AiChat() {
     } finally {
       setBusy(false);
       setStatus('');
+      // Re-read the balance after a free chat so the chip tracks spend.
+      if (!getApiKey()) refreshFreeQuota();
     }
-  }, [busy, session, syncFrames]);
+  }, [busy, session, syncFrames, refreshFreeQuota]);
 
   const newChat = () => {
     session.frames.clear();
@@ -403,6 +440,11 @@ function AiChat() {
             <span className={`ai-key-dot ${getApiKey() ? 'ok' : ''}`} />
           </Tooltip>
           <span className="ai-head-model">
+            {!getApiKey() && quota && quota.remaining > 0 && !quota.is_free_tier && (
+              <span className="ai-free-chip" title="Free chats funded by this site's OpenRouter credit">
+                Free credit: ${quota.remaining.toFixed(2)} left
+              </span>
+            )}
             <Selector
               label="Model"
               size="sm"
@@ -411,6 +453,8 @@ function AiChat() {
               isLoading={modelsLoading}
               searchPlaceholder="Search models…"
               width={236}
+              isDisabled={!getApiKey()}
+              disabledMessage={!getApiKey() ? 'Free chats use the site model — connect a key to pick yours.' : undefined}
               options={ensureModelPresent(modelGroups, model)}
               value={model}
               onChange={(m) => { if (m) saveModel(m); }}
@@ -436,6 +480,11 @@ function AiChat() {
             </button>
           </div>
           <div className="ai-settings-divider"><span>or paste a key manually</span></div>
+          {!getApiKey() && (
+            <p className="ai-free-note">
+              Free chats are paid for by this site's OpenRouter credit — no account, and we store nothing about you.
+            </p>
+          )}
           <div className="ai-settings-row">
             <label>
               <span>OpenRouter API key <em className="ai-local">stored locally in your browser</em></span>
@@ -459,6 +508,7 @@ function AiChat() {
               hasSearch
               isLoading={modelsLoading}
               searchPlaceholder="Search models…"
+              isDisabled={!getApiKey()}
               options={ensureModelPresent(modelGroups, model)}
               value={model}
               onChange={(m) => { if (m) saveModel(m); }}
@@ -529,11 +579,27 @@ function AiChat() {
               ))}
             </nav>
             {!getApiKey() && (
-              <section className="ai-welcome-connect" aria-label="Connect OpenRouter">
-                <p><b>Connect OpenRouter</b> to ask your first question.</p>
-                <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-                  {oauthBusy ? 'Connecting…' : 'Connect'}
-                </button>
+              <section className="ai-welcome-connect" aria-label="Chat access">
+                {freeGated ? (
+                  <>
+                    <p><b>Free credit's out</b> — Connect OpenRouter to keep chatting.</p>
+                    <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
+                      {oauthBusy ? 'Connecting…' : 'Connect OpenRouter'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      <b>Chats are free</b> — paid for by this site's OpenRouter credit, no account needed.
+                      {quota && quota.remaining > 0 && !quota.is_free_tier && (
+                        <> Free credit: ${quota.remaining.toFixed(2)} left.</>
+                      )}
+                    </p>
+                    <button className="ai-ghost ai-connect-btn" onClick={connect} disabled={oauthBusy}>
+                      Use your own key
+                    </button>
+                  </>
+                )}
               </section>
             )}
           </section>
@@ -635,10 +701,16 @@ function AiChat() {
           isDisabled={busy}
           placeholder='Ask about liquidity, volatility, or a ticker…'
           sendButton={
-            getApiKey() ? (
+            getApiKey() || !freeGated ? (
               <ChatSendButton />
             ) : (
-              <Button variant="primary" label="Connect" tooltip="Connect to start chatting" onClick={() => setShowSettings(true)} />
+              <Button
+                variant="primary"
+                label="Connect"
+                aria-label="Free credit's out — connect OpenRouter to keep chatting"
+                tooltip="Free credit's out — connect OpenRouter to keep chatting"
+                onClick={() => setShowSettings(true)}
+              />
             )
           }
         />
