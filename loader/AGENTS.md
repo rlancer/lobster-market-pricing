@@ -22,6 +22,50 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   sinks `cboe_ohlc_sink` / `cboe_realized_vol_sink`, pipelines wired. Ingest
   verified in production (records committed → queryable via R2 SQL).
 - Manifest: `symbols/sp500.json` — 503 unique symbols.
+
+## Symbol universe (S&P 500 + major ETFs + Nasdaq-100 delta)
+
+The symbol universe is the union of three sources, merged into the single
+loader manifest **`symbols/universe.json`** (583 symbols as of 2026-08-09;
+same `.symbols` string-array shape as `sp500.json`, plus a `constituents`
+symbol→{name, sector, source} map that enriches every symbol):
+
+1. **S&P 500** (`source: "sp500"`) — `symbols/sp500.json` + `symbols/sp500_constituents.json`.
+2. **Nasdaq-100 delta** (`source: "nasdaq100"`) — the 15 Nasdaq-100 members not
+   already in the S&P 500 (ASML, ARM, MSTR, SHOP, MELI, PDD, RKLB, ALNY, NBIS,
+   CCEP, TRI, FER, ALAB, CRWV, SPCX).
+3. **Major ETFs** (`source: "etf"`) — the curated `symbols/etfs.json` manifest
+   (65 broad-market / sector / international / fixed-income / commodity / real-estate /
+   thematic / leveraged ETFs, each verified to have a CBOE option chain).
+
+The Dow Jones 30 is deliberately excluded: every Dow member is already an S&P
+500 constituent, so it adds zero symbols. Russell 1000/3000 are excluded per
+product scope ("the whole universe" is not wanted).
+
+**Refresh procedure** (reusable, run when index membership changes — ~quarterly
+is plenty):
+
+```powershell
+python tools/refresh_universe.py --probe-cboe   # fetch NDX live, merge, validate CBOE chains
+```
+
+- Fetches Nasdaq-100 constituents live from Nasdaq's official API
+  (`https://api.nasdaq.com/api/quote/list-type/nasdaq100`); falls back to a
+  pinned copy in the script if the API is unreachable.
+- ETF membership only changes by editing `symbols/etfs.json` (no canonical free
+  "major ETFs" list exists).
+- `--probe-cboe` verifies each new symbol has a CBOE delayed-quotes option chain
+  (retries past 429/5xx rate-limiting). A flagged symbol is *advisory* — confirm
+  with a single manual request before dropping (see `symbols/etfs.json` note:
+  IYM/XRT/IBB/QQQE are genuinely absent from CBOE's free feed).
+- Output is deterministic and atomic; the `symbols/` dir is the only thing it writes.
+
+To actually consume the extended universe, the loader jobs (`cboe-options`,
+`ohlc-daily`, `ohlc-backfill`, `earnings-daily`) and `run-symbols.ts` enrichment
+must import `universe.json` instead of `sp500.json`/`sp500_constituents.json`.
+ETFs produce no earnings rows (harmless in `earnings-daily`). `MAX_SYMBOLS` is
+enforced per-`runSymbols` *batch* (capped by `LOADER_BATCH_SIZE`), not across the
+universe, so larger universes do not trip it. See `PLAN-UNIVERSE.md`.
 - Canonical checkpoint: `.sp500-catalog-load-state.json`.
 - Latest load: 502 complete symbols; NVR failed with CBOE HTTP 403.
 - NVR is intentionally recorded in `symbols/sp500-load-exceptions.json`.
