@@ -65,15 +65,19 @@ CREATE TABLE IF NOT EXISTS shared_chats (
   title       TEXT,               -- auto-derived (first question) / user-editable
   mode        TEXT NOT NULL,      -- 'free' | 'byok'
   model       TEXT,               -- model id that answered
-  messages    TEXT NOT NULL,      -- JSON array [{role, content, sql?, ts?}] — the transcript
+  messages    TEXT NOT NULL,      -- JSON array [{role, content, sql?, tools?, ts?}] — the transcript
   source_sql  TEXT,               -- the "money" query (last assistant sql) denormalized for alert wiring
+  created_ip  TEXT,               -- server-set abuse signal (CF-Connecting-IP); admin-only, NEVER served
+  created_ua  TEXT,               -- server-set abuse signal (User-Agent); admin-only, NEVER served
   created_at  INTEGER NOT NULL,   -- epoch ms
   updated_at  INTEGER NOT NULL,   -- epoch ms; bumped on title/transcript edits
-  expires_at  INTEGER             -- epoch ms; NULL = never (optional TTL for revocable shares)
+  expires_at  INTEGER             -- epoch ms; NULL = never (TTL for revocable shares)
 );
 
-CREATE INDEX IF NOT EXISTS idx_shared_chats_chat ON shared_chats(chat_id);
+CREATE INDEX IF NOT EXISTS idx_shared_chats_chat    ON shared_chats(chat_id);
 CREATE INDEX IF NOT EXISTS idx_shared_chats_created ON shared_chats(created_at);
+CREATE INDEX IF NOT EXISTS idx_shared_chats_ip      ON shared_chats(created_ip);
+CREATE INDEX IF NOT EXISTS idx_shared_chats_expires ON shared_chats(expires_at);
 ```
 
 **Why these fields — each earns its place:**
@@ -119,20 +123,34 @@ JSON, **2× over the D1 row ceiling**. The R2 lake has no such per-row limit
 (which is why the pipeline target can keep loose caps); the share row in D1
 cannot.
 
-Hard rules for the share endpoint:
+Hard rules for the share endpoint — **all sizes measured in UTF-8 bytes, never
+JS string length** (`JSON.stringify().length` counts UTF-16 code units; CJK /
+emoji content expands 2–3 bytes per unit, so a 1.5M-unit string can store up
+to ~4.5 MB and blow the INSERT). Measure with
+`new TextEncoder().encode(json).byteLength`:
 
 1. **Per-share byte budget:** reject (413) or truncate when the serialized
-   `messages` JSON exceeds **1.5 MB**. Truncation trims **oldest turns first**
-   (a share is judged by its tail), then drops `sql` from older assistant
-   messages before touching the newest exchange.
+   `messages` JSON exceeds **1.2 MB of UTF-8 bytes**. Truncation trims
+   **oldest turns first** (a share is judged by its tail), then drops `sql`
+   from older assistant messages before touching the newest exchange.
+   Budget choice: at the per-field caps (§3) a full 100-message transcript is
+   ~1.0–1.5 MB of ASCII bytes plus JSON overhead — so 1.2 MB means truncation
+   engages deterministically near the max, which is *desired*; never raise it
+   above ~1.7 MB because the whole row (messages + `source_sql` + columns)
+   must stay under 2,000,000 bytes.
 2. **Tighter per-field caps than the lake row:** `content` ≤ 5,000 chars,
    `sql` ≤ 10,000 chars, `tools` ≤ 20 entries per message — the share is a
    display artifact; nobody needs a 20k-char SQL blob in a link.
-3. Enforce server-side in `normalizeShareRecord` (the client cannot be
-   trusted), reusing the caps the shipped normalizer already defines.
+3. **Enforce server-side in `normalizeShareRecord`** (the client cannot be
+   trusted) — the second validation pass after the shipped 20k normalizer
+   (whose caps are *looser*, so they cannot be relied on alone for shares —
+   see §3). Also check the **assembled row** (JSON bytes + `source_sql` +
+   column overhead) against 2,000,000 bytes before INSERT, so a share can
+   never 500 on a D1 failure after passing the message check.
 
 The `source_sql` column is exempt from the message budget (one row's last SQL
-only, already ≤ 10k after the per-field cap).
+only, already ≤ 10k after the per-field cap) but **counts against the row
+total**.
 
 ### Future `scheduled_alerts` (RECOMMENDED, NOT created now)
 
@@ -142,9 +160,12 @@ its own migration and references a share:
 
 ```sql
 -- FUTURE (illustrative) — not part of this PR.
+-- D1 enforces foreign keys by default, so the FK MUST declare ON DELETE
+-- semantics or the future DELETE /api/share/:id fails whenever an alert
+-- references the share (verified: D1 ≈ PRAGMA foreign_keys=on).
 CREATE TABLE IF NOT EXISTS scheduled_alerts (
   id          TEXT PRIMARY KEY,
-  share_id    TEXT NOT NULL REFERENCES shared_chats(share_id),
+  share_id    TEXT NOT NULL REFERENCES shared_chats(share_id) ON DELETE CASCADE,
   sql         TEXT NOT NULL,      -- snapshot of shared_chats.source_sql at creation
   interval    TEXT NOT NULL,      -- human cron: '5m' | 'hourly' | 'daily @ 9:30 ET' …
   condition   TEXT,               -- optional: 'vol_rank_pct > 90' style predicate
@@ -154,6 +175,13 @@ CREATE TABLE IF NOT EXISTS scheduled_alerts (
   created_at  INTEGER NOT NULL
 );
 ```
+
+`ON DELETE CASCADE` = deleting a share deletes its alerts (the alert owns no
+independent data — it is a schedule over the share's `source_sql`). If alerts
+should survive share deletion (alert SQL is a snapshot, so it can), use
+`ON DELETE SET NULL` on `share_id` and treat `NULL` as "detached alert". The
+alert migration makes this choice explicitly; `shared_chats` itself never
+changes.
 
 The point of §2 is that the share PR produces a schema where the alert
 feature is **purely additive** — it never has to alter `shared_chats` or
@@ -168,15 +196,27 @@ Reuse the existing D1/JSON/CORS patterns (`env.SCHEMA_DB.prepare(…).bind(…).
 
 ### `POST /api/share/chat` — create a share
 
-Body mirrors `/api/chat/history`'s `ChatHistoryRecord` (chat_id, mode, model,
-messages). Validation is shared with the chat-history normalizer (strip to
-`{role, content, sql, ts}`, cap messages at 100, content at 20k chars).
+Body is the **full `ChatHistoryRecord`** as shipped (chat_id, mode, model,
+**started_at, ended_at**, messages) — the shared normalizer
+`normalizeChatHistoryRecord` **requires `started_at`/`ended_at` ISO
+timestamps and a non-empty messages array**, so omitting them (as a plain
+`{chat_id, mode, model, messages}` body) would 400 every share POST.
 
-1. Validate transcript (existing helpers on the chat-history branch).
-2. `share_id = base62Encode(crypto.getRandomValues(new Uint8Array(18)))`.
-3. `source_sql` = the last assistant message's `sql`.
-4. `INSERT INTO shared_chats (…)` with `created_at = updated_at = Date.now()`.
-5. Return `{ share_id, url: "/share/" + share_id }`.
+1. **Pass 1 — shared normalizer:** call the shipped
+   `normalizeChatHistoryRecord` verbatim (strip to `{role, content, sql, ts}`,
+   cap messages at 100, content at 20k chars). This gives identical validation
+   — and identical failure modes — to the R2 capture.
+2. **Pass 2 — share-only tightening (`normalizeShareRecord`):** the shipped
+   caps are **looser than the share row allows** (20k/20k, no byte budget), so
+   a second pass applies the §2 per-field caps (`content` ≤ 5,000, `sql` ≤
+   10,000, `tools` ≤ 20/message) to **every** message, then the UTF-8 byte
+   check on the serialized JSON (1.2 MB) and the assembled row (2 MB). A
+   message that passed pass 1 untouched gets trimmed here.
+3. `share_id = base62Encode(crypto.getRandomValues(new Uint8Array(18)))`.
+4. `source_sql` = the last assistant message's `sql`.
+5. `created_ip` / `created_ua` from the request headers (never the body).
+6. `INSERT INTO shared_chats (…)` with `created_at = updated_at = Date.now()`.
+7. Return `{ share_id, url: "/share/" + share_id }`.
 
 Best-effort semantics: a D1 write failure returns 502 (unlike chat-history's
 buffer-to-D1 — that buffer exists to not lose *analytics*; a share the user
@@ -212,18 +252,31 @@ the client); the same rule applies here.
    are **admin-only**: excluded from `GET /api/share/:id` responses and never
    rendered client-side. They make abuse *queryable*:
    `SELECT created_ip, COUNT(*) FROM shared_chats GROUP BY created_ip ORDER BY 2 DESC`
-   — the owner can see a spammer without any browser cooperation.
-2. **In-isolate IP rate limit on `POST /api/share/chat`** (a `Map` of recent
-   share POSTs per IP, reusing the `cached()` helper pattern) — cheap, no
-   storage, dies with the isolate. Covers bursts, not a patient attacker.
-3. **Body caps feed into the limit** — the 1.5 MB / 100-message / per-field
-   caps (§2) bound the cost of each POST, so abuse is bounded per request even
-   when the rate limit is bypassed.
-4. **Turnstile gate on `/api/free/*` when it lands** (the free-chat runbook's
-   hardening) applies to the share endpoint too — one shared gate, server
-   verified.
+   — the owner can see a spammer without any browser cooperation. Indexed in
+   migration 0003 (`idx_shared_chats_ip`) so the query (and the D1 rate check
+   below) never full-scans.
+2. **Reject oversized bodies BEFORE parsing** — check
+   `Content-Length`/`request.body` byte length and return 413 immediately if
+   the raw body exceeds ~1.3 MB, *before* `req.json()` (Workers parse the full
+   body either way, but this bounds the JSON.parse cost and keeps the D1 row
+   budget honest). Costs for a single POST are capped by the §2 byte/field
+   budgets regardless.
+3. **Synchronous D1 per-IP rate check returning 429** — `created_ip` is
+   already stored, so before INSERT run
+   `SELECT COUNT(*) FROM shared_chats WHERE created_ip = ?1 AND created_at > ?2`
+   (indexed) and reject the POST when a recent threshold (e.g. 20 shares /
+   10 min) is crossed. Unlike the in-isolate Map this survives isolate
+   recycling and works across colocations — the honest lever for bulk
+   creation. Keep the in-isolate Map as a cheap first filter, but it is
+   **not** a stand-alone control (it dies with the isolate and one IP's
+   consecutive requests routinely land on different isolates).
+4. **Turnstile gate** — none exists anywhere in the Worker today
+   (the `/api/free/*` credit gate is an OpenRouter balance check, not
+   anti-bot). Ship the share endpoint with levers 1–3; add a Turnstile gate
+   to `/api/free/*` **and** `/api/share/chat` together when anti-bot demand
+   shows up — one shared gate, server verified.
 
-If a real spammer appears despite 1–4, the additive next step is an admin
+If a real spammer appears despite 1–3, the additive next step is an admin
 review surface (`GET /api/admin/shares?ip=…`, mirroring the shipped
 `/api/admin/chat_history` endpoint) — still no fingerprinting, still no client
 trust. Fingerprinting stays off the table unless the owner explicitly decides
@@ -318,10 +371,12 @@ no migration ever alters `shared_chats` once it lands.
 2. D1: after the POST, `SELECT * FROM shared_chats` shows one row with
    `source_sql` = last assistant sql, `messages` parsed back to the transcript,
    `created_ip`/`created_ua` populated from the request headers.
-3. **Size budget:** a transcript whose serialized JSON exceeds 1.5 MB is
-   rejected (413) or truncated oldest-first; a per-message content/sql over
-   the per-field caps is trimmed, not dropped. No D1 insert ever exceeds the
-   2 MB row limit.
+3. **Size budget:** a transcript whose serialized JSON exceeds **1.2 MB of
+   UTF-8 bytes** is rejected (413) or truncated oldest-first; a per-message
+   content/sql over the per-field caps is trimmed, not dropped; the **assembled
+   row** (JSON + `source_sql`) is verified under 2,000,000 bytes before INSERT.
+   A non-ASCII transcript (CJK/emoji) that fits under 1.2 MB of *bytes* stores
+   cleanly (byte-measured, not string-length measured).
 4. UI: Share button enabled after a chat turn; clicking it produces a copyable
    URL; navigating to `/share/<id>` renders the read-only transcript (user +
    assistant bubbles, SQL visible).
@@ -329,19 +384,26 @@ no migration ever alters `shared_chats` once it lands.
 6. Privacy: `ip`/`user_agent` appear **nowhere** in `GET /api/share/:id`
    responses (abuse columns are server-only); the lake `chat_history` table
    stays admin-only.
-7. Frontend build/lint + worker `tsc` clean; preview deploy HTTP 200.
+7. **Abuse:** an oversized raw body (> ~1.3 MB) is rejected before JSON parse
+   (413); a D1-backed per-IP check (COUNT over `created_ip` + recent window)
+   returns 429 past the threshold; `idx_shared_chats_ip` serves both.
+8. Frontend build/lint + worker `tsc` clean; preview deploy HTTP 200.
 
 ## 8. Open questions / follow-ups
 
-- **Share scope creep:** should a share be revocable (delete endpoint) or is
-  `expires_at` enough? (Recommend: `DELETE /api/share/:id` + `expires_at`
-  later, both trivial on this schema.)
+- **Revocation:** `expires_at` exists in v1 but **no endpoint sets it**
+  (no edit/delete route ships) — "revocable links" is unreachable until
+  `DELETE /api/share/:id` (+ an expiry sweep job) lands. Both are additive on
+  this schema; the delete must respect the future `scheduled_alerts` FK
+  (CASCADE — alerts die with the share; see §2).
 - **Title:** auto-derive from the first user question now; editing later.
 - **Tool-call capture:** v1 renders messages + SQL; capturing `ToolRow`s into
   the transcript (so shares show what tools ran) is a small additive follow-on
   — schema already tolerates it via the `tools?` field.
-- **Rate limiting:** an in-isolate per-IP cap on share POSTs ships with the
-  feature; the `/api/free/*` Turnstile gate extends to the share endpoint when
-  it lands. Client fingerprinting stays off the table (§3).
+- **Rate limiting:** D1-backed per-IP 429 (not just the ephemeral in-isolate
+  Map) ships with the feature; a Turnstile gate extends to
+  `/api/free/*` **and** `/api/share/chat` together when anti-bot demand shows
+  up. Client fingerprinting stays off the table (§3).
 - **Alert feature** is explicitly out of scope here — §2 proves the schema
-  accommodates it additively; build it as its own PR when the time comes.
+  accommodates it additively (including FK delete semantics); build it as its
+  own PR when the time comes.
