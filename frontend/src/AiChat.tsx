@@ -6,6 +6,8 @@ import {
   ChatComposer,
   ChatMessageMetadata,
   ChatSendButton,
+  Dialog,
+  DialogHeader,
   IconButton,
   Markdown,
   Selector,
@@ -14,8 +16,9 @@ import {
   Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
-import { Settings, SquarePen } from 'lucide-react';
-import { api, type ChatHistoryMessage, type ChatHistoryRecord, type FreeQuota, type QueryResult } from './api';
+import { Settings, Share2, SquarePen } from 'lucide-react';
+import { api, type ChatHistoryMessage, type ChatHistoryRecord, type FreeQuota, type QueryResult, type ShareChatResponse } from './api';
+import { CopyButton } from './CopyButton';
 import { OpenRouterLogo } from './OpenRouterLogo';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -170,26 +173,6 @@ function ResultTable({ result }: { result: QueryResult }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable — ignore */
-    }
-  };
-  return (
-    <Tooltip content="Copy SQL" hasHoverIndication={false}>
-      <button type="button" className="ai-sql-copy" onClick={copy}>
-        {copied ? 'Copied ✓' : 'Copy'}
-      </button>
-    </Tooltip>
-  );
-}
-
 function AiChat() {
   const [key, setKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
@@ -211,6 +194,12 @@ function AiChat() {
   const [reasoning, setReasoning] = useState('');
   const [writing, setWriting] = useState(false);
   const [tools, setTools] = useState<ToolRow[]>([]);
+  // Share-chat state: POST the transcript → D1 (shared_chats); the dialog
+  // shows the copyable link + a "View" action onto the public share page.
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   // Free anonymous chats (no browser key): the site's OpenRouter credit
   // balance (chip) + whether the credit is out (composer pivots to BYOK).
   const [quota, setQuota] = useState<FreeQuota | null>(null);
@@ -337,6 +326,49 @@ function AiChat() {
   // submits to the BYOK connect flow instead of chatting.
   const quotaExhausted = quota !== null && (quota.remaining <= 0 || quota.is_free_tier);
   const freeGated = !getApiKey() && (freeExhausted || quotaExhausted);
+  // Share becomes available once the conversation has ≥1 completed turn.
+  const canShare = msgs.some((m) => m.role === 'assistant');
+
+  // POST the current transcript to D1 (shared_chats) and reveal the public
+  // link. Reuses the exact transcript shape saveTranscript sends to the lake
+  // (same trimmer, same record fields) so a share is a projection of the
+  // conversation. User-requested → errors surface in the dialog, not silently.
+  const shareChat = async () => {
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      const turns: ChatHistoryMessage[] = msgs
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+          ...(m.sql ? { sql: m.sql } : {}),
+          ...(m.ts ? { ts: m.ts } : {}),
+        }))
+        .slice(-100); // bounds the POST body; the Worker enforces the same cap
+      const record: ChatHistoryRecord = {
+        chat_id: chatIdRef.current,
+        mode: getApiKey() ? 'byok' : 'free',
+        model: getApiKey() ? getModel() : FREE_MODEL,
+        started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
+        ended_at: new Date().toISOString(),
+        messages: turns,
+      };
+      const res = await api.shareChat(record);
+      setShareResult(res);
+      setShareOpen(true);
+    } catch (e) {
+      setShareError(String((e as Error)?.message ?? e));
+      setShareOpen(true);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const closeShareDialog = () => {
+    setShareOpen(false);
+    setShareResult(null);
+    setShareError(null);
+  };
 
   const connect = async () => {
     setOauthBusy(true);
@@ -506,6 +538,16 @@ function AiChat() {
             </span>
           )}
           <IconButton variant="ghost" size="sm" label="Settings" icon={<Settings size={16} />} tooltip="Settings" onClick={() => setShowSettings((s) => !s)} />
+          <IconButton
+            variant="ghost"
+            size="sm"
+            label="Share chat"
+            icon={<Share2 size={16} />}
+            tooltip={canShare ? 'Share chat' : 'Share available after the first answer'}
+            isDisabled={!canShare || busy}
+            isLoading={shareBusy}
+            onClick={shareChat}
+          />
           <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={newChat} />
         </section>
       </header>
@@ -766,6 +808,57 @@ function AiChat() {
           }
         />
       </footer>
+
+      <Dialog isOpen={shareOpen} onOpenChange={(o) => !o && closeShareDialog()} width={460}>
+        <DialogHeader
+          title={shareError ? 'Share failed' : shareResult ? 'Chat shared' : 'Share chat'}
+          subtitle={
+            shareResult
+              ? 'Anyone with this link can view the transcript — no account needed.'
+              : undefined
+          }
+          onOpenChange={() => closeShareDialog()}
+        />
+        {shareBusy && (
+          <div className="ai-share-body ai-share-busy">
+            <Spinner size="md" />
+            <span>Creating share…</span>
+          </div>
+        )}
+        {!shareBusy && shareError && (
+          <div className="ai-share-body ai-share-error">{shareError}</div>
+        )}
+        {!shareBusy && shareResult && (
+          <>
+            <div className="ai-share-body">
+              <label className="ai-share-label" htmlFor="ai-share-url">Share URL</label>
+              <div className="ai-share-row">
+                <input
+                  id="ai-share-url"
+                  className="ai-share-url"
+                  value={new URL(shareResult.url, window.location.href).toString()}
+                  readOnly
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <CopyButton text={new URL(shareResult.url, window.location.href).toString()} tooltip="Copy link" />
+              </div>
+            </div>
+            <div className="ai-share-actions">
+              <Button variant="secondary" label="Done" onClick={() => closeShareDialog()} />
+              <Button
+                variant="primary"
+                label="View share"
+                onClick={() => {
+                  const shareId = shareResult.share_id;
+                  closeShareDialog();
+                  // The public, read-only page — exactly what a recipient sees.
+                  navigate({ to: '/share/$shareId', params: { shareId } });
+                }}
+              />
+            </div>
+          </>
+        )}
+      </Dialog>
     </section>
   );
 }

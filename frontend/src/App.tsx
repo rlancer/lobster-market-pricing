@@ -97,6 +97,14 @@ function Layout() {
     }
   }, [navigate]);
 
+  // Shared chats (/share/:shareId) are PUBLIC artifacts — a recipient who may
+  // never have visited the site gets a bare page with its own minimal chrome
+  // (SharedChat's AppShell): no workspace nav, no stats header, no
+  // localStorage reads. Skip the whole shell for them.
+  if (location.pathname.startsWith('/share/')) {
+    return <Outlet />;
+  }
+
   const updatedAt = stats?.last_updated
     ? new Date(stats.last_updated.replace(' ', 'T')).toLocaleString(undefined, {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
