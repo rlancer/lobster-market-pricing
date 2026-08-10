@@ -48,6 +48,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
+      # Invariant guard: every loader secret must live in BOTH the Worker
+      # (wrangler secret put — preserved across redeploys) AND GitHub secrets
+      # (the de-facto token store). LOADER_TOKEN was Worker-only once and the
+      # operator lever (force-loader-pass.yml) silently couldn't auth. Fail the
+      # deploy loudly instead of letting the invariant degrade again.
+      - name: Verify LOADER_TOKEN is in GitHub secrets
+        env:
+          LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+        run: |
+          if [ -z "${LOADER_TOKEN:-}" ]; then
+            echo "::error::LOADER_TOKEN is missing from GitHub secrets. Rerun: gh secret set LOADER_TOKEN (same value as the Worker secret), then deploy again."
+            exit 1
+          fi
+          echo "LOADER_TOKEN present — Worker secret must match (set via wrangler secret put)."
+
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
