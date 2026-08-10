@@ -73,7 +73,7 @@ export interface JobRunResult {
 //     due batch, runs the handler, and applies per-item backoff.
 //   - "batch": whole-universe — the job processes its full `universe()` each
 //     pass and its frequency is governed by its job_state cadence (e.g.
-//     ohlc-daily → all S&P 500, once a day). No item store.
+//     ohlc-daily → all merged-universe symbols, once a day). No item store.
 export interface JobBase {
   id: string;
   marketGated: boolean;

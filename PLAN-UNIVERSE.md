@@ -78,21 +78,22 @@ python tools/refresh_universe.py --probe-cboe   # ~2.5 min; probes are rate-limi
   a single symbol (ACWI was flagged once, confirmed served on a manual retry);
   confirm before dropping.
 
-## Loader wiring (not yet done — next step)
+## Loader wiring (done 2026-08-09)
 
-Today all four jobs read `symbols/sp500.json` directly and `run-symbols.ts`
-enriches from `sp500_constituents.json`. To actually consume the 583-symbol
-universe:
+The four loader jobs and the enrichment path now consume the 583-symbol universe:
 
-1. Switch `jobs/cboe-options.ts`, `jobs/ohlc-daily.ts`, `jobs/ohlc-backfill.ts`,
-   `jobs/earnings-daily.ts` to import `universe.json` (its `symbols` array is
+1. `jobs/cboe-options.ts`, `jobs/ohlc-daily.ts`, `jobs/ohlc-backfill.ts`,
+   `jobs/earnings-daily.ts` import `universe.json` (its `symbols` array is
    source-compatible) instead of `sp500.json`.
-2. Point `run-symbols.ts`'s enrichment map at `universe.json`'s `constituents`
-   (so NDX-late/ETF names + sectors land on `underlying_snapshots` instead of
-   falling back to `Unknown`).
+2. `run-symbols.ts`'s enrichment map reads `universe.json`'s `constituents`
+   (a symbol-keyed map), so NDX-late/ETF names + sectors land on
+   `underlying_snapshots` instead of falling back to `Unknown`.
 3. `earnings-daily` keeps working unchanged — ETFs just produce no earnings rows.
 4. **No `MAX_SYMBOLS` change needed**: the 503 cap is enforced per-`runSymbols`
    *batch* (capped by `LOADER_BATCH_SIZE`), not across the universe.
+
+Verified: `npx vitest run` (78 tests, including a new `src/universe.test.ts`
+guarding the merged composition + enrichment) and `npx tsc --noEmit` both pass.
 
 ## Impact estimate
 

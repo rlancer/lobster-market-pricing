@@ -1,11 +1,12 @@
 import type { BatchJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
 import type { EarningsEnv } from "../earnings.js";
 import { earningsDateForOffset, publishEarningsDate } from "../earnings.js";
-import sp500 from "../../symbols/sp500.json";
+import universe from "../../symbols/universe.json";
 
-const SYMBOLS = Array.isArray(sp500.symbols) ? sp500.symbols : [];
-// The Nasdaq calendar covers the whole market; the lake's universe is the S&P
-// 500 manifest, so only manifest symbols are kept at publish time.
+const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
+// The Nasdaq calendar covers the whole market; the lake's universe is the merged
+// manifest (S&P 500 + Nasdaq-100 + ETFs), so only universe symbols are kept at
+// publish time. ETFs have no earnings, so they simply never match the calendar.
 const KEEP = new Set(SYMBOLS.map((s) => s.toUpperCase()));
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {

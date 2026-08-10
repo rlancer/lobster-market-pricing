@@ -12,7 +12,7 @@
 // This module is pure — it only depends on global fetch / crypto, so it is
 // directly testable.
 
-import constituentsData from "../symbols/sp500_constituents.json";
+import universeData from "../symbols/universe.json";
 import { securityIdForTicker } from "./symbology.js";
 
 export const DEFAULT_CBOE_URL_TEMPLATE =
@@ -73,26 +73,25 @@ export interface RunResult {
   failures: RunFailure[];
 }
 
-// Load the S&P 500 constituents map (symbol -> {name, sector}) used to enrich
-// underlyings with company name / GICS sector. Mirrors load_constituents() in
-// loader.py: name/sector fall back to the symbol / "Unknown", and a symbol
-// missing from the manifest still publishes an underlying.
+// Load the merged symbol-universe constituents map (symbol -> {name, sector})
+// used to enrich underlyings for every symbol (S&P 500 + Nasdaq-100 delta +
+// ETFs). Mirrors load_constituents() in loader.py: name/sector fall back to the
+// symbol / "Unknown", and a symbol missing from the manifest still publishes an
+// underlying. universe.json's `constituents` is a symbol-keyed map.
 const CONSTITUENTS = new Map<string, { name: string; sector: string }>();
 {
-  const doc: unknown = constituentsData;
+  const doc: unknown = universeData;
   if (doc && typeof doc === "object" && "constituents" in doc) {
-    const entries = (doc as { constituents: unknown }).constituents;
-    if (Array.isArray(entries)) {
-      for (const entry of entries) {
-        if (!entry || typeof entry !== "object") continue;
-        const rec = entry as Record<string, unknown>;
-        const symbol = String(rec.symbol ?? "").trim().toUpperCase();
-        if (symbol) {
-          CONSTITUENTS.set(symbol, {
-            name: String(rec.name ?? "") || symbol,
-            sector: String(rec.sector ?? "") || "Unknown",
-          });
-        }
+    const entries = (doc as { constituents: Record<string, { name?: unknown; sector?: unknown }> }).constituents;
+    if (entries && typeof entries === "object") {
+      for (const raw of Object.keys(entries)) {
+        const symbol = String(raw).trim().toUpperCase();
+        if (!symbol) continue;
+        const rec = entries[raw] as { name?: unknown; sector?: unknown } | undefined;
+        CONSTITUENTS.set(symbol, {
+          name: String(rec?.name ?? "") || symbol,
+          sector: String(rec?.sector ?? "") || "Unknown",
+        });
       }
     }
   }

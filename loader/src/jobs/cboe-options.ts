@@ -1,8 +1,8 @@
 import type { ItemJob, SchedulerEnv } from "../scheduler.js";
 import { runSymbols } from "../run-symbols.js";
-import sp500 from "../../symbols/sp500.json";
+import universe from "../../symbols/universe.json";
 
-const SYMBOLS = Array.isArray(sp500.symbols) ? sp500.symbols : [];
+const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);

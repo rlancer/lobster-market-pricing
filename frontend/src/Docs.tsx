@@ -40,7 +40,7 @@ const FLOW: FlowStep[] = [
     sub: (
       <>
         Self-sustaining alarm loop in a Durable Object: fetch → OCC-normalize →
-        publish. The whole 503-symbol universe refreshes on a ~15 min cadence
+        publish. The whole 583-symbol universe refreshes on a ~15 min cadence
         during market hours.
       </>
     ),
@@ -88,7 +88,7 @@ const FLOW: FlowStep[] = [
 ];
 
 const FACTS = [
-  ['503', 'S&P 500 symbols per refresh'],
+  ['583', 'symbols per refresh (S&P 500 + ETFs)'],
   ['~1M', 'option contracts per pass'],
   ['~15 min', 'loader cadence + quote delay'],
   ['5 min', 'API cache (10 min liquidity)'],
@@ -275,7 +275,7 @@ export function DocsOverview() {
     <>
       <div className="docs-hero">
         <p>
-          Lobster MP is a free, end-to-end S&P&nbsp;500 options screener built on Cloudflare: CBOE delayed
+          Lobster MP is a free, end-to-end US equities + ETF options screener built on Cloudflare: CBOE delayed
           quotes land in an Iceberg lake, a Worker serves that lake over R2 SQL, and this React app renders
           it. These pages explain how the whole thing works — where data comes from, how it moves, and where
           each surface you see lives.
@@ -315,7 +315,7 @@ export function DocsPipeline() {
         A single <code>EtlScheduler</code> Durable Object runs a self-rescheduling alarm loop. Each pass:
       </p>
       <ol className="docs-ordered">
-        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled S&amp;P&nbsp;500 manifest (<code>symbols/sp500.json</code>, 503 symbols), all enabled and due immediately.</li>
+        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled manifest (<code>symbols/universe.json</code>, 583 symbols), all enabled and due immediately.</li>
         <li><b>Pick the batch</b> — due symbols (<code>enabled = 1 AND next_attempt_after &lt;= now</code>), stalest first, capped at <code>LOADER_BATCH_SIZE</code> (40).</li>
         <li><b>Fetch &amp; normalize</b> — each symbol comes down from CBOE, is normalized to OCC form, and is published to Pipelines in symbol order with retries and idempotency keys (8 symbols fetched in parallel per pass).</li>
         <li><b>Bookkeeping</b> — success resets the failure count and reschedules the reload at the cadence (15 min); failure increments <code>consecutive_failures</code> and doubles the backoff 60&nbsp;s → 5&nbsp;min → 30&nbsp;min (capped). No special-casing, no dead symbols.</li>

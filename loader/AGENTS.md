@@ -2,14 +2,14 @@
 
 ## Scope
 
-This package (the `loader/` directory of the `lobster-market-pricing` monorepo) loads the 503-symbol S&P 500 manifest from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). The loader itself is a Worker (fetch/normalize/publish in `src/run-symbols.ts`); `tools/load_sp500.py` is a Python driver for one-shot full loads.
+This package (the `loader/` directory of the `lobster-market-pricing` monorepo) loads the merged 583-symbol universe (S&P 500 + Nasdaq-100 delta + major ETFs) from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). The loader itself is a Worker (fetch/normalize/publish in `src/run-symbols.ts`); `tools/load_sp500.py` is a Python driver for one-shot full loads.
 
 ## Current verified state
 
 - Scheduler: `EtlScheduler` Durable Object (`src/scheduler.ts`) runs a job
   registry (`src/jobs/registry.ts`) with four jobs — `cboe-options` (item-scoped,
   market-gated, item store `symbol_state`), `ohlc-daily` (batch, daily,
-  ungated, whole-universe via `symbols/sp500.json`), `ohlc-backfill`
+  ungated, whole-universe via `symbols/universe.json`), `ohlc-backfill`
   (item-scoped, resumable, manual), and `earnings-daily` (batch, daily,
   ungated, ~2-week Nasdaq earnings-calendar window → `options.earnings`).
   Schedule ledger:
@@ -21,7 +21,7 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   (created by the sinks), streams `cboe_ohlc_v2` / `cboe_realized_vol_v2`,
   sinks `cboe_ohlc_sink` / `cboe_realized_vol_sink`, pipelines wired. Ingest
   verified in production (records committed → queryable via R2 SQL).
-- Manifest: `symbols/sp500.json` — 503 unique symbols.
+- Manifest: `symbols/universe.json` — 583 unique symbols (503 S&P 500 + 15 Nasdaq-100 + 65 ETFs); `symbols/sp500.json` remains the S&P 500 source.
 
 ## Symbol universe (S&P 500 + major ETFs + Nasdaq-100 delta)
 
@@ -62,10 +62,10 @@ python tools/refresh_universe.py --probe-cboe   # fetch NDX live, merge, validat
 
 To actually consume the extended universe, the loader jobs (`cboe-options`,
 `ohlc-daily`, `ohlc-backfill`, `earnings-daily`) and `run-symbols.ts` enrichment
-must import `universe.json` instead of `sp500.json`/`sp500_constituents.json`.
-ETFs produce no earnings rows (harmless in `earnings-daily`). `MAX_SYMBOLS` is
-enforced per-`runSymbols` *batch* (capped by `LOADER_BATCH_SIZE`), not across the
-universe, so larger universes do not trip it. See `PLAN-UNIVERSE.md`.
+import `universe.json` instead of `sp500.json`/`sp500_constituents.json` (wired
+2026-08-09). ETFs produce no earnings rows (harmless in `earnings-daily`).
+`MAX_SYMBOLS` is enforced per-`runSymbols` *batch* (capped by `LOADER_BATCH_SIZE`),
+not across the universe, so larger universes do not trip it. See `PLAN-UNIVERSE.md`.
 - Canonical checkpoint: `.sp500-catalog-load-state.json`.
 - Latest load: 502 complete symbols; NVR failed with CBOE HTTP 403.
 - NVR is intentionally recorded in `symbols/sp500-load-exceptions.json`.
