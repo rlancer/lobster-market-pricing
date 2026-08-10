@@ -1039,6 +1039,9 @@ async function ivRank(env: Env, symbolIn: string | null, daysIn: number): Promis
 const ECON_TTL_MS = 12 * 60 * 60 * 1000;
 const ECON_DEFAULT_DAYS = 30;
 const ECON_MAX_DAYS = 90;
+// Source tag on options.econ_calendar rows (matches loader/src/econ.ts) —
+// used to derive the response `provider` from merged lake rows.
+const ECON_SOURCE_FRED = "fred";
 const FRED_API_URL = "https://api.stlouisfed.org/fred/releases/dates";
 const FED_CALENDAR_URL = "https://www.federalreserve.gov/json/calendar.json";
 // Exact-match allowlist of high-impact macro releases. Substring matching
@@ -1098,12 +1101,52 @@ async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarRespo
   const asOf = () => new Date().toISOString();
   try {
     return await cached<EconCalendarResponse>(`econ:${days}`, ECON_TTL_MS, async () => {
+      // Primary path: read the upcoming window from the lake's econ_calendar
+      // table (fred-econ-daily job → options.econ_calendar), newest run per
+      // (event_date, title). Fall back to the live FRED/Fed fetch when the
+      // table is missing or empty (e.g. before the first sync lands).
+      const now = Date.now();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const start = iso(new Date(now - 86400_000));
+      const end = iso(new Date(now + days * 86400_000));
+      let lakeItems: { date: string; title: string; kind: "macro" | "fed" }[] = [];
+      let lakeProvider: "fred" | "federalreserve" | null = null;
+      try {
+        const rows = await r2sql(
+          env,
+          "WITH latest AS (" +
+            "SELECT event_date, title, kind, source, fetched_at, " +
+            "ROW_NUMBER() OVER (PARTITION BY event_date, title ORDER BY fetched_at DESC) rn " +
+            "FROM options.econ_calendar) " +
+            `SELECT event_date, title, kind, source FROM latest ` +
+            `WHERE rn = 1 AND event_date >= ${lit(start)} AND event_date <= ${lit(end)} ` +
+            `ORDER BY event_date, title LIMIT ${R2SQL_LIMIT_MAX}`,
+          "econ_lake:" + days,
+          QUERY_TTL_MS,
+        );
+        if (rows.length > 0) {
+          lakeItems = rows.map((r) => ({
+            date: String(r.event_date),
+            title: String(r.title),
+            kind: r.kind === "fed" ? "fed" : "macro",
+          }));
+          lakeProvider = rows.some((r) => r.source === ECON_SOURCE_FRED)
+            ? "fred"
+            : "federalreserve";
+        }
+      } catch (error) {
+        // Lake missing/empty — fall through to the live fetch below.
+        console.log(`econ lake read failed (${String((error && (error as Error).message) || error)}) — falling back to live fetch`);
+      }
+      if (lakeItems.length > 0) {
+        return { window_days: days, as_of: asOf(), provider: lakeProvider!, items: lakeItems };
+      }
+      // Fallback: live FRED releases/dates + Fed calendar (original behavior).
       if (env.FRED_API_KEY) {
-        const iso = (d: Date) => d.toISOString().slice(0, 10);
-        const end = new Date(Date.now() + days * 86400_000);
+        const end2 = new Date(now + days * 86400_000);
         const url =
           `${FRED_API_URL}?api_key=${encodeURIComponent(env.FRED_API_KEY)}&file_type=json` +
-          `&realtime_start=${iso(new Date())}&realtime_end=${iso(end)}` +
+          `&realtime_start=${iso(new Date(now - 86400_000))}&realtime_end=${iso(end2)}` +
           `&include_release_dates_with_no_data=true&sort_order=asc&limit=1000`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`fred releases/dates returned HTTP ${res.status}`);
