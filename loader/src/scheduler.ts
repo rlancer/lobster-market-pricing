@@ -326,12 +326,12 @@ export class EtlScheduler {
   protected env: SchedulerEnv;
   jobs: JobSpec[];
 
-  constructor(ctx: SchedulerCtx, env: SchedulerEnv) {
+  constructor(ctx: SchedulerCtx, env: SchedulerEnv, jobs: JobSpec[] = buildJobs(env)) {
     this.ctx = ctx;
     this.env = env;
-    // Registered jobs come from the registry (jobs/registry.ts). Phase 2:
-    // cboe-options (item-scoped) + ohlc-daily (batch).
-    this.jobs = buildJobs(env);
+    // Registered jobs come from the registry (jobs/registry.ts) by default;
+    // tests may inject a custom spec set.
+    this.jobs = jobs;
   }
 
   protected cboeItemJob(): ItemJob {
@@ -389,7 +389,7 @@ export class EtlScheduler {
     if (jobMatch) {
       const [, id, trigger] = jobMatch;
       if (trigger) {
-        return this.triggerJob(id);
+        return this.triggerJob(id, url.searchParams.get("force") === "1");
       }
       return json(await this.jobStatus(id));
     }
@@ -629,10 +629,14 @@ export class EtlScheduler {
   // Run one job's pass: market gate (per-job policy), then dispatch by scope —
   // item jobs seed + pick a due batch + apply per-item backoff; batch jobs run
   // their whole universe and are governed by the job_state cadence.
-  async runJobPass(spec: JobSpec, row: JobStateRow, runTimeoutMs: number): Promise<void> {
+  // `force` (explicit job trigger ?force=1) runs ONE pass outside market hours
+  // without disabling the gate for the continuous loop — the safe "load the
+  // closing data now" override. Never auto-set by the alarm loop.
+  async runJobPass(spec: JobSpec, row: JobStateRow, runTimeoutMs: number, force = false): Promise<void> {
     // Per-job market-hours gate. MARKET_HOURS_ENABLED="false" disables it
-    // globally (same switch the original driver used).
-    if (marketHoursEnabled(this.env) && row.market_gated === 1 && !marketState(Date.now(), this.env).open) {
+    // globally (same switch the original driver used); `force` skips it for
+    // this single pass only.
+    if (!force && marketHoursEnabled(this.env) && row.market_gated === 1 && !marketState(Date.now(), this.env).open) {
       return;
     }
     const env = this.env;
@@ -788,14 +792,29 @@ export class EtlScheduler {
   }
 
   // Manual kick: run a single job's pass now, regardless of its cadence/ledger
-  // state, and reflect it. Auth is enforced at the Worker edge.
-  async triggerJob(id: string): Promise<Response> {
+  // state, and reflect it. Auth is enforced at the Worker edge. `force` runs
+  // the pass even when the market is closed (one-off "load the closing data"
+  // override); the loop's own wake/sleep schedule is untouched afterwards.
+  async triggerJob(id: string, force = false): Promise<Response> {
     const spec = this.specFor(id);
     if (!spec) return json({ error: `unknown job: ${id}` }, 404);
     await this.seedJobs();
-    const row = (await this.jobRow(id)) ?? this.jobRowFromSpec(spec, Date.now());
-    await this.runJobPass(spec, row, this.runTimeoutMs());
-    return json({ ok: true, job: id, note: "pass completed" });
+    // Single-flight, same stale-marker self-healing as tick() (the loop must
+    // never run two passes at once; a manual kick is a pass).
+    const passing = await this.ctx.storage.get("passing");
+    if (passing != null) {
+      const stale = typeof passing !== "number" || Date.now() - (passing as number) >= this.runTimeoutMs() + 60000;
+      if (!stale) return json({ ok: false, job: id, error: "pass already in flight" }, 409);
+      await this.ctx.storage.delete("passing");
+    }
+    await this.ctx.storage.put("passing", Date.now());
+    try {
+      const row = (await this.jobRow(id)) ?? this.jobRowFromSpec(spec, Date.now());
+      await this.runJobPass(spec, row, this.runTimeoutMs(), force);
+    } finally {
+      await this.ctx.storage.delete("passing");
+    }
+    return json({ ok: true, job: id, note: force ? "forced pass completed" : "pass completed" });
   }
 
   async status(): Promise<Record<string, unknown>> {

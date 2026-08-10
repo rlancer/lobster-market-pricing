@@ -94,7 +94,21 @@ Runs via the `EtlScheduler` Durable Object alarm loop
   guards manual `/loop/trigger`. Preserve both. The flag is stored as a numeric
   timestamp; a marker older than `LOADER_RUN_TIMEOUT_SECONDS` + 60s (or a legacy
   boolean) is treated as stale and cleared in `tick()` so a "Durable Object
-  reset" mid-pass can never permanently stall the loop.
+  reset" mid-pass can never permanently stall the loop. `triggerJob` (per-job
+  kick) uses the same guard and returns 409 while a pass is in flight.
+- **Market-closed override — `?force=1` on a job trigger.** The loop sleeps
+  while the US market is closed (see root `AGENTS.md` gotchas); the *safe* way
+  to load outside market hours (e.g. backfill the closing session's data) is a
+  **scoped one-shot forced pass**, NOT flipping `MARKET_HOURS_ENABLED=false`:
+  ```bash
+  curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
+    'https://cboe-to-r2.robertlancer.workers.dev/jobs/cboe-options/trigger?force=1'
+  ```
+  `force=1` runs the job's pass once ignoring the per-job market gate
+  (single-flight-protected, token-protected at the Worker edge), then the loop
+  resumes its normal wake/sleep schedule. The alarm loop never sets force
+  itself. `POST /run` (the one-shot load driver) is the equivalent override for
+  whole-manifest loads.
 - **D1 is the source of truth.** Per-symbol progress lives in `symbol_state`
   (`loader/migrations/0001_initial.sql`): `next_attempt_after <= now` = due
   (epoch ms); `consecutive_failures`/`backoff_seconds` drive exponential backoff

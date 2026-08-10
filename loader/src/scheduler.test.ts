@@ -493,6 +493,68 @@ describe("EtlScheduler — per-job market_gated", () => {
     expect(rec.seeded).toBe(true);
     expect(rec.ran).toBe(false);
   });
+
+  it("force trigger (?force=1) runs a market_gated job while the market is closed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-04T12:00:00Z")); // Sunday — market closed
+    const db = new FakeDb();
+    const rec = { seeded: false, ran: false };
+    const spec: JobSpec = {
+      id: "forcet",
+      marketGated: true,
+      cadenceSeconds: 900,
+      scope: "items",
+      itemTable: "symbol_state",
+      itemIdColumn: "symbol",
+      seedItems: async (database) => {
+        rec.seeded = true;
+        await database.prepare(
+          `INSERT OR IGNORE INTO symbol_state
+             (symbol, enabled, last_success_at, last_attempt_at, consecutive_failures,
+              next_attempt_after, backoff_seconds, last_error, priority)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind("X", 1, null, null, 0, 1, 60, null, 0).run();
+      },
+      run: async () => {
+        rec.ran = true;
+        return { runId: null, failures: [] };
+      },
+    };
+    const scheduler = new EtlScheduler(ctx(makeStorage()), env(db, { MARKET_HOURS_ENABLED: "true" }) as never, [spec]);
+
+    const res = await scheduler.fetch(new Request("http://do/jobs/forcet/trigger?force=1"));
+
+    expect(res.status).toBe(200);
+    expect(rec.seeded).toBe(true);
+    expect(rec.ran).toBe(true); // force bypassed the market gate and the item ran
+  });
+
+  it("plain trigger still respects the market gate (no-op while closed)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-04T12:00:00Z"));
+    const db = new FakeDb();
+    const { spec, rec } = recordingSpec();
+    const scheduler = new EtlScheduler(ctx(makeStorage()), env(db, { MARKET_HOURS_ENABLED: "true" }) as never, [spec]);
+
+    const res = await scheduler.fetch(new Request("http://do/jobs/t/trigger"));
+
+    expect(res.status).toBe(200);
+    expect(rec.seeded).toBe(false);
+    expect(rec.ran).toBe(false); // gate still applies without force
+  });
+
+  it("force trigger returns 409 while another pass is in flight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-04T12:00:00Z"));
+    const db = new FakeDb();
+    const { spec, rec } = recordingSpec();
+    const scheduler = new EtlScheduler(ctx(makeStorage({ passing: Date.now() })), env(db) as never, [spec]);
+
+    const res = await scheduler.fetch(new Request("http://do/jobs/t/trigger?force=1"));
+
+    expect(res.status).toBe(409);
+    expect(rec.ran).toBe(false);
+  });
 });
 
 describe("EtlScheduler — item-store seeding (universe growth)", () => {
