@@ -33,7 +33,9 @@ async function workerFreeQuota(request: APIRequestContext): Promise<FreeQuotaLik
 
 /** Type a question into the composer and submit with Enter. */
 async function ask(page: Page, question: string): Promise<void> {
-  const composer = page.getByRole('textbox');
+  // Target by name: with the settings panel open the password field is also a
+  // textbox, so a bare getByRole('textbox') is ambiguous.
+  const composer = page.getByRole('textbox', { name: 'Message input' });
   await composer.click();
   await page.keyboard.type(question, { delay: 15 });
   await page.keyboard.press('Enter');
@@ -65,14 +67,22 @@ test.describe('Free anonymous chats (site OpenRouter key)', () => {
       'No funded OPEN_ROUTER_KEY in worker/.dev.vars (free chat needs the site key + credit)',
     );
 
-    // No key seeded → the key dot stays grey and the free credit chip renders.
+    // No key seeded → the key dot stays grey; the header model selector and
+    // credit chip are hidden (BYOK controls live under the gear icon).
     await page.goto('/');
     await expect(page.locator('.ai-key-dot.ok')).not.toBeVisible();
-    await expect(page.locator('.ai-free-chip')).toBeVisible({ timeout: 30_000 });
-    expect(await page.locator('.ai-free-chip').innerText()).toMatch(/Free credit: \$\d/);
+    await expect(page.locator('.ai-head-model')).toHaveCount(0);
+    await expect(page.locator('.ai-free-chip')).toHaveCount(0);
 
-    // The welcome panel is a quiet hint, not a forced connect.
-    await expect(page.locator('.ai-welcome-connect')).toContainText('Chats are free');
+    // The welcome panel names the active free model + the BYOK invite.
+    await expect(page.locator('.ai-welcome-connect')).toContainText('Currently using');
+    await expect(page.locator('.ai-welcome-connect')).toContainText('Connect OpenRouter to use any model');
+
+    // BYOK overrides live under the gear: the settings panel shows the credit line.
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page.locator('.ai-free-note')).toContainText('Free credit: $', { timeout: 30_000 });
+    // Close settings before chatting (mirrors normal usage).
+    await page.getByRole('button', { name: 'Settings' }).click();
 
     await ask(page, 'Which sector has the most open interest across all expirations? Give a one-line answer.');
     const text = await lastAnswer(page, 300_000);

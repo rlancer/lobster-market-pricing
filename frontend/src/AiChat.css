@@ -52,20 +52,6 @@
   cursor: default;
 }
 
-/* Free-tier credit chip (no key): balance left on the site's OpenRouter key. */
-.ai-free-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-1);
-  padding: var(--spacing-1) var(--spacing-2);
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--color-success) 14%, transparent);
-  color: var(--color-success);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  white-space: nowrap;
-}
-
 /* Settings privacy note for free anonymous chats. */
 .ai-free-note {
   margin: var(--spacing-2) 0 var(--spacing-0);
@@ -282,13 +268,12 @@
   align-items: center;
   gap: var(--spacing-2);
 }
-.ai-welcome-kicker {
-  color: var(--accent);
-  font-family: var(--font-family-code);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: .08em;
-  text-transform: uppercase;
+.ai-welcome-data {
+  max-width: 56ch;
+  margin: var(--spacing-0) auto;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
 }
 .ai-welcome-title {
   margin: var(--spacing-0);
