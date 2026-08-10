@@ -103,6 +103,18 @@ subdomain IS the credential) — deployed via `wrangler secret put`, never in
 The root `.env` holds `WRANGLER_R2_SQL_AUTH_TOKEN` for local `wrangler r2 sql
 query` validation (gitignored; see `.env.example`).
 
+### Worker — `OPEN_ROUTER_KEY` (secret, free chat)
+
+The site's OpenRouter key funds free anonymous Copilot chats (see AI Copilot).
+Stored as a Worker secret and mirrored in `worker/.dev.vars` for local dev
+(gitignored); never sent to the browser or committed. Non-secret free-chat
+vars in `worker/wrangler.jsonc`: `FREE_MODEL` (allowlisted, default
+`~deepseek/deepseek-v4-flash-latest`) and `FREE_MAX_OUTPUT_TOKENS` (`1500`).
+
+```bash
+cd worker && npx wrangler secret put OPEN_ROUTER_KEY
+```
+
 ### Frontend — `VITE_API_BASE`
 
 `frontend/.env` points the frontend at the Worker:
@@ -155,6 +167,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
+| `GET /api/free/quota` | Free anonymous-chat credit gate: `{remaining, limit}` for the site's OpenRouter key (see AI Copilot) |
+| `POST /api/free/v1/chat/completions` | OpenAI-compatible SSE proxy for free anonymous Copilot chats — see below |
 
 ### `/api/screen` query parameters
 
@@ -200,6 +214,19 @@ DataFusion SQL, runs them against the lake via `/api/query`, and interprets
 the results. Bring your own OpenRouter API key (stored in localStorage; never
 sent to our server).
 
+**Free anonymous chats** — every visitor can chat without a key, funded by the
+site's own OpenRouter key (`OPEN_ROUTER_KEY` secret; see Configuration below).
+The browser has no key → the chat proxies through the Worker's
+`POST /api/free/v1/chat/completions` (OpenAI-compatible SSE): the model is
+pinned + allowlisted server-side (`~deepseek/deepseek-v4-flash-latest`),
+`max_tokens` is clamped to `FREE_MAX_OUTPUT_TOKENS` (default 1500), and the
+client's `Authorization` header is never read — only `OPEN_ROUTER_KEY` is
+forwarded. The throttle is the credit on that key, not a per-user quota;
+`GET /api/free/quota` reports `{remaining, limit}` for the UI meter. When the
+credit is exhausted the proxy returns `402 free_credit_exhausted` and the UI
+pivots to the BYOK connect gate. The metered Tavily tools (`get_news`,
+`web_search`) are excluded from the free path.
+
 ## R2 SQL / DataFusion notes
 
 The Worker builds SQL strings for the R2 SQL REST endpoint (no parameter
@@ -217,6 +244,10 @@ escaping; sort columns are whitelisted). Key dialect constraints:
 
 - CBOE data is delayed ~15 minutes (fine for a screener). Official exchange
   data via [cdn.cboe.com](https://cdn.cboe.com/api/global/delayed_quotes/options/) — no API key.
+- **Source licensing:** EDGAR, FRED/Treasury/Fed, CBOE, Nasdaq, and FINRA are
+  official and redistributable — safe to land in the lake and serve through
+  `/api/query`. Yahoo-sourced data (OHLC, news RSS) is personal-use only and
+  must not be re-exposed to third parties through the public query endpoint.
 - The in-repo loader (`loader/`, deployed Worker `cboe-to-r2`) owns CBOE ingestion (nightly run, ~502
   symbols, ~1M contracts). This repo only reads the lake.
 - Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per

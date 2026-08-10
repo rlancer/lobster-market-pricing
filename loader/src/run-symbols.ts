@@ -1,5 +1,5 @@
 // CBOE fetch + normalize + Pipeline-publish path as a pure TS module (ported
-// from the retired container/loader.py per WORKER-LOADER-PIVOT). runSymbols is
+// from the retired container/loader.py, now running in-process). runSymbols is
 // the single loader entrypoint — called in-process by the CboeContinuousLoader
 // DO's tick() and by the public POST /run handler. The container is gone.
 //
