@@ -32,6 +32,7 @@ import {
   getModel,
   handleOAuthCallback,
   isOAuthCallback,
+  KeyRejected,
   modelHasParams,
   modelSupports,
   setApiKey,
@@ -215,6 +216,10 @@ function AiChat() {
   // balance (chip) + whether the credit is out (composer pivots to BYOK).
   const [quota, setQuota] = useState<FreeQuota | null>(null);
   const [freeExhausted, setFreeExhausted] = useState(false);
+  // The stored BYOK key was rejected by OpenRouter (401 — deleted/revoked):
+  // shows a recovery banner (connect a new key / remove the dead key) instead
+  // of dumping the raw error into the chat.
+  const [keyRejected, setKeyRejected] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -287,6 +292,7 @@ function AiChat() {
           setKeyState(getApiKey());
           setShowSettings(false);
           setError(null);
+          setKeyRejected(false); // a fresh key replaced the rejected one
         }
       })
       .catch((e) => setError(String(e)))
@@ -365,6 +371,7 @@ function AiChat() {
     setKeyState(key);
     setShowSettings(false);
     setError(null);
+    setKeyRejected(false); // a fresh key replaced the rejected one
   };
   const saveModel = (m: string) => {
     setModel(m);
@@ -378,6 +385,19 @@ function AiChat() {
     clearApiKey();
     setKeyState('');
     setShowSettings(true);
+  };
+  // Recovery actions for a rejected (deleted/revoked) key: drop it and fall
+  // back to free chats, or open the connect flow for a fresh one.
+  const removeRejectedKey = () => {
+    clearApiKey();
+    setKeyState('');
+    setKeyRejected(false);
+    setShowSettings(false);
+    setError(null);
+  };
+  const connectNewKey = () => {
+    setShowSettings(true);
+    setError(null);
   };
 
   const send = useCallback(async (q: string) => {
@@ -441,6 +461,13 @@ function AiChat() {
       if (e instanceof FreeCreditExhausted) {
         setFreeExhausted(true);
         setStatus('Free credit exhausted');
+        return;
+      }
+      // The stored key was deleted/revoked at OpenRouter: show the recovery
+      // banner (connect a new key / remove it) instead of a raw 401 bubble.
+      if (e instanceof KeyRejected) {
+        setKeyRejected(true);
+        setStatus('Your OpenRouter key was rejected');
         return;
       }
       const errorMsg: Msg = { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() };
@@ -745,6 +772,22 @@ function AiChat() {
       </section>
 
       <footer className="ai-composer-wrap">
+        {keyRejected && (
+          <div className="ai-key-rejected" role="alert">
+            <span className="ai-key-rejected-msg">
+              <b>Your OpenRouter key was rejected.</b> It may have been deleted or
+              revoked — connect a new key, or remove it to keep chatting on free credit.
+            </span>
+            <span className="ai-key-rejected-actions">
+              <button className="ai-connect-btn ai-key-rejected-connect" onClick={connectNewKey}>
+                Connect a new key
+              </button>
+              <button className="ai-ghost ai-remove" onClick={removeRejectedKey}>
+                Remove key
+              </button>
+            </span>
+          </div>
+        )}
         <ChatComposer
           value={input}
           onChange={setInput}

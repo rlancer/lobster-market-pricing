@@ -1741,6 +1741,38 @@ function isCreditExhaustedError(e: unknown): boolean {
   return msg.includes('free_credit_exhausted') || msg.includes('402');
 }
 
+/**
+ * The user's stored BYOK OpenRouter key was rejected (HTTP 401) — typically
+ * because the key was deleted or revoked from the OpenRouter dashboard. The UI
+ * surfaces this as a recovery action (connect a new key / remove it) instead of
+ * a raw error bubble.
+ */
+export class KeyRejected extends Error {
+  constructor(message = 'Your OpenRouter key was rejected — it may have been deleted or revoked.') {
+    super(message);
+    this.name = 'KeyRejected';
+  }
+}
+
+/**
+ * True for a 401 key-rejection from OpenRouter's BYOK path (any shape). The
+ * error arrives either as an SDK error carrying `.status` (401) or as the
+ * RUN_ERROR message string, which OpenRouter formats like
+ * "401 User not found." / "401 Invalid API key: …".
+ */
+function isKeyRejectedError(e: unknown): boolean {
+  if (e && typeof e === 'object' && 'status' in e && e.status === 401) return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  const m = msg.toLowerCase();
+  return (
+    msg.includes('401') ||
+    m.includes('user not found') ||
+    m.includes('invalid api key') ||
+    m.includes('unauthorized') ||
+    m.includes('authentication failed')
+  );
+}
+
 export interface AskCallbacks {
   onStatus?: (status: string) => void;
   onProgress?: (p: AgentProgress) => void;
@@ -1788,6 +1820,10 @@ export async function askAi(
     // 402 free_credit_exhausted must always surface — even mid-chat after a
     // successful tool call — so the UI pivots to the connect gate.
     if (freeMode && isCreditExhaustedError(e)) throw new FreeCreditExhausted();
+    // The stored BYOK key was rejected by OpenRouter (deleted/revoked → 401),
+    // so the user can't keep chatting until they replace or remove it. Throw a
+    // typed error the UI turns into a recovery action, never a raw bubble.
+    if (!freeMode && isKeyRejectedError(e)) throw new KeyRejected();
     // If the agent itself errored but a query already ran, still surface the
     // (partial) result rather than dropping it.
     if (capture.result) {

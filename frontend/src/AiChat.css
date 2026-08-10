@@ -601,6 +601,29 @@
   border-top: var(--border-width) solid var(--color-border-emphasized);
   background: var(--panel);
 }
+.ai-key-rejected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: var(--spacing-3);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, transparent);
+  border-radius: var(--radius-element);
+}
+.ai-key-rejected-msg b { color: var(--text); }
+.ai-key-rejected-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-key-rejected .ai-connect-btn { padding: 7px 14px; font-size: 12.5px; }
+.ai-key-rejected .ai-ghost { padding: 7px 14px; font-size: 12.5px; }
 
 /* ---- responsive ---------------------------------------------------------- */
 @media (max-width: 760px) {
