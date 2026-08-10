@@ -1384,6 +1384,12 @@ const CHAT_HISTORY_DRAIN_BATCH = 10; // pending rows re-published per call
 const CHAT_HISTORY_MAX_ATTEMPTS = 5; // per pending row, then left for manual
 const PIPELINE_HTTP_RETRIES = 3; // mirror the loader's requestJson retry policy
 const PIPELINE_RETRY_BACKOFF_MS = 500;
+// Hard cap on a single ingest POST so a stalled pipeline can never hold a
+// browser connection slot indefinitely (the browser fires the history save
+// fire-and-forget; a hung fetch would occupy one of Chromium's per-host
+// connections and could delay the user's NEXT api call). Missed ingest →
+// D1 buffer + later drain, so timeout-safe.
+const PIPELINE_POST_TIMEOUT_MS = 10_000;
 const LOADER_UA = "cboe-to-r2/0.2"; // loader User-Agent convention for Pipeline POSTs
 const CHAT_HISTORY_ADMIN_LIMIT_MAX = 500;
 
@@ -1490,6 +1496,7 @@ async function pipelinePost(
             : {}),
         },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(PIPELINE_POST_TIMEOUT_MS),
       });
       if (res.ok) return;
       if (res.status < 500) throw new Error(`pipeline rejected record (HTTP ${res.status})`);
