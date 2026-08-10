@@ -1627,10 +1627,19 @@ async function adminChatHistory(
   const before = beforeIn && Number.isFinite(Date.parse(beforeIn)) ? beforeIn : null;
   // No cache key: rows land within seconds of a chat, so admin reads must be
   // live. `before` is an ISO fetched_at cursor (R2 SQL has no OFFSET).
+  //
+  // The lake is append-only and the stream does not dedupe on idempotency key:
+  // a publish-success-but-timeout leaves a row pending and a later drain
+  // re-publishes the SAME chat_id (one row per chat turn, so each turn's row
+  // carries the full conversation so far). Collapse to the NEWEST row per
+  // chat_id (the complete conversation) — the lake's standard latest-wins
+  // QUALIFY pattern — so the admin view shows one transcript per chat.
   const where = before ? `WHERE fetched_at < ${lit(before)}` : "";
   const rows = await r2sql(env,
     `SELECT chat_id, mode, model, user_id, ip, user_agent, started_at, ended_at, messages, source, fetched_at ` +
-    `FROM options.chat_history ${where} ORDER BY fetched_at DESC LIMIT ${limit}`);
+    `FROM options.chat_history ${where} ` +
+    `QUALIFY ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY fetched_at DESC, ended_at DESC) = 1 ` +
+    `ORDER BY fetched_at DESC, ended_at DESC LIMIT ${limit}`);
   const items = rows.map((r) => {
     let messages: unknown = null;
     try {
