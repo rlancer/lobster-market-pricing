@@ -268,13 +268,12 @@
   align-items: center;
   gap: var(--spacing-2);
 }
-.ai-welcome-kicker {
-  color: var(--accent);
-  font-family: var(--font-family-code);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: .08em;
-  text-transform: uppercase;
+.ai-welcome-data {
+  max-width: 56ch;
+  margin: var(--spacing-0) auto;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
 }
 .ai-welcome-title {
   margin: var(--spacing-0);

@@ -567,8 +567,11 @@ function AiChat() {
             <header className="ai-welcome-hero">
               <BlueLobsterLogo className="ai-welcome-mascot" />
               <h1 className="ai-welcome-title">Ask the Lobster</h1>
-              <span className="ai-welcome-kicker">Research your options data</span>
-              <p>Chat writes the SQL, runs it against your dataset, and returns the answer.</p>
+              <p className="ai-welcome-data">
+                Live options chains for every S&P 500 company — calls &amp; puts, strikes,
+                implied vol, open interest, volume, greeks — plus spot quotes, IV rank,
+                realized vol, earnings, corporate actions, news, web search, and the macro calendar.
+              </p>
             </header>
             <nav className="ai-examples" aria-label="Suggested questions">
               {EXAMPLES.map((ex) => (
@@ -590,10 +593,11 @@ function AiChat() {
                 ) : (
                   <>
                     <p>
-                      <b>Chats are free</b> — paid for by this site's OpenRouter credit, no account needed.
+                      <b>Currently using {FREE_MODEL.replace('~', '')}</b> — free.
+                      Connect OpenRouter to use any model.
                     </p>
                     <button className="ai-ghost ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-                      Use your own key
+                      {oauthBusy ? 'Connecting…' : 'Use your own key'}
                     </button>
                   </>
                 )}

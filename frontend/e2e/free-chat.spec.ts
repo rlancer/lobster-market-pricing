@@ -74,8 +74,9 @@ test.describe('Free anonymous chats (site OpenRouter key)', () => {
     await expect(page.locator('.ai-head-model')).toHaveCount(0);
     await expect(page.locator('.ai-free-chip')).toHaveCount(0);
 
-    // The welcome panel is a quiet hint, not a forced connect.
-    await expect(page.locator('.ai-welcome-connect')).toContainText('Chats are free');
+    // The welcome panel names the active free model + the BYOK invite.
+    await expect(page.locator('.ai-welcome-connect')).toContainText('Currently using');
+    await expect(page.locator('.ai-welcome-connect')).toContainText('Connect OpenRouter to use any model');
 
     // BYOK overrides live under the gear: the settings panel shows the credit line.
     await page.getByRole('button', { name: 'Settings' }).click();
