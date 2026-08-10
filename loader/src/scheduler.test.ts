@@ -494,3 +494,67 @@ describe("EtlScheduler — per-job market_gated", () => {
     expect(rec.ran).toBe(false);
   });
 });
+
+describe("EtlScheduler — item-store seeding (universe growth)", () => {
+  function seedSpec(overrides: Partial<Record<string, unknown>> & { seedSize?: () => number } = {}) {
+    const rec = { seeded: false, ran: false };
+    const spec: JobSpec = {
+      id: "t",
+      marketGated: false,
+      cadenceSeconds: 900,
+      scope: "items",
+      itemTable: "symbol_state",
+      itemIdColumn: "symbol",
+      seedSize: overrides.seedSize,
+      seedItems: async () => {
+        rec.seeded = true;
+      },
+      run: async (items) => {
+        rec.ran = items.length > 0;
+        return { runId: null, failures: [] };
+      },
+      ...(overrides as object),
+    };
+    return { spec, rec };
+  }
+
+  function runPass(scheduler: EtlScheduler, spec: JobSpec, db: FakeDb) {
+    return scheduler.runJobPass(spec, rowFrom({ job_id: "t", handler: "t", market_gated: 0 }), 600000);
+  }
+
+  it("re-seeds additively when the item store is smaller than seedSize (universe grew)", async () => {
+    const db = new FakeDb();
+    // 2 of 3 expected items already present (progress preserved) — like the live
+    // 503-row symbol_state after the universe grows to 583.
+    for (const s of ["OLD1", "OLD2"]) {
+      db.symbolState.set(s, { ...rowFrom({ job_id: "x" }) });
+    }
+    const { spec, rec } = seedSpec({ seedSize: () => 3 });
+    const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
+    await runPass(scheduler, spec, db);
+
+    expect(rec.seeded).toBe(true);
+  });
+
+  it("skips seeding when the item store already holds seedSize rows", async () => {
+    const db = new FakeDb();
+    for (const s of ["A", "B", "C"]) {
+      db.symbolState.set(s, { ...rowFrom({ job_id: "x" }) });
+    }
+    const { spec, rec } = seedSpec({ seedSize: () => 3 });
+    const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
+    await runPass(scheduler, spec, db);
+
+    expect(rec.seeded).toBe(false);
+  });
+
+  it("legacy jobs without seedSize still seed only when the store is empty", async () => {
+    const db = new FakeDb();
+    db.symbolState.set("EXISTING", { ...rowFrom({ job_id: "x" }) });
+    const { spec, rec } = seedSpec({}); // no seedSize
+    const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
+    await runPass(scheduler, spec, db);
+
+    expect(rec.seeded).toBe(false);
+  });
+});

@@ -99,7 +99,10 @@ Runs via the `EtlScheduler` Durable Object alarm loop
   (`loader/migrations/0001_initial.sql`): `next_attempt_after <= now` = due
   (epoch ms); `consecutive_failures`/`backoff_seconds` drive exponential backoff
   (60s → 5m → 30m capped). Success resets and re-schedules at the cadence.
-  Never lose progress on restart — re-seed only when the table is empty.
+  Never lose progress on restart — re-seed only when the table is empty, or
+  (with `seedSize` on the job) smaller than the job's expected item count, so a
+  universe expansion (e.g. adding ETFs) seeds its new items additively without
+  touching existing per-item rows.
 - **Batch jobs** (`ohlc-daily`) run their whole `universe()` per pass, governed
   by `job_state` cadence (86400s); they touch no item store. Its handler
   short-circuits (dry-run) when neither `PIPELINE_OHLC_URL` nor

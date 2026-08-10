@@ -39,6 +39,7 @@ export function ohlcBackfillJob(env: SchedulerEnv): ItemJob {
     scope: "items",
     itemTable: "ohlc_backfill_state",
     itemIdColumn: "symbol",
+    seedSize: () => SYMBOLS.length,
     seedItems: async (db) => {
       const now = Date.now();
       const base = num(env, "LOADER_BACKOFF_BASE_SECONDS", 60);
