@@ -17,12 +17,14 @@
     // per-symbol contract publish path is serialized for deterministic output,
     // so a large batch stretches the pass and buffers thousands of parsed
     // records in the DO isolate at once (a 250-symbol batch OOM'd the DO and
-    // hit the run timeout). At 40 a pass completes well inside the timeout;
-    // the serialized-publish throughput means a full 503-symbol refresh takes
+    // hit the run timeout; an ETF-heavy 40-symbol batch — SPY 14.6k + QQQ 12.9k
+    // contracts and friends — threw Cloudflare 1101 in the DO on 2026-08-10).
+    // At 20 a pass stays comfortably inside the isolate limits; the
+    // serialized-publish throughput means a full 583-symbol refresh takes
     // longer than the 15-min cadence, so the universe intentionally refreshes
     // over multiple passes and data can age beyond 15 min until the cadence is
     // re-tuned (see README "Safe defaults and tuning").
-    "LOADER_BATCH_SIZE": 40,
+    "LOADER_BATCH_SIZE": 20,
     // Seconds between passes (alarm fires, picks the due batch, re-arms).
     "LOADER_POLL_INTERVAL_SECONDS": 60,
     // Seconds after a successful reload before a symbol is due again (~15 min).
