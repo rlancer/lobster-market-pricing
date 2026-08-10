@@ -87,6 +87,23 @@ testing instead of a per-branch URL, which requires re-logging in each time.
   anchor a text edit on that literal ellipsis text; it will corrupt the real
   body (happened in `frontend/src/api.ts`). Use `:raw` reads for unknown text.
 
+## Documentation policy — no `PLAN-*.md` rollups
+
+Root-level `*.md` files are **live documentation, not archives**. Do not add
+new `PLAN-*.md` / `WORKER-*.md` planning or rollout docs at the root, and do
+not leave stale ones around. The rule:
+
+- **Plans are transient.** While a feature is in flight, its plan/runbook may
+  live on the feature branch (or nowhere — the PR description suffices).
+- **On ship, convert, then delete.** Before merge, fold the still-accurate
+  facts into the canonical docs — `README.md` (architecture, API, config) and
+  the per-package `AGENTS.md` (`loader/AGENTS.md` for loaders, `frontend/AGENTS.md`
+  for the design system) — and delete the plan file in the same PR or on the
+  feature branch. No plan file survives the merge.
+- **No scratch in the repo.** Handoff notes, version-ID snapshots, outage
+  trackers, and "historical record" migrations are not documentation; delete
+  them rather than relabel them.
+
 ## Repo map
 
 - `frontend/` — Vite + React UI (Copilot, market screener, research, SQL lab,
@@ -96,4 +113,6 @@ testing instead of a per-branch URL, which requires re-logging in each time.
 - `loader/` — CBOE → Cloudflare Pipelines → R2 Data Catalog ingestion
   (`cboe-to-r2`): continuous Durable Object scheduler, OHLC jobs, D1 state.
 - Root `README.md` — architecture, full API reference, run/deploy
-  instructions; deeper docs exist as `PLAN-*.md` / `WORKER-*.md` at the root.
+  instructions; deeper operational docs live in the per-package `AGENTS.md`
+  files. No `PLAN-*.md` / `WORKER-*.md` rollups at the root (see
+  "Documentation policy" above).

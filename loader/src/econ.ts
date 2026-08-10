@@ -1,6 +1,6 @@
 // Macro / FOMC calendar enrichment path for the options lake.
 //
-// Tier-2 chat enrichment (see PLAN-CHAT-ENRICHMENT.md Phase 4): fetch the
+// Tier-2 chat enrichment: fetch the
 // scheduled high-impact macro releases (CPI, PPI, jobs, GDP, PCE, consumer
 // sentiment) from FRED's release-date API plus FOMC/Beige Book events from the
 // Federal Reserve's keyless calendar JSON, and publish normalized rows to
