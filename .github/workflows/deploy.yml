@@ -1,14 +1,12 @@
 name: Deploy
 
-# main       → prod (Cloudflare Pages project: robs-options-slop, custom domain: lobster.mp)
-#              + screener-api Worker (workers.dev) via `wrangler deploy`.
-# Branches  → dev  (Cloudflare Pages project: robs-options-slop-dev)
+# main       → prod Pages + screener-api Worker.
+# Branches   → dev Pages + the shared screener-api-dev Worker, so preview UI
+#              and backend always speak the same API contract.
 #
 # Frontend: `wrangler pages deploy frontend/dist`.
-# Worker:   `wrangler deploy` (in worker/). The Worker's R2_SQL_TOKEN secret
-#           is stored on the deployed Worker and persists across deploys, so
-#           CI needs only the Cloudflare API token + account id (GitHub
-#           Actions secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID).
+# Workers: `wrangler deploy` from worker/. Each Worker's secrets persist across
+# redeploys; screener-api-dev is seeded once outside CI just like production.
 
 on:
   push:
@@ -41,6 +39,8 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Build
+        env:
+          VITE_API_BASE: ${{ github.ref == 'refs/heads/main' && 'https://screener-api.robertlancer.workers.dev' || 'https://screener-api-dev.robertlancer.workers.dev' }}
         run: cd frontend && npm run build
 
       - name: Install Worker dependencies
@@ -175,9 +175,40 @@ jobs:
           workingDirectory: worker
           command: deploy
 
+  deploy-worker-dev:
+    name: Deploy → dev (Worker)
+    needs: build
+    if: >
+      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker dependencies
+        run: cd worker && npm ci
+
+      # Secrets are pre-seeded on screener-api-dev and survive redeploys. Never
+      # copy production secret values through the browser or repository.
+      - name: Deploy screener-api-dev Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy --name screener-api-dev
+
   deploy-dev:
     name: Deploy → dev
-    needs: build
+    needs: [build, deploy-worker-dev]
     # Run for any non-main push, any PR targeting main, or manual dispatch
     # (unless manually dispatched on main, where deploy-prod handles it).
     if: >
@@ -218,10 +249,8 @@ jobs:
             --commit-message "deploy(dev): ${{ github.sha }}"
 
       # Stable dev URL (https://robs-options-slop-dev.pages.dev/): this project's
-      # production branch is `dev`, so every dev build also lands here,
-      # clobbering the previous build. Unlike the per-branch URLs above, the
-      # origin never changes — the browser localStorage (OpenRouter login) on
-      # this URL persists across deploys, so testing needs no re-login.
+      # production branch is `dev`, so every dev build also lands here and uses
+      # the matching screener-api-dev Worker.
       - name: Deploy to Cloudflare Pages (stable dev URL)
         uses: cloudflare/wrangler-action@v3
         with:

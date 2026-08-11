@@ -122,8 +122,11 @@ cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 `frontend/.env` points the frontend at the Worker:
 
 ```
-# Deployed Worker (production):
+# Production Pages:
 VITE_API_BASE=https://screener-api.robertlancer.workers.dev
+
+# Preview/dev Pages (set by deploy.yml during branch builds):
+VITE_API_BASE=https://screener-api-dev.robertlancer.workers.dev
 
 # Local Worker dev (wrangler dev on 127.0.0.1:8787):
 # VITE_API_BASE=http://127.0.0.1:8787
