@@ -42,6 +42,8 @@ interface CalendarResult {
 export interface CopilotDeps {
   schema(): Promise<LakeTable[]>;
   query(sql: string, limit: number): Promise<QueryResult>;
+  /** Store a completed chat result under `chatId` so a disconnected client can resume it. */
+  persistResult(chatId: string, payload: string): Promise<void>;
   news(symbol: string, limit: number): Promise<NewsResult>;
   webSearch(query: string, limit: number): Promise<SearchResult>;
   econCalendar(days: number): Promise<CalendarResult>;
@@ -132,6 +134,8 @@ const MAX_FRAMES = 8;
 const MAX_FRAME_ROWS = 100_000;
 const MAX_CHAT_SESSIONS = 100;
 const SESSION_TTL_MS = 30 * 60_000;
+// Cap rows persisted for a resumed answer (mirrors the client's render cap).
+const RESULT_PERSIST_MAX_ROWS = 200;
 const MAX_TOOL_SUMMARY_CHARS = 12_000;
 
 const sessions = new Map<string, ChatSession>();
@@ -812,7 +816,7 @@ async function executeTool(
   tables: LakeTable[],
   capture: Capture,
   deps: CopilotDeps,
-  emit: (event: ProgressEvent) => Promise<void>,
+  emit: (event: ProgressEvent) => Promise<unknown>,
 ): Promise<ToolResult> {
   let args: Record<string, unknown>;
   try {
@@ -976,7 +980,7 @@ async function modelRound(
   messages: OpenRouterMessage[],
   maxTokens: number,
   withTools: boolean,
-  emit: (event: ProgressEvent) => Promise<void>,
+  emit: (event: ProgressEvent) => Promise<unknown>,
 ): Promise<ModelRound> {
   const payload: Record<string, unknown> = {
     model: env.COPILOT_MODEL,
@@ -1118,7 +1122,7 @@ async function runAgent(
   history: HistoryMessage[],
   session: ChatSession,
   deps: CopilotDeps,
-  emit: (event: ProgressEvent) => Promise<void>,
+  emit: (event: ProgressEvent) => Promise<unknown>,
 ): Promise<{ answer: string; capture: Capture; usedOutputTokens: number }> {
   await emit({ kind: "status", status: "Reading schema…" });
   const tables = await deps.schema();
@@ -1205,20 +1209,25 @@ export async function copilotChat(
   const stream = new TransformStream<Uint8Array, Uint8Array>();
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
+  // True when the event was actually written to the client; false once the
+  // socket is gone (writer.write throws) — the client can then recover the
+  // finished answer via GET /api/chat/result instead of seeing a network error.
   let disconnected = false;
-  const emit = async (event: ProgressEvent): Promise<void> => {
-    if (disconnected) return;
+  const emit = async (event: ProgressEvent): Promise<boolean> => {
+    if (disconnected) return false;
     try {
       await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      return true;
     } catch {
       disconnected = true;
+      return false;
     }
   };
 
   const work = (async () => {
     try {
       const result = await runAgent(env, req.headers.get("Origin") ?? "", request.question, request.history, session, deps, emit);
-      await emit({
+      const sent = await emit({
         kind: "result",
         answer: result.answer,
         sql: result.capture.sql,
@@ -1227,7 +1236,24 @@ export async function copilotChat(
         model: env.COPILOT_MODEL,
         frames: frameMetadata(session),
       });
-      console.log(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, outputTokens: result.usedOutputTokens, toolsProducedResult: result.capture.result !== null }));
+      if (!sent) {
+        // Client lost the connection mid-stream. The answer is already
+        // computed — stash it so the reconnecting tab can poll it back.
+        const res = result.capture.result;
+        const payload: ProgressEvent & { kind: "result" } = {
+          kind: "result",
+          answer: result.answer,
+          sql: result.capture.sql,
+          result: res ? { ...res, rows: res.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : res,
+          chart: result.capture.chart,
+          model: env.COPILOT_MODEL,
+          frames: frameMetadata(session),
+        };
+        await deps.persistResult(request.chatId, JSON.stringify(payload)).catch(() => {
+          /* resume is best-effort; the run already spent its budget */
+        });
+      }
+      console.log(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, outputTokens: result.usedOutputTokens, toolsProducedResult: result.capture.result !== null, resumed: !sent }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, error: message }));

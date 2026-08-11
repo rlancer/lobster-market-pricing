@@ -51,4 +51,19 @@ test.describe('Server-funded Copilot', () => {
     });
     expect(response.status()).toBe(413);
   });
+
+  // Resume endpoint (0004_chat_results.sql): an unguessable chat_id is the
+  // capability. Not-ready is the steady state — a row only exists after a
+  // disconnect mid-run, which the funded tests can't force. These two cases
+  // prove the route is wired and the ready flag contract is stable, spend-free.
+  test('resume endpoint: unknown chat is not ready', async ({ request }) => {
+    const response = await request.get(`${LOCAL_WORKER}/api/chat/result?chat_id=${crypto.randomUUID()}`);
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toEqual({ ready: false });
+  });
+
+  test('resume endpoint: missing chat_id is rejected', async ({ request }) => {
+    const response = await request.get(`${LOCAL_WORKER}/api/chat/result`);
+    expect(response.status()).toBe(400);
+  });
 });

@@ -1521,6 +1521,47 @@ async function adminChatHistory(
   return { ok: true, limit, before, items, as_of: new Date().toISOString() };
 }
 
+// How long a resumed chat result stays readable after the producing turn
+// finished. Generous enough for a user to unlock the phone and come back to a
+// suspended tab; chat_ids are unguessable, so rows are effectively private and
+// lazily pruned on every read.
+const CHAT_RESULT_TTL_MS = 60 * 60_000;
+const CHAT_RESULT_CHAT_ID_MAX = 128; // mirror the /api/chat chat_id validation
+
+/** Store a completed Copilot result (payload = the SSE `result` event JSON). */
+async function persistChatResult(env: Env, chatId: string, payload: string): Promise<void> {
+  if (!env.SCHEMA_DB) return;
+  await env.SCHEMA_DB
+    .prepare("INSERT OR REPLACE INTO chat_results (chat_id, payload, created_at) VALUES (?1, ?2, ?3)")
+    .bind(chatId, payload, Date.now())
+    .run();
+}
+
+/**
+ * GET /api/chat/result?chat_id=… — resume a result the browser missed because
+ * its SSE connection died (mobile background) before the final event. Returns
+ * the stored `result` event payload as `{ ready: true, ... }` once the Worker
+ * has finished and persisted it, else `{ ready: false }`. chat_id is the
+ * capability (unguessable client UUID) — same trust model as /api/share/*.
+ */
+async function getChatResult(env: Env, chatIdIn: string): Promise<Response> {
+  const chatId = chatIdIn.trim().slice(0, CHAT_RESULT_CHAT_ID_MAX);
+  if (!chatId) return json(env, { error: "chat_id is required" }, 400);
+  const now = Date.now();
+  if (!env.SCHEMA_DB) return json(env, { ready: false });
+  // Prune this chat's own expired row (idempotent; a live chat is untouched).
+  await env.SCHEMA_DB.prepare("DELETE FROM chat_results WHERE chat_id = ?1 AND created_at < ?2").bind(chatId, now - CHAT_RESULT_TTL_MS).run();
+  const row = await env.SCHEMA_DB.prepare("SELECT payload FROM chat_results WHERE chat_id = ?1").bind(chatId).first<{ payload: string }>();
+  if (!row) return json(env, { ready: false });
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    return json(env, { ready: false });
+  }
+  return json(env, { ready: true, ...(payload as Record<string, unknown>) });
+}
+
 // ---------------------------------------------------------------------------
 // Copilot chat shares — public unlisted transcripts in D1
 // ---------------------------------------------------------------------------
@@ -1884,6 +1925,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     return cors(env, await copilotChat(req, env, ctx, {
       schema: () => schemaTables(env, ctx, false),
       query: (sql, limit) => runQuery(env, sql, limit),
+      persistResult: (chatId, payload) => persistChatResult(env, chatId, payload),
       news: (symbol, limit) => news(env, symbol, limit),
       webSearch: (query, limit) => webSearch(env, query, limit),
       econCalendar: (days) => econCalendar(env, days),
@@ -1946,6 +1988,8 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   // Copilot chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")
     return await saveChatHistory(env, ctx, req);
+  if (path === "/api/chat/result" && req.method === "GET")
+    return await getChatResult(env, q.get("chat_id") ?? "");
   if (path === "/api/admin/chat_history" && req.method === "GET") {
     if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
     return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
