@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS shared_chats (
   share_id    TEXT PRIMARY KEY,   -- base62 ~18-byte entropy: the URL slug (implicit capability)
   chat_id     TEXT NOT NULL,      -- originating conversation id (matches options.chat_history)
   title       TEXT,               -- auto-derived (first user question) / user-editable later
-  mode        TEXT NOT NULL,      -- 'free' | 'byok'
+  mode        TEXT NOT NULL,      -- 'funded' (site-key, server-side Copilot)
   model       TEXT,               -- model id that answered
   messages    TEXT NOT NULL,      -- JSON array [{role, content, sql?, tools?, ts?}] — the transcript
   source_sql  TEXT,               -- the "money" query (last assistant sql) denormalized for alert wiring

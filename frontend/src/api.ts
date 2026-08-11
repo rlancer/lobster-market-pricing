@@ -338,13 +338,6 @@ export interface LoaderSymbolsResponse {
 // ---------------------------------------------------------------------------
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? '';
 
-/** Free anonymous chat credit (Worker /api/free/quota). */
-export interface FreeQuota {
-  remaining: number;
-  limit: number;
-  is_free_tier: boolean;
-  model: string;
-}
 
 // ---------------------------------------------------------------------------
 // Copilot chat history (Worker POST /api/chat/history → options.chat_history)
@@ -362,8 +355,8 @@ export interface ChatHistoryMessage {
 export interface ChatHistoryRecord {
   /** Per-conversation id (stable across turns; one row per turn records the full conversation so far). */
   chat_id: string;
-  /** 'free' (site OpenRouter credit) | 'byok' (user key). */
-  mode: 'free' | 'byok';
+  /** Site-funded server-side Copilot. */
+  mode: 'funded';
   model?: string;
   started_at: string;
   ended_at: string;
@@ -400,7 +393,7 @@ export interface SharedChatMessage extends ChatHistoryMessage {
 export interface SharedChat {
   share_id: string;
   title: string | null;
-  mode: 'free' | 'byok';
+  mode: 'funded';
   model: string | null;
   /** Epoch ms the share was created. */
   created_at: number;
@@ -477,9 +470,6 @@ export const api = {
     limit?: number;
   }) => get<PremiumNotebook>(`/api/notebook/premium${qs(params)}`),
   loaderStatus: () => get<LoaderStatus>('/loader/status'),
-  // Free anonymous chat credit (site OpenRouter key): remaining/limit model the
-  // gate; 402 free_credit_exhausted from /api/free/* pivots the UI to BYOK.
-  freeQuota: () => get<FreeQuota>('/api/free/quota'),
   loaderSymbols: (params?: {
     filter?: LoaderFilter;
     q?: string;

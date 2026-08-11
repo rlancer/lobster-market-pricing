@@ -1,14 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
-// Copilot tool-usage e2e: prove the AI chat actually fires the news /
-// web_search / eco_calendar tools (proxied by the local worker) and cites the
-// results. The deterministic signal is the worker request each tool makes —
-// captured via waitForResponse — plus a sanity check that the answer is built
-// on the fetched material (source link OR a named outlet for news/web_search,
-// an event date for eco_calendar). Citation style varies by model, so the
-// answer check accepts either clickable links or named outlets; the endpoint
-// hit is what really proves the tool ran.
+// Copilot tool-usage e2e: prove the Worker-side AI loop fires news,
+// web_search, and eco_calendar and grounds the answer in their outputs. The
+// progress SSE feed is the deterministic signal that a tool ran; a direct
+// endpoint read supplies the expected source material for grounding checks.
 //
 // The chat questions below deliberately NEVER name a tool ("get_news",
 // "web_search", "eco_calendar"): a real user asks "why is it moving?" or
@@ -18,28 +14,16 @@ import { expect, test, type Page } from '@playwright/test';
 // routing actually works. The waitForResponse cap on the exact endpoint is
 // still deterministic proof the right tool ran.
 //
-// Requires an OpenRouter key: process.env.OPENROUTER_API_KEY or the root
-// `.env` OPEN_ROUTER_LOCAL_DEV_KEY (see playwright.config.ts). Chat tests skip
-// (not fail) without one so CI without a key stays green.
+// Live-model checks require OPEN_ROUTER_KEY in worker/.dev.vars. The browser
+// never receives it; playwright.config.ts exposes only a presence flag.
 // ---------------------------------------------------------------------------
 
-const KEY = process.env.OPENROUTER_API_KEY ?? '';
+const READY = process.env.COPILOT_E2E_READY === '1';
 const LOCAL_WORKER = 'http://127.0.0.1:8787';
-// Pin the chat model for determinism: openrouter/auto re-routes per request,
-// so every run could get a different model (the citation-style and loop-length
-// variance we saw locally). deepseek/deepseek-v4-flash-0731 is tool-capable
-// per the OpenRouter catalog and is the model this suite exercises.
-const CHAT_MODEL = 'deepseek/deepseek-v4-flash-0731';
 
-/** Open the chat with the OpenRouter key + model pre-seeded (BYOK localStorage). */
 async function openChat(page: Page): Promise<void> {
-  await page.addInitScript(({ k, m }: { k: string; m: string }) => {
-    localStorage.setItem('openinterest_ai_key', k);
-    localStorage.setItem('openinterest_ai_model', m);
-  }, { k: KEY, m: CHAT_MODEL });
   await page.goto('/');
-  // Key indicator goes green once the app sees the stored key.
-  await expect(page.locator('.ai-key-dot.ok')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
 }
 
 /** Type a question into the composer and submit with Enter. */
@@ -112,74 +96,49 @@ test.describe('Copilot tool usage (chat → worker → upstream)', () => {
     }
   });
 
-  test('routes a per-ticker "why is it moving" question to get_news and cites headline links', async ({ page }) => {
-    test.skip(!KEY, 'No OpenRouter key (set OPENROUTER_API_KEY or root .env OPEN_ROUTER_LOCAL_DEV_KEY)');
+  test('routes a per-ticker "why is it moving" question to get_news and cites headline links', async ({ page, request }) => {
+    test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
     test.setTimeout(600_000);
+    const source = await request.get(`${LOCAL_WORKER}/api/news?symbol=NVDA&limit=8`);
+    const payload = (await source.json()) as { items: { title?: string; snippet?: string }[] };
+    expect(payload.items.length).toBeGreaterThan(0);
     await openChat(page);
 
-    // No tool named in the question — the system prompt must route this to
-    // get_news for NVDA specifically (not web_search, not a random symbol).
-    const newsResp = page.waitForResponse(
-      (r) => r.url().startsWith(`${LOCAL_WORKER}/api/news`) && r.url().includes('symbol=NVDA') && r.status() === 200,
-      { timeout: 200_000 },
-    );
     await ask(page, 'Why is NVDA moving a lot today? What do the headlines say?');
-    const resp = await newsResp;
-    const payload = (await resp.json()) as { items: unknown[] };
-    expect(payload.items.length).toBeGreaterThan(0);
-
+    await expect(page.locator('.ai-tool-name').filter({ hasText: 'News' })).toBeVisible({ timeout: 200_000 });
     const text = await lastAnswer(page, 540_000);
     expect(text.toLowerCase()).toContain('nvda');
-    // Answer must be built on the fetched headlines (any citation style).
     expect(await contentOverlap(page, payload.items), 'answer should reflect fetched headlines').toBeGreaterThanOrEqual(2);
     await page.screenshot({ path: 'test-results/chat-news.png', fullPage: true });
   });
 
-  test('routes an analyst-commentary question to web_search and cites links', async ({ page }) => {
-    test.skip(!KEY, 'No OpenRouter key (set OPENROUTER_API_KEY or root .env OPEN_ROUTER_LOCAL_DEV_KEY)');
+  test('routes an analyst-commentary question to web_search and cites links', async ({ page, request }) => {
+    test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
     test.setTimeout(600_000);
+    const source = await request.get(`${LOCAL_WORKER}/api/web_search?q=AI+chip+makers+analyst+commentary&limit=5`);
+    const payload = (await source.json()) as { results: { title?: string; snippet?: string }[] };
+    expect(payload.results.length).toBeGreaterThan(0);
     await openChat(page);
 
-    // No tool name: "what are analysts saying" must route to web_search via
-    // the system prompt, not to get_news or a SQL query.
-    const searchResp = page.waitForResponse(
-      (r) => r.url().startsWith(`${LOCAL_WORKER}/api/web_search`) && r.status() === 200,
-      { timeout: 200_000 },
-    );
     await ask(page, 'What are analysts saying about AI chip makers lately? Any fresh commentary worth knowing?');
-    const resp = await searchResp;
-    const payload = (await resp.json()) as { results: unknown[] };
-    expect(payload.results.length).toBeGreaterThan(0);
-
+    await expect(page.locator('.ai-tool-name').filter({ hasText: 'Web search' })).toBeVisible({ timeout: 200_000 });
     const text = await lastAnswer(page, 540_000);
     expect(text.length).toBeGreaterThan(60);
-    // Answer must be built on the fetched search results (any citation style
-    // the model chooses — links, named outlets, or plain retelling).
     expect(await contentOverlap(page, payload.results), 'answer should reflect fetched search results').toBeGreaterThanOrEqual(2);
     await page.screenshot({ path: 'test-results/chat-web-search.png' });
   });
 
-  test('routes a "what is coming up" vol question to eco_calendar', async ({ page }) => {
-    test.skip(!KEY, 'No OpenRouter key (set OPENROUTER_API_KEY or root .env OPEN_ROUTER_LOCAL_DEV_KEY)');
-    // Agent loops can churn several tool iterations for a fuzzy macro question;
-    // budget ~10 min for completion.
+  test('routes a "what is coming up" vol question to eco_calendar', async ({ page, request }) => {
+    test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
     test.setTimeout(600_000);
+    const source = await request.get(`${LOCAL_WORKER}/api/econ_calendar`);
+    const payload = (await source.json()) as { items: unknown[] };
+    expect(payload.items.length).toBeGreaterThan(0);
     await openChat(page);
 
-    // No tool name: Fed-meeting / macro-window intent must route to
-    // eco_calendar via the system prompt alone.
-    const calResp = page.waitForResponse(
-      (r) => r.url().startsWith(`${LOCAL_WORKER}/api/econ_calendar`) && r.status() === 200,
-      { timeout: 200_000 },
-    );
     await ask(page, 'Is a Fed meeting or a big macro report coming up soon that could move vol?');
-    const resp = await calResp;
-    const payload = (await resp.json()) as { items: unknown[] };
-    expect(payload.items.length).toBeGreaterThan(0);
-
+    await expect(page.locator('.ai-tool-name').filter({ hasText: 'Eco calendar' })).toBeVisible({ timeout: 200_000 });
     const text = await lastAnswer(page, 540_000);
-    // The calendar tool output carries dates; the answer should echo one —
-    // as an ISO date, a full month name, or an abbreviated "Aug. 12" style.
     const dateRe = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}|\d{4}-\d{2}-\d{2}/i;
     expect(text).toMatch(dateRe);
     await page.screenshot({ path: 'test-results/chat-econ-calendar.png' });

@@ -122,9 +122,9 @@ jobs:
           fi
         working-directory: worker
 
-      # OpenRouter site key funding free anonymous chats (/api/free/*). Same
-      # guarded pattern as FRED: keeps the deployed secret in sync, and skips
-      # (leaving any existing value intact) until the GitHub secret exists.
+      # OpenRouter site key used only by the Worker's server-side Copilot loop.
+      # Guarded sync leaves any existing deployed secret intact when GitHub has
+      # not been configured with a replacement.
       - name: Set OPEN_ROUTER_KEY secret on Worker (if configured)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -133,7 +133,7 @@ jobs:
           if [ -n "${{ secrets.OPEN_ROUTER_KEY }}" ]; then
             echo "${{ secrets.OPEN_ROUTER_KEY }}" | npx wrangler secret put OPEN_ROUTER_KEY --name screener-api
           else
-            echo "OPEN_ROUTER_KEY not set — skipping (free chats stay credit-gated closed)"
+            echo "OPEN_ROUTER_KEY not set — skipping (Copilot remains unavailable without an existing secret)"
           fi
         working-directory: worker
 

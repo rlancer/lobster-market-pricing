@@ -4,10 +4,10 @@
 
 R2_SQL_TOKEN=
 
-# OpenRouter site key funding free anonymous Copilot chats (/api/free/*).
+# OpenRouter site key used only by the Worker's server-side Copilot loop.
 # Mirror the value from the root `.env` OPEN_ROUTER_KEY. Deployed as a Worker
 # secret (`wrangler secret put OPEN_ROUTER_KEY`) + a GitHub secret for redeploys.
-# Never commit the value.
+# Never commit the value or expose it to browser code.
 OPEN_ROUTER_KEY=
 
 # Optional override for local dev; defaults to the production loader.

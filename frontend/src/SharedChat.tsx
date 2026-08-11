@@ -90,7 +90,7 @@ function SharedChatRoute() {
               <p className="share-meta">
                 <Timestamp value={share.created_at / 1000} format="date_time" />
                 {share.model && <span>· {share.model}</span>}
-                <span>· {share.mode === 'free' ? 'free chat' : 'BYOK'}</span>
+                <span>· site-funded chat</span>
               </p>
             </header>
             <section className="share-msgs" aria-label="Shared conversation">

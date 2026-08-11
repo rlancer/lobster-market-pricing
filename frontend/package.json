@@ -13,14 +13,11 @@
   "dependencies": {
     "@astryxdesign/core": "^0.2.0",
     "@astryxdesign/theme-neutral": "^0.2.0",
-    "@tanstack/ai": "^0.43.0",
-    "@tanstack/ai-openai": "^0.18.0",
     "@tanstack/react-router": "^1.170.21",
     "lucide-react": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "recharts": "^3.10.1",
-    "zod": "^4.4.3"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@astryxdesign/cli": "^0.2.0",
