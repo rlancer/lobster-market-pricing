@@ -42,6 +42,8 @@ interface CalendarResult {
 export interface CopilotDeps {
   schema(): Promise<LakeTable[]>;
   query(sql: string, limit: number): Promise<QueryResult>;
+  /** Store a completed chat result under `chatId` so a disconnected client can resume it. */
+  persistResult(chatId: string, payload: string): Promise<void>;
   news(symbol: string, limit: number): Promise<NewsResult>;
   webSearch(query: string, limit: number): Promise<SearchResult>;
   econCalendar(days: number): Promise<CalendarResult>;
@@ -132,6 +134,8 @@ const MAX_FRAMES = 8;
 const MAX_FRAME_ROWS = 100_000;
 const MAX_CHAT_SESSIONS = 100;
 const SESSION_TTL_MS = 30 * 60_000;
+// Cap rows persisted for a resumed answer (mirrors the client's render cap).
+const RESULT_PERSIST_MAX_ROWS = 200;
 const MAX_TOOL_SUMMARY_CHARS = 12_000;
 
 const sessions = new Map<string, ChatSession>();
@@ -1205,6 +1209,10 @@ export async function copilotChat(
   const stream = new TransformStream<Uint8Array, Uint8Array>();
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
+  // Stop writing once the socket is gone. NB: Cloudflare does not reliably
+  // surface a client disconnect to a streaming write (writes can keep
+  // "succeeding" into a buffered stream long after the tab closed), so
+  // persistence below must NOT depend on this flag ever flipping.
   let disconnected = false;
   const emit = async (event: ProgressEvent): Promise<void> => {
     if (disconnected) return;
@@ -1218,6 +1226,8 @@ export async function copilotChat(
   const work = (async () => {
     try {
       const result = await runAgent(env, req.headers.get("Origin") ?? "", request.question, request.history, session, deps, emit);
+      // Deliver the final event to a live client; a dead client makes this
+      // write throw, which must NOT prevent persistence below.
       await emit({
         kind: "result",
         answer: result.answer,
@@ -1226,6 +1236,25 @@ export async function copilotChat(
         chart: result.capture.chart,
         model: env.COPILOT_MODEL,
         frames: frameMetadata(session),
+      }).catch(() => {
+        /* client connection gone — nothing left to deliver */
+      });
+      // Persist the completed result unconditionally (rows truncated). A client
+      // that lost the connection mid-stream can then poll GET /api/chat/result
+      // and recover it; a client that got the live stream ignores the row. Rows
+      // are TTL-pruned so this never accumulates.
+      const res = result.capture.result;
+      const payload: ProgressEvent & { kind: "result" } = {
+        kind: "result",
+        answer: result.answer,
+        sql: result.capture.sql,
+        result: res ? { ...res, rows: res.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : res,
+        chart: result.capture.chart,
+        model: env.COPILOT_MODEL,
+        frames: frameMetadata(session),
+      };
+      await deps.persistResult(request.chatId, JSON.stringify(payload)).catch(() => {
+        /* resume is best-effort; the run already spent its budget */
       });
       console.log(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, outputTokens: result.usedOutputTokens, toolsProducedResult: result.capture.result !== null }));
     } catch (error) {

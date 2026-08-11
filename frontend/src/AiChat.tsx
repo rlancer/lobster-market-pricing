@@ -16,7 +16,7 @@ import {
   useChatStreamScroll,
 } from '@astryxdesign/core';
 import { Share2, SquarePen } from 'lucide-react';
-import { api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatResponse } from './api';
+import { api, type ChatHistoryMessage, type ChatHistoryRecord, type ChatResumeResponse, type QueryResult, type ShareChatResponse } from './api';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -31,6 +31,30 @@ const EXAMPLES = [
 ];
 
 const uid = () => Math.random().toString(36).slice(2);
+
+// When the SSE connection dies mid-answer (mobile background), the Worker
+// keeps running and stashes the finished result. Poll the resume endpoint
+// until it's ready so the answer is recovered instead of a fatal "network
+// error". Bounds are generous: high-reasoning runs take minutes.
+const RESUME_POLL_MS = 2000;
+const RESUME_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Poll GET /api/chat/result until the completed answer is available (or timeout). */
+async function pollChatResult(chatId: string): Promise<ChatResumeResponse | null> {
+  const deadline = Date.now() + RESUME_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const res = await api.chatResult(chatId);
+      if (res.ready) return res;
+    } catch {
+      // Server unreachable right now (still suspended / recovering) — keep polling.
+    }
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, RESUME_POLL_MS);
+    await promise;
+  }
+  return null;
+}
 
 interface Msg {
   id: string;
@@ -154,6 +178,10 @@ function AiChat() {
   const startedAtRef = useRef<number | null>(null);
   const msgsRef = useRef<Msg[]>([]);
   const userMsgRef = useRef<Msg | null>(null);
+  // True once any SSE progress/status arrived for the current question — proves
+  // the request reached the Worker, so a later TypeError is a mid-stream drop
+  // worth resuming (not a pure no-connectivity failure).
+  const sawStreamRef = useRef(false);
   useEffect(() => {
     msgsRef.current = msgs;
   }, [msgs]);
@@ -259,6 +287,7 @@ function AiChat() {
     setReasoning('');
     setWriting(false);
     setTools([]);
+    sawStreamRef.current = false;
     const now = Date.now();
     if (startedAtRef.current === null) startedAtRef.current = now;
     const userMsg: Msg = { id: uid(), role: 'user', content: question, ts: now };
@@ -273,6 +302,7 @@ function AiChat() {
       const res = await askAi(question, chatIdRef.current, history, {
         onStatus: setStatus,
         onProgress: (p: AgentProgress) => {
+          sawStreamRef.current = true;
           switch (p.kind) {
             case 'status':
               setStatus(p.status);
@@ -307,6 +337,31 @@ function AiChat() {
       saveTranscript(assistantMsg);
       setFrames(res.frames);
     } catch (e) {
+      // A mobile background tears down the in-flight SSE socket, so the single
+      // fetch rejects with a TypeError even though the Worker is still running
+      // the agent. Recover the finished answer instead of surfacing a fatal
+      // network error: poll the server's resume endpoint (it persists the
+      // result once the run completes).
+      if (e instanceof TypeError && sawStreamRef.current) {
+        setStatus('Connection lost — retrieving your answer…');
+        const resume = await pollChatResult(chatIdRef.current);
+        if (resume) {
+          const assistantMsg: Msg = {
+            id: uid(),
+            role: 'assistant',
+            content: resume.answer ?? '',
+            sql: resume.sql ?? null,
+            result: resume.result ?? null,
+            chart: (resume.chart ?? null) as ChartSpec | null,
+            ts: Date.now(),
+            model: resume.model,
+          };
+          setMsgs((m) => [...m, assistantMsg]);
+          saveTranscript(assistantMsg);
+          setFrames(resume.frames ?? []);
+          return; // recovered — don't show an error bubble
+        }
+      }
       const errorMsg: Msg = { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() };
       setMsgs((m) => [...m, errorMsg]);
       saveTranscript(errorMsg);
