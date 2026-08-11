@@ -816,7 +816,7 @@ async function executeTool(
   tables: LakeTable[],
   capture: Capture,
   deps: CopilotDeps,
-  emit: (event: ProgressEvent) => Promise<unknown>,
+  emit: (event: ProgressEvent) => Promise<void>,
 ): Promise<ToolResult> {
   let args: Record<string, unknown>;
   try {
@@ -980,7 +980,7 @@ async function modelRound(
   messages: OpenRouterMessage[],
   maxTokens: number,
   withTools: boolean,
-  emit: (event: ProgressEvent) => Promise<unknown>,
+  emit: (event: ProgressEvent) => Promise<void>,
 ): Promise<ModelRound> {
   const payload: Record<string, unknown> = {
     model: env.COPILOT_MODEL,
@@ -1122,7 +1122,7 @@ async function runAgent(
   history: HistoryMessage[],
   session: ChatSession,
   deps: CopilotDeps,
-  emit: (event: ProgressEvent) => Promise<unknown>,
+  emit: (event: ProgressEvent) => Promise<void>,
 ): Promise<{ answer: string; capture: Capture; usedOutputTokens: number }> {
   await emit({ kind: "status", status: "Reading schema…" });
   const tables = await deps.schema();
@@ -1209,25 +1209,24 @@ export async function copilotChat(
   const stream = new TransformStream<Uint8Array, Uint8Array>();
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
-  // True when the event was actually written to the client; false once the
-  // socket is gone (writer.write throws) — the client can then recover the
-  // finished answer via GET /api/chat/result instead of seeing a network error.
+  // Stop writing once the socket is gone. NB: Cloudflare does not reliably
+  // surface a client disconnect to a streaming write (writes can keep
+  // "succeeding" into a buffered stream long after the tab closed), so
+  // persistence below must NOT depend on this flag ever flipping.
   let disconnected = false;
-  const emit = async (event: ProgressEvent): Promise<boolean> => {
-    if (disconnected) return false;
+  const emit = async (event: ProgressEvent): Promise<void> => {
+    if (disconnected) return;
     try {
       await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      return true;
     } catch {
       disconnected = true;
-      return false;
     }
   };
 
   const work = (async () => {
     try {
       const result = await runAgent(env, req.headers.get("Origin") ?? "", request.question, request.history, session, deps, emit);
-      const sent = await emit({
+      await emit({
         kind: "result",
         answer: result.answer,
         sql: result.capture.sql,
@@ -1236,24 +1235,24 @@ export async function copilotChat(
         model: env.COPILOT_MODEL,
         frames: frameMetadata(session),
       });
-      if (!sent) {
-        // Client lost the connection mid-stream. The answer is already
-        // computed — stash it so the reconnecting tab can poll it back.
-        const res = result.capture.result;
-        const payload: ProgressEvent & { kind: "result" } = {
-          kind: "result",
-          answer: result.answer,
-          sql: result.capture.sql,
-          result: res ? { ...res, rows: res.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : res,
-          chart: result.capture.chart,
-          model: env.COPILOT_MODEL,
-          frames: frameMetadata(session),
-        };
-        await deps.persistResult(request.chatId, JSON.stringify(payload)).catch(() => {
-          /* resume is best-effort; the run already spent its budget */
-        });
-      }
-      console.log(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, outputTokens: result.usedOutputTokens, toolsProducedResult: result.capture.result !== null, resumed: !sent }));
+      // Persist the completed result unconditionally (rows truncated). A client
+      // that lost the connection mid-stream can then poll GET /api/chat/result
+      // and recover it; a client that got the live stream ignores the row. Rows
+      // are TTL-pruned so this never accumulates.
+      const res = result.capture.result;
+      const payload: ProgressEvent & { kind: "result" } = {
+        kind: "result",
+        answer: result.answer,
+        sql: result.capture.sql,
+        result: res ? { ...res, rows: res.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : res,
+        chart: result.capture.chart,
+        model: env.COPILOT_MODEL,
+        frames: frameMetadata(session),
+      };
+      await deps.persistResult(request.chatId, JSON.stringify(payload)).catch(() => {
+        /* resume is best-effort; the run already spent its budget */
+      });
+      console.log(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, outputTokens: result.usedOutputTokens, toolsProducedResult: result.capture.result !== null }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, error: message }));

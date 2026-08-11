@@ -1528,12 +1528,17 @@ async function adminChatHistory(
 const CHAT_RESULT_TTL_MS = 60 * 60_000;
 const CHAT_RESULT_CHAT_ID_MAX = 128; // mirror the /api/chat chat_id validation
 
-/** Store a completed Copilot result (payload = the SSE `result` event JSON). */
+/** Store a completed Copilot result (payload = the SSE `result` event JSON).
+ * Also lazily prunes expired rows so unconditional per-turn persistence never
+ * accumulates. */
 async function persistChatResult(env: Env, chatId: string, payload: string): Promise<void> {
   if (!env.SCHEMA_DB) return;
   await env.SCHEMA_DB
-    .prepare("INSERT OR REPLACE INTO chat_results (chat_id, payload, created_at) VALUES (?1, ?2, ?3)")
-    .bind(chatId, payload, Date.now())
+    .prepare(
+      "INSERT OR REPLACE INTO chat_results (chat_id, payload, created_at) VALUES (?1, ?2, ?3); " +
+        "DELETE FROM chat_results WHERE created_at < ?4",
+    )
+    .bind(chatId, payload, Date.now(), Date.now() - CHAT_RESULT_TTL_MS)
     .run();
 }
 
