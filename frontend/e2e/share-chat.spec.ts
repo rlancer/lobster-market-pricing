@@ -9,24 +9,16 @@ import { expect, test, type Page } from '@playwright/test';
 //     read-only (user + assistant bubbles, SQL block) with NO key loaded.
 //   - The recipient API (GET /api/share/:id) works keyless and never leaks
 //     the server-side abuse columns (ip / user_agent).
-// Requires the BYOK OpenRouter key (process.env.OPENROUTER_API_KEY or root
-// `.env` OPEN_ROUTER_LOCAL_DEV_KEY — see playwright.config.ts); skips
-// without one so CI stays green.
+// Live-model checks require OPEN_ROUTER_KEY in worker/.dev.vars. The browser
+// never receives it; playwright.config.ts exposes only a presence flag.
 // ---------------------------------------------------------------------------
 
-const KEY = process.env.OPENROUTER_API_KEY ?? '';
+const READY = process.env.COPILOT_E2E_READY === '1';
 const LOCAL_WORKER = 'http://127.0.0.1:8787';
-// Pin the chat model for determinism (same reasoning as copilot-tools.spec.ts).
-const CHAT_MODEL = 'deepseek/deepseek-v4-flash-0731';
 
-/** Open the chat with the OpenRouter key + model pre-seeded (BYOK localStorage). */
 async function openChat(page: Page): Promise<void> {
-  await page.addInitScript(({ k, m }: { k: string; m: string }) => {
-    localStorage.setItem('openinterest_ai_key', k);
-    localStorage.setItem('openinterest_ai_model', m);
-  }, { k: KEY, m: CHAT_MODEL });
   await page.goto('/');
-  await expect(page.locator('.ai-key-dot.ok')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
 }
 
 /** Type a question into the composer and submit with Enter. */
@@ -54,7 +46,7 @@ async function lastAnswer(page: Page, busyTimeout = 280_000): Promise<string> {
 
 test.describe('Share chat (public unlisted transcripts)', () => {
   test('share button → dialog → read-only /share/:id page', async ({ page, request }) => {
-    test.skip(!KEY, 'No OPENROUTER_API_KEY (set OPEN_ROUTER_LOCAL_DEV_KEY in root .env for local runs)');
+    test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
 
     // Fresh chat: the Share button exists but is disabled until a turn lands.
     await openChat(page);
@@ -90,11 +82,13 @@ test.describe('Share chat (public unlisted transcripts)', () => {
     const res = await request.get(`${LOCAL_WORKER}/api/share/${shareId}`);
     expect(res.status()).toBe(200);
     const body = (await res.json()) as {
+      mode: string;
       ip?: unknown;
       user_agent?: unknown;
       source_sql?: string | null;
       messages: unknown[];
     };
+    expect(body.mode).toBe('funded');
     expect(body.ip).toBeUndefined();
     expect(body.user_agent).toBeUndefined();
     expect(body.messages.length).toBeGreaterThanOrEqual(2);

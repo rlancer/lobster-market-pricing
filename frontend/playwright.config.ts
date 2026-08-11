@@ -4,38 +4,22 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
-// Copilot e2e — exercises the real chat against the real local stack:
+// Copilot e2e exercises the real server-funded chat against the local stack:
 //   - Worker: `wrangler dev` on 127.0.0.1:8787 (needs worker/.dev.vars with
-//     TAVILY_API_KEY / FRED_API_KEY / R2_SQL_TOKEN, all gitignored)
+//     OPEN_ROUTER_KEY, TAVILY_API_KEY / FRED_API_KEY / R2_SQL_TOKEN)
 //   - Frontend: `vite` on 127.0.0.1:5173 with VITE_API_BASE pinned to the
-//     local worker (overrides frontend/.env's deployed-URL base at process
-//     level — Vite never overrides an existing process env var)
-//   - OpenRouter: the user's BYOK key from the repo root `.env`
-//     (OPEN_ROUTER_LOCAL_DEV_KEY, gitignored) is injected into localStorage
-//     (`openinterest_ai_key`) before the app boots, exactly like the app's
-//     Settings panel does.
+//     local worker. No model key or model choice is ever injected into the browser.
 // ---------------------------------------------------------------------------
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Explicit env wins; otherwise fall back to the root .env copy used for local
-// dev. A missing key skips the chat tests with a clear message (see spec).
-function loadOpenRouterKey(): string {
-  if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
-  const envPath = resolve(ROOT, '.env');
-  if (!existsSync(envPath)) return '';
-  for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*OPEN_ROUTER_LOCAL_DEV_KEY\s*=\s*(.*)\s*$/);
-    if (m) {
-      const v = m[1].trim().replace(/^["']|["']$/g, '');
-      if (v) return v;
-    }
-  }
-  return '';
-}
-
-const OPENROUTER_KEY = loadOpenRouterKey();
-if (OPENROUTER_KEY) process.env.OPENROUTER_API_KEY = OPENROUTER_KEY;
+// Keep live-model tests skippable on machines without the Worker's local
+// secret. Only presence is exposed to specs; the key value remains in .dev.vars.
+const workerVars = resolve(ROOT, 'worker', '.dev.vars');
+const hasOpenRouterSecret = existsSync(workerVars) && readFileSync(workerVars, 'utf8')
+  .split(/\r?\n/)
+  .some((line) => /^\s*OPEN_ROUTER_KEY\s*=\s*\S+/.test(line));
+process.env.COPILOT_E2E_READY = hasOpenRouterSecret ? '1' : '';
 
 const LOCAL_WORKER_URL = 'http://127.0.0.1:8787';
 const FRONTEND_URL = 'http://127.0.0.1:5173';
@@ -43,15 +27,9 @@ const FRONTEND_URL = 'http://127.0.0.1:5173';
 export default defineConfig({
   testDir: './e2e',
   outputDir: 'test-results',
-  // The Copilot LLM turns are slow (schema fetch + tool loop + answer) and the
-  // OpenRouter key is rate-limited by account; one worker, no parallel chat.
-  workers: 1,
-  fullyParallel: false,
-  // Answer content from the pinned model (deepseek/deepseek-v4-flash-0731,
-  // see spec CHAT_MODEL) is far more consistent than openrouter/auto, but a
-  // full run can still occasionally end with an empty final message. One
-  // retry absorbs that residual flake; endpoint-utilization assertions are
-  // deterministic either way.
+  // LLM turns are slow (schema fetch + tool loop + answer) and share one
+  // server-side funded key, so tests run serially. The configured model is
+  // deterministic; one retry absorbs upstream/provider flakes.
   retries: 1,
   timeout: 300_000,
   expect: { timeout: 20_000 },

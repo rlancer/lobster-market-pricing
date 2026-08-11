@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useState, type ComponentProps } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import {
   AppShell,
   HStack,
@@ -16,7 +16,6 @@ import { Sunglasses } from './Sunglasses';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type SectorRow, type Stats } from './api';
-import { isOAuthCallback } from './ai';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -71,7 +70,6 @@ function WorkspaceNavigation({ activeTo }: { activeTo?: string }) {
 
 function Layout() {
   const db = useDbReady();
-  const navigate = useNavigate();
   const location = useLocation();
   const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [stats, setStats] = useState<Stats | null>(null);
@@ -88,14 +86,6 @@ function Layout() {
   }, [liquidOnly]);
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  // OpenRouter OAuth callback → the Copilot route (/ai) where AiChat performs
-  // the code exchange. The callback URL already targets /ai, but this guards
-  // against a stale callback landing anywhere else.
-  useEffect(() => {
-    if (isOAuthCallback() && window.location.pathname !== '/ai') {
-      navigate({ to: '/ai' });
-    }
-  }, [navigate]);
 
   // Shared chats (/share/:shareId) are PUBLIC artifacts — a recipient who may
   // never have visited the site gets a bare page with its own minimal chrome

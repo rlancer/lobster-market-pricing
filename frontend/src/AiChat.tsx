@@ -10,66 +10,18 @@ import {
   DialogHeader,
   IconButton,
   Markdown,
-  Selector,
   Spinner,
   Timestamp,
   Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
-import { Settings, Share2, SquarePen } from 'lucide-react';
-import { api, type ChatHistoryMessage, type ChatHistoryRecord, type FreeQuota, type QueryResult, type ShareChatResponse } from './api';
+import { Share2, SquarePen } from 'lucide-react';
+import { api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatResponse } from './api';
 import { CopyButton } from './CopyButton';
-import { OpenRouterLogo } from './OpenRouterLogo';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
-import {
-  askAi,
-  clearApiKey,
-  createSession,
-  FALLBACK_MODEL_GROUPS,
-  fetchAvailableModels,
-  FREE_MODEL,
-  FreeCreditExhausted,
-  getApiKey,
-  getEffort,
-  getModel,
-  handleOAuthCallback,
-  isOAuthCallback,
-  modelHasParams,
-  modelSupports,
-  setApiKey,
-  setEffort,
-  setModel,
-  startOAuthFlow,
-  type AgentProgress,
-  type ChatSession,
-  type DataFrame,
-  type ModelGroup,
-  type ReasoningEffort,
-} from './ai';
+import { askAi, type AgentProgress, type DataFrame } from './ai';
 
-const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-];
-
-// Model options come from OpenRouter's /models catalog (tool-capable, recent),
-// fetched on mount. The chat state (localStorage) can hold any model id a user
-// chose before, so the rendered options always merge the active model back in —
-// the selector must never drop it. Returns section-shaped options for Selector.
-function ensureModelPresent(groups: ModelGroup[], model: string) {
-  const sections = groups.map((g) => ({
-    type: 'section' as const,
-    title: g.title,
-    options: g.options,
-  }));
-  const known = groups.flatMap((g) => g.options.map((o) => o.value));
-  if (model && !known.includes(model)) {
-    sections.push({ type: 'section', title: 'Custom', options: [{ value: model, label: model }] });
-  }
-  return sections;
-}
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -174,21 +126,10 @@ function ResultTable({ result }: { result: QueryResult }) {
 }
 
 function AiChat() {
-  const [key, setKeyState] = useState(getApiKey());
-  const [model, setModelState] = useState(getModel());
-  const [effort, setEffortState] = useState<ReasoningEffort>(getEffort());
-  // Live OpenRouter catalog (tool-capable, recent) + loading flag for the Selector.
-  const [modelGroups, setModelGroups] = useState<ModelGroup[]>(FALLBACK_MODEL_GROUPS);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  // Keep the chat front-and-center on load; the connect flow lives in the
-  // welcome empty-state (see below) instead of forcing a big form open.
-  const [showSettings, setShowSettings] = useState(false);
-  const [oauthBusy, setOauthBusy] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
-  const [error, setError] = useState<string | null>(null);
   // Live agent progress: streamed reasoning tokens + the tool feed, shown in
   // the busy bubble and reset per question.
   const [reasoning, setReasoning] = useState('');
@@ -200,10 +141,6 @@ function AiChat() {
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
-  // Free anonymous chats (no browser key): the site's OpenRouter credit
-  // balance (chip) + whether the credit is out (composer pivots to BYOK).
-  const [quota, setQuota] = useState<FreeQuota | null>(null);
-  const [freeExhausted, setFreeExhausted] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -241,8 +178,8 @@ function AiChat() {
       .slice(-100); // bounds the POST body; the Worker enforces the same cap
     const record: ChatHistoryRecord = {
       chat_id: chatId,
-      mode: getApiKey() ? 'byok' : 'free',
-      model: getApiKey() ? getModel() : FREE_MODEL,
+      mode: 'funded',
+      model: assistant.model,
       started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
       ended_at: new Date().toISOString(),
       messages: turns,
@@ -252,80 +189,9 @@ function AiChat() {
     });
   }, []);
 
-  // Per-chat data cache ("frames"): named snapshots of query results the agent
-  // materializes (run_query save_as) and slices locally (filter_frame). Holds
-  // the mutable session; `frames` mirrors it for the chips UI.
-  const [session] = useState<ChatSession>(() => createSession());
+  // Server-side frames are returned as metadata for the existing session-data chips.
   const [frames, setFrames] = useState<DataFrame[]>([]);
 
-  const syncFrames = useCallback(() => {
-    setFrames(Array.from(session.frames.values()).reverse());
-  }, [session]);
-  const dropFrame = useCallback((name: string) => {
-    session.frames.delete(name);
-    syncFrames();
-  }, [session, syncFrames]);
-
-  // Process an OpenRouter OAuth callback if the page loaded with one.
-  useEffect(() => {
-    if (!isOAuthCallback()) return;
-    setOauthBusy(true);
-    handleOAuthCallback()
-      .then((handled) => {
-        if (handled) {
-          setKeyState(getApiKey());
-          setShowSettings(false);
-          setError(null);
-        }
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setOauthBusy(false));
-  }, []);
-
-  // Load the live OpenRouter model catalog once. On failure keep the empty
-  // fallback (the header/settings still work; the user's stored model is
-  // always merged back in by ensureModelPresent).
-  useEffect(() => {
-    let cancelled = false;
-    setModelsLoading(true);
-    fetchAvailableModels()
-      .then((groups) => {
-        if (!cancelled) setModelGroups(groups);
-      })
-      .catch(() => {
-        /* fall back to empty; stored model stays selected */
-      })
-      .finally(() => {
-        if (!cancelled) setModelsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Free-tier credit balance. Fetched on mount (and whenever a key appears /
-  // disappears): a key present means BYOK, so the chip + exhausted gate clear.
-  // After each free chat the balance is re-read (send()'s finally) so the chip
-  // tracks spend. A failed fetch leaves the gate open — a live 402 still
-  // pivots it.
-  const refreshFreeQuota = useCallback(() => {
-    if (getApiKey()) {
-      setQuota(null);
-      setFreeExhausted(false);
-      return;
-    }
-    api.freeQuota().then(setQuota).catch(() => setQuota(null));
-  }, []);
-
-  useEffect(() => {
-    refreshFreeQuota();
-  }, [key, refreshFreeQuota]);
-
-  // Free credit exhausted: quota reports 0 / unfunded key, or the free proxy
-  // returned 402 mid-chat (FreeCreditExhausted). When gated, the composer
-  // submits to the BYOK connect flow instead of chatting.
-  const quotaExhausted = quota !== null && (quota.remaining <= 0 || quota.is_free_tier);
-  const freeGated = !getApiKey() && (freeExhausted || quotaExhausted);
   // Share becomes available once the conversation has ≥1 completed turn.
   const canShare = msgs.some((m) => m.role === 'assistant');
 
@@ -347,8 +213,8 @@ function AiChat() {
         .slice(-100); // bounds the POST body; the Worker enforces the same cap
       const record: ChatHistoryRecord = {
         chat_id: chatIdRef.current,
-        mode: getApiKey() ? 'byok' : 'free',
-        model: getApiKey() ? getModel() : FREE_MODEL,
+        mode: 'funded',
+        model: [...msgs].reverse().find((message) => message.model)?.model,
         started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
         ended_at: new Date().toISOString(),
         messages: turns,
@@ -370,16 +236,6 @@ function AiChat() {
     setShareError(null);
   };
 
-  const connect = async () => {
-    setOauthBusy(true);
-    setError(null);
-    try {
-      await startOAuthFlow(); // redirects away; only returns on failure
-    } catch (e) {
-      setError(String(e));
-      setOauthBusy(false);
-    }
-  };
 
   const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
   useEffect(() => {
@@ -392,33 +248,13 @@ function AiChat() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [reasoning]);
 
-  const saveKey = () => {
-    setApiKey(key);
-    setKeyState(key);
-    setShowSettings(false);
-    setError(null);
-  };
-  const saveModel = (m: string) => {
-    setModel(m);
-    setModelState(m);
-  };
-  const saveEffort = (e: ReasoningEffort) => {
-    setEffort(e);
-    setEffortState(e);
-  };
-  const resetKey = () => {
-    clearApiKey();
-    setKeyState('');
-    setShowSettings(true);
-  };
 
   const send = useCallback(async (q: string) => {
     const question = q.trim();
     if (!question || busy) return;
-    // No key → free chat on the site's OpenRouter credit (Worker /api/free/v1).
-    // A key present → BYOK, byte-identical to before.
+    // The browser sends only the question, chat id, and prior text turns. The
+    // Worker owns the funded model, schema, tools, frame cache, and agent loop.
     setInput('');
-    setError(null);
     // Fresh progress panel per question.
     setReasoning('');
     setWriting(false);
@@ -431,7 +267,10 @@ function AiChat() {
     setBusy(true);
     setStatus('Starting…');
     try {
-      const res = await askAi(question, session, {
+      const history = msgsRef.current
+        .filter((message) => !message.error && message.content)
+        .map((message) => ({ role: message.role, content: message.content }));
+      const res = await askAi(question, chatIdRef.current, history, {
         onStatus: setStatus,
         onProgress: (p: AgentProgress) => {
           switch (p.kind) {
@@ -463,35 +302,24 @@ function AiChat() {
           }
         },
       });
-      const assistantMsg: Msg = { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: getApiKey() ? getModel() : FREE_MODEL };
+      const assistantMsg: Msg = { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: res.model };
       setMsgs((m) => [...m, assistantMsg]);
       saveTranscript(assistantMsg);
-      syncFrames();
+      setFrames(res.frames);
     } catch (e) {
-      // Free credit ran out mid-chat: pivot to the BYOK connect gate (CTA in
-      // the composer + welcome panel) instead of dumping an error bubble.
-      if (e instanceof FreeCreditExhausted) {
-        setFreeExhausted(true);
-        setStatus('Free credit exhausted');
-        return;
-      }
       const errorMsg: Msg = { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() };
       setMsgs((m) => [...m, errorMsg]);
       saveTranscript(errorMsg);
     } finally {
       setBusy(false);
       setStatus('');
-      // Re-read the balance after a free chat so the chip tracks spend.
-      if (!getApiKey()) refreshFreeQuota();
+      // The server owns spend accounting and model selection.
     }
-  }, [busy, session, syncFrames, refreshFreeQuota]);
+  }, [busy, saveTranscript]);
 
   const newChat = () => {
-    session.frames.clear();
-    session.history.length = 0;
     setFrames([]);
     setMsgs([]);
-    setError(null);
     chatIdRef.current = crypto.randomUUID();
     startedAtRef.current = null;
     userMsgRef.current = null;
@@ -503,41 +331,11 @@ function AiChat() {
     navigate({ to: '/lab', search: { sql } });
   };
 
-  // Effort only applies to models the catalog confirms accept reasoning_effort.
-  // Leave it enabled while loading (params not known yet) and for unknown/custom
-  // models; disable it only when we definitively know the model lacks the param.
-  const effortDisabled =
-    !modelsLoading && modelHasParams(model) && !modelSupports(model, 'reasoning_effort');
-  const effortDisabledMessage = effortDisabled
-    ? "This model doesn't support reasoning effort."
-    : undefined;
 
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
         <section className="ai-head-actions">
-          {getApiKey() && (
-            <Tooltip content="OpenRouter connected" hasHoverIndication={false}>
-              <span className="ai-key-dot ok" />
-            </Tooltip>
-          )}
-          {getApiKey() && (
-            <span className="ai-head-model">
-              <Selector
-                label="Model"
-                size="sm"
-                isLabelHidden
-                hasSearch
-                isLoading={modelsLoading}
-                searchPlaceholder="Search models…"
-                width={236}
-                options={ensureModelPresent(modelGroups, model)}
-                value={model}
-                onChange={(m) => { if (m) saveModel(m); }}
-              />
-            </span>
-          )}
-          <IconButton variant="ghost" size="sm" label="Settings" icon={<Settings size={16} />} tooltip="Settings" onClick={() => setShowSettings((s) => !s)} />
           <IconButton
             variant="ghost"
             size="sm"
@@ -552,75 +350,7 @@ function AiChat() {
         </section>
       </header>
 
-      {showSettings && (
-        <div className="ai-settings">
-          <div className="ai-settings-connect">
-            <span className="or-badge" aria-hidden="true">
-              <OpenRouterLogo width={32} height={24} color="var(--color-accent)" />
-            </span>
-            <span className="ai-settings-label">
-              <b>Sign in with OpenRouter</b>
-              <em>Use any model in one place — no manual key needed.</em>
-            </span>
-            <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-              {oauthBusy ? 'Connecting…' : 'Continue with OpenRouter'}
-            </button>
-          </div>
-          <div className="ai-settings-divider"><span>or paste a key manually</span></div>
-          <p className="ai-free-note">
-            {!getApiKey() && (
-              <>Free chats are paid for by this site's OpenRouter credit — no account needed. </>
-            )}
-            Chat transcripts are stored anonymously (no name, no login) and are only visible to the
-            site owner.
-            {!getApiKey() && quota && quota.remaining > 0 && !quota.is_free_tier && (
-              <> Free credit: ${quota.remaining.toFixed(2)} left.</>
-            )}
-          </p>
-          <div className="ai-settings-row">
-            <label>
-              <span>OpenRouter API key <em className="ai-local">stored locally in your browser</em></span>
-              <div className="ai-key-input">
-                <input
-                  type="password"
-                  value={key}
-                  placeholder="sk-or-v1-…"
-                  spellCheck={false}
-                  onChange={(e) => setKeyState(e.target.value)}
-                />
-                <button className="ai-save" onClick={saveKey} disabled={!key.trim()}>Save</button>
-                {getApiKey() && (
-                  <button className="ai-ghost ai-remove" onClick={resetKey}>Remove</button>
-                )}
-              </div>
-            </label>
-            <Selector
-              label="Model"
-              size="md"
-              hasSearch
-              isLoading={modelsLoading}
-              searchPlaceholder="Search models…"
-              isDisabled={!getApiKey()}
-              options={ensureModelPresent(modelGroups, model)}
-              value={model}
-              onChange={(m) => { if (m) saveModel(m); }}
-              className="ai-settings-model"
-            />
-            <Selector
-              label="Reasoning effort"
-              size="md"
-              isDisabled={effortDisabled}
-              disabledMessage={effortDisabledMessage}
-              options={EFFORT_OPTIONS}
-              value={effort}
-              onChange={(e) => { if (e) saveEffort(e as ReasoningEffort); }}
-              className="ai-settings-effort"
-            />
-          </div>
-        </div>
-      )}
 
-      {error && <div className="ai-error-banner">{error}</div>}
 
       {frames.length > 0 && (
         <div className="ai-frames">
@@ -638,14 +368,6 @@ function AiChat() {
                   <span className="ai-frame-meta">
                     {f.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}
                   </span>
-                  <button
-                  type="button"
-                  className="ai-frame-drop"
-                  onClick={() => dropFrame(f.name)}
-                  aria-label={`Drop frame ${f.name}`}
-                >
-                  ✕
-                </button>
                 </span>
               </Tooltip>
             );
@@ -673,28 +395,6 @@ function AiChat() {
                 </button>
               ))}
             </nav>
-            {!getApiKey() && (
-              <section className="ai-welcome-connect" aria-label="Chat access">
-                {freeGated ? (
-                  <>
-                    <p><b>Free credit's out</b> — Connect OpenRouter to keep chatting.</p>
-                    <button className="ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-                      {oauthBusy ? 'Connecting…' : 'Connect OpenRouter'}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      <b>Currently using {FREE_MODEL.replace('~', '')}</b> — free.
-                      Connect OpenRouter to use any model.
-                    </p>
-                    <button className="ai-ghost ai-connect-btn" onClick={connect} disabled={oauthBusy}>
-                      {oauthBusy ? 'Connecting…' : 'Use your own key'}
-                    </button>
-                  </>
-                )}
-              </section>
-            )}
           </section>
         )}
 
@@ -793,19 +493,7 @@ function AiChat() {
           onSubmit={(v) => send(v)}
           isDisabled={busy}
           placeholder='Ask about liquidity, volatility, or a ticker…'
-          sendButton={
-            getApiKey() || !freeGated ? (
-              <ChatSendButton />
-            ) : (
-              <Button
-                variant="primary"
-                label="Connect"
-                aria-label="Free credit's out — connect OpenRouter to keep chatting"
-                tooltip="Free credit's out — connect OpenRouter to keep chatting"
-                onClick={() => setShowSettings(true)}
-              />
-            )
-          }
+          sendButton={<ChatSendButton />}
         />
       </footer>
 
