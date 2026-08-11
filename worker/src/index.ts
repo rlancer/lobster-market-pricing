@@ -1533,12 +1533,16 @@ const CHAT_RESULT_CHAT_ID_MAX = 128; // mirror the /api/chat chat_id validation
  * accumulates. */
 async function persistChatResult(env: Env, chatId: string, payload: string): Promise<void> {
   if (!env.SCHEMA_DB) return;
+  const now = Date.now();
+  // Immutable per-statement prepare: D1 rejects multi-statement strings.
   await env.SCHEMA_DB
-    .prepare(
-      "INSERT OR REPLACE INTO chat_results (chat_id, payload, created_at) VALUES (?1, ?2, ?3); " +
-        "DELETE FROM chat_results WHERE created_at < ?4",
-    )
-    .bind(chatId, payload, Date.now(), Date.now() - CHAT_RESULT_TTL_MS)
+    .prepare("INSERT OR REPLACE INTO chat_results (chat_id, payload, created_at) VALUES (?1, ?2, ?3)")
+    .bind(chatId, payload, now)
+    .run();
+  // Lazy prune so unconditional per-turn persistence never accumulates.
+  await env.SCHEMA_DB
+    .prepare("DELETE FROM chat_results WHERE created_at < ?1")
+    .bind(now - CHAT_RESULT_TTL_MS)
     .run();
 }
 

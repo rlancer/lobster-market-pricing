@@ -1226,6 +1226,8 @@ export async function copilotChat(
   const work = (async () => {
     try {
       const result = await runAgent(env, req.headers.get("Origin") ?? "", request.question, request.history, session, deps, emit);
+      // Deliver the final event to a live client; a dead client makes this
+      // write throw, which must NOT prevent persistence below.
       await emit({
         kind: "result",
         answer: result.answer,
@@ -1234,6 +1236,8 @@ export async function copilotChat(
         chart: result.capture.chart,
         model: env.COPILOT_MODEL,
         frames: frameMetadata(session),
+      }).catch(() => {
+        /* client connection gone — nothing left to deliver */
       });
       // Persist the completed result unconditionally (rows truncated). A client
       // that lost the connection mid-stream can then poll GET /api/chat/result
