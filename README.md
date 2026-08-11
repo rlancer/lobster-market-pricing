@@ -109,9 +109,9 @@ query` validation (gitignored; see `.env.example`).
 The Worker's server-side Copilot loop uses the site's OpenRouter key. Store it
 as a Worker secret and mirror it in `worker/.dev.vars` for local development
 (gitignored); it is never sent to the browser or committed. Non-secret vars in
-`worker/wrangler.jsonc` select the single funded model (`COPILOT_MODEL`) and cap
-total output tokens/history per turn (`COPILOT_MAX_OUTPUT_TOKENS`,
-`COPILOT_MAX_HISTORY_CHARS`).
+`worker/wrangler.jsonc` select the single funded model (`COPILOT_MODEL`), its
+reasoning effort (`COPILOT_REASONING_EFFORT`), and per-turn output/history caps
+(`COPILOT_MAX_OUTPUT_TOKENS`, `COPILOT_MAX_HISTORY_CHARS`).
 
 ```bash
 cd worker && npx wrangler secret put OPEN_ROUTER_KEY
@@ -221,11 +221,12 @@ the SSE progress stream. The Worker owns the schema context, deterministic SQL
 validation, R2 SQL execution, per-chat cached frames, chart validation, news,
 web search, economic calendar, tool iteration, and final prose answer.
 
-Every chat uses the site's `OPEN_ROUTER_KEY` secret with the single
-`COPILOT_MODEL` configured in `worker/wrangler.jsonc`. The key is never accepted
-from or returned to browser code. `COPILOT_MAX_OUTPUT_TOKENS` caps aggregate
-model output across one agent turn, while request and history byte/character
-caps reject or trim runaway payloads before they can consume model credit.
+Every chat uses the site's `OPEN_ROUTER_KEY` secret with
+`COPILOT_MODEL=deepseek/deepseek-v4-flash-0731` and
+`COPILOT_REASONING_EFFORT=high` in `worker/wrangler.jsonc`. The key is never
+accepted from or returned to browser code. `COPILOT_MAX_OUTPUT_TOKENS` caps
+aggregate model output across one agent turn, while request and history
+byte/character caps reject or trim runaway payloads before they consume model credit.
 
 **Sharing** — the chat header's Share button (enabled once a turn has
 completed) snapshots the conversation into D1 `shared_chats` (migration 0003)

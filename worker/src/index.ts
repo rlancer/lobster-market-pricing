@@ -46,6 +46,7 @@ export interface Env {
   OPEN_ROUTER_KEY: string;
   // One funded model and per-turn guardrails. These are non-secret Worker vars.
   COPILOT_MODEL: string;
+  COPILOT_REASONING_EFFORT: string;
   COPILOT_MAX_OUTPUT_TOKENS?: string;
   COPILOT_MAX_HISTORY_CHARS?: string;
   // Non-secret base URL of the continuous CBOE loader worker, used by the

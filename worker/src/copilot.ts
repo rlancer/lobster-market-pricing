@@ -1,6 +1,7 @@
 export interface CopilotEnv {
   OPEN_ROUTER_KEY: string;
   COPILOT_MODEL: string;
+  COPILOT_REASONING_EFFORT: string;
   COPILOT_MAX_OUTPUT_TOKENS?: string;
   COPILOT_MAX_HISTORY_CHARS?: string;
 }
@@ -983,6 +984,7 @@ async function modelRound(
     stream: true,
     stream_options: { include_usage: true },
     max_tokens: maxTokens,
+    reasoning: { effort: env.COPILOT_REASONING_EFFORT },
   };
   if (withTools) {
     payload.tools = TOOLS;
