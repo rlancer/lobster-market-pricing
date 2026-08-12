@@ -83,6 +83,7 @@ interface Msg {
   error?: string;
   ts?: number;
   model?: string;
+  reasoning?: string;
 }
 
 interface ToolOutput {
@@ -176,14 +177,51 @@ function presentationFromMessage(message: CopilotMessage): Presentation | null {
   return presentation;
 }
 
+/** Compact human-readable summary of a tool's input, instead of raw JSON. */
+function formatToolArgs(name: string, input: unknown): string {
+  if (input === undefined || input === null) return '';
+  if (typeof input !== 'object') return String(input).slice(0, 120);
+  const o = input as Record<string, unknown>;
+  const squeeze = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  switch (name) {
+    case 'run_query':
+    case 'check_schema':
+      return squeeze(o.sql).slice(0, 140);
+    case 'filter_frame': {
+      const bits: string[] = [String(o.frame ?? '') ?? ''];
+      if (o.where) bits.push(`where ${squeeze(o.where)}`);
+      if (o.sort) bits.push(`sort ${squeeze(o.sort)}`);
+      if (o.limit != null) bits.push(`limit ${String(o.limit)}`);
+      if (o.project) bits.push(`${Array.isArray(o.project) ? o.project.length : 1} cols`);
+      return bits.filter(Boolean).join(' · ').slice(0, 140);
+    }
+    case 'refresh_frame':
+      return String(o.frame ?? '').slice(0, 80);
+    case 'render_chart':
+      return `${String(o.kind ?? 'line')} · ${String(o.x ?? '?')} × ${String(o.y ?? '?')}${o.series ? ` by ${String(o.series)}` : ''}`;
+    case 'get_news':
+      return String(o.symbol ?? '').toUpperCase();
+    case 'web_search':
+      return squeeze(o.query).slice(0, 120);
+    case 'eco_calendar':
+      return o.days != null ? `next ${o.days} days` : '';
+    case 'list_frames':
+      return '';
+    default:
+      return JSON.stringify(input).slice(0, 140);
+  }
+}
+
 function projectMessage(message: CopilotMessage): Msg | null {
   if (message.role !== 'user' && message.role !== 'assistant') return null;
   const content = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
+  const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('');
   const presentation = presentationFromMessage(message);
   return {
     id: message.id,
     role: message.role,
     content,
+    ...(reasoning ? { reasoning } : {}),
     ...(presentation ? {
       sql: presentation.sql,
       result: presentation.result,
@@ -209,7 +247,7 @@ function projectTools(message: CopilotMessage | undefined): ToolRow[] {
       callId: getToolCallId(part),
       name,
       display: TOOL_LABELS[name] ?? name.replaceAll('_', ' '),
-      args: input === undefined ? '' : JSON.stringify(input),
+      args: formatToolArgs(name, input),
       ok: complete ? state === 'complete' && output?.ok !== false : null,
       summary: output?.summary ?? output?.error ?? '',
     }];
@@ -237,6 +275,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const {
     messages,
     sendMessage,
+    stop,
     status: chatStatus,
     error: chatError,
     isStreaming,
@@ -444,6 +483,15 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                   ? <div className="ai-text"><Markdown>{message.content}</Markdown></div>
                   : <div className="ai-text">{message.content}</div>
               )}
+              {message.role === 'assistant' && message.reasoning && (
+                <details className="ai-thinking ai-thinking-done">
+                  <summary>Thinking</summary>
+                  <div className="ai-thinking-body">{message.reasoning}</div>
+                </details>
+              )}
+              {message.role === 'assistant' && !message.content && (message.sql || message.result || message.chart) && (
+                <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
+              )}
               {message.sql && (
                 <div className="ai-sql">
                   <div className="ai-sql-head">
@@ -481,7 +529,9 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">✦</span>
             <div className="ai-bubble ai-busy">
-              <div className="ai-busy-head"><Spinner size="md" /><span className="ai-busy-status">{status}</span></div>
+              <div className="ai-busy-head"><Spinner size="md" /><span className="ai-busy-status">{status}</span>
+                <button className="ai-stop" type="button" onClick={stop} aria-label="Stop generating">Stop</button>
+              </div>
               {reasoning && (
                 <details className="ai-thinking" open={busy}>
                   <summary>Thinking</summary>
