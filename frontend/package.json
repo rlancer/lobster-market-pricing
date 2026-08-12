@@ -11,9 +11,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ai-sdk/react": "^4.0.65",
     "@astryxdesign/core": "^0.2.0",
     "@astryxdesign/theme-neutral": "^0.2.0",
+    "@cloudflare/ai-chat": "^0.10.1",
     "@tanstack/react-router": "^1.170.21",
+    "agents": "^0.20.1",
+    "ai": "^7.0.61",
     "lucide-react": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

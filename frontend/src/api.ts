@@ -109,22 +109,6 @@ export interface QueryResult {
   error?: string;
 }
 
-/**
- * Resume payload for GET /api/chat/result. When the browser's SSE connection
- * died (mobile background) before the final `result` event, the Worker keeps
- * the finished answer and exposes it here. `ready:false` means the Worker is
- * still running or has nothing stored; when ready, the fields mirror the SSE
- * `result` event (a subset of the ai.AskResult shape).
- */
-export interface ChatResumeResponse {
-  ready: boolean;
-  answer?: string;
-  sql?: string | null;
-  result?: QueryResult | null;
-  chart?: unknown | null;
-  model?: string;
-  frames?: Array<{ name: string; columns: string[]; row_count: number; sql: string; fetched_at: number }>;
-}
 
 export interface ChainContract {
   expiration: string;
@@ -501,11 +485,6 @@ export const api = {
   // persistence. The table itself is admin-only (see /api/admin/chat_history).
   saveChatHistory: (record: ChatHistoryRecord) =>
     post<ChatHistorySaveResponse>('/api/chat/history', record),
-  // Recover a completed Copilot answer whose SSE stream died before the final
-  // event (mobile background). chat_id is the unguessable client UUID — the
-  // URL is the capability, same trust model as shared chats.
-  chatResult: (chatId: string) =>
-    get<ChatResumeResponse>(`/api/chat/result${qs({ chat_id: chatId })}`),
   // Share the current conversation as a public unlisted link (D1
   // shared_chats). Unlike saveChatHistory this FAILS LOUDLY — the user
   // explicitly asked for the artifact, so errors surface for a retry.

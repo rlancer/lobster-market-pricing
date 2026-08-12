@@ -3,7 +3,7 @@
   "name": "screener-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-05",
-  "compatibility_flags": ["global_fetch_strictly_public"],
+  "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
   "vars": {
     "R2_SQL_ACCOUNT_ID": "3315bb3e7d2e3556bfea6fb3947a890e",
     "R2_SQL_BUCKET": "cboe-options-data",
@@ -13,6 +13,14 @@
     "COPILOT_REASONING_EFFORT": "high",
     "COPILOT_MAX_OUTPUT_TOKENS": "8192",
     "COPILOT_MAX_HISTORY_CHARS": "48000"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "CopilotAgent", "class_name": "CopilotAgent" }
+    ]
+  },
+  "exports": {
+    "CopilotAgent": { "type": "durable-object", "storage": "sqlite" }
   },
   // D1 cache for the expensive lake-schema payload (/api/tables). The schema
   // is read on every AI chat question and the SQL Lab sidebar; recomputing it

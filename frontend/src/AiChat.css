@@ -307,6 +307,25 @@
   font-size: var(--font-size-sm);
   color: var(--muted);
 }
+.ai-stop {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+  cursor: pointer;
+}
+.ai-stop:hover { color: var(--color-error); border-color: var(--color-error); }
+.ai-thinking-done { margin-top: 8px; }
+.ai-no-answer {
+  margin-top: 8px;
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--muted);
+}
+.ai-tool-row.fail { opacity: 0.72; }
 .ai-err { color: var(--color-error); font-size: 13px; }
 
 /* ---- SQL block ----------------------------------------------------------- */

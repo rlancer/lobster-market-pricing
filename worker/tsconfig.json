@@ -7,7 +7,8 @@
     "noEmit": true,
     "esModuleInterop": true,
     "lib": ["ES2022"],
-    "types": ["@cloudflare/workers-types"]
+    "types": ["node"],
+    "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src", "worker-configuration.d.ts"]
 }
