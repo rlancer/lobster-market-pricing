@@ -284,6 +284,12 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     connectionError,
   } = useAgentChat<unknown, CopilotMessage>({
     agent,
+    // Batch the message-store updates the agent stream pushes per part. Without
+    // this, a tool-heavy turn streams many parts in quick succession and each
+    // arrival re-enters the library's useSyncExternalStore `updateMessages`
+    // synchronously, tripping React's "Maximum update depth exceeded" and
+    // crashing the chat UI mid-turn (swallowing the final written answer).
+    throttle: 80,
     resume: true,
     cancelOnClientAbort: false,
     body: () => ({ origin: window.location.origin }),
