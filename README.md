@@ -172,7 +172,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
-| `POST /api/chat` | Server-side Copilot agent loop. Accepts `{question, chat_id, history}` and streams status/reasoning/tool/final-result events over SSE; the OpenRouter key stays in the Worker. |
+| `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name and capability. Reasoning, tool progress, SQL, results, charts, and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url}`) |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned |
 
@@ -215,11 +215,15 @@ Browse the Iceberg lake and run arbitrary read-only SQL:
 
 ### AI Copilot
 
-An OpenRouter-powered Copilot whose complete agentic loop runs in the Worker.
-The browser sends `{question, chat_id, history}` to `POST /api/chat` and renders
-the SSE progress stream. The Worker owns the schema context, deterministic SQL
-validation, R2 SQL execution, per-chat cached frames, chart validation, news,
-web search, economic calendar, tool iteration, and final prose answer.
+An OpenRouter-powered Copilot implemented as a Cloudflare Agents SDK
+`AIChatAgent` (`CopilotAgent`, routed at `/agents/copilot-agent/{conversation-id}`).
+The browser connects via `useAgent`/`useAgentChat` over the standard Agent
+WebSocket and renders typed AI SDK UI-message parts: reasoning, tool feed
+(streamed inputs + outputs), SQL, up to 200 result rows, chart specification,
+model metadata, and the final prose answer. The Worker owns the schema context,
+deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
+validation, news, web search, economic calendar, tool iteration, and the final
+prose answer.
 
 Every chat uses the site's `OPEN_ROUTER_KEY` secret with
 `COPILOT_MODEL=deepseek/deepseek-v4-flash-0731` and
@@ -227,6 +231,20 @@ Every chat uses the site's `OPEN_ROUTER_KEY` secret with
 accepted from or returned to browser code. `COPILOT_MAX_OUTPUT_TOKENS` caps
 aggregate model output across one agent turn, while request and history
 byte/character caps reject or trim runaway payloads before they consume model credit.
+
+**Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
+Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
+messages and the turn budget persist there, and the conversation is routed
+cross-origin with CORS. The active UUID lives in `sessionStorage`, so a reload
+reconnects `useAgentChat` (`resume: true`) to the same instance and restores the
+turn; `chatRecovery` (bounded retries) re-drives an interrupted answer if the
+Worker/Agent is evicted mid-turn, and the client shows a "Recovering interrupted
+answer…" indicator. Cached result frames live only in the Agent's SQLite
+(`frames`/`frame_rows`) with a 15-minute TTL and an eight-frame cap; `filter_frame`
+compiles the validated expression AST into parameterized SQLite/JSON1 predicates
+so a large frame is filtered without ever loading it whole into JS. Only bounded
+frame metadata reaches the client (callable `getFrameMetadata()` + tool outputs);
+message retention is bounded (100 messages / 30-day cleanup).
 
 **Sharing** — the chat header's Share button (enabled once a turn has
 completed) snapshots the conversation into D1 `shared_chats` (migration 0003)

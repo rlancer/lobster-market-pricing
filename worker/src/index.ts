@@ -21,54 +21,17 @@
  *  - DataFusion dialect: spot_price (not spot), WHERE before QUALIFY, DTE via
  *    CAST(expiration AS DATE) - CURRENT_DATE (returns integer days).
  */
-import { copilotChat } from "./copilot";
+import { routeAgentRequest } from "agents";
+import { CopilotAgentBase } from "./copilot";
 
 
 // ---------------------------------------------------------------------------
 // Env
 // ---------------------------------------------------------------------------
-export interface Env {
-  R2_SQL_ACCOUNT_ID: string;
-  R2_SQL_BUCKET: string;
-  R2_SQL_TOKEN: string; // secret
-  CORS_ORIGIN?: string;
-  // Tavily search API key (secret) for /api/news and /api/web_search. Stored
-  // on the deployed Worker and mirrored as a GitHub secret; never sent to the
-  // browser.
-  TAVILY_API_KEY: string;
-  // FRED (St. Louis Fed) API key (secret) for /api/econ_calendar — optional:
-  // with it set, the calendar uses FRED releases/dates for the full macro
-  // schedule (FOMC, CPI, PCE, jobs, …); without it, the endpoint falls back to
-  // the Federal Reserve's keyless calendar JSON (FOMC + Beige Book only).
-  FRED_API_KEY?: string;
-  // OpenRouter site key (secret) used only by the server-side Copilot loop.
-  // It is never returned to or accepted from the browser.
-  OPEN_ROUTER_KEY: string;
-  // One funded model and per-turn guardrails. These are non-secret Worker vars.
-  COPILOT_MODEL: string;
-  COPILOT_REASONING_EFFORT: string;
-  COPILOT_MAX_OUTPUT_TOKENS?: string;
-  COPILOT_MAX_HISTORY_CHARS?: string;
-  // Non-secret base URL of the continuous CBOE loader worker, used by the
-  // read-only /loader/* pass-through endpoints. Set as a `var` (not a secret).
-  LOADER_BASE_URL?: string;
-  // Admin bearer token (secret) for GET /api/admin/chat_history — the only
-  // public read path for options.chat_history. The table is excluded from
-  // /api/tables and blocked in /api/query for everyone without this token.
+export interface Env extends Cloudflare.Env {
   ADMIN_TOKEN?: string;
-  // Pipeline stream ingest URL for Copilot chat history (secret; the URL
-  // subdomain is the credential). POST /api/chat/history publishes one
-  // normalized record per chat turn to cboe_chat_history_v2 →
-  // options.chat_history. Same "URL is the credential" model as the loader's
-  // PIPELINE_*_URL secrets.
   PIPELINE_CHAT_HISTORY_URL?: string;
-  // Pipelines → Send scoped API token (secret, same value as the loader's
-  // PIPELINE_AUTH_TOKEN) authorizing stream ingest POSTs — the streams reject
-  // unrelated tokens with 401 code 1014.
   PIPELINE_AUTH_TOKEN?: string;
-  // D1 cache for the computed lake-schema payload (/api/tables). See
-  // worker/migrations/0001_schema_cache.sql and `schemaTables` below.
-  SCHEMA_DB: D1Database;
 }
 
 // ---------------------------------------------------------------------------
@@ -689,7 +652,7 @@ async function probeLakeSchema(env: Env, payload: string): Promise<void> {
 }
 
 /** Throttled probe kick-off from the fresh-read path (never blocks the request). */
-function maybeProbeSchema(ctx: ExecutionContext, env: Env, payload: string): void {
+function maybeProbeSchema(ctx: Pick<ExecutionContext, "waitUntil">, env: Env, payload: string): void {
   const now = Date.now();
   if (now - lastSchemaProbeAt < SCHEMA_PROBE_INTERVAL_MS) return;
   lastSchemaProbeAt = now;
@@ -706,7 +669,7 @@ function maybeProbeSchema(ctx: ExecutionContext, env: Env, payload: string): voi
  * the previous payload for at most one refresh cycle (~10s) instead of an 8s
  * stall, and background refreshes also fire when the lake's shape changes.
  */
-async function schemaTables(env: Env, ctx: ExecutionContext, force: boolean): Promise<LakeTable[]> {
+async function schemaTables(env: Env, ctx: Pick<ExecutionContext, "waitUntil">, force: boolean): Promise<LakeTable[]> {
   const row = await readSchemaRow(env);
   if (force) {
     // Explicit user intent (SQL Lab refresh): recompute now, serve fresh.
@@ -1521,55 +1484,6 @@ async function adminChatHistory(
   return { ok: true, limit, before, items, as_of: new Date().toISOString() };
 }
 
-// How long a resumed chat result stays readable after the producing turn
-// finished. Generous enough for a user to unlock the phone and come back to a
-// suspended tab; chat_ids are unguessable, so rows are effectively private and
-// lazily pruned on every read.
-const CHAT_RESULT_TTL_MS = 60 * 60_000;
-const CHAT_RESULT_CHAT_ID_MAX = 128; // mirror the /api/chat chat_id validation
-
-/** Store a completed Copilot result (payload = the SSE `result` event JSON).
- * Also lazily prunes expired rows so unconditional per-turn persistence never
- * accumulates. */
-async function persistChatResult(env: Env, chatId: string, payload: string): Promise<void> {
-  if (!env.SCHEMA_DB) return;
-  const now = Date.now();
-  // Immutable per-statement prepare: D1 rejects multi-statement strings.
-  await env.SCHEMA_DB
-    .prepare("INSERT OR REPLACE INTO chat_results (chat_id, payload, created_at) VALUES (?1, ?2, ?3)")
-    .bind(chatId, payload, now)
-    .run();
-  // Lazy prune so unconditional per-turn persistence never accumulates.
-  await env.SCHEMA_DB
-    .prepare("DELETE FROM chat_results WHERE created_at < ?1")
-    .bind(now - CHAT_RESULT_TTL_MS)
-    .run();
-}
-
-/**
- * GET /api/chat/result?chat_id=… — resume a result the browser missed because
- * its SSE connection died (mobile background) before the final event. Returns
- * the stored `result` event payload as `{ ready: true, ... }` once the Worker
- * has finished and persisted it, else `{ ready: false }`. chat_id is the
- * capability (unguessable client UUID) — same trust model as /api/share/*.
- */
-async function getChatResult(env: Env, chatIdIn: string): Promise<Response> {
-  const chatId = chatIdIn.trim().slice(0, CHAT_RESULT_CHAT_ID_MAX);
-  if (!chatId) return json(env, { error: "chat_id is required" }, 400);
-  const now = Date.now();
-  if (!env.SCHEMA_DB) return json(env, { ready: false });
-  // Prune this chat's own expired row (idempotent; a live chat is untouched).
-  await env.SCHEMA_DB.prepare("DELETE FROM chat_results WHERE chat_id = ?1 AND created_at < ?2").bind(chatId, now - CHAT_RESULT_TTL_MS).run();
-  const row = await env.SCHEMA_DB.prepare("SELECT payload FROM chat_results WHERE chat_id = ?1").bind(chatId).first<{ payload: string }>();
-  if (!row) return json(env, { ready: false });
-  let payload: unknown;
-  try {
-    payload = JSON.parse(row.payload);
-  } catch {
-    return json(env, { ready: false });
-  }
-  return json(env, { ready: true, ...(payload as Record<string, unknown>) });
-}
 
 // ---------------------------------------------------------------------------
 // Copilot chat shares — public unlisted transcripts in D1
@@ -1862,6 +1776,28 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
   });
 }
 
+export class CopilotAgent extends CopilotAgentBase<Env> {
+  protected override loadSchema(): Promise<LakeTable[]> {
+    return schemaTables(this.env, this.ctx, false);
+  }
+
+  protected override executeLakeQuery(sql: string, limit: number) {
+    return runQuery(this.env, sql, limit);
+  }
+
+  protected override fetchNews(symbol: string, limit: number) {
+    return news(this.env, symbol, limit);
+  }
+
+  protected override searchWeb(query: string, limit: number) {
+    return webSearch(this.env, query, limit);
+  }
+
+  protected override fetchEconomicCalendar(days: number) {
+    return econCalendar(this.env, days);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
@@ -1885,13 +1821,13 @@ async function loaderGet(env: Env, path: string, cacheKey: string): Promise<unkn
 }
 
 function cors(env: Env, resp: Response): Response {
-  resp.headers.set("Access-Control-Allow-Origin", env.CORS_ORIGIN ?? "*");
-  resp.headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  // The API is CORS-open and never accepts browser credentials. Allow any
-  // request header so the SSE chat client and future browser versions remain
-  // compatible without exposing the server-side OpenRouter key.
-  resp.headers.set("Access-Control-Allow-Headers", "*");
-  return resp;
+  const headers = new Headers(resp.headers);
+  headers.set("Access-Control-Allow-Origin", env.CORS_ORIGIN ?? "*");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  // The API is CORS-open and never accepts browser credentials. Agent HTTP
+  // responses have immutable headers, so clone rather than mutating in place.
+  headers.set("Access-Control-Allow-Headers", "*");
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
 function json(env: Env, data: unknown, status = 200): Response {
@@ -1930,16 +1866,8 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/econ_calendar")
     return json(env, await econCalendar(env, q.get("days") ? num(q.get("days")) : ECON_DEFAULT_DAYS));
   if (path === "/api/tables") return json(env, await schemaTables(env, ctx, q.get("force") === "1"));
-  if (path === "/api/chat" && req.method === "POST") {
-    return cors(env, await copilotChat(req, env, ctx, {
-      schema: () => schemaTables(env, ctx, false),
-      query: (sql, limit) => runQuery(env, sql, limit),
-      persistResult: (chatId, payload) => persistChatResult(env, chatId, payload),
-      news: (symbol, limit) => news(env, symbol, limit),
-      webSearch: (query, limit) => webSearch(env, query, limit),
-      econCalendar: (days) => econCalendar(env, days),
-    }));
-  }
+  // Copilot chat is served exclusively by CopilotAgent at
+  // /agents/copilot-agent/:conversation-id.
 
   if (path === "/api/notebook/premium")
     return json(env, await notebookPremium(env, {
@@ -1997,8 +1925,6 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   // Copilot chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")
     return await saveChatHistory(env, ctx, req);
-  if (path === "/api/chat/result" && req.method === "GET")
-    return await getChatResult(env, q.get("chat_id") ?? "");
   if (path === "/api/admin/chat_history" && req.method === "GET") {
     if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
     return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
@@ -2021,6 +1947,8 @@ export default {
       return cors(env, new Response(null, { status: 204 }));
     }
     try {
+      const agentResponse = await routeAgentRequest(req, env);
+      if (agentResponse) return agentResponse.status === 101 ? agentResponse : cors(env, agentResponse);
       return await handle(env, req, ctx);
     } catch (e) {
       return json(env, { error: String(e) }, 500);

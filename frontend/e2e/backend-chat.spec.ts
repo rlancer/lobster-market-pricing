@@ -10,7 +10,6 @@ async function ask(page: Page, question: string): Promise<void> {
 }
 
 async function lastAnswer(page: Page, busyTimeout = 300_000): Promise<string> {
-  await expect(page.locator('.ai-busy')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.ai-busy')).toBeHidden({ timeout: busyTimeout });
   const error = page.locator('.ai-msg.ai-assistant .ai-err').last();
   if (await error.count()) throw new Error(`Copilot failed: ${(await error.innerText()).trim()}`);
@@ -21,49 +20,51 @@ async function lastAnswer(page: Page, busyTimeout = 300_000): Promise<string> {
   return text;
 }
 
-test.describe('Server-funded Copilot', () => {
-  test('browser is a thin SSE client and receives prose plus SQL', async ({ page }) => {
+test.describe('Server-funded Copilot Agent', () => {
+  test('uses the Agent WebSocket and receives progress, prose, and SQL', async ({ page }) => {
     test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
-    await page.goto('/');
+    const websocketUrls: string[] = [];
+    const oldChatRequests: string[] = [];
+    const browserAuthorizationHeaders: string[] = [];
+    page.on('websocket', (socket) => websocketUrls.push(socket.url()));
+    page.on('request', (request) => {
+      if (request.url().endsWith('/api/chat') && request.method() === 'POST') oldChatRequests.push(request.url());
+      const authorization = request.headers().authorization;
+      if (authorization) browserAuthorizationHeaders.push(authorization);
+    });
 
+    await page.goto('/');
     await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
     const storedAiPreferences = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('openinterest_ai_')));
     expect(storedAiPreferences).toEqual([]);
+    const chatId = await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_chat_id'));
+    expect(chatId).toMatch(/^[0-9a-f-]{36}$/);
 
-    const chatResponse = page.waitForResponse((response) => response.url() === `${LOCAL_WORKER}/api/chat` && response.request().method() === 'POST');
     await ask(page, 'Which sector has the most open interest across all expirations? Give a concise answer.');
-    const response = await chatResponse;
-    expect(response.status()).toBe(200);
-    const sent = response.request().postDataJSON() as Record<string, unknown>;
-    expect(Object.keys(sent).sort()).toEqual(['chat_id', 'history', 'question']);
+    await expect(page.locator('.ai-busy')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.ai-tool-row').first()).toBeVisible({ timeout: 180_000 });
     const answer = await lastAnswer(page);
+
     expect(answer.length).toBeGreaterThan(20);
     await expect(page.locator('.ai-sql').last()).toBeVisible();
+    expect(websocketUrls.some((url) => url.includes(`/agents/copilot-agent/${chatId}`))).toBe(true);
+    expect(oldChatRequests).toEqual([]);
+    expect(browserAuthorizationHeaders).toEqual([]);
   });
 
-  test('rejects an oversized history payload before model spend', async ({ request }) => {
-    const response = await request.post(`${LOCAL_WORKER}/api/chat`, {
-      data: {
-        question: 'hello',
-        chat_id: crypto.randomUUID(),
-        history: [{ role: 'user', content: 'x'.repeat(100_000) }],
-      },
+  test('oversized question is rejected before a model answer', async ({ page }) => {
+    await page.goto('/');
+    await ask(page, 'x'.repeat(4_001));
+    await expect(page.locator('.ai-msg.ai-assistant .ai-err').last()).toContainText('question exceeds 4000 characters', { timeout: 30_000 });
+    await expect(page.locator('.ai-sql')).toHaveCount(0);
+  });
+
+  test('legacy chat and resume routes are removed', async ({ request }) => {
+    const oldChat = await request.post(`${LOCAL_WORKER}/api/chat`, {
+      data: { question: 'hello', chat_id: crypto.randomUUID(), history: [] },
     });
-    expect(response.status()).toBe(413);
-  });
-
-  // Resume endpoint (0004_chat_results.sql): an unguessable chat_id is the
-  // capability. Not-ready is the steady state — a row only exists after a
-  // disconnect mid-run, which the funded tests can't force. These two cases
-  // prove the route is wired and the ready flag contract is stable, spend-free.
-  test('resume endpoint: unknown chat is not ready', async ({ request }) => {
-    const response = await request.get(`${LOCAL_WORKER}/api/chat/result?chat_id=${crypto.randomUUID()}`);
-    expect(response.status()).toBe(200);
-    expect(await response.json()).toEqual({ ready: false });
-  });
-
-  test('resume endpoint: missing chat_id is rejected', async ({ request }) => {
-    const response = await request.get(`${LOCAL_WORKER}/api/chat/result`);
-    expect(response.status()).toBe(400);
+    expect(oldChat.status()).toBe(404);
+    const oldResume = await request.get(`${LOCAL_WORKER}/api/chat/result?chat_id=${crypto.randomUUID()}`);
+    expect(oldResume.status()).toBe(404);
   });
 });

@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 // ---------------------------------------------------------------------------
 // Copilot tool-usage e2e: prove the Worker-side AI loop fires news,
 // web_search, and eco_calendar and grounds the answer in their outputs. The
-// progress SSE feed is the deterministic signal that a tool ran; a direct
-// endpoint read supplies the expected source material for grounding checks.
+// standard AI SDK tool parts rendered in the progress feed are the
+// deterministic signal that a tool ran; direct endpoint reads provide source material.
 //
 // The chat questions below deliberately NEVER name a tool ("get_news",
 // "web_search", "eco_calendar"): a real user asks "why is it moving?" or

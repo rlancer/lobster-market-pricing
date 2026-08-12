@@ -1,10 +1,17 @@
-export interface CopilotEnv {
-  OPEN_ROUTER_KEY: string;
-  COPILOT_MODEL: string;
-  COPILOT_REASONING_EFFORT: string;
-  COPILOT_MAX_OUTPUT_TOKENS?: string;
-  COPILOT_MAX_HISTORY_CHARS?: string;
-}
+import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
+import { callable } from "agents";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  isStepCount,
+  streamText,
+  tool,
+  type ModelMessage,
+  type UIMessage,
+} from "ai";
+import { COPILOT_TOOL_INPUT_SCHEMAS, FRAME_QUERY_LIMIT, createCopilotModel } from "./copilot-contract";
+
+export interface CopilotEnv extends Cloudflare.Env {}
 
 export interface LakeTable {
   name: string;
@@ -22,34 +29,24 @@ export interface QueryResult {
   error?: string;
 }
 
-interface NewsResult {
+export interface NewsResult {
   symbol: string;
   items: { title: string; link: string }[];
   error?: string;
 }
 
-interface SearchResult {
+export interface SearchResult {
   query: string;
   results: { title: string; link: string }[];
   error?: string;
 }
 
-interface CalendarResult {
+export interface CalendarResult {
   items: { date: string; time?: string; title: string }[];
   error?: string;
 }
 
-export interface CopilotDeps {
-  schema(): Promise<LakeTable[]>;
-  query(sql: string, limit: number): Promise<QueryResult>;
-  /** Store a completed chat result under `chatId` so a disconnected client can resume it. */
-  persistResult(chatId: string, payload: string): Promise<void>;
-  news(symbol: string, limit: number): Promise<NewsResult>;
-  webSearch(query: string, limit: number): Promise<SearchResult>;
-  econCalendar(days: number): Promise<CalendarResult>;
-}
-
-interface ChartSpec {
+export interface ChartSpec {
   title?: string;
   kind: "line" | "area" | "scatter" | "bar";
   x: string;
@@ -59,6 +56,14 @@ interface ChartSpec {
   yLabel?: string;
 }
 
+export interface FrameMetadata {
+  name: string;
+  columns: string[];
+  row_count: number;
+  sql: string;
+  fetched_at: number;
+}
+
 interface FrameColumnSketch {
   type: "number" | "string" | "boolean" | "other";
   min?: number;
@@ -66,20 +71,8 @@ interface FrameColumnSketch {
   values?: string[];
 }
 
-interface DataFrame {
-  name: string;
-  columns: string[];
-  rows: Record<string, unknown>[];
-  row_count: number;
+interface StoredFrame extends FrameMetadata {
   summary: Record<string, FrameColumnSketch>;
-  sql: string;
-  fetched_at: number;
-}
-
-interface ChatSession {
-  frames: Map<string, DataFrame>;
-  lastAccess: number;
-  running: boolean;
 }
 
 interface Capture {
@@ -88,37 +81,32 @@ interface Capture {
   chart: ChartSpec | null;
 }
 
-interface HistoryMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-type OpenRouterMessage =
-  | { role: "system" | "user"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
-  | { role: "tool"; tool_call_id: string; content: string };
-
-interface ToolCall {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-}
-
-interface ToolResult {
+interface ToolOutput {
   ok: boolean;
   error?: string | null;
-  summary?: string;
   issues?: string[];
+  summary: string;
+  // Bounded presentation data carried directly on the tool output parts — the
+  // frontend reads SQL/result/chart/frames straight from the standard AI SDK
+  // tool-output parts instead of a bespoke bundle.
+  sql?: string | null;
+  result?: QueryResult | null;
+  chart?: ChartSpec | null;
+  frames?: FrameMetadata[];
 }
 
-interface ProgressEvent {
-  kind: string;
-  [key: string]: unknown;
+interface CopilotMetadata {
+  model: string;
+  createdAt: number;
 }
 
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const APP_TITLE = "Open Interest Options Workspace";
-const RAW_BODY_MAX_BYTES = 96_000;
+type CopilotData = Record<string, unknown> & {
+  status: { status: string };
+};
+
+type CopilotMessage = UIMessage<CopilotMetadata, CopilotData>;
+type SqlValue = string | number | boolean | null;
+
 const QUESTION_MAX_CHARS = 4_000;
 const HISTORY_MESSAGES_MAX = 16;
 const HISTORY_MESSAGE_MAX_CHARS = 6_000;
@@ -128,19 +116,14 @@ const OUTPUT_TOKENS_MAX = 16_384;
 const AGENT_ITERATIONS_MAX = 10;
 const TOOL_ROUND_TOKENS_MAX = 2_048;
 const FINAL_TOKEN_RESERVE = 1_024;
-const FRAME_QUERY_LIMIT = 5_000;
 const FRAME_TTL_MS = 15 * 60_000;
 const MAX_FRAMES = 8;
 const MAX_FRAME_ROWS = 100_000;
-const MAX_CHAT_SESSIONS = 100;
-const SESSION_TTL_MS = 30 * 60_000;
-// Cap rows persisted for a resumed answer (mirrors the client's render cap).
 const RESULT_PERSIST_MAX_ROWS = 200;
 const MAX_TOOL_SUMMARY_CHARS = 12_000;
+const CONVERSATION_RETENTION_DAYS = 30;
 
-const sessions = new Map<string, ChatSession>();
-
-const TOOL_LABELS: Record<string, string> = {
+export const TOOL_LABELS: Record<string, string> = {
   run_query: "SQL query",
   check_schema: "Check schema",
   list_frames: "List frames",
@@ -152,236 +135,9 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: "Web search",
 };
 
-const TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "run_query",
-      description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Pass save_as to cache up to 5000 rows as a per-chat frame for local follow-up filtering.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["sql"],
-        properties: {
-          sql: { type: "string", description: "A single read-only SQL query." },
-          save_as: { type: "string", description: "Optional frame name for this result." },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "check_schema",
-      description: "Validate proposed SQL against the real options table and column names without executing it.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["sql"],
-        properties: { sql: { type: "string" } },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "list_frames",
-      description: "List this chat's cached result frames, including columns, row counts, age, and value sketches.",
-      parameters: { type: "object", additionalProperties: false, properties: {} },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "filter_frame",
-      description: "Filter, sort, project, and limit a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["frame"],
-        properties: {
-          frame: { type: "string" },
-          where: { type: "string" },
-          sort: { type: "string" },
-          limit: { type: "integer", minimum: 0, maximum: 5000 },
-          project: { type: "array", items: { type: "string" }, maxItems: 100 },
-          save_as: { type: "string" },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "refresh_frame",
-      description: "Re-run a cached frame's source query after it becomes stale.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["frame"],
-        properties: { frame: { type: "string" } },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "render_chart",
-      description: "Validate a chart specification for the most recent query result. Call after run_query or filter_frame when the user requested a chart.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["x", "y"],
-        properties: {
-          title: { type: "string" },
-          kind: { type: "string", enum: ["line", "area", "scatter", "bar"] },
-          x: { type: "string" },
-          y: { type: "string" },
-          series: { type: "string" },
-          xLabel: { type: "string" },
-          yLabel: { type: "string" },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_news",
-      description: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["symbol"],
-        properties: {
-          symbol: { type: "string" },
-          limit: { type: "integer", minimum: 1, maximum: 20 },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "eco_calendar",
-      description: "Fetch scheduled macro events for the next 7 to 90 days.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: { days: { type: "integer", minimum: 7, maximum: 90 } },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "web_search",
-      description: "Search for current market commentary or events and return up to five citable links.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["query"],
-        properties: {
-          query: { type: "string" },
-          max_results: { type: "integer", minimum: 1, maximum: 5 },
-        },
-      },
-    },
-  },
-] as const;
-
 function positiveInt(value: string | undefined, fallback: number, max: number): number {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), max) : fallback;
-}
-
-function cleanSessions(now: number): void {
-  for (const [id, session] of sessions) {
-    if (!session.running && now - session.lastAccess > SESSION_TTL_MS) sessions.delete(id);
-  }
-  if (sessions.size < MAX_CHAT_SESSIONS) return;
-  const idle = [...sessions.entries()]
-    .filter(([, session]) => !session.running)
-    .sort((a, b) => a[1].lastAccess - b[1].lastAccess);
-  while (sessions.size >= MAX_CHAT_SESSIONS && idle.length) {
-    const entry = idle.shift();
-    if (entry) sessions.delete(entry[0]);
-  }
-}
-
-function getSession(chatId: string): ChatSession {
-  const now = Date.now();
-  cleanSessions(now);
-  let session = sessions.get(chatId);
-  if (!session) {
-    session = { frames: new Map(), lastAccess: now, running: false };
-    sessions.set(chatId, session);
-  }
-  session.lastAccess = now;
-  return session;
-}
-
-async function readBodyBounded(req: Request): Promise<string> {
-  const declared = Number(req.headers.get("Content-Length"));
-  if (Number.isFinite(declared) && declared > RAW_BODY_MAX_BYTES) throw new RangeError("chat payload is too large");
-  if (!req.body) return "";
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > RAW_BODY_MAX_BYTES) {
-      await reader.cancel();
-      throw new RangeError("chat payload is too large");
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("expected an object");
-  return value as Record<string, unknown>;
-}
-
-function normalizeRequest(body: unknown, historyCharsMax: number): {
-  question: string;
-  chatId: string;
-  history: HistoryMessage[];
-} {
-  const record = asRecord(body);
-  const question = typeof record.question === "string" ? record.question.trim() : "";
-  if (!question) throw new Error("question is required");
-  if (question.length > QUESTION_MAX_CHARS) throw new Error(`question exceeds ${QUESTION_MAX_CHARS} characters`);
-  const chatId = typeof record.chat_id === "string" ? record.chat_id.trim() : "";
-  if (!/^[0-9A-Za-z_-]{1,128}$/.test(chatId)) throw new Error("chat_id is invalid");
-  if (!Array.isArray(record.history)) throw new Error("history must be an array");
-
-  const candidates: HistoryMessage[] = [];
-  for (const item of record.history.slice(-HISTORY_MESSAGES_MAX)) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const message = item as Record<string, unknown>;
-    if (message.role !== "user" && message.role !== "assistant") continue;
-    if (typeof message.content !== "string" || !message.content.trim()) continue;
-    candidates.push({ role: message.role, content: message.content.slice(0, HISTORY_MESSAGE_MAX_CHARS) });
-  }
-  const history: HistoryMessage[] = [];
-  let chars = 0;
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    const message = candidates[i];
-    if (chars + message.content.length > historyCharsMax) break;
-    history.unshift(message);
-    chars += message.content.length;
-  }
-  return { question, chatId, history };
 }
 
 function schemaToPrompt(tables: LakeTable[]): string {
@@ -435,88 +191,50 @@ interface ValidatedIssue {
   message: string;
 }
 
-const SQL_ALIAS_KEYWORDS = new Set([
-  "on", "as", "inner", "left", "right", "full", "outer", "cross", "join", "where", "using",
-  "select", "from", "group", "by", "having", "order", "limit", "qualify", "with", "and", "or",
-  "not", "case", "when", "then", "else", "end", "union", "all", "intersect", "except", "exists",
-  "in", "is", "null", "distinct", "over", "partition", "rows", "between", "like",
-]);
+const SQL_ALIAS_KEYWORDS: Record<string, true> = {
+  select: true, from: true, where: true, join: true, left: true, right: true,
+  full: true, inner: true, outer: true, cross: true, on: true, group: true,
+  order: true, limit: true, qualify: true, having: true, union: true, as: true,
+  and: true, or: true, when: true, then: true, else: true, end: true, case: true,
+  with: true, by: true, asc: true, desc: true, nulls: true, first: true,
+  last: true, over: true, partition: true, distinct: true, all: true,
+};
 
-function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIssue[] {
-  const tableNames = tables.map((table) => table.name);
-  const lowerTables = new Set(tableNames.map((table) => table.toLowerCase()));
-  const columnsByTable = new Map<string, Set<string>>();
-  for (const table of tables) {
-    columnsByTable.set(table.name.toLowerCase(), new Set(table.columns.map((column) => column.name.toLowerCase())));
-  }
-
-  let stripped = "";
-  for (let i = 0; i < sql.length; i++) {
-    if (sql[i] !== "'") {
-      stripped += sql[i];
-      continue;
-    }
-    stripped += " ";
-    let j = i + 1;
-    while (j < sql.length) {
-      if (sql[j] === "'") {
-        if (sql[j + 1] === "'") { j += 2; continue; }
-        break;
-      }
-      j++;
-    }
-    i = j;
-  }
-
-  const cteNames = new Set<string>();
-  const cteRe = /([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi;
-  let cteMatch: RegExpExecArray | null;
-  while ((cteMatch = cteRe.exec(stripped))) cteNames.add(cteMatch[1].toLowerCase());
-
+export function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIssue[] {
   const issues: ValidatedIssue[] = [];
-  const issuedTables = new Set<string>();
-  const aliasToTable = new Map<string, string>();
-  const refRe = /\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?/gi;
-  let match: RegExpExecArray | null;
-  while ((match = refRe.exec(stripped))) {
-    const ref = match[1];
-    const alias = match[2] && !SQL_ALIAS_KEYWORDS.has(match[2].toLowerCase()) ? match[2].toLowerCase() : null;
-    const dot = ref.indexOf(".");
-    const bare = dot === -1 ? ref : ref.slice(dot + 1);
-    const namespace = dot === -1 ? null : ref.slice(0, dot);
-    const lowerBare = bare.toLowerCase();
-    if (cteNames.has(lowerBare)) continue;
-    if (lowerTables.has(lowerBare)) {
-      if (alias) aliasToTable.set(alias, lowerBare);
-      if (namespace && namespace.toLowerCase() !== "options" && !issuedTables.has(lowerBare)) {
-        issuedTables.add(lowerBare);
-        issues.push({ severity: "error", message: `Unknown schema '${namespace}'. Tables live in options (for example options.${bare}).` });
-      }
-      continue;
-    }
-    if (issuedTables.has(lowerBare)) continue;
-    issuedTables.add(lowerBare);
-    issues.push({
-      severity: namespace ? "error" : "warning",
-      message: namespace
-        ? `Unknown table '${ref}'. Available tables: ${tableNames.map((name) => `options.${name}`).join(", ")}.`
-        : `'${ref}' is not a known table or CTE. Available tables: ${tableNames.map((name) => `options.${name}`).join(", ")}.`,
-    });
+  const trimmed = sql.trim().replace(/;+\s*$/, "");
+  if (!/^(select|with)\b/i.test(trimmed)) issues.push({ severity: "error", message: "Only SELECT or WITH queries are allowed." });
+  if (/;/.test(trimmed)) issues.push({ severity: "error", message: "Multiple SQL statements are not allowed." });
+  if (/\b(insert|update|delete|drop|alter|create|truncate|copy|call|merge)\b/i.test(trimmed)) issues.push({ severity: "error", message: "Mutating SQL is not allowed." });
+  if (!/\blimit\s+\d+\b/i.test(trimmed)) issues.push({ severity: "warning", message: "The query should end with an explicit LIMIT." });
+  if (/\boffset\b/i.test(trimmed)) issues.push({ severity: "error", message: "OFFSET is not supported." });
+  if (/\bcross\s+join\b/i.test(trimmed)) issues.push({ severity: "error", message: "CROSS JOIN is not allowed." });
+  if (/\bwindow\s+[A-Za-z_]/i.test(trimmed)) issues.push({ severity: "error", message: "Named WINDOW clauses are not supported." });
+
+  const tableMap = new Map(tables.map((table) => [table.name.toLowerCase(), table]));
+  const references = [...trimmed.matchAll(/\b(?:from|join)\s+(?:options\.)?([A-Za-z_][A-Za-z0-9_]*)\b/gi)];
+  for (const match of references) {
+    const name = match[1].toLowerCase();
+    if (!tableMap.has(name) && !/^\w+$/.test(name)) continue;
+    if (!tableMap.has(name)) issues.push({ severity: "error", message: `Unknown table options.${match[1]}.` });
   }
 
-  const colRe = /\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b/g;
-  let columnMatch: RegExpExecArray | null;
-  while ((columnMatch = colRe.exec(stripped))) {
-    const qualifier = columnMatch[1].toLowerCase();
-    const column = columnMatch[2].toLowerCase();
-    const table = aliasToTable.get(qualifier) ?? (lowerTables.has(qualifier) ? qualifier : null);
+  const aliases = new Map<string, LakeTable>();
+  const tablePattern = /\b(?:from|join)\s+(?:options\.)?([A-Za-z_][A-Za-z0-9_]*)(?:\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*))?/gi;
+  for (const match of trimmed.matchAll(tablePattern)) {
+    const table = tableMap.get(match[1].toLowerCase());
     if (!table) continue;
-    const columns = columnsByTable.get(table);
-    if (columns && !columns.has(column)) {
-      issues.push({
-        severity: "warning",
-        message: `Unknown column '${columnMatch[1]}.${columnMatch[2]}': options.${table} columns are ${[...columns].sort().join(", ")}.`,
-      });
+    aliases.set(match[1].toLowerCase(), table);
+    if (match[2] && !SQL_ALIAS_KEYWORDS[match[2].toLowerCase()]) aliases.set(match[2].toLowerCase(), table);
+  }
+  for (const match of trimmed.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
+    const qualifier = match[1].toLowerCase();
+    if (qualifier === "options") continue;
+    const table = aliases.get(qualifier);
+    if (!table) continue;
+    const column = match[2].toLowerCase();
+    if (!table.columns.some((candidate) => candidate.name.toLowerCase() === column)) {
+      issues.push({ severity: "error", message: `Unknown column ${match[1]}.${match[2]} on options.${table.name}.` });
     }
   }
   return issues;
@@ -567,35 +285,6 @@ function buildFrameSummary(columns: string[], rows: Record<string, unknown>[]): 
   return result;
 }
 
-function saveFrame(session: ChatSession, frame: DataFrame): void {
-  if (!frame.row_count) return;
-  if (frame.rows.length > MAX_FRAME_ROWS) {
-    frame.rows = frame.rows.slice(0, MAX_FRAME_ROWS);
-    frame.row_count = frame.rows.length;
-  }
-  session.frames.set(frame.name, frame);
-  while (session.frames.size > MAX_FRAMES) {
-    const oldest = [...session.frames.entries()].sort((a, b) => a[1].fetched_at - b[1].fetched_at)[0];
-    if (!oldest) break;
-    session.frames.delete(oldest[0]);
-  }
-}
-
-function frameCatalog(session: ChatSession): string {
-  if (!session.frames.size) return "No cached frames in this chat yet.";
-  return [...session.frames.values()].map((frame) => {
-    const age = Math.max(0, Math.round((Date.now() - frame.fetched_at) / 60_000));
-    const columns = frame.columns.map((column) => {
-      const sketch = frame.summary[column];
-      if (!sketch) return column;
-      if (sketch.type === "number") return `${column}: number ${sketch.min ?? "?"}..${sketch.max ?? "?"}`;
-      if (sketch.type === "string" && sketch.values?.length) return `${column}: string {${sketch.values.join(", ")}}`;
-      return `${column}: ${sketch.type}`;
-    }).join(", ");
-    return `- '${frame.name}': ${frame.row_count} rows × ${frame.columns.length} cols, age ${age < 1 ? "<1" : age} min — ${columns}`;
-  }).join("\n").slice(0, MAX_TOOL_SUMMARY_CHARS);
-}
-
 type ExprNode =
   | { type: "literal"; value: unknown }
   | { type: "column"; name: string }
@@ -603,7 +292,10 @@ type ExprNode =
   | { type: "binary"; op: string; left: ExprNode; right: ExprNode }
   | { type: "call"; name: string; args: ExprNode[] };
 
-interface ExprToken { type: "number" | "string" | "identifier" | "operator" | "punctuation" | "eof"; value: string; }
+interface ExprToken {
+  type: "number" | "string" | "identifier" | "operator" | "punctuation" | "eof";
+  value: string;
+}
 
 function tokenize(expression: string): ExprToken[] {
   const tokens: ExprToken[] = [];
@@ -679,19 +371,16 @@ class ExprParser {
     this.index++;
     return true;
   }
-
   private parseOr(): ExprNode {
     let node = this.parseAnd();
     while (this.accept("||")) node = { type: "binary", op: "||", left: node, right: this.parseAnd() };
     return node;
   }
-
   private parseAnd(): ExprNode {
     let node = this.parseEquality();
     while (this.accept("&&")) node = { type: "binary", op: "&&", left: node, right: this.parseEquality() };
     return node;
   }
-
   private parseEquality(): ExprNode {
     let node = this.parseComparison();
     while (["==", "!="].includes(this.peek().value)) {
@@ -700,7 +389,6 @@ class ExprParser {
     }
     return node;
   }
-
   private parseComparison(): ExprNode {
     let node = this.parseUnary();
     while (["<", "<=", ">", ">="].includes(this.peek().value)) {
@@ -709,13 +397,11 @@ class ExprParser {
     }
     return node;
   }
-
   private parseUnary(): ExprNode {
     if (this.accept("!")) return { type: "unary", op: "!", value: this.parseUnary() };
     if (this.accept("-")) return { type: "unary", op: "-", value: this.parseUnary() };
     return this.parsePrimary();
   }
-
   private parsePrimary(): ExprNode {
     const token = this.take();
     if (token.type === "number") return { type: "literal", value: Number(token.value) };
@@ -742,531 +428,541 @@ class ExprParser {
   }
 }
 
-function evaluateExpr(node: ExprNode, row: Record<string, unknown>): unknown {
-  if (node.type === "literal") return node.value;
-  if (node.type === "column") return row[node.name] ?? null;
+interface SqlExpr {
+  sql: string;
+  values: SqlValue[];
+}
+
+function jsonPath(column: string): string {
+  return `$.${JSON.stringify(column)}`;
+}
+
+function compileExpr(node: ExprNode): SqlExpr {
+  if (node.type === "literal") {
+    const value = node.value;
+    if (value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+      throw new Error("unsupported literal");
+    }
+    return { sql: "?", values: [value] };
+  }
+  if (node.type === "column") return { sql: "json_extract(row_json, ?)", values: [jsonPath(node.name)] };
   if (node.type === "unary") {
-    const value = evaluateExpr(node.value, row);
-    return node.op === "!" ? !value : -Number(value);
+    const value = compileExpr(node.value);
+    return { sql: node.op === "!" ? `(NOT (${value.sql}))` : `(-(${value.sql}))`, values: value.values };
   }
   if (node.type === "call") {
-    const args = node.args.map((arg) => Number(evaluateExpr(arg, row)));
-    if (node.name === "abs") return Math.abs(args[0]);
-    if (node.name === "min") return Math.min(...args);
-    if (node.name === "max") return Math.max(...args);
-    return Math.round(args[0]);
+    if (!node.args.length) throw new Error(`${node.name} requires an argument`);
+    const args = node.args.map(compileExpr);
+    return { sql: `${node.name}(${args.map((arg) => arg.sql).join(", ")})`, values: args.flatMap((arg) => arg.values) };
   }
-  if (node.op === "&&") return evaluateExpr(node.left, row) === true && evaluateExpr(node.right, row) === true;
-  if (node.op === "||") return evaluateExpr(node.left, row) === true || evaluateExpr(node.right, row) === true;
-  const left = evaluateExpr(node.left, row);
-  const right = evaluateExpr(node.right, row);
-  if (node.op === "==") return left === right;
-  if (node.op === "!=") return left !== right;
-  if (left == null || right == null) return false;
-  if (node.op === "<") return left < right;
-  if (node.op === "<=") return left <= right;
-  if (node.op === ">") return left > right;
-  return left >= right;
+  const left = compileExpr(node.left);
+  const right = compileExpr(node.right);
+  const operator = node.op === "&&" ? "AND" : node.op === "||" ? "OR" : node.op === "==" ? "IS" : node.op === "!=" ? "IS NOT" : node.op;
+  return { sql: `((${left.sql}) ${operator} (${right.sql}))`, values: [...left.values, ...right.values] };
 }
 
-function sliceFrame(frame: DataFrame, args: Record<string, unknown>): QueryResult {
-  let columns = frame.columns;
-  let rows = frame.rows;
-  const columnSet = new Set(columns);
-  if (typeof args.where === "string" && args.where.trim()) {
-    const expression = new ExprParser(tokenize(args.where), columnSet).parse();
-    rows = rows.filter((row) => evaluateExpr(expression, row) === true);
+function boundedMessages(messages: UIMessage[], historyCharsMax: number): ModelMessage[] {
+  const candidates = messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: message.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim(),
+    }))
+    .filter((message) => message.content)
+    .slice(-HISTORY_MESSAGES_MAX);
+  const latest = candidates[candidates.length - 1];
+  if (!latest || latest.role !== "user") throw new Error("A user question is required.");
+  if (latest.content.length > QUESTION_MAX_CHARS) throw new Error(`question exceeds ${QUESTION_MAX_CHARS} characters`);
+
+  const selected: typeof candidates = [];
+  let chars = 0;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const message = candidates[i];
+    const content = message.content.slice(0, HISTORY_MESSAGE_MAX_CHARS);
+    if (chars + content.length > historyCharsMax && selected.length > 0) break;
+    selected.unshift({ ...message, content });
+    chars += content.length;
   }
-  if (typeof args.sort === "string" && args.sort.trim() && rows.length > 1) {
-    const expression = new ExprParser(tokenize(args.sort), columnSet).parse();
-    rows = rows.map((row, index) => ({ row, index, key: evaluateExpr(expression, row) }))
-      .sort((a, b) => {
-        const order = typeof a.key === "number" && typeof b.key === "number"
-          ? a.key - b.key
-          : String(a.key ?? "").localeCompare(String(b.key ?? ""));
-        return order || a.index - b.index;
-      })
-      .map((entry) => entry.row);
-  }
-  if (typeof args.limit === "number" && Number.isFinite(args.limit)) rows = rows.slice(0, Math.max(0, Math.min(Math.round(args.limit), FRAME_QUERY_LIMIT)));
-  if (Array.isArray(args.project)) {
-    const requested = new Set(args.project.filter((value): value is string => typeof value === "string" && columnSet.has(value)));
-    if (requested.size) {
-      columns = columns.filter((column) => requested.has(column));
-      rows = rows.map((row) => Object.fromEntries(columns.map((column) => [column, row[column]])));
-    }
-  }
-  return { columns, rows, row_count: rows.length, truncated: false, limit: rows.length };
+  return selected.map((message) => ({ role: message.role, content: message.content }));
 }
 
-function safeArgs(raw: string): Record<string, unknown> {
-  if (!raw.trim()) return {};
-  return asRecord(JSON.parse(raw));
+function boundedResult(result: QueryResult | null): QueryResult | null {
+  return result ? { ...result, rows: result.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : null;
 }
 
-function stringArg(args: Record<string, unknown>, name: string): string {
-  const value = args[name];
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required`);
-  return value.trim();
+function normalizeReasoningEffort(value: string): "xhigh" | "high" | "medium" | "low" | "minimal" | "none" {
+  return ["xhigh", "high", "medium", "low", "minimal", "none"].includes(value) ? value as "xhigh" | "high" | "medium" | "low" | "minimal" | "none" : "high";
 }
 
-async function executeTool(
-  call: ToolCall,
-  session: ChatSession,
-  tables: LakeTable[],
-  capture: Capture,
-  deps: CopilotDeps,
-  emit: (event: ProgressEvent) => Promise<void>,
-): Promise<ToolResult> {
-  let args: Record<string, unknown>;
-  try {
-    args = safeArgs(call.function.arguments);
-  } catch (error) {
-    return { ok: false, error: `Invalid tool arguments: ${error}`, summary: "Tool arguments were not valid JSON." };
-  }
-
-  try {
-    switch (call.function.name) {
-      case "check_schema": {
-        const issues = validateSqlSchema(stringArg(args, "sql"), tables);
-        return { ok: issues.length === 0, issues: issues.map((issue) => `[${issue.severity}] ${issue.message}`) };
-      }
-      case "run_query": {
-        const sql = stringArg(args, "sql");
-        const issues = validateSqlSchema(sql, tables);
-        const errors = issues.filter((issue) => issue.severity === "error");
-        if (errors.length) {
-          const message = errors.map((issue) => issue.message).join(" ");
-          return { ok: false, error: message, summary: `Schema validation failed: ${message}` };
-        }
-        const saveAs = typeof args.save_as === "string" ? args.save_as.trim().slice(0, 80) : "";
-        await emit({ kind: "status", status: saveAs ? "Running query & caching rows…" : "Running query…" });
-        const result = await deps.query(sql, saveAs ? FRAME_QUERY_LIMIT : 200);
-        capture.sql = sql;
-        capture.result = result;
-        if (result.error) return { ok: false, error: result.error, summary: `Query failed: ${result.error}` };
-        if (saveAs && result.row_count > 0) {
-          saveFrame(session, {
-            name: saveAs,
-            columns: result.columns,
-            rows: result.rows,
-            row_count: result.row_count,
-            summary: buildFrameSummary(result.columns, result.rows),
-            sql,
-            fetched_at: Date.now(),
-          });
-        }
-        const warnings = issues.filter((issue) => issue.severity === "warning").map((issue) => issue.message).join(" ");
-        let summary = `${warnings ? `Schema notes: ${warnings}\n` : ""}${summarizeResult(result)}`;
-        if (saveAs && result.row_count > 0) summary += `\nSaved frame '${saveAs}' (${result.row_count} rows).`;
-        return { ok: true, error: null, summary };
-      }
-      case "list_frames":
-        return { ok: true, error: null, summary: frameCatalog(session) };
-      case "filter_frame": {
-        const name = stringArg(args, "frame");
-        const frame = session.frames.get(name);
-        if (!frame) return { ok: false, error: `No frame '${name}'.`, summary: `No cached frame '${name}'.` };
-        if (Date.now() - frame.fetched_at > FRAME_TTL_MS) {
-          return { ok: false, error: `Frame '${name}' is stale. Call refresh_frame and retry.`, summary: `Frame '${name}' is stale.` };
-        }
-        await emit({ kind: "status", status: "Filtering cached data…" });
-        const result = sliceFrame(frame, args);
-        capture.result = result;
-        capture.sql = `-- slice of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
-        const saveAs = typeof args.save_as === "string" ? args.save_as.trim().slice(0, 80) : "";
-        if (saveAs && result.row_count > 0) {
-          saveFrame(session, {
-            name: saveAs,
-            columns: result.columns,
-            rows: result.rows,
-            row_count: result.row_count,
-            summary: buildFrameSummary(result.columns, result.rows),
-            sql: frame.sql,
-            fetched_at: Date.now(),
-          });
-        }
-        return { ok: true, error: null, summary: `${summarizeResult(result)}${saveAs ? `\nSaved frame '${saveAs}'.` : ""}` };
-      }
-      case "refresh_frame": {
-        const name = stringArg(args, "frame");
-        const frame = session.frames.get(name);
-        if (!frame) return { ok: false, error: `No frame '${name}'.`, summary: `No cached frame '${name}'.` };
-        await emit({ kind: "status", status: "Refreshing cached data…" });
-        const result = await deps.query(frame.sql, FRAME_QUERY_LIMIT);
-        capture.sql = frame.sql;
-        capture.result = result;
-        if (result.error) return { ok: false, error: result.error, summary: `Refresh failed: ${result.error}` };
-        if (result.row_count > 0) {
-          saveFrame(session, {
-            ...frame,
-            columns: result.columns,
-            rows: result.rows,
-            row_count: result.row_count,
-            summary: buildFrameSummary(result.columns, result.rows),
-            fetched_at: Date.now(),
-          });
-        }
-        return { ok: true, error: null, summary: `Refreshed frame '${name}' (${result.row_count} rows).` };
-      }
-      case "render_chart": {
-        const result = capture.result;
-        if (!result || result.error) return { ok: false, error: "No successful result to chart." };
-        const x = stringArg(args, "x");
-        const y = stringArg(args, "y");
-        if (!result.columns.includes(x) || !result.columns.includes(y)) {
-          return { ok: false, error: `Result lacks '${x}' or '${y}'. Available columns: ${result.columns.join(", ")}.` };
-        }
-        const kind = ["line", "area", "scatter", "bar"].includes(String(args.kind)) ? String(args.kind) as ChartSpec["kind"] : "line";
-        capture.chart = {
-          kind,
-          x,
-          y,
-          ...(typeof args.title === "string" ? { title: args.title.slice(0, 160) } : {}),
-          ...(typeof args.series === "string" && result.columns.includes(args.series) ? { series: args.series } : {}),
-          ...(typeof args.xLabel === "string" ? { xLabel: args.xLabel.slice(0, 80) } : {}),
-          ...(typeof args.yLabel === "string" ? { yLabel: args.yLabel.slice(0, 80) } : {}),
-        };
-        return { ok: true, error: null, summary: "Chart specification validated." };
-      }
-      case "get_news": {
-        const symbol = stringArg(args, "symbol").toUpperCase();
-        const limit = typeof args.limit === "number" ? Math.max(1, Math.min(20, Math.round(args.limit))) : 8;
-        const result = await deps.news(symbol, limit);
-        if (result.error) return { ok: false, summary: `News temporarily unavailable: ${result.error}` };
-        return { ok: true, summary: result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No recent headlines found for ${result.symbol}.` };
-      }
-      case "eco_calendar": {
-        const days = typeof args.days === "number" ? Math.max(7, Math.min(90, Math.round(args.days))) : 30;
-        const result = await deps.econCalendar(days);
-        if (result.error) return { ok: false, summary: `Macro calendar temporarily unavailable: ${result.error}` };
-        return { ok: true, summary: result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.date}${item.time ? ` ${item.time}` : ""} — ${item.title}`).join("\n") : "No scheduled macro events in the requested window." };
-      }
-      case "web_search": {
-        const query = stringArg(args, "query").slice(0, 200);
-        const limit = typeof args.max_results === "number" ? Math.max(1, Math.min(5, Math.round(args.max_results))) : 5;
-        const result = await deps.webSearch(query, limit);
-        if (result.error) return { ok: false, summary: `Web search temporarily unavailable: ${result.error}` };
-        return { ok: true, summary: result.results.length ? result.results.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No results found for "${result.query}".` };
-      }
-      default:
-        return { ok: false, error: `Unknown tool '${call.function.name}'.`, summary: "Unknown tool." };
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, error: message, summary: `${TOOL_LABELS[call.function.name] ?? call.function.name} failed: ${message}` };
-  }
-}
-
-interface ModelRound {
-  content: string;
-  toolCalls: ToolCall[];
-  outputTokens: number;
-}
-
-function reasoningText(delta: Record<string, unknown>): string {
-  if (typeof delta.reasoning === "string") return delta.reasoning;
-  if (typeof delta.reasoning_content === "string") return delta.reasoning_content;
-  if (Array.isArray(delta.reasoning_details)) {
-    const last = delta.reasoning_details[delta.reasoning_details.length - 1];
-    if (last && typeof last === "object" && "text" in last && typeof last.text === "string") return last.text;
-  }
-  return "";
-}
-
-async function modelRound(
-  env: CopilotEnv,
-  origin: string,
-  messages: OpenRouterMessage[],
-  maxTokens: number,
-  withTools: boolean,
-  emit: (event: ProgressEvent) => Promise<void>,
-): Promise<ModelRound> {
-  const payload: Record<string, unknown> = {
-    model: env.COPILOT_MODEL,
-    messages,
-    stream: true,
-    stream_options: { include_usage: true },
-    max_tokens: maxTokens,
-    reasoning: { effort: env.COPILOT_REASONING_EFFORT },
+/**
+ * Shared AIChatAgent implementation. The concrete Worker class supplies the
+ * existing lake/news/search/calendar business helpers without HTTP self-calls.
+ */
+export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent<E> {
+  override messageConcurrency = "queue" as const;
+  override maxPersistedMessages = 100;
+  override chatRecovery = {
+    maxAttempts: 3,
+    stableTimeoutMs: 15_000,
+    maxAgeMs: 10 * 60_000,
+    noProgressLimit: 2,
+    terminalMessage: "The assistant was interrupted and could not recover this turn.",
   };
-  if (withTools) {
-    payload.tools = TOOLS;
-    payload.tool_choice = "auto";
-    payload.parallel_tool_calls = false;
-  }
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.OPEN_ROUTER_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": origin || "https://robs-options-slop-dev.pages.dev",
-      "X-Title": APP_TITLE,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 1_000);
-    throw new Error(`OpenRouter ${response.status}: ${detail || response.statusText}`);
-  }
-  if (!response.body) throw new Error("OpenRouter returned no response stream");
+  override chatStreamStallTimeoutMs = 120_000;
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let content = "";
-  let generatedChars = 0;
-  let usageTokens: number | null = null;
-  const toolParts = new Map<number, ToolCall>();
-  const started = new Set<number>();
+  protected abstract loadSchema(): Promise<LakeTable[]>;
+  protected abstract executeLakeQuery(sql: string, limit: number): Promise<QueryResult>;
+  protected abstract fetchNews(symbol: string, limit: number): Promise<NewsResult>;
+  protected abstract searchWeb(query: string, limit: number): Promise<SearchResult>;
+  protected abstract fetchEconomicCalendar(days: number): Promise<CalendarResult>;
 
-  const processLine = async (line: string): Promise<void> => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith(":")) return;
-    if (!trimmed.startsWith("data:")) return;
-    const data = trimmed.slice(5).trim();
-    if (!data || data === "[DONE]") return;
-    let parsed: Record<string, unknown>;
+  private ensureCopilotSchema(): void {
+    this.sql`CREATE TABLE IF NOT EXISTS frames (
+      name TEXT PRIMARY KEY,
+      columns_json TEXT NOT NULL,
+      source_sql TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      row_count INTEGER NOT NULL,
+      summary_json TEXT NOT NULL
+    )`;
+    this.sql`CREATE TABLE IF NOT EXISTS frame_rows (
+      frame_name TEXT NOT NULL,
+      row_index INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      PRIMARY KEY(frame_name, row_index)
+    ) WITHOUT ROWID`;
+    this.sql`CREATE INDEX IF NOT EXISTS frame_rows_name_idx ON frame_rows(frame_name)`;
+    this.sql`CREATE TABLE IF NOT EXISTS copilot_turn_budget (
+      singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+      turn_id TEXT NOT NULL,
+      used_output_tokens INTEGER NOT NULL,
+      total_output_tokens INTEGER NOT NULL,
+      successful_query INTEGER NOT NULL,
+      capture_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`;
+  }
+
+  private dynamicSql<T>(query: string, values: SqlValue[]): T[] {
+    const parts = query.split("?");
+    if (parts.length !== values.length + 1) throw new Error("internal SQL parameter mismatch");
+    const strings = parts as unknown as TemplateStringsArray;
+    Object.defineProperty(strings, "raw", { value: [...parts] });
+    return this.sql<T>(strings, ...values);
+  }
+
+  private deleteFrame(name: string): void {
+    this.sql`DELETE FROM frame_rows WHERE frame_name = ${name}`;
+    this.sql`DELETE FROM frames WHERE name = ${name}`;
+  }
+
+  private cleanupRetention(): void {
+    const cutoff = Date.now() - FRAME_TTL_MS;
+    const expired = this.sql<{ name: string }>`SELECT name FROM frames WHERE fetched_at < ${cutoff}`;
+    for (const frame of expired) this.sql`DELETE FROM frame_rows WHERE frame_name = ${frame.name}`;
+    this.sql`DELETE FROM cf_ai_chat_agent_messages WHERE created_at < datetime('now', ${`-${CONVERSATION_RETENTION_DAYS} days`})`;
+  }
+
+  private getFrame(name: string): StoredFrame | null {
+    this.cleanupRetention();
+    const row = this.sql<{ name: string; columns_json: string; source_sql: string; fetched_at: number; row_count: number; summary_json: string }>`
+      SELECT name, columns_json, source_sql, fetched_at, row_count, summary_json
+      FROM frames WHERE name = ${name} LIMIT 1
+    `[0];
+    if (!row) return null;
+    return {
+      name: row.name,
+      columns: JSON.parse(row.columns_json) as string[],
+      row_count: row.row_count,
+      sql: row.source_sql,
+      fetched_at: row.fetched_at,
+      summary: JSON.parse(row.summary_json) as Record<string, FrameColumnSketch>,
+    };
+  }
+
+  private saveFrame(name: string, columns: string[], rowsIn: Record<string, unknown>[], sql: string, fetchedAt = Date.now()): void {
+    if (!rowsIn.length) return;
+    const rows = rowsIn.slice(0, MAX_FRAME_ROWS);
+    this.deleteFrame(name);
+    this.sql`
+      INSERT INTO frames (name, columns_json, source_sql, fetched_at, row_count, summary_json)
+      VALUES (${name}, ${JSON.stringify(columns)}, ${sql}, ${fetchedAt}, ${rows.length}, ${JSON.stringify(buildFrameSummary(columns, rows))})
+    `;
+    for (let offset = 0; offset < rows.length; offset += 30) {
+      const batch = rows.slice(offset, offset + 30);
+      const placeholders = batch.map(() => "(?, ?, ?)").join(", ");
+      const values = batch.flatMap((row, index): SqlValue[] => [name, offset + index, JSON.stringify(row)]);
+      this.dynamicSql(`INSERT INTO frame_rows (frame_name, row_index, row_json) VALUES ${placeholders}`, values);
+    }
+    const overflow = this.sql<{ name: string }>`SELECT name FROM frames ORDER BY fetched_at DESC, name ASC LIMIT -1 OFFSET ${MAX_FRAMES}`;
+    for (const frame of overflow) this.deleteFrame(frame.name);
+  }
+
+  @callable()
+  async getFrameMetadata(): Promise<FrameMetadata[]> {
+    this.ensureCopilotSchema();
+    return this.frameMetadata();
+  }
+
+  private frameMetadata(): FrameMetadata[] {
+    this.cleanupRetention();
+    return this.sql<{ name: string; columns_json: string; row_count: number; source_sql: string; fetched_at: number }>`
+      SELECT name, columns_json, row_count, source_sql, fetched_at
+      FROM frames ORDER BY fetched_at DESC, name ASC
+    `.map((row) => ({
+      name: row.name,
+      columns: JSON.parse(row.columns_json) as string[],
+      row_count: row.row_count,
+      sql: row.source_sql,
+      fetched_at: row.fetched_at,
+    }));
+  }
+
+  private frameCatalog(): string {
+    const frames = this.sql<{ name: string; columns_json: string; row_count: number; fetched_at: number; summary_json: string }>`
+      SELECT name, columns_json, row_count, fetched_at, summary_json FROM frames ORDER BY fetched_at DESC
+    `;
+    if (!frames.length) return "No cached frames in this chat yet.";
+    return frames.map((frame) => {
+      const columns = JSON.parse(frame.columns_json) as string[];
+      const summary = JSON.parse(frame.summary_json) as Record<string, FrameColumnSketch>;
+      const age = Math.max(0, Math.round((Date.now() - frame.fetched_at) / 60_000));
+      const columnSummary = columns.map((column) => {
+        const sketch = summary[column];
+        if (!sketch) return column;
+        if (sketch.type === "number") return `${column}: number ${sketch.min ?? "?"}..${sketch.max ?? "?"}`;
+        if (sketch.type === "string" && sketch.values?.length) return `${column}: string {${sketch.values.join(", ")}}`;
+        return `${column}: ${sketch.type}`;
+      }).join(", ");
+      return `- '${frame.name}': ${frame.row_count} rows × ${columns.length} cols, age ${age < 1 ? "<1" : age} min — ${columnSummary}`;
+    }).join("\n").slice(0, MAX_TOOL_SUMMARY_CHARS);
+  }
+
+  private filterFrame(frame: StoredFrame, args: { where?: string; sort?: string; limit?: number; project?: string[] }): QueryResult {
+    const columnSet = new Set(frame.columns);
+    const where = args.where?.trim()
+      ? compileExpr(new ExprParser(tokenize(args.where), columnSet).parse())
+      : { sql: "1", values: [] as SqlValue[] };
+    const sort = args.sort?.trim()
+      ? compileExpr(new ExprParser(tokenize(args.sort), columnSet).parse())
+      : null;
+    const requested = args.project?.filter((column) => columnSet.has(column));
+    const columns = requested?.length ? frame.columns.filter((column) => requested.includes(column)) : frame.columns;
+    const projectionValues: SqlValue[] = [];
+    const projection = requested?.length
+      ? `json_object(${columns.map((column) => {
+        projectionValues.push(column, jsonPath(column));
+        return "?, json_extract(row_json, ?)";
+      }).join(", ")})`
+      : "row_json";
+    const limit = Math.max(0, Math.min(Math.round(args.limit ?? FRAME_QUERY_LIMIT), FRAME_QUERY_LIMIT));
+    const query = `SELECT ${projection} AS row_json FROM frame_rows WHERE frame_name = ? AND (${where.sql})${sort ? ` ORDER BY ${sort.sql}, row_index ASC` : " ORDER BY row_index ASC"} LIMIT ?`;
+    const values: SqlValue[] = [...projectionValues, frame.name, ...where.values, ...(sort?.values ?? []), limit];
+    const rows = this.dynamicSql<{ row_json: string }>(query, values).map((row) => JSON.parse(row.row_json) as Record<string, unknown>);
+    return { columns, rows, row_count: rows.length, truncated: false, limit: rows.length };
+  }
+
+  private resetTurnBudget(turnId: string, total: number): Capture {
+    const capture: Capture = { sql: null, result: null, chart: null };
+    this.sql`
+      INSERT OR REPLACE INTO copilot_turn_budget
+        (singleton, turn_id, used_output_tokens, total_output_tokens, successful_query, capture_json, updated_at)
+      VALUES (1, ${turnId}, 0, ${total}, 0, ${JSON.stringify(capture)}, ${Date.now()})
+    `;
+    return capture;
+  }
+
+  private readTurnBudget(): { turn_id: string; used_output_tokens: number; total_output_tokens: number; successful_query: number; capture_json: string } {
+    const row = this.sql<{ turn_id: string; used_output_tokens: number; total_output_tokens: number; successful_query: number; capture_json: string }>`
+      SELECT turn_id, used_output_tokens, total_output_tokens, successful_query, capture_json
+      FROM copilot_turn_budget WHERE singleton = 1
+    `[0];
+    if (!row) throw new Error("Copilot turn budget is unavailable.");
+    return row;
+  }
+
+  private writeTurnState(usedOutputTokens: number, successfulQuery: boolean, capture: Capture): void {
+    this.sql`
+      UPDATE copilot_turn_budget SET
+        used_output_tokens = ${usedOutputTokens},
+        successful_query = ${successfulQuery ? 1 : 0},
+        capture_json = ${JSON.stringify(capture)},
+        updated_at = ${Date.now()}
+      WHERE singleton = 1
+    `;
+  }
+
+  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames"> = {}): ToolOutput {
+    return {
+      ok,
+      summary: summary.slice(0, MAX_TOOL_SUMMARY_CHARS),
+      error: extra.error,
+      issues: extra.issues,
+      ...(extra.sql !== undefined ? { sql: extra.sql } : {}),
+      ...(extra.result !== undefined ? { result: boundedResult(extra.result) } : {}),
+      ...(extra.chart !== undefined ? { chart: extra.chart } : {}),
+      ...(extra.frames !== undefined ? { frames: extra.frames.slice(0, MAX_FRAMES) } : {}),
+    };
+  }
+
+  private async safeTool(label: string, capture: Capture, operation: () => Promise<ToolOutput> | ToolOutput): Promise<ToolOutput> {
     try {
-      parsed = asRecord(JSON.parse(data));
-    } catch {
-      return;
-    }
-    if (parsed.error) {
-      const error = parsed.error;
-      const message = error && typeof error === "object" && "message" in error ? String(error.message) : JSON.stringify(error);
-      throw new Error(`OpenRouter stream error: ${message}`);
-    }
-    if (parsed.usage && typeof parsed.usage === "object" && "completion_tokens" in parsed.usage && typeof parsed.usage.completion_tokens === "number") {
-      usageTokens = parsed.usage.completion_tokens;
-    }
-    if (!Array.isArray(parsed.choices) || !parsed.choices.length) return;
-    const choice = parsed.choices[0];
-    if (!choice || typeof choice !== "object" || !("delta" in choice) || !choice.delta || typeof choice.delta !== "object") return;
-    const delta = choice.delta as Record<string, unknown>;
-    const reasoning = reasoningText(delta);
-    if (reasoning) {
-      generatedChars += reasoning.length;
-      await emit({ kind: "reasoning", delta: reasoning });
-    }
-    if (typeof delta.content === "string") {
-      content += delta.content;
-      generatedChars += delta.content.length;
-    }
-    if (!Array.isArray(delta.tool_calls)) return;
-    for (const rawPart of delta.tool_calls) {
-      if (!rawPart || typeof rawPart !== "object") continue;
-      const part = rawPart as Record<string, unknown>;
-      const index = typeof part.index === "number" ? part.index : 0;
-      const current = toolParts.get(index) ?? { id: "", type: "function", function: { name: "", arguments: "" } };
-      if (typeof part.id === "string") current.id = part.id;
-      if (part.function && typeof part.function === "object") {
-        const fn = part.function as Record<string, unknown>;
-        if (typeof fn.name === "string") current.function.name += fn.name;
-        if (typeof fn.arguments === "string") {
-          current.function.arguments += fn.arguments;
-          generatedChars += fn.arguments.length;
-        }
-      }
-      toolParts.set(index, current);
-      if (!started.has(index) && current.id && current.function.name) {
-        started.add(index);
-        await emit({ kind: "tool_start", name: current.function.name, display: TOOL_LABELS[current.function.name] ?? current.function.name.replaceAll("_", " "), callId: current.id });
-      }
-      if (current.id && current.function.arguments) {
-        await emit({ kind: "tool_args", name: current.function.name, callId: current.id, args: current.function.arguments });
-      }
-    }
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    while (true) {
-      const end = buffer.indexOf("\n");
-      if (end < 0) break;
-      const line = buffer.slice(0, end);
-      buffer = buffer.slice(end + 1);
-      await processLine(line);
-    }
-  }
-  buffer += decoder.decode();
-  if (buffer.trim()) await processLine(buffer);
-
-  const toolCalls = [...toolParts.entries()].sort((a, b) => a[0] - b[0]).map(([, call]) => call);
-  for (const call of toolCalls) {
-    if (!call.id || !call.function.name) throw new Error("OpenRouter returned an incomplete tool call");
-  }
-  return {
-    content: content.trim(),
-    toolCalls,
-    outputTokens: usageTokens ?? Math.max(1, Math.ceil(generatedChars / 4)),
-  };
-}
-
-function frameMetadata(session: ChatSession): { name: string; columns: string[]; row_count: number; sql: string; fetched_at: number }[] {
-  return [...session.frames.values()].map((frame) => ({
-    name: frame.name,
-    columns: frame.columns,
-    row_count: frame.row_count,
-    sql: frame.sql,
-    fetched_at: frame.fetched_at,
-  }));
-}
-
-async function runAgent(
-  env: CopilotEnv,
-  origin: string,
-  question: string,
-  history: HistoryMessage[],
-  session: ChatSession,
-  deps: CopilotDeps,
-  emit: (event: ProgressEvent) => Promise<void>,
-): Promise<{ answer: string; capture: Capture; usedOutputTokens: number }> {
-  await emit({ kind: "status", status: "Reading schema…" });
-  const tables = await deps.schema();
-  await emit({ kind: "status", status: "Reasoning over the data…" });
-  const messages: OpenRouterMessage[] = [
-    { role: "system", content: systemPrompt(schemaToPrompt(tables)) },
-    ...history.map((message): OpenRouterMessage => ({ role: message.role, content: message.content })),
-    { role: "user", content: question },
-  ];
-  const capture: Capture = { sql: null, result: null, chart: null };
-  const totalBudget = positiveInt(env.COPILOT_MAX_OUTPUT_TOKENS, OUTPUT_TOKENS_DEFAULT, OUTPUT_TOKENS_MAX);
-  let usedOutputTokens = 0;
-
-  for (let iteration = 0; iteration < AGENT_ITERATIONS_MAX; iteration++) {
-    const remaining = totalBudget - usedOutputTokens;
-    if (remaining < 256) throw new Error("Copilot output-token budget exhausted before a final answer");
-    const withTools = iteration < AGENT_ITERATIONS_MAX - 1;
-    const maxTokens = withTools
-      ? Math.max(256, Math.min(TOOL_ROUND_TOKENS_MAX, remaining - FINAL_TOKEN_RESERVE))
-      : remaining;
-    const round = await modelRound(env, origin, messages, maxTokens, withTools, emit);
-    usedOutputTokens += Math.min(round.outputTokens, remaining);
-
-    if (round.toolCalls.length) {
-      messages.push({ role: "assistant", content: round.content || null, tool_calls: round.toolCalls });
-      for (const call of round.toolCalls) {
-        const result = await executeTool(call, session, tables, capture, deps, emit);
-        const summary = result.summary ?? result.error ?? (result.issues?.join("\n") || "Tool completed.");
-        await emit({ kind: "tool_end", name: call.function.name, callId: call.id, ok: result.ok, summary: summary.slice(0, 500) });
-        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result).slice(0, MAX_TOOL_SUMMARY_CHARS) });
-      }
-      continue;
-    }
-
-    if (round.content && capture.result) {
-      await emit({ kind: "answer" });
-      return { answer: round.content, capture, usedOutputTokens };
-    }
-
-    if (round.content && !capture.result && withTools) {
-      messages.push({ role: "assistant", content: round.content });
-      messages.push({ role: "user", content: "You must run a lake query before answering. Use run_query now, then provide the final prose answer." });
-      continue;
-    }
-
-    if (withTools) {
-      messages.push({ role: "user", content: "Continue: use the required tools, then give a substantive plain-English final answer." });
-      continue;
-    }
-  }
-  throw new Error("The model did not finish a prose answer within the agent iteration limit");
-}
-
-function sseResponse(readable: ReadableStream<Uint8Array>): Response {
-  return new Response(readable, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-store, no-transform",
-      Connection: "keep-alive",
-    },
-  });
-}
-
-export async function copilotChat(
-  req: Request,
-  env: CopilotEnv,
-  ctx: ExecutionContext,
-  deps: CopilotDeps,
-): Promise<Response> {
-  let request: { question: string; chatId: string; history: HistoryMessage[] };
-  try {
-    const raw = await readBodyBounded(req);
-    request = normalizeRequest(JSON.parse(raw), positiveInt(env.COPILOT_MAX_HISTORY_CHARS, HISTORY_CHARS_DEFAULT, HISTORY_CHARS_DEFAULT));
-  } catch (error) {
-    const status = error instanceof RangeError ? 413 : 400;
-    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-  }
-  if (!env.COPILOT_MODEL?.trim()) return Response.json({ error: "COPILOT_MODEL is not configured" }, { status: 503 });
-  if (!env.OPEN_ROUTER_KEY?.trim()) return Response.json({ error: "Copilot is not configured" }, { status: 503 });
-
-  const session = getSession(request.chatId);
-  if (session.running) return Response.json({ error: "a chat request is already running for this chat_id" }, { status: 409 });
-  session.running = true;
-  const stream = new TransformStream<Uint8Array, Uint8Array>();
-  const writer = stream.writable.getWriter();
-  const encoder = new TextEncoder();
-  // Stop writing once the socket is gone. NB: Cloudflare does not reliably
-  // surface a client disconnect to a streaming write (writes can keep
-  // "succeeding" into a buffered stream long after the tab closed), so
-  // persistence below must NOT depend on this flag ever flipping.
-  let disconnected = false;
-  const emit = async (event: ProgressEvent): Promise<void> => {
-    if (disconnected) return;
-    try {
-      await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-    } catch {
-      disconnected = true;
-    }
-  };
-
-  const work = (async () => {
-    try {
-      const result = await runAgent(env, req.headers.get("Origin") ?? "", request.question, request.history, session, deps, emit);
-      // Deliver the final event to a live client; a dead client makes this
-      // write throw, which must NOT prevent persistence below.
-      await emit({
-        kind: "result",
-        answer: result.answer,
-        sql: result.capture.sql,
-        result: result.capture.result,
-        chart: result.capture.chart,
-        model: env.COPILOT_MODEL,
-        frames: frameMetadata(session),
-      }).catch(() => {
-        /* client connection gone — nothing left to deliver */
-      });
-      // Persist the completed result unconditionally (rows truncated). A client
-      // that lost the connection mid-stream can then poll GET /api/chat/result
-      // and recover it; a client that got the live stream ignores the row. Rows
-      // are TTL-pruned so this never accumulates.
-      const res = result.capture.result;
-      const payload: ProgressEvent & { kind: "result" } = {
-        kind: "result",
-        answer: result.answer,
-        sql: result.capture.sql,
-        result: res ? { ...res, rows: res.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : res,
-        chart: result.capture.chart,
-        model: env.COPILOT_MODEL,
-        frames: frameMetadata(session),
-      };
-      await deps.persistResult(request.chatId, JSON.stringify(payload)).catch(() => {
-        /* resume is best-effort; the run already spent its budget */
-      });
-      console.log(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, outputTokens: result.usedOutputTokens, toolsProducedResult: result.capture.result !== null }));
+      return await operation();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(JSON.stringify({ copilotChat: true, model: env.COPILOT_MODEL, error: message }));
-      await emit({ kind: "error", message });
-    } finally {
-      session.running = false;
-      session.lastAccess = Date.now();
-      if (!disconnected) await writer.close().catch(() => undefined);
+      return this.output(false, `${label} failed: ${message}`, { error: message });
     }
-  })();
-  ctx.waitUntil(work);
-  return sseResponse(stream.readable);
+  }
+
+  private createTools(tables: LakeTable[], capture: Capture, status: (value: string) => void, turn: { used: number; successfulQuery: boolean }) {
+    const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, capture);
+    return {
+      run_query: tool({
+        description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Pass save_as to cache up to 5000 rows as a per-chat frame for local follow-up filtering.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
+        execute: async ({ sql, save_as }) => this.safeTool(TOOL_LABELS.run_query, capture, async () => {
+          const issues = validateSqlSchema(sql, tables);
+          const errors = issues.filter((issue) => issue.severity === "error");
+          if (errors.length) {
+            const message = errors.map((issue) => issue.message).join(" ");
+            return this.output(false, `Schema validation failed: ${message}`, { error: message });
+          }
+          status(save_as ? "Running query & caching rows…" : "Running query…");
+          const result = await this.executeLakeQuery(sql, save_as ? FRAME_QUERY_LIMIT : RESULT_PERSIST_MAX_ROWS);
+          capture.sql = sql;
+          capture.result = result;
+          if (result.error) {
+            persist();
+            return this.output(false, `Query failed: ${result.error}`, { error: result.error, sql, result });
+          }
+          turn.successfulQuery = true;
+          if (save_as && result.row_count > 0) this.saveFrame(save_as, result.columns, result.rows, sql);
+          persist();
+          const warnings = issues.filter((issue) => issue.severity === "warning").map((issue) => issue.message).join(" ");
+          const summary = `${warnings ? `Schema notes: ${warnings}\n` : ""}${summarizeResult(result)}${save_as && result.row_count > 0 ? `\nSaved frame '${save_as}' (${result.row_count} rows).` : ""}`;
+          return this.output(true, summary, { error: null, sql, result, frames: this.frameMetadata() });
+        }),
+      }),
+      check_schema: tool({
+        description: "Validate proposed SQL against the real options table and column names without executing it.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema,
+        execute: async ({ sql }) => this.safeTool(TOOL_LABELS.check_schema, capture, () => {
+          const issues = validateSqlSchema(sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
+          return this.output(issues.every((issue) => !issue.startsWith("[error]")), issues.join("\n") || "SQL matches the current schema.", { issues });
+        }),
+      }),
+      list_frames: tool({
+        description: "List this chat's cached result frames, including columns, row counts, age, and value sketches.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.list_frames,
+        execute: async () => this.safeTool(TOOL_LABELS.list_frames, capture, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
+      }),
+      filter_frame: tool({
+        description: "Filter, sort, project, and limit a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame,
+        execute: async (args) => this.safeTool(TOOL_LABELS.filter_frame, capture, () => {
+          const frame = this.getFrame(args.frame);
+          if (!frame) return this.output(false, `No cached frame '${args.frame}'.`, { error: `No frame '${args.frame}'.` });
+          if (Date.now() - frame.fetched_at > FRAME_TTL_MS) {
+            return this.output(false, `Frame '${args.frame}' is stale. Call refresh_frame and retry.`, { error: `Frame '${args.frame}' is stale.` });
+          }
+          status("Filtering cached data…");
+          const result = this.filterFrame(frame, args);
+          capture.result = result;
+          capture.sql = `-- slice of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
+          const sliceSql = capture.sql;
+          turn.successfulQuery = true;
+          if (args.save_as && result.row_count > 0) this.saveFrame(args.save_as, result.columns, result.rows, frame.sql);
+          persist();
+          return this.output(true, `${summarizeResult(result)}${args.save_as ? `\nSaved frame '${args.save_as}'.` : ""}`, { error: null, sql: sliceSql, result, frames: this.frameMetadata() });
+        }),
+      }),
+      refresh_frame: tool({
+        description: "Re-run a cached frame's source query after it becomes stale.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.refresh_frame,
+        execute: async ({ frame: name }) => this.safeTool(TOOL_LABELS.refresh_frame, capture, async () => {
+          const frame = this.getFrame(name);
+          if (!frame) return this.output(false, `No cached frame '${name}'.`, { error: `No frame '${name}'.` });
+          status("Refreshing cached data…");
+          const result = await this.executeLakeQuery(frame.sql, FRAME_QUERY_LIMIT);
+          capture.sql = frame.sql;
+          capture.result = result;
+          if (result.error) {
+            persist();
+            return this.output(false, `Refresh failed: ${result.error}`, { error: result.error, sql: frame.sql, result });
+          }
+          turn.successfulQuery = true;
+          if (result.row_count > 0) this.saveFrame(name, result.columns, result.rows, frame.sql);
+          persist();
+          return this.output(true, `Refreshed frame '${name}' (${result.row_count} rows).`, { error: null, sql: frame.sql, result, frames: this.frameMetadata() });
+        }),
+      }),
+      render_chart: tool({
+        description: "Validate a chart specification for the most recent query result. Call after run_query or filter_frame when the user requested a chart.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart,
+        execute: async (args) => this.safeTool(TOOL_LABELS.render_chart, capture, () => {
+          const result = capture.result;
+          if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
+          if (!result.columns.includes(args.x) || !result.columns.includes(args.y)) {
+            const error = `Result lacks '${args.x}' or '${args.y}'. Available columns: ${result.columns.join(", ")}.`;
+            return this.output(false, error, { error });
+          }
+          capture.chart = {
+            kind: args.kind,
+            x: args.x,
+            y: args.y,
+            ...(args.title ? { title: args.title } : {}),
+            ...(args.series && result.columns.includes(args.series) ? { series: args.series } : {}),
+            ...(args.xLabel ? { xLabel: args.xLabel } : {}),
+            ...(args.yLabel ? { yLabel: args.yLabel } : {}),
+          };
+          persist();
+          return this.output(true, "Chart specification validated.", { error: null, chart: capture.chart });
+        }),
+      }),
+      get_news: tool({
+        description: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news,
+        execute: async ({ symbol, limit }) => this.safeTool(TOOL_LABELS.get_news, capture, async () => {
+          const result = await this.fetchNews(symbol.toUpperCase(), limit);
+          if (result.error) return this.output(false, `News temporarily unavailable: ${result.error}`, { error: result.error });
+          const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No recent headlines found for ${result.symbol}.`;
+          return this.output(true, summary, { error: null });
+        }),
+      }),
+      web_search: tool({
+        description: "Search for current market commentary or events and return up to five citable links.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search,
+        execute: async ({ query, max_results }) => this.safeTool(TOOL_LABELS.web_search, capture, async () => {
+          const result = await this.searchWeb(query, max_results);
+          if (result.error) return this.output(false, `Web search temporarily unavailable: ${result.error}`, { error: result.error });
+          const summary = result.results.length ? result.results.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No results found for "${result.query}".`;
+          return this.output(true, summary, { error: null });
+        }),
+      }),
+      eco_calendar: tool({
+        description: "Fetch scheduled macro events for the next 7 to 90 days.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar,
+        execute: async ({ days }) => this.safeTool(TOOL_LABELS.eco_calendar, capture, async () => {
+          const result = await this.fetchEconomicCalendar(days);
+          if (result.error) return this.output(false, `Macro calendar temporarily unavailable: ${result.error}`, { error: result.error });
+          const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.date}${item.time ? ` ${item.time}` : ""} — ${item.title}`).join("\n") : "No scheduled macro events in the requested window.";
+          return this.output(true, summary, { error: null });
+        }),
+      }),
+    };
+  }
+
+  override async onChatMessage(_onFinish: unknown, options: OnChatMessageOptions): Promise<Response> {
+    this.ensureCopilotSchema();
+    this.cleanupRetention();
+    if (!this.env.COPILOT_MODEL?.trim()) return Response.json({ error: "COPILOT_MODEL is not configured" }, { status: 503 });
+    if (!this.env.OPEN_ROUTER_KEY?.trim()) return Response.json({ error: "Copilot is not configured" }, { status: 503 });
+
+    const totalBudget = positiveInt(this.env.COPILOT_MAX_OUTPUT_TOKENS, OUTPUT_TOKENS_DEFAULT, OUTPUT_TOKENS_MAX);
+    if (!options.continuation) this.resetTurnBudget(options.requestId, totalBudget);
+    const budget = this.readTurnBudget();
+    const capture = JSON.parse(budget.capture_json) as Capture;
+    const turn = { used: budget.used_output_tokens, successfulQuery: budget.successful_query === 1 };
+    this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
+
+    const historyCharsMax = positiveInt(this.env.COPILOT_MAX_HISTORY_CHARS, HISTORY_CHARS_DEFAULT, HISTORY_CHARS_DEFAULT);
+    let messages: ModelMessage[];
+    try {
+      messages = boundedMessages(this.messages, historyCharsMax);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const errorStream = createUIMessageStream<CopilotMessage>({
+        originalMessages: this.messages as CopilotMessage[],
+        execute: ({ writer }) => writer.write({ type: "error", errorText: message }),
+      });
+      return createUIMessageStreamResponse({ stream: errorStream });
+    }
+    const tables = await this.loadSchema();
+    const latestQuestion = [...this.messages].reverse().find((message) => message.role === "user")
+      ?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").toLowerCase() ?? "";
+    const requestedFrame = this.frameMetadata().find((frame) => latestQuestion.includes(frame.name.toLowerCase()));
+    const originValue = typeof options.body?.origin === "string" ? options.body.origin : "";
+    const origin = /^https?:\/\//.test(originValue) ? originValue : "https://robs-options-slop-dev.pages.dev";
+    const model = createCopilotModel(this.env, origin);
+    let wroteAnswerStatus = false;
+
+    const stream = createUIMessageStream<CopilotMessage>({
+      originalMessages: this.messages as CopilotMessage[],
+      onError: (error) => error instanceof Error ? error.message : String(error),
+      execute: ({ writer }) => {
+        const status = (value: string) => writer.write({ type: "data-status", data: { status: value }, transient: true });
+        status("Reasoning over the data…");
+        const tools = this.createTools(tables, capture, status, turn);
+        const result = streamText({
+          model,
+          system: systemPrompt(schemaToPrompt(tables)),
+          messages,
+          tools,
+          stopWhen: isStepCount(AGENT_ITERATIONS_MAX),
+          abortSignal: options.abortSignal,
+          providerOptions: {
+            openrouter: { reasoning: { effort: normalizeReasoningEffort(this.env.COPILOT_REASONING_EFFORT) } },
+          },
+          prepareStep: ({ stepNumber }) => {
+            const remaining = budget.total_output_tokens - turn.used;
+            if (remaining < 256) throw new Error("Copilot output-token budget exhausted before a final answer");
+            if (stepNumber >= AGENT_ITERATIONS_MAX - 1) {
+              return { activeTools: [], toolChoice: "none", maxOutputTokens: remaining };
+            }
+            const toolBudget = Math.max(256, Math.min(TOOL_ROUND_TOKENS_MAX, remaining - FINAL_TOKEN_RESERVE));
+            return {
+              maxOutputTokens: toolBudget,
+              toolChoice: turn.successfulQuery
+                ? "auto"
+                : { type: "tool", toolName: requestedFrame && stepNumber === 0 ? "filter_frame" : "run_query" },
+            };
+          },
+          onChunk: ({ chunk }) => {
+            if (!wroteAnswerStatus && (chunk.type === "text-start" || chunk.type === "text-delta")) {
+              wroteAnswerStatus = true;
+              status("Writing answer…");
+            }
+          },
+          onStepFinish: (step) => {
+            const outputTokens = step.usage.outputTokens ?? Math.max(1, Math.ceil(step.text.length / 4));
+            turn.used = Math.min(budget.total_output_tokens, turn.used + outputTokens);
+            this.writeTurnState(turn.used, turn.successfulQuery, capture);
+          },
+          onFinish: () => {
+            console.log(JSON.stringify({
+              copilotChat: true,
+              model: this.env.COPILOT_MODEL,
+              outputTokens: turn.used,
+              toolsProducedResult: capture.result !== null,
+            }));
+          },
+        });
+        writer.merge(result.toUIMessageStream<CopilotMessage>({
+          sendReasoning: true,
+          messageMetadata: ({ part }) => part.type === "finish" ? { model: this.env.COPILOT_MODEL, createdAt: Date.now() } : undefined,
+        }));
+      },
+    });
+    return createUIMessageStreamResponse({ stream });
+  }
+
+  protected override sanitizeMessageForPersistence(message: UIMessage): UIMessage {
+    return {
+      ...message,
+      parts: message.parts.map((part) => {
+        if (!("output" in part) || part.state !== "output-available" || !part.output || typeof part.output !== "object") return part;
+        const output = part.output as ToolOutput;
+        return {
+          ...part,
+          output: {
+            ...output,
+            summary: typeof output.summary === "string" ? output.summary.slice(0, MAX_TOOL_SUMMARY_CHARS) : "Tool completed.",
+            ...(output.sql !== undefined ? { sql: String(output.sql).slice(0, MAX_TOOL_SUMMARY_CHARS) } : {}),
+            ...(output.result !== undefined ? { result: boundedResult(output.result) } : {}),
+            ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
+          },
+        };
+      }),
+    };
+  }
 }

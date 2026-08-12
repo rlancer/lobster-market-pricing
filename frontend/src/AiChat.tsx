@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
+import { useAgent } from 'agents/react';
+import { getToolName, isToolUIPart, type UIMessage } from 'ai';
 import { useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
 import {
@@ -16,12 +19,10 @@ import {
   useChatStreamScroll,
 } from '@astryxdesign/core';
 import { Share2, SquarePen } from 'lucide-react';
-import { api, type ChatHistoryMessage, type ChatHistoryRecord, type ChatResumeResponse, type QueryResult, type ShareChatResponse } from './api';
+import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatResponse } from './api';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
-import { askAi, type AgentProgress, type DataFrame } from './ai';
-
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -29,32 +30,48 @@ const EXAMPLES = [
   'Chart the IV smile for NVDA',
   'What underlyings have the most open interest?',
 ];
+const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
+const CAPTURED_IDS_PREFIX = 'openinterest_copilot_captured_';
+const MAX_RENDER_ROWS = 200;
 
-const uid = () => Math.random().toString(36).slice(2);
+const TOOL_LABELS: Record<string, string> = {
+  run_query: 'SQL query',
+  check_schema: 'Check schema',
+  list_frames: 'List frames',
+  filter_frame: 'Filter frame',
+  refresh_frame: 'Refresh frame',
+  render_chart: 'Render chart',
+  get_news: 'News',
+  eco_calendar: 'Eco calendar',
+  web_search: 'Web search',
+};
 
-// When the SSE connection dies mid-answer (mobile background), the Worker
-// keeps running and stashes the finished result. Poll the resume endpoint
-// until it's ready so the answer is recovered instead of a fatal "network
-// error". Bounds are generous: high-reasoning runs take minutes.
-const RESUME_POLL_MS = 2000;
-const RESUME_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Poll GET /api/chat/result until the completed answer is available (or timeout). */
-async function pollChatResult(chatId: string): Promise<ChatResumeResponse | null> {
-  const deadline = Date.now() + RESUME_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const res = await api.chatResult(chatId);
-      if (res.ready) return res;
-    } catch {
-      // Server unreachable right now (still suspended / recovering) — keep polling.
-    }
-    const { promise, resolve } = Promise.withResolvers<void>();
-    setTimeout(resolve, RESUME_POLL_MS);
-    await promise;
-  }
-  return null;
+interface FrameMetadata {
+  name: string;
+  columns: string[];
+  row_count: number;
+  sql: string;
+  fetched_at: number;
 }
+
+interface Presentation {
+  sql: string | null;
+  result: QueryResult | null;
+  chart: ChartSpec | null;
+  model: string;
+  frames: FrameMetadata[];
+}
+
+interface CopilotMetadata {
+  model: string;
+  createdAt: number;
+}
+
+type CopilotData = Record<string, unknown> & {
+  status: { status: string };
+};
+
+type CopilotMessage = UIMessage<CopilotMetadata, CopilotData>;
 
 interface Msg {
   id: string;
@@ -64,52 +81,42 @@ interface Msg {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   error?: string;
-  /** Epoch ms when the message was produced. */
   ts?: number;
-  /** Model that answered (assistant only). */
   model?: string;
 }
 
-/** One row in the live tool feed inside the busy bubble. */
+interface ToolOutput {
+  ok?: boolean;
+  error?: string | null;
+  summary?: string;
+  sql?: string | null;
+  result?: QueryResult | null;
+  chart?: ChartSpec | null;
+  frames?: FrameMetadata[];
+}
+
 interface ToolRow {
-  /** Stream toolCallId — stable per call, so repeated tools stay distinct rows. */
   callId: string;
   name: string;
   display: string;
   args: string;
-  /** null while running; true/false once the tool ended. */
   ok: boolean | null;
   summary: string;
 }
 
-/** Immutably apply a patch to the row with `callId` (no-op when absent). */
-function patchTool(tools: ToolRow[], callId: string, patch: Partial<ToolRow>): ToolRow[] {
-  const i = tools.findIndex((t) => t.callId === callId);
-  if (i === -1) return tools;
-  return tools.map((t, idx) => (idx === i ? { ...t, ...patch } : t));
-}
-
-function fmtCell(v: unknown): string {
-  if (v === null || v === undefined) return '∅';
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
-  if (typeof v === 'number') {
-    if (Number.isInteger(v)) return v.toLocaleString();
-    return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+function fmtCell(value: unknown): string {
+  if (value === null || value === undefined) return '∅';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') {
+    if (Number.isInteger(value)) return value.toLocaleString();
+    return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
   }
-  return String(v);
+  return String(value);
 }
-
-// Frames can hold thousands of rows (materialized chains); rendering them all
-// would swamp the DOM. Show the first batch; the full result stays in session.
-const MAX_RENDER_ROWS = 200;
 
 function ResultTable({ result }: { result: QueryResult }) {
-  if (result.error) {
-    return <div className="ai-err">Query error: {result.error}</div>;
-  }
-  if (!result.columns.length) {
-    return <div className="ai-empty">Query returned no columns.</div>;
-  }
+  if (result.error) return <div className="ai-err">Query error: {result.error}</div>;
+  if (!result.columns.length) return <div className="ai-empty">Query returned no columns.</div>;
   const shown = result.rows.slice(0, MAX_RENDER_ROWS);
   return (
     <div className="ai-result">
@@ -122,14 +129,14 @@ function ResultTable({ result }: { result: QueryResult }) {
           <thead>
             <tr>
               <th className="ai-idx">#</th>
-              {result.columns.map((c) => <th key={c}>{c}</th>)}
+              {result.columns.map((column) => <th key={column}>{column}</th>)}
             </tr>
           </thead>
           <tbody>
-            {shown.map((row, i) => (
-              <tr key={i}>
-                <td className="ai-idx">{i + 1}</td>
-                {result.columns.map((c) => <td key={c}>{fmtCell(row[c])}</td>)}
+            {shown.map((row, index) => (
+              <tr key={index}>
+                <td className="ai-idx">{index + 1}</td>
+                {result.columns.map((column) => <td key={column}>{fmtCell(row[column])}</td>)}
               </tr>
             ))}
             {result.row_count > shown.length && (
@@ -149,109 +156,215 @@ function ResultTable({ result }: { result: QueryResult }) {
   );
 }
 
-function AiChat() {
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+function presentationFromMessage(message: CopilotMessage): Presentation | null {
+  const model = message.metadata?.model ?? '';
+  let presentation: Presentation | null = null;
+  for (const part of message.parts) {
+    if (!isToolUIPart(part)) continue;
+    const output = getToolOutput(part);
+    if (!output || typeof output !== 'object') continue;
+    const candidate = output as ToolOutput;
+    if (!candidate.sql && !candidate.result && !candidate.chart && !candidate.frames) continue;
+    presentation = {
+      sql: candidate.sql ?? null,
+      result: candidate.result ?? null,
+      chart: candidate.chart ?? null,
+      model,
+      frames: candidate.frames ?? [],
+    };
+  }
+  return presentation;
+}
+
+function projectMessage(message: CopilotMessage): Msg | null {
+  if (message.role !== 'user' && message.role !== 'assistant') return null;
+  const content = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
+  const presentation = presentationFromMessage(message);
+  return {
+    id: message.id,
+    role: message.role,
+    content,
+    ...(presentation ? {
+      sql: presentation.sql,
+      result: presentation.result,
+      chart: presentation.chart,
+      model: presentation.model,
+    } : {}),
+    ...(message.metadata?.createdAt ? { ts: message.metadata.createdAt } : {}),
+    ...(!presentation && message.metadata?.model ? { model: message.metadata.model } : {}),
+  };
+}
+
+function projectTools(message: CopilotMessage | undefined): ToolRow[] {
+  if (!message) return [];
+  return message.parts.flatMap((part): ToolRow[] => {
+    if (!isToolUIPart(part)) return [];
+    const name = getToolName(part);
+    const state = getToolPartState(part);
+    const input = getToolInput(part);
+    const rawOutput = getToolOutput(part);
+    const output = rawOutput && typeof rawOutput === 'object' ? rawOutput as ToolOutput : undefined;
+    const complete = state === 'complete' || state === 'error' || state === 'denied';
+    return [{
+      callId: getToolCallId(part),
+      name,
+      display: TOOL_LABELS[name] ?? name.replaceAll('_', ' '),
+      args: input === undefined ? '' : JSON.stringify(input),
+      ok: complete ? state === 'complete' && output?.ok !== false : null,
+      summary: output?.summary ?? output?.error ?? '',
+    }];
+  });
+}
+
+function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () => void }) {
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('');
-  // Live agent progress: streamed reasoning tokens + the tool feed, shown in
-  // the busy bubble and reset per question.
-  const [reasoning, setReasoning] = useState('');
-  const [writing, setWriting] = useState(false);
-  const [tools, setTools] = useState<ToolRow[]>([]);
-  // Share-chat state: POST the transcript → D1 (shared_chats); the dialog
-  // shows the copyable link + a "View" action onto the public share page.
+  const [progressStatus, setProgressStatus] = useState('');
+  const [frames, setFrames] = useState<FrameMetadata[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-  // Chat-history capture state (server-side lake record via /api/chat/history).
-  // chatId is per conversation (stable across turns — one lake row per turn
-  // carries the full conversation so far, so an admin can dedupe by chat_id);
-  // startedAt pins the conversation start; msgsRef always mirrors the latest
-  // msgs (the send closure is stale); userMsgRef tracks this turn's user
-  // message so the transcript is built without duplicates.
-  const chatIdRef = useRef<string>(crypto.randomUUID());
   const startedAtRef = useRef<number | null>(null);
-  const msgsRef = useRef<Msg[]>([]);
-  const userMsgRef = useRef<Msg | null>(null);
-  // True once any SSE progress/status arrived for the current question — proves
-  // the request reached the Worker, so a later TypeError is a mid-stream drop
-  // worth resuming (not a pure no-connectivity failure).
-  const sawStreamRef = useRef(false);
+  const navigate = useNavigate();
+  const host = API_BASE ? new URL(API_BASE).host : window.location.host;
+  const agent = useAgent({
+    agent: 'CopilotAgent',
+    name: chatId,
+    host,
+  });
+  const {
+    messages,
+    sendMessage,
+    status: chatStatus,
+    error: chatError,
+    isStreaming,
+    isRecovering,
+    isToolContinuation,
+    connectionError,
+  } = useAgentChat<unknown, CopilotMessage>({
+    agent,
+    resume: true,
+    cancelOnClientAbort: false,
+    body: () => ({ origin: window.location.origin }),
+    onData: (part) => {
+      if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
+        setProgressStatus(part.data.status);
+      }
+    },
+  });
+
+  const busy = chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation;
+  const projectedMessages = useMemo(() => messages.map(projectMessage).filter((message): message is Msg => message !== null), [messages]);
+  const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
+  const reasoning = latestAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
+  const tools = projectTools(latestAssistant);
+  const writing = Boolean(latestAssistant?.parts.some((part) => part.type === 'text' && part.text));
+  const visibleError = chatError?.message ?? connectionError?.message;
+  const status = isRecovering
+    ? 'Recovering interrupted answer…'
+    : progressStatus || (chatStatus === 'submitted' ? 'Starting…' : 'Thinking…');
+  const latestPresentation = latestAssistant ? presentationFromMessage(latestAssistant) : null;
+  const latestFrameSignature = JSON.stringify(latestPresentation?.frames ?? []);
+
   useEffect(() => {
-    msgsRef.current = msgs;
-  }, [msgs]);
+    if (latestPresentation) setFrames(latestPresentation.frames);
+  }, [latestFrameSignature]);
 
-  // Fire-and-forget save of the completed turn to the lake: previous turns +
-  // this turn's user + assistant messages, trimmed to {role, content, sql, ts}
-  // (bulky query-result tables and chart specs stay in the session, not the
-  // lake). Best-effort — failures are swallowed; a chat is never blocked by
-  // history persistence.
-  const saveTranscript = useCallback((assistant: Msg) => {
-    const chatId = chatIdRef.current;
-    if (!chatId) return;
-    const user = userMsgRef.current;
-    const prior = msgsRef.current.filter((m) => m !== user && m.id !== assistant.id);
-    const turns: ChatHistoryMessage[] = [...prior, ...(user ? [user] : []), assistant]
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-        ...(m.sql ? { sql: m.sql } : {}),
-        ...(m.ts ? { ts: m.ts } : {}),
-      }))
-      .slice(-100); // bounds the POST body; the Worker enforces the same cap
-    const record: ChatHistoryRecord = {
-      chat_id: chatId,
-      mode: 'funded',
-      model: assistant.model,
-      started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
-      ended_at: new Date().toISOString(),
-      messages: turns,
-    };
-    api.saveChatHistory(record).catch(() => {
-      /* best-effort */
-    });
-  }, []);
+  useEffect(() => {
+    let active = true;
+    void agent.ready
+      .then(() => agent.call<FrameMetadata[]>('getFrameMetadata', []))
+      .then((metadata) => {
+        if (active) setFrames(metadata);
+      })
+      .catch(() => {
+        // Frame chips are supplementary; persisted message output is the fallback.
+      });
+    return () => { active = false; };
+  }, [chatId]);
 
-  // Server-side frames are returned as metadata for the existing session-data chips.
-  const [frames, setFrames] = useState<DataFrame[]>([]);
+  const capturedIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      const ids = JSON.parse(sessionStorage.getItem(CAPTURED_IDS_PREFIX + chatId) ?? '[]') as unknown;
+      if (Array.isArray(ids)) capturedIdsRef.current = new Set(ids.filter((id): id is string => typeof id === 'string'));
+    } catch {
+      capturedIdsRef.current = new Set();
+    }
+  }, [chatId]);
 
-  // Share becomes available once the conversation has ≥1 completed turn.
-  const canShare = msgs.some((m) => m.role === 'assistant');
+  useEffect(() => {
+    if (busy) return;
+    for (let index = 0; index < projectedMessages.length; index++) {
+      const assistant = projectedMessages[index];
+      if (assistant.role !== 'assistant' || !assistant.content || capturedIdsRef.current.has(assistant.id)) continue;
+      const turns: ChatHistoryMessage[] = projectedMessages.slice(0, index + 1).map((message) => ({
+        role: message.role,
+        content: message.content,
+        ...(message.sql ? { sql: message.sql } : {}),
+        ...(message.ts ? { ts: message.ts } : {}),
+      })).slice(-100);
+      const record: ChatHistoryRecord = {
+        chat_id: chatId,
+        mode: 'funded',
+        model: assistant.model,
+        started_at: new Date(startedAtRef.current ?? assistant.ts ?? Date.now()).toISOString(),
+        ended_at: new Date(assistant.ts ?? Date.now()).toISOString(),
+        messages: turns,
+      };
+      capturedIdsRef.current.add(assistant.id);
+      sessionStorage.setItem(CAPTURED_IDS_PREFIX + chatId, JSON.stringify([...capturedIdsRef.current].slice(-100)));
+      api.saveChatHistory(record).catch(() => {
+        // Best-effort abuse-context-preserving history capture.
+      });
+    }
+  }, [busy, chatId, projectedMessages]);
 
-  // POST the current transcript to D1 (shared_chats) and reveal the public
-  // link. Reuses the exact transcript shape saveTranscript sends to the lake
-  // (same trimmer, same record fields) so a share is a projection of the
-  // conversation. User-requested → errors surface in the dialog, not silently.
+  const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
+  useEffect(() => {
+    scrollIfLocked();
+  }, [scrollIfLocked, projectedMessages, busy, status, reasoning]);
+
+  useEffect(() => {
+    const element = thinkingRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [reasoning]);
+
+  const send = useCallback((raw: string) => {
+    const question = raw.trim();
+    if (!question || busy) return;
+    if (startedAtRef.current === null) startedAtRef.current = Date.now();
+    setInput('');
+    setProgressStatus('Starting…');
+    sendMessage({ text: question });
+  }, [busy, sendMessage]);
+
+  const canShare = projectedMessages.some((message) => message.role === 'assistant' && message.content);
   const shareChat = async () => {
     setShareBusy(true);
     setShareError(null);
     try {
-      const turns: ChatHistoryMessage[] = msgs
-        .map((m) => ({
-          role: m.role,
-          content: m.content,
-          ...(m.sql ? { sql: m.sql } : {}),
-          ...(m.ts ? { ts: m.ts } : {}),
-        }))
-        .slice(-100); // bounds the POST body; the Worker enforces the same cap
-      const record: ChatHistoryRecord = {
-        chat_id: chatIdRef.current,
+      const turns: ChatHistoryMessage[] = projectedMessages.map((message) => ({
+        role: message.role,
+        content: message.content,
+        ...(message.sql ? { sql: message.sql } : {}),
+        ...(message.ts ? { ts: message.ts } : {}),
+      })).slice(-100);
+      const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
+      const response = await api.shareChat({
+        chat_id: chatId,
         mode: 'funded',
-        model: [...msgs].reverse().find((message) => message.model)?.model,
+        model: latestModel,
         started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
         ended_at: new Date().toISOString(),
         messages: turns,
-      };
-      const res = await api.shareChat(record);
-      setShareResult(res);
+      });
+      setShareResult(response);
       setShareOpen(true);
-    } catch (e) {
-      setShareError(String((e as Error)?.message ?? e));
+    } catch (error) {
+      setShareError(String((error as Error)?.message ?? error));
       setShareOpen(true);
     } finally {
       setShareBusy(false);
@@ -263,129 +376,6 @@ function AiChat() {
     setShareResult(null);
     setShareError(null);
   };
-
-
-  const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
-  useEffect(() => {
-    scrollIfLocked();
-  }, [scrollIfLocked, msgs, busy, status, reasoning]);
-
-  // Keep the streaming Thinking block pinned to the newest tokens.
-  useEffect(() => {
-    const el = thinkingRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [reasoning]);
-
-
-  const send = useCallback(async (q: string) => {
-    const question = q.trim();
-    if (!question || busy) return;
-    // The browser sends only the question, chat id, and prior text turns. The
-    // Worker owns the funded model, schema, tools, frame cache, and agent loop.
-    setInput('');
-    // Fresh progress panel per question.
-    setReasoning('');
-    setWriting(false);
-    setTools([]);
-    sawStreamRef.current = false;
-    const now = Date.now();
-    if (startedAtRef.current === null) startedAtRef.current = now;
-    const userMsg: Msg = { id: uid(), role: 'user', content: question, ts: now };
-    userMsgRef.current = userMsg;
-    setMsgs((m) => [...m, userMsg]);
-    setBusy(true);
-    setStatus('Starting…');
-    try {
-      const history = msgsRef.current
-        .filter((message) => !message.error && message.content)
-        .map((message) => ({ role: message.role, content: message.content }));
-      const res = await askAi(question, chatIdRef.current, history, {
-        onStatus: setStatus,
-        onProgress: (p: AgentProgress) => {
-          sawStreamRef.current = true;
-          switch (p.kind) {
-            case 'status':
-              setStatus(p.status);
-              break;
-            case 'reasoning':
-              setReasoning((r) => r + p.delta);
-              break;
-            case 'tool_start':
-              setTools((ts) => [
-                ...ts,
-                { callId: p.callId, name: p.name, display: p.display, args: '', ok: null, summary: '' },
-              ]);
-              break;
-            case 'tool_args':
-              setTools((ts) => patchTool(ts, p.callId, { args: p.args }));
-              break;
-            case 'tool_end':
-              setTools((ts) => patchTool(ts, p.callId, { ok: p.ok, summary: p.summary }));
-              break;
-            case 'answer':
-              setWriting(true);
-              setStatus('Writing answer…');
-              break;
-            case 'error':
-              setStatus('Something went wrong');
-              break;
-          }
-        },
-      });
-      const assistantMsg: Msg = { id: uid(), role: 'assistant', content: res.answer, sql: res.sql, result: res.result, chart: res.chart, ts: Date.now(), model: res.model };
-      setMsgs((m) => [...m, assistantMsg]);
-      saveTranscript(assistantMsg);
-      setFrames(res.frames);
-    } catch (e) {
-      // A mobile background tears down the in-flight SSE socket, so the single
-      // fetch rejects with a TypeError even though the Worker is still running
-      // the agent. Recover the finished answer instead of surfacing a fatal
-      // network error: poll the server's resume endpoint (it persists the
-      // result once the run completes).
-      if (e instanceof TypeError && sawStreamRef.current) {
-        setStatus('Connection lost — retrieving your answer…');
-        const resume = await pollChatResult(chatIdRef.current);
-        if (resume) {
-          const assistantMsg: Msg = {
-            id: uid(),
-            role: 'assistant',
-            content: resume.answer ?? '',
-            sql: resume.sql ?? null,
-            result: resume.result ?? null,
-            chart: (resume.chart ?? null) as ChartSpec | null,
-            ts: Date.now(),
-            model: resume.model,
-          };
-          setMsgs((m) => [...m, assistantMsg]);
-          saveTranscript(assistantMsg);
-          setFrames(resume.frames ?? []);
-          return; // recovered — don't show an error bubble
-        }
-      }
-      const errorMsg: Msg = { id: uid(), role: 'assistant', content: '', error: String(e), ts: Date.now() };
-      setMsgs((m) => [...m, errorMsg]);
-      saveTranscript(errorMsg);
-    } finally {
-      setBusy(false);
-      setStatus('');
-      // The server owns spend accounting and model selection.
-    }
-  }, [busy, saveTranscript]);
-
-  const newChat = () => {
-    setFrames([]);
-    setMsgs([]);
-    chatIdRef.current = crypto.randomUUID();
-    startedAtRef.current = null;
-    userMsgRef.current = null;
-  };
-
-  const openExplorerSql = (sql: string) => {
-    // Route to the SQL Lab with the SQL carried in the `sql` search param;
-    // the Explorer route reads and runs it on mount.
-    navigate({ to: '/lab', search: { sql } });
-  };
-
 
   return (
     <section className="ai-chat">
@@ -401,28 +391,20 @@ function AiChat() {
             isLoading={shareBusy}
             onClick={shareChat}
           />
-          <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={newChat} />
+          <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
         </section>
       </header>
-
-
 
       {frames.length > 0 && (
         <div className="ai-frames">
           <span className="ai-frames-label">Session data</span>
-          {frames.map((f) => {
-            const ageMin = Math.round((Date.now() - f.fetched_at) / 60000);
+          {frames.map((frame) => {
+            const ageMin = Math.round((Date.now() - frame.fetched_at) / 60000);
             return (
-              <Tooltip
-                key={f.name}
-                content={`${f.row_count.toLocaleString()} rows · ${f.columns.length} cols · ${f.sql}`}
-                hasHoverIndication={false}
-              >
+              <Tooltip key={frame.name} content={`${frame.row_count.toLocaleString()} rows · ${frame.columns.length} cols · ${frame.sql}`} hasHoverIndication={false}>
                 <span className="ai-frame-chip">
-                  <b>{f.name}</b>
-                  <span className="ai-frame-meta">
-                    {f.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}
-                  </span>
+                  <b>{frame.name}</b>
+                  <span className="ai-frame-meta">{frame.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}</span>
                 </span>
               </Tooltip>
             );
@@ -431,7 +413,7 @@ function AiChat() {
       )}
 
       <section className="ai-messages" ref={scrollRef}>
-        {msgs.length === 0 && (
+        {projectedMessages.length === 0 && (
           <section className="ai-welcome">
             <header className="ai-welcome-hero">
               <BlueLobsterLogo className="ai-welcome-mascot" />
@@ -443,9 +425,9 @@ function AiChat() {
               </p>
             </header>
             <nav className="ai-examples" aria-label="Suggested questions">
-              {EXAMPLES.map((ex) => (
-                <button key={ex} className="ai-example-card" onClick={() => send(ex)} disabled={busy}>
-                  <span>{ex}</span>
+              {EXAMPLES.map((example) => (
+                <button key={example} className="ai-example-card" onClick={() => send(example)} disabled={busy}>
+                  <span>{example}</span>
                   <span className="ai-example-arrow" aria-hidden="true">↗</span>
                 </button>
               ))}
@@ -453,61 +435,53 @@ function AiChat() {
           </section>
         )}
 
-        {msgs.map((m) => (
-          <div key={m.id} className={`ai-msg ai-${m.role}`}>
-            {m.role === 'assistant' && (
-              <span className="ai-msg-mark" aria-hidden="true">λ</span>
-            )}
+        {projectedMessages.map((message) => (
+          <div key={message.id} className={`ai-msg ai-${message.role}`}>
+            {message.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
             <div className="ai-bubble">
-              {m.error ? (
-                <div className="ai-err">{m.error}</div>
-              ) : (
-                <>
-                  {m.content && (
-                    m.role === 'assistant'
-                      ? <div className="ai-text"><Markdown>{m.content}</Markdown></div>
-                      : <div className="ai-text">{m.content}</div>
-                  )}
-                  {m.sql && (
-                    <div className="ai-sql">
-                      <div className="ai-sql-head">
-                        <span>SQL</span>
-                        <span className="ai-sql-actions">
-                          <CopyButton text={m.sql} />
-                          <Tooltip content="Open in SQL Lab" hasHoverIndication={false}>
-                            <button
-                              onClick={() => openExplorerSql(m.sql!)}
-                            >
-                              Open in SQL Lab ↗
-                            </button>
-                          </Tooltip>
-                        </span>
-                      </div>
-                      <pre>{m.sql}</pre>
-                    </div>
-                  )}
-                  {m.result && <ResultTable result={m.result} />}
-                  {m.chart && m.result && <ChartView result={m.result} spec={m.chart} />}
-                  {m.role === 'assistant' && (m.ts !== undefined || m.model) && (
-                    <ChatMessageMetadata
-                      timestamp={m.ts !== undefined ? <Timestamp value={m.ts / 1000} format="time" /> : undefined}
-                      footer={m.model}
-                    />
-                  )}
-                </>
+              {message.content && (
+                message.role === 'assistant'
+                  ? <div className="ai-text"><Markdown>{message.content}</Markdown></div>
+                  : <div className="ai-text">{message.content}</div>
+              )}
+              {message.sql && (
+                <div className="ai-sql">
+                  <div className="ai-sql-head">
+                    <span>SQL</span>
+                    <span className="ai-sql-actions">
+                      <CopyButton text={message.sql} />
+                      <Tooltip content="Open in SQL Lab" hasHoverIndication={false}>
+                        <button onClick={() => navigate({ to: '/lab', search: { sql: message.sql! } })}>Open in SQL Lab ↗</button>
+                      </Tooltip>
+                    </span>
+                  </div>
+                  <pre>{message.sql}</pre>
+                </div>
+              )}
+              {message.result && <ResultTable result={message.result} />}
+              {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
+              {message.role === 'assistant' && (message.ts !== undefined || message.model) && (
+                <ChatMessageMetadata
+                  timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
+                  footer={message.model}
+                />
               )}
             </div>
           </div>
         ))}
 
+        {visibleError && !busy && (
+          <div className="ai-msg ai-assistant">
+            <span className="ai-msg-mark" aria-hidden="true">λ</span>
+            <div className="ai-bubble"><div className="ai-err">{visibleError}</div></div>
+          </div>
+        )}
+
         {busy && (
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">✦</span>
             <div className="ai-bubble ai-busy">
-              <div className="ai-busy-head">
-                <Spinner size="md" />
-                <span className="ai-busy-status">{status || 'Thinking…'}</span>
-              </div>
+              <div className="ai-busy-head"><Spinner size="md" /><span className="ai-busy-status">{status}</span></div>
               {reasoning && (
                 <details className="ai-thinking" open={busy}>
                   <summary>Thinking</summary>
@@ -516,21 +490,14 @@ function AiChat() {
               )}
               {tools.length > 0 && (
                 <div className="ai-tool-feed">
-                  {tools.map((t) => (
-                    <div
-                      className={`ai-tool-row${t.ok === null ? '' : t.ok ? ' ok' : ' fail'}`}
-                      key={t.callId}
-                    >
+                  {tools.map((toolRow) => (
+                    <div className={`ai-tool-row${toolRow.ok === null ? '' : toolRow.ok ? ' ok' : ' fail'}`} key={toolRow.callId}>
                       <span className="ai-tool-name">
-                        <span className="ai-tool-state" aria-hidden="true">
-                          {t.ok === null ? <Spinner size="sm" shade="subtle" /> : t.ok ? '✓' : '✗'}
-                        </span>
-                        {t.display}
+                        <span className="ai-tool-state" aria-hidden="true">{toolRow.ok === null ? <Spinner size="sm" shade="subtle" /> : toolRow.ok ? '✓' : '✗'}</span>
+                        {toolRow.display}
                       </span>
-                      {t.args && <code className="ai-tool-args">{t.args}</code>}
-                      {t.ok !== null && t.summary && (
-                        <span className="ai-tool-summary" title={t.summary}>{t.summary}</span>
-                      )}
+                      {toolRow.args && <code className="ai-tool-args">{toolRow.args}</code>}
+                      {toolRow.ok !== null && toolRow.summary && <span className="ai-tool-summary" title={toolRow.summary}>{toolRow.summary}</span>}
                     </div>
                   ))}
                 </div>
@@ -545,56 +512,38 @@ function AiChat() {
         <ChatComposer
           value={input}
           onChange={setInput}
-          onSubmit={(v) => send(v)}
+          onSubmit={send}
           isDisabled={busy}
-          placeholder='Ask about liquidity, volatility, or a ticker…'
+          placeholder="Ask about liquidity, volatility, or a ticker…"
           sendButton={<ChatSendButton />}
         />
       </footer>
 
-      <Dialog isOpen={shareOpen} onOpenChange={(o) => !o && closeShareDialog()} width={460}>
+      <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={460}>
         <DialogHeader
           title={shareError ? 'Share failed' : shareResult ? 'Chat shared' : 'Share chat'}
-          subtitle={
-            shareResult
-              ? 'Anyone with this link can view the transcript — no account needed.'
-              : undefined
-          }
-          onOpenChange={() => closeShareDialog()}
+          subtitle={shareResult ? 'Anyone with this link can view the transcript — no account needed.' : undefined}
+          onOpenChange={closeShareDialog}
         />
-        {shareBusy && (
-          <div className="ai-share-body ai-share-busy">
-            <Spinner size="md" />
-            <span>Creating share…</span>
-          </div>
-        )}
-        {!shareBusy && shareError && (
-          <div className="ai-share-body ai-share-error">{shareError}</div>
-        )}
+        {shareBusy && <div className="ai-share-body ai-share-busy"><Spinner size="md" /><span>Creating share…</span></div>}
+        {!shareBusy && shareError && <div className="ai-share-body ai-share-error">{shareError}</div>}
         {!shareBusy && shareResult && (
           <>
             <div className="ai-share-body">
               <label className="ai-share-label" htmlFor="ai-share-url">Share URL</label>
               <div className="ai-share-row">
-                <input
-                  id="ai-share-url"
-                  className="ai-share-url"
-                  value={new URL(shareResult.url, window.location.href).toString()}
-                  readOnly
-                  onFocus={(e) => e.currentTarget.select()}
-                />
+                <input id="ai-share-url" className="ai-share-url" value={new URL(shareResult.url, window.location.href).toString()} readOnly onFocus={(event) => event.currentTarget.select()} />
                 <CopyButton text={new URL(shareResult.url, window.location.href).toString()} tooltip="Copy link" />
               </div>
             </div>
             <div className="ai-share-actions">
-              <Button variant="secondary" label="Done" onClick={() => closeShareDialog()} />
+              <Button variant="secondary" label="Done" onClick={closeShareDialog} />
               <Button
                 variant="primary"
                 label="View share"
                 onClick={() => {
                   const shareId = shareResult.share_id;
                   closeShareDialog();
-                  // The public, read-only page — exactly what a recipient sees.
                   navigate({ to: '/share/$shareId', params: { shareId } });
                 }}
               />
@@ -604,6 +553,22 @@ function AiChat() {
       </Dialog>
     </section>
   );
+}
+
+function AiChat() {
+  const [chatId, setChatId] = useState(() => {
+    const existing = sessionStorage.getItem(ACTIVE_CHAT_KEY);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
+    return created;
+  });
+  const newChat = useCallback(() => {
+    const created = crypto.randomUUID();
+    sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
+    setChatId(created);
+  }, []);
+  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
 }
 
 export default AiChat;

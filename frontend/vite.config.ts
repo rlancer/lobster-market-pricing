@@ -7,13 +7,17 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
-    // Proxy /api/* to the Worker dev server for local dev. When VITE_API_BASE
-    // is set (frontend/.env), the api client calls that origin directly and
-    // this proxy is unused; keep it as a zero-config local-dev fallback.
+    // Proxy API HTTP and Agent WebSocket traffic to the local Worker. When
+    // VITE_API_BASE is set, both clients connect to that origin directly.
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8787',
         changeOrigin: true,
+      },
+      '/agents': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+        ws: true,
       },
     },
   },
