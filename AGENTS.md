@@ -76,6 +76,11 @@ testing instead of a per-branch URL, which requires re-logging in each time.
   `process.execPath, [<repo>/node_modules/wrangler/bin/wrangler.js, ...args]`.
   Read/forward root `.env` secrets (R2_DATA_CATALOG_TOKEN,
   PIPELINE_AUTH_TOKEN, WRANGLER_R2_SQL_AUTH_TOKEN) in-process; never echo them.
+- **Windows + PowerShell + `@` refs:** PowerShell treats `@e1` as splat, so
+  unquoted agent-browser (and similar) element refs vanish — `click @e22`
+  becomes `click` with no selector ("Missing arguments" / "Element not found").
+  Always quote them: `agent-browser click '@e22'`. Same for `fill`, `type`,
+  `get`, etc.
 - **Scheduler sleeps while the US market is closed** (global
   `MARKET_HOURS_ENABLED`) — even ungated jobs wait for the next market open.
   To verify a new pipeline immediately, publish through it directly (same code
