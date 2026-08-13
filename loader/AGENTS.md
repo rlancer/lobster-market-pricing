@@ -62,9 +62,10 @@ python tools/refresh_universe.py --probe-cboe   # fetch NDX live, merge, validat
 - Output is deterministic and atomic; the `symbols/` dir is the only thing it writes.
 
 To actually consume the extended universe, the loader jobs (`cboe-options`,
-`ohlc-daily`, `ohlc-backfill`, `earnings-daily`) and `run-symbols.ts` enrichment
+`ohlc-daily`, `ohlc-backfill`, `earnings-daily`), `run-symbols.ts` enrichment,
+and `tools/figi_map.ts` (OpenFIGI → `options.securities` / `options.symbol_history`)
 import `universe.json` instead of `sp500.json`/`sp500_constituents.json` (wired
-2026-08-09). ETFs produce no earnings rows (harmless in `earnings-daily`).
+2026-08-09; figi_map switched 2026-08-12). ETFs produce no earnings rows (harmless in `earnings-daily`).
 `MAX_SYMBOLS` is enforced per-`runSymbols` *batch* (capped by `LOADER_BATCH_SIZE`),
 not across the universe, so larger universes do not trip it.
 - Canonical checkpoint: `.sp500-catalog-load-state.json`.
