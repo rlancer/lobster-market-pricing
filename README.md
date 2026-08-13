@@ -86,7 +86,7 @@ R2_SQL_TOKEN=cfat_...
 
 - `R2_SQL_ACCOUNT_ID` — Cloudflare account ID hosting the lake
 - `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (warehouse is `{ACCOUNT_ID}_{BUCKET}`)
-- `CORS_ORIGIN` — `*` (or your Pages origin)
+- `CORS_ORIGIN` — fallback `*` for untrusted origins. Credentialed Copilot login echoes a trusted `Origin` (lobster.mp and siblings) with `Access-Control-Allow-Credentials`.
 
 ### Loader — `LOADER_TOKEN` (secret)
 
@@ -117,16 +117,54 @@ reasoning effort (`COPILOT_REASONING_EFFORT`), and per-turn output/history caps
 cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 ```
 
+### Worker — Better Auth (optional Copilot login)
+
+Chat stays anonymous by default. Google OAuth is optional so a signed-in user
+can reclaim the current conversation and reopen it later. Identity is Better
+Auth on the existing Worker D1 (`SCHEMA_DB` / `screener-schema-cache`). The
+session is an HttpOnly, Secure, SameSite=Lax cookie; the Worker is the only
+thing that ever writes `user_id`.
+
+Cookie origin is a shared parent domain, not a token in localStorage:
+
+| | Pages | Worker API |
+| --- | --- | --- |
+| Production | `https://lobster.mp` | `https://api.lobster.mp` |
+| Preview | `https://dev.lobster.mp` | `https://api-dev.lobster.mp` |
+
+The cookie is set on `lobster.mp` so it rides between those sibling hosts.
+`workers.dev` and `pages.dev` URLs still serve the anonymous API; login
+requires the product domain.
+
+Store these as Worker secrets (and GitHub secrets so CI can re-inject them):
+
+```bash
+cd worker && npx wrangler secret put BETTER_AUTH_SECRET   # long random string
+cd worker && npx wrangler secret put GOOGLE_CLIENT_ID
+cd worker && npx wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+Google Cloud OAuth client (Web application) authorized redirect URIs:
+
+- `https://api.lobster.mp/api/auth/callback/google`
+- `https://api-dev.lobster.mp/api/auth/callback/google`
+- `http://127.0.0.1:8787/api/auth/callback/google` (local Worker)
+- `http://localhost:5173/api/auth/callback/google` (Vite `/api` proxy)
+
+Authorized JavaScript origins: `https://lobster.mp`, `https://dev.lobster.mp`,
+`http://localhost:5173`, `http://127.0.0.1:5173`. Mirror the secrets in
+`worker/.dev.vars` for local development.
+
 ### Frontend — `VITE_API_BASE`
 
 `frontend/.env` points the frontend at the Worker:
 
 ```
 # Production Pages:
-VITE_API_BASE=https://screener-api.robertlancer.workers.dev
+VITE_API_BASE=https://api.lobster.mp
 
 # Preview/dev Pages (set by deploy.yml during branch builds):
-VITE_API_BASE=https://screener-api-dev.robertlancer.workers.dev
+VITE_API_BASE=https://api-dev.lobster.mp
 
 # Local Worker dev (wrangler dev on 127.0.0.1:8787):
 # VITE_API_BASE=http://127.0.0.1:8787
@@ -153,7 +191,10 @@ mise run worker-deploy   # npx wrangler deploy → *.workers.dev URL
 mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + container
 # Frontend deploys to Cloudflare Pages via the deploy.yml GitHub Action
 # on push to main (project: robs-options-slop, domain: lobster.mp).
-# The loader deploys via the deploy-loader.yml GitHub Action (manual dispatch).
+# The API Worker is on the sibling hostname api.lobster.mp (preview:
+# api-dev.lobster.mp) so the Better Auth session cookie can be set on
+# .lobster.mp. The loader deploys via the deploy-loader.yml GitHub Action
+# (manual dispatch).
 ```
 
 ## API endpoints
@@ -172,7 +213,12 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
-| `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name and capability. Reasoning, tool progress, SQL, results, charts, and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
+| `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
+| `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
+| `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`). 401 if anonymous. |
+| `POST /api/chats/claim` | Claim the current `chat_id` onto the session user. Idempotent for the owner; 409 if another user already owns it. |
+| `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
+| `DELETE /api/chats/{id}` | Soft-delete a saved chat (hidden from the list; ownership remains so the Durable Object stays locked). |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url}`) |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned |
 
@@ -229,17 +275,23 @@ byte/character caps reject or trim runaway payloads before they consume model cr
 
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
-messages and the turn budget persist there, and the conversation is routed
-cross-origin with CORS. The active UUID lives in `sessionStorage`, so a reload
-reconnects `useAgentChat` (`resume: true`) to the same instance and restores the
-turn; `chatRecovery` (bounded retries) re-drives an interrupted answer if the
-Worker/Agent is evicted mid-turn, and the client shows a "Recovering interrupted
-answer…" indicator. Cached result frames live only in the Agent's SQLite
-(`frames`/`frame_rows`) with a 15-minute TTL and an eight-frame cap; `filter_frame`
-compiles the validated expression AST into parameterized SQLite/JSON1 predicates
-so a large frame is filtered without ever loading it whole into JS. Only bounded
-frame metadata reaches the client (callable `getFrameMetadata()` + tool outputs);
-message retention is bounded (100 messages / 30-day cleanup).
+messages and the turn budget persist there. The active UUID lives in
+`sessionStorage`, so a reload reconnects `useAgentChat` (`resume: true`) to the
+same instance and restores the turn. Anonymous chats stay UUID-capability.
+Signing in with Google claims the current `chat_id` onto that user in D1
+`user_chats`; later signed-in chats inherit the owner. Once owned,
+`/agents/copilot-agent/{id}` requires a matching session — the Worker never
+accepts `user_id` from the client. `options.chat_history` stays admin/analytics
+capture (POST `/api/chat/history` stamps `user_id` from the session when
+logged in) and is not the user-facing catalog. `chatRecovery` (bounded retries)
+re-drives an interrupted answer if the Worker/Agent is evicted mid-turn, and
+the client shows a "Recovering interrupted answer…" indicator. Cached result
+frames live only in the Agent's SQLite (`frames`/`frame_rows`) with a 15-minute
+TTL and an eight-frame cap; `filter_frame` compiles the validated expression
+AST into parameterized SQLite/JSON1 predicates so a large frame is filtered
+without ever loading it whole into JS. Only bounded frame metadata reaches the
+client (callable `getFrameMetadata()` + tool outputs); message retention is
+bounded (100 messages / 30-day cleanup).
 
 **Sharing** — the chat header's Share button (enabled once a turn has
 completed) snapshots the conversation into D1 `shared_chats` (migration 0003)

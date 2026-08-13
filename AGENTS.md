@@ -71,9 +71,10 @@ the branch redeploys the same URL.
 **Stable dev URL** — every dev build is also deployed to the project's
 production branch (`dev`), i.e. `https://robs-options-slop-dev.pages.dev/`.
 That URL is constant and gets clobbered by each deploy (no stable history).
-Because the origin never changes, browser localStorage (the OpenRouter login
-in the Copilot) persists there across deploys — use that URL for manual
-testing instead of a per-branch URL, which requires re-logging in each time.
+Anonymous Copilot works there. Optional Google login needs the shared parent
+domain (`https://dev.lobster.mp` → `https://api-dev.lobster.mp`) so the
+HttpOnly session cookie on `.lobster.mp` can ride; `pages.dev` is a different
+site and SameSite=Lax will not send it.
 
 ## Operational gotchas (learned the hard way — do not rediscover)
 

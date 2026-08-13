@@ -22,8 +22,19 @@
  *    CAST(expiration AS DATE) - CURRENT_DATE (returns integer days).
  */
 import { routeAgentRequest } from "agents";
+import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
+import {
+  authorizeCopilotAgent,
+  claimChat,
+  deleteChat,
+  listUserChats,
+  parseChatId,
+  renameChat,
+  titleFromMessages,
+  touchUserChat,
+} from "./user-chats";
 
 
 // ---------------------------------------------------------------------------
@@ -33,6 +44,9 @@ export interface Env extends Cloudflare.Env {
   ADMIN_TOKEN?: string;
   PIPELINE_CHAT_HISTORY_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
+  BETTER_AUTH_SECRET?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1227,15 +1241,15 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 //
 // Capture is best-effort and server-side. `ip` (CF-Connecting-IP) and
 // `user_agent` (request header) are recorded for abuse tracking and are never
-// accepted from the client body. `user_id` is intentionally NOT populated
-// (no login yet) — the column is reserved for the future per-user history
-// feature, where the worker will set it from the auth session, never from the
-// client. Records are buffered in D1 (pending_chat_history, migration 0002)
-// BEFORE the response and published in a background waitUntil task, so the
-// pipeline's occasionally-slow ingest never holds a browser connection slot;
-// failures leave the row pending and a later call drains it (no transcript
-// loss). A chat is never blocked by history persistence: all failures return
-// 2xx to the browser.
+// accepted from the client body. `user_id` is stamped from the Better Auth
+// session when the request is logged in — never from the client body. The
+// same session upserts D1 `user_chats` (the user-facing catalog); the lake
+// table stays admin/analytics only. Records are buffered in D1
+// (pending_chat_history, migration 0002) BEFORE the response and published
+// in a background waitUntil task, so the pipeline's occasionally-slow ingest
+// never holds a browser connection slot; failures leave the row pending and
+// a later call drains it (no transcript loss). A chat is never blocked by
+// history persistence: all failures return 2xx to the browser.
 const CHAT_HISTORY_MAX_MESSAGES = 100;
 const CHAT_HISTORY_MAX_CONTENT = 20_000; // chars per message / sql / url
 const CHAT_HISTORY_MAX_AUX = 512; // ip / user_agent / chat_id / model length
@@ -1329,6 +1343,11 @@ function normalizeChatHistoryRecord(
   if (ip) record.ip = ip;
   if (ua) record.user_agent = ua;
   return record;
+}
+
+function stripClientUserId(body: Record<string, unknown>): Record<string, unknown> {
+  const { user_id: _ignored, userId: _ignoredCamel, ...rest } = body;
+  return rest;
 }
 
 // POST a payload to a Pipeline stream with the loader User-Agent, idempotency
@@ -1426,9 +1445,11 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return json(env, { ok: false, error: "invalid JSON body" }, 400);
   }
+  body = stripClientUserId(body);
 
   // Abuse-tracking metadata is captured server-side only — never trusted from
   // the client body. CF-Connecting-IP is set by Cloudflare on every request.
+  // user_id is stamped from the session below, never from this body.
   const ip = (req.headers.get("CF-Connecting-IP") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
   const ua = (req.headers.get("User-Agent") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
 
@@ -1437,6 +1458,19 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
     record = normalizeChatHistoryRecord(body, ip, ua);
   } catch (e) {
     return json(env, { ok: false, error: String((e && (e as Error).message) || e) }, 400);
+  }
+
+  const user = await getSessionUser(env, req);
+  if (user) {
+    record.user_id = user.id;
+    const chatId = String(record.chat_id);
+    let messages: unknown = body.messages;
+    try {
+      messages = JSON.parse(String(record.messages));
+    } catch {
+      messages = body.messages;
+    }
+    ctx.waitUntil(touchUserChat(env.SCHEMA_DB, user.id, chatId, titleFromMessages(messages)));
   }
 
   if (!env.PIPELINE_CHAT_HISTORY_URL) {
@@ -1927,20 +1961,85 @@ async function loaderGet(env: Env, path: string, cacheKey: string): Promise<unkn
   });
 }
 
-function cors(env: Env, resp: Response): Response {
+function withCors(env: Env, req: Request, resp: Response): Response {
   const headers = new Headers(resp.headers);
-  headers.set("Access-Control-Allow-Origin", env.CORS_ORIGIN ?? "*");
-  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  // The API is CORS-open and never accepts browser credentials. Agent HTTP
-  // responses have immutable headers, so clone rather than mutating in place.
-  headers.set("Access-Control-Allow-Headers", "*");
+  const origin = req.headers.get("Origin") ?? "";
+  if (origin && isTrustedOrigin(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Access-Control-Allow-Credentials", "true");
+    headers.append("Vary", "Origin");
+  } else {
+    headers.set("Access-Control-Allow-Origin", env.CORS_ORIGIN ?? "*");
+  }
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  // Agent HTTP responses have immutable headers, so clone rather than mutating in place.
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
-function json(env: Env, data: unknown, status = 200): Response {
-  return cors(env, new Response(JSON.stringify(data), {
-    status, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
-  }));
+function json(_env: Env, data: unknown, status = 200, cache: "public" | "private" = "public"): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": cache === "private" ? "private, no-store" : "public, max-age=60",
+    },
+  });
+}
+
+async function requireUser(env: Env, req: Request): Promise<SessionUser | Response> {
+  const user = await getSessionUser(env, req);
+  if (!user) return json(env, { error: "unauthorized" }, 401, "private");
+  return user;
+}
+
+async function handleUserChats(env: Env, req: Request, path: string): Promise<Response | null> {
+  if (path === "/api/chats" && req.method === "GET") {
+    const user = await requireUser(env, req);
+    if (user instanceof Response) return user;
+    const items = await listUserChats(env.SCHEMA_DB, user.id);
+    return json(env, { ok: true, items }, 200, "private");
+  }
+  if (path === "/api/chats/claim" && req.method === "POST") {
+    const user = await requireUser(env, req);
+    if (user instanceof Response) return user;
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const chatId = parseChatId(body.chat_id);
+    if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
+    const title = titleFromMessages(undefined, typeof body.title === "string" ? body.title : null);
+    const result = await claimChat(env.SCHEMA_DB, user.id, chatId, title);
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, result, 200, "private");
+  }
+  const item = path.match(/^\/api\/chats\/([^/]+)$/);
+  if (!item) return null;
+  const chatId = parseChatId(decodeURIComponent(item[1]));
+  if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
+  const user = await requireUser(env, req);
+  if (user instanceof Response) return user;
+  if (req.method === "PATCH") {
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    if (typeof body.title !== "string") return json(env, { error: "title is required" }, 400, "private");
+    const result = await renameChat(env.SCHEMA_DB, user.id, chatId, body.title);
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, result, 200, "private");
+  }
+  if (req.method === "DELETE") {
+    const result = await deleteChat(env.SCHEMA_DB, user.id, chatId);
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, result, 200, "private");
+  }
+  return null;
 }
 
 async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
@@ -1950,7 +2049,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   // latest-underlying subquery is reused; precompute nothing here (cached on demand).
 
-  if (path === "/api/health") return json(env, { ok: true });
+  if (path === "/api/health") return json(env, { ok: true, auth: { google: googleConfigured(env) } });
   if (path === "/api/liquidity") return json(env, await liquidity(env));
 
   // Read-only pass-through to the continuous loader's live /loop state.
@@ -2029,6 +2128,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     return json(env, await runQuery(env, sql, body.limit ?? 1000));
   }
 
+  const chats = await handleUserChats(env, req, path);
+  if (chats) return chats;
+
   // Copilot chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")
     return await saveChatHistory(env, ctx, req);
@@ -2050,15 +2152,23 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/api/auth/")) {
+      const auth = createAuth(env, req);
+      if (!auth) return withCors(env, req, json(env, { error: "auth is not configured" }, 503, "private"));
+      return auth.handler(req);
+    }
     if (req.method === "OPTIONS") {
-      return cors(env, new Response(null, { status: 204 }));
+      return withCors(env, req, new Response(null, { status: 204 }));
     }
     try {
+      const denied = await authorizeCopilotAgent(env, req);
+      if (denied) return withCors(env, req, denied);
       const agentResponse = await routeAgentRequest(req, env);
-      if (agentResponse) return agentResponse.status === 101 ? agentResponse : cors(env, agentResponse);
-      return await handle(env, req, ctx);
+      if (agentResponse) return agentResponse.status === 101 ? agentResponse : withCors(env, req, agentResponse);
+      return withCors(env, req, await handle(env, req, ctx));
     } catch (e) {
-      return json(env, { error: String(e) }, 500);
+      return withCors(env, req, json(env, { error: String(e) }, 500));
     }
   },
 };

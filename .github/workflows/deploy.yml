@@ -40,7 +40,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_API_BASE: ${{ github.ref == 'refs/heads/main' && 'https://screener-api.robertlancer.workers.dev' || 'https://screener-api-dev.robertlancer.workers.dev' }}
+          VITE_API_BASE: ${{ github.ref == 'refs/heads/main' && 'https://api.lobster.mp' || 'https://api-dev.lobster.mp' }}
         run: cd frontend && npm run build
 
       - name: Install Worker dependencies
@@ -59,7 +59,7 @@ jobs:
 
   deploy-prod:
     name: Deploy → production
-    needs: build
+    needs: [build, deploy-worker-prod]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
@@ -154,6 +154,45 @@ jobs:
           fi
         working-directory: worker
 
+      # Better Auth (Google OAuth). Cookie is HttpOnly on .lobster.mp; the
+      # Worker is the only writer of user_id. Guarded: skipped until the
+      # GitHub secret exists so a missing value never clobbers a live secret.
+      - name: Set BETTER_AUTH_SECRET secret on Worker (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.BETTER_AUTH_SECRET }}" ]; then
+            echo "${{ secrets.BETTER_AUTH_SECRET }}" | npx wrangler secret put BETTER_AUTH_SECRET --name screener-api
+          else
+            echo "BETTER_AUTH_SECRET not set — skipping (optional Copilot login stays off)"
+          fi
+        working-directory: worker
+
+      - name: Set GOOGLE_CLIENT_ID secret on Worker (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ]; then
+            echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID --name screener-api
+          else
+            echo "GOOGLE_CLIENT_ID not set — skipping (optional Copilot login stays off)"
+          fi
+        working-directory: worker
+
+      - name: Set GOOGLE_CLIENT_SECRET secret on Worker (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ]; then
+            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name screener-api
+          else
+            echo "GOOGLE_CLIENT_SECRET not set — skipping (optional Copilot login stays off)"
+          fi
+        working-directory: worker
+
       # Apply pending D1 migrations to the REMOTE database explicitly BEFORE
       # deploy. wrangler's auto-apply-on-deploy prompt never fires when the
       # runner has no TTY (wrangler-action) — the 0003_shared_chats.sql deploy
@@ -173,7 +212,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
-          command: deploy
+          command: deploy --env=""
 
   deploy-worker-dev:
     name: Deploy → dev (Worker)
@@ -198,13 +237,62 @@ jobs:
 
       # Secrets are pre-seeded on screener-api-dev and survive redeploys. Never
       # copy production secret values through the browser or repository.
+      # Auth secrets are synced here so preview can sign in on the shared
+      # parent domain (dev.lobster.mp → api-dev.lobster.mp) without waiting
+      # for a main deploy.
+      - name: Set BETTER_AUTH_SECRET secret on screener-api-dev (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.BETTER_AUTH_SECRET }}" ]; then
+            echo "${{ secrets.BETTER_AUTH_SECRET }}" | npx wrangler secret put BETTER_AUTH_SECRET --name screener-api-dev
+          else
+            echo "BETTER_AUTH_SECRET not set — skipping (optional Copilot login stays off on preview)"
+          fi
+        working-directory: worker
+
+      - name: Set GOOGLE_CLIENT_ID secret on screener-api-dev (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ]; then
+            echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID --name screener-api-dev
+          else
+            echo "GOOGLE_CLIENT_ID not set — skipping"
+          fi
+        working-directory: worker
+
+      - name: Set GOOGLE_CLIENT_SECRET secret on screener-api-dev (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ]; then
+            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name screener-api-dev
+          else
+            echo "GOOGLE_CLIENT_SECRET not set — skipping"
+          fi
+        working-directory: worker
+
+      # Same D1 as production (screener-schema-cache). Additive CREATE TABLE
+      # migrations must land before the preview Worker serves /api/auth and
+      # /api/chats; wrangler will not prompt in CI.
+      - name: Apply D1 migrations (remote)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 migrations apply screener-schema-cache --remote
+        working-directory: worker
+
       - name: Deploy screener-api-dev Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
-          command: deploy --name screener-api-dev
+          command: deploy --env dev
 
   deploy-dev:
     name: Deploy → dev

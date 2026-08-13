@@ -441,20 +441,57 @@ export interface SharedChat {
   source_sql: string | null;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const r = await fetch(API_BASE + path);
+export interface Health {
+  ok: boolean;
+  auth?: { google: boolean };
+}
+
+export interface UserChat {
+  chat_id: string;
+  title: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UserChatList {
+  ok: boolean;
+  items: UserChat[];
+}
+
+export interface UserChatClaim {
+  ok: boolean;
+  chat_id: string;
+  title: string | null;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(API_BASE + path, { credentials: 'include', ...init });
   if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
   return r.json() as Promise<T>;
 }
 
+async function get<T>(path: string): Promise<T> {
+  return request<T>(path);
+}
+
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(API_BASE + path, {
+  return request<T>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
-  return r.json() as Promise<T>;
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+async function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE' });
 }
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
@@ -469,6 +506,7 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
 export const api = {
   /** No-op readiness: the Worker is always ready (was the DuckDB-WASM load gate). */
   ready: () => Promise.resolve(),
+  health: () => get<Health>('/api/health'),
   stats: (liquid_only?: boolean) => get<Stats>(`/api/stats${qs({ liquid_only })}`),
   runs: (limit?: number) => get<RefreshRun[]>(`/api/runs${qs({ limit })}`),
   sectors: (liquid_only?: boolean) => get<SectorRow[]>(`/api/sectors${qs({ liquid_only })}`),
@@ -532,6 +570,13 @@ export const api = {
   // identically. The share_id is high-entropy, so the URL is the capability.
   sharedChat: (shareId: string) =>
     get<SharedChat>(`/api/share/${encodeURIComponent(shareId)}`),
+  myChats: () => get<UserChatList>('/api/chats'),
+  claimChat: (chat_id: string, title?: string) =>
+    post<UserChatClaim>('/api/chats/claim', { chat_id, ...(title ? { title } : {}) }),
+  renameChat: (chatId: string, title: string) =>
+    patch<{ ok: boolean; title: string }>(`/api/chats/${encodeURIComponent(chatId)}`, { title }),
+  deleteChat: (chatId: string) =>
+    del<{ ok: boolean }>(`/api/chats/${encodeURIComponent(chatId)}`),
 };
 
 import { useState, useEffect } from 'react';

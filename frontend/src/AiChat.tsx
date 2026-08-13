@@ -12,14 +12,18 @@ import {
   Dialog,
   DialogHeader,
   IconButton,
+  List,
+  ListItem,
   Markdown,
+  Popover,
   Spinner,
   Timestamp,
   Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
-import { Share2, SquarePen } from 'lucide-react';
-import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
+import { History, LogOut, Share2, SquarePen } from 'lucide-react';
+import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse, type UserChat } from './api';
+import { authClient, signInWithGoogle, signOut } from './auth';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -216,7 +220,130 @@ function projectTools(message: CopilotMessage | undefined): ToolRow[] {
   });
 }
 
-function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () => void }) {
+function ChatAuthControls({
+  chatId,
+  onOpenChat,
+  onNewChat,
+}: {
+  chatId: string;
+  onOpenChat: (chatId: string) => void;
+  onNewChat: () => void;
+}) {
+  const { data: session, isPending } = authClient.useSession();
+  const user = session?.user ?? null;
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [chats, setChats] = useState<UserChat[] | null>(null);
+  const [chatsOpen, setChatsOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api.health().then((health) => {
+      if (active) setGoogleEnabled(Boolean(health.auth?.google));
+    }).catch(() => {
+      if (active) setGoogleEnabled(false);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setChats(null);
+      return;
+    }
+    api.claimChat(chatId).catch(() => {
+      // Claiming is best-effort; a later history save retries.
+    });
+  }, [user, chatId]);
+
+  useEffect(() => {
+    if (!user || !chatsOpen) return;
+    let active = true;
+    api.myChats().then((response) => {
+      if (active) setChats(response.items);
+    }).catch(() => {
+      if (active) setChats([]);
+    });
+    return () => { active = false; };
+  }, [user, chatsOpen, chatId]);
+
+  if (isPending) return null;
+
+  if (!user) {
+    if (!googleEnabled) return null;
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        label="Sign in"
+        onClick={() => { void signInWithGoogle(); }}
+      />
+    );
+  }
+
+  const currentSaved = (chats ?? []).some((chat) => chat.chat_id === chatId);
+  const chatList = (
+    <section className="ai-chats-popover">
+      <List density="compact" header="Saved chats">
+        {(chats ?? []).length === 0
+          ? <ListItem label={chats === null ? 'Loading…' : 'No saved chats yet'} />
+          : (chats ?? []).map((chat) => (
+              <ListItem
+                key={chat.chat_id}
+                label={chat.title || 'Untitled chat'}
+                description={new Date(chat.updated_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                onClick={() => {
+                  setChatsOpen(false);
+                  if (chat.chat_id !== chatId) onOpenChat(chat.chat_id);
+                }}
+              />
+            ))}
+      </List>
+      {currentSaved && (
+        <Button
+          variant="ghost"
+          size="sm"
+          label="Remove current chat"
+          onClick={() => {
+            void api.deleteChat(chatId).then(() => {
+              setChats((current) => current?.filter((item) => item.chat_id !== chatId) ?? null);
+              setChatsOpen(false);
+              onNewChat();
+            }).catch(() => { /* keep the row so the user can retry */ });
+          }}
+        />
+      )}
+    </section>
+  );
+
+  return (
+    <section className="ai-head-auth">
+      <Popover
+        isOpen={chatsOpen}
+        onOpenChange={setChatsOpen}
+        placement="below"
+        alignment="start"
+        width="20rem"
+        label="Saved chats"
+        content={chatList}
+      >
+        <IconButton variant="ghost" size="sm" label="Saved chats" icon={<History size={16} />} tooltip="Saved chats" />
+      </Popover>
+      <Tooltip content={user.email || user.name} hasHoverIndication={false}>
+        <span className="ai-user-name">{user.name || user.email}</span>
+      </Tooltip>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Sign out"
+        icon={<LogOut size={16} />}
+        tooltip="Sign out"
+        onClick={() => { void signOut(); }}
+      />
+    </section>
+  );
+}
+
+function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNewChat: () => void; onOpenChat: (chatId: string) => void }) {
   const [input, setInput] = useState('');
   const [progressStatus, setProgressStatus] = useState('');
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
@@ -404,6 +531,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
+        <ChatAuthControls chatId={chatId} onOpenChat={onOpenChat} onNewChat={onNewChat} />
         <section className="ai-head-actions">
           <IconButton
             variant="ghost"
@@ -607,12 +735,16 @@ function AiChat() {
     sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
     return created;
   });
+  const openChat = useCallback((id: string) => {
+    sessionStorage.setItem(ACTIVE_CHAT_KEY, id);
+    setChatId(id);
+  }, []);
   const newChat = useCallback(() => {
     const created = crypto.randomUUID();
     sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
     setChatId(created);
   }, []);
-  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
+  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} onOpenChat={openChat} />;
 }
 
 export default AiChat;
