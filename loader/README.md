@@ -131,6 +131,7 @@ to the earnings block above with names `cboe_econ_v2` / `cboe_econ_sink` /
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
 - `src/ohlc.ts` — Yahoo OHLC + realized-vol + corporate-actions fetch/normalize/publish (period1/period2 windows, adjclose-based realized vol)
 - `src/symbology.ts` — deterministic ticker-derived `security_id` (shared by securities / symbol_history / corporate_actions / backfill)
+- `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
 - `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`)
