@@ -42,7 +42,9 @@ test.describe('Server-funded Copilot Agent', () => {
 
     await ask(page, 'Which sector has the most open interest across all expirations? Give a concise answer.');
     await expect(page.locator('.ai-busy')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.ai-msg.ai-assistant')).toHaveCount(1);
     await expect(page.locator('.ai-tool-row').first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.locator('.ai-msg.ai-assistant')).toHaveCount(1);
     const answer = await lastAnswer(page);
 
     expect(answer.length).toBeGreaterThan(20);
