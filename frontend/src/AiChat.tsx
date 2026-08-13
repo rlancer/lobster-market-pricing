@@ -481,8 +481,8 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                     <span>SQL</span>
                     <span className="ai-sql-actions">
                       <CopyButton text={message.sql} />
-                      <Tooltip content="Open in SQL Lab" hasHoverIndication={false}>
-                        <button onClick={() => navigate({ to: '/lab', search: { sql: message.sql! } })}>Open in SQL Lab ↗</button>
+                      <Tooltip content="Open in Data" hasHoverIndication={false}>
+                        <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
                       </Tooltip>
                     </span>
                   </div>

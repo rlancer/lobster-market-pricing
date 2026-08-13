@@ -80,7 +80,7 @@ const FLOW: FlowStep[] = [
     title: 'Frontend · Vite + React',
     sub: (
       <>
-        Plain <code>fetch('/api/*')</code> client — screener, Chat, SQL lab,
+        Plain <code>fetch('/api/*')</code> client — Chat, Data catalog,
         monitor — and this page.
       </>
     ),
@@ -109,7 +109,7 @@ const COMPONENTS = [
   {
     dir: 'frontend/',
     title: 'React UI',
-    body: 'Vite + React + TanStack Router. Market screener, Chat, notebooks, SQL lab, monitor — plus the docs portal you are reading.',
+    body: 'Vite + React + TanStack Router. Chat, the Data catalog, monitor — plus the docs portal you are reading.',
   },
 ];
 
@@ -134,6 +134,9 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/symbol/{symbol}', desc: 'Underlying info + its full option chain from the latest run' },
   { method: 'GET', path: '/api/tables', desc: 'Lake tables with columns/types, row counts, and sample rows (D1-cached; ?force=1 recomputes live)' },
   { method: 'POST', path: '/api/query', desc: <>Run arbitrary read-only SQL against the lake — <code>{'{"sql":"…","limit":1000}'}</code></> },
+  { method: 'GET', path: '/api/news', desc: 'Per-ticker headlines (Tavily news search) — Chat get_news tool' },
+  { method: 'GET', path: '/api/web_search', desc: 'Open web search (Tavily) — Chat web_search tool' },
+  { method: 'GET', path: '/api/econ_calendar', desc: 'Upcoming FRED macro releases + FOMC/Beige (lake + live fallback) — Chat eco_calendar tool' },
   { method: 'GET', path: '/api/notebook/premium', desc: '45-day premium-leaders notebook (calls + puts)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
@@ -142,22 +145,12 @@ const SURFACES = [
   {
     route: '/',
     title: 'Chat',
-    body: 'Natural-language questions → DataFusion SQL, run via /api/query, answered with the result tables. Bring your own OpenRouter key — it stays in your browser. Deep-links into the SQL Lab.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Deep-links into Data so you can inspect the SQL or browse the catalog.',
   },
   {
-    route: '/market',
-    title: 'Market screener',
-    body: 'Filterable, sortable options screener with the liquidity gate. Click any row to open that symbol\u2019s full chain (/symbol/{symbol}).',
-  },
-  {
-    route: '/research',
-    title: 'Research',
-    body: 'Notebooks over the lake — e.g. 45-day premium leaders, tunable by days-to-expiry, moneyness band, and minimum volume.',
-  },
-  {
-    route: '/lab',
-    title: 'SQL Lab',
-    body: 'Schema browser + a read-only query editor (Ctrl/Cmd+Enter to run). Every /api/query surface in one place.',
+    route: '/data',
+    title: 'Data',
+    body: 'Catalog of everything that can feed an answer: Copilot tools, upstream APIs (CBOE, FRED, Fed, Tavily, Yahoo OHLC + ETF profiles, Nasdaq, OpenFIGI), Iceberg lake tables, and a read-only SQL editor.',
   },
   {
     route: '/monitor',
@@ -449,9 +442,7 @@ export function DocsFrontend() {
   return (
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
-        The React app (Vite + TanStack Router) is five surfaces on one shell — sidebar navigation plus a
-        header with the liquidity gate and dataset status. The question-mark icon in the header brings you
-        here.
+        The React app (Vite + TanStack Router) is Chat plus a Data catalog on one shell — sidebar navigation plus a header with the liquidity gate and dataset status. The question-mark icon in the header brings you here.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>

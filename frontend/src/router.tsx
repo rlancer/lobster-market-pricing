@@ -3,24 +3,15 @@ import {
   createRoute,
   createRouter,
   redirect,
-  useNavigate,
-  useParams,
 } from '@tanstack/react-router';
 import App from './App';
-import { useWorkspace } from './workspace';
-import MarketView from './MarketView';
-import Explorer from './Explorer';
+import DataPage from './DataPage';
 import AiChat from './AiChat';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
-import Notebooks from './Notebooks';
-import SymbolDetail from './SymbolDetail';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 
-// The header now holds a single consolidated status chip that links here; this
-// page is where all dataset status detail lives (refresh-run history + the live
-// loader loop).
 function MonitorView() {
   return (
     <div className="monitor">
@@ -34,57 +25,61 @@ function MonitorView() {
   );
 }
 
-function ResearchView() {
-  const { liquidOnly } = useWorkspace();
-  const navigate = useNavigate();
-  return (
-    <Notebooks
-      liquidOnly={liquidOnly}
-      onPickSymbol={(s) => navigate({ to: '/symbol/$symbol', params: { symbol: s } })}
-    />
-  );
-}
-
-function SymbolDetailView() {
-  const navigate = useNavigate();
-  const { symbol } = useParams({ strict: false }) as { symbol?: string };
-  return <SymbolDetail symbol={symbol ?? ''} onBack={() => navigate({ to: '/' })} />;
-}
-
-function LabView() {
-  // If the AI copilot "opened in SQL Lab" with SQL attached as a search param,
-  // seed the editor from it (the Explorer component handles the search param).
-  return <Explorer />;
-}
-
 const rootRoute = createRootRoute({ component: App });
 
-// Chat is the app's home — front and center when you open the workspace.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: AiChat,
 });
 
-const marketRoute = createRoute({
+const dataRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/market',
-  component: MarketView,
+  path: '/data',
+  validateSearch: (search: Record<string, unknown>) => ({
+    sql: typeof search.sql === 'string' ? search.sql : undefined,
+    item: typeof search.item === 'string' ? search.item : undefined,
+  }),
+  component: DataPage,
 });
 
-const researchRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/research',
-  component: ResearchView,
-});
-
+// Former SQL Lab / screener / research URLs keep working.
 const labRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/lab',
   validateSearch: (search: Record<string, unknown>) => ({
     sql: typeof search.sql === 'string' ? search.sql : undefined,
   }),
-  component: LabView,
+  beforeLoad: ({ search }) => {
+    throw redirect({
+      to: '/data',
+      search: { sql: search.sql, item: search.sql ? 'query' : undefined },
+    });
+  },
+});
+
+const marketRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/market',
+  beforeLoad: () => {
+    throw redirect({ to: '/data', search: { sql: undefined, item: undefined } });
+  },
+});
+
+const researchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/research',
+  beforeLoad: () => {
+    throw redirect({ to: '/data', search: { sql: undefined, item: undefined } });
+  },
+});
+
+const symbolRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/symbol/$symbol',
+  beforeLoad: () => {
+    throw redirect({ to: '/data', search: { sql: undefined, item: 'table:option_contracts' } });
+  },
 });
 
 const aiRoute = createRoute({
@@ -99,22 +94,12 @@ const monitorRoute = createRoute({
   component: MonitorView,
 });
 
-const symbolRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/symbol/$symbol',
-  component: SymbolDetailView,
-});
-
-// Public unlisted transcript page — standalone chrome (see App.tsx: /share/*
-// renders a bare Outlet; SharedChat provides its own minimal shell).
 const shareRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/share/$shareId',
   component: SharedChat,
 });
 
-// Docs portal — broken out into one page per topic. /docs is the layout shell
-// (left nav + Outlet); /docs alone redirects to the Overview page.
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -184,9 +169,10 @@ const docsRoute = docsLayoutRoute.addChildren([
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  dataRoute,
+  labRoute,
   marketRoute,
   researchRoute,
-  labRoute,
   aiRoute,
   monitorRoute,
   symbolRoute,
