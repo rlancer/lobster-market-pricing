@@ -52,6 +52,16 @@ test.describe('Server-funded Copilot Agent', () => {
     expect(browserAuthorizationHeaders).toEqual([]);
   });
 
+  test('chart request renders a plot from the query result', async ({ page }) => {
+    test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
+    test.setTimeout(600_000);
+    await page.goto('/');
+    await ask(page, 'Chart the IV smile for NVDA');
+    await lastAnswer(page, 540_000);
+    await expect(page.locator('.ai-chart').last()).toBeVisible();
+    await expect(page.locator('.ai-chart .recharts-wrapper, .ai-chart svg').last()).toBeVisible();
+  });
+
   test('oversized question is rejected before a model answer', async ({ page }) => {
     await page.goto('/');
     await ask(page, 'x'.repeat(4_001));

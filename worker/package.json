@@ -1,1 +1,25 @@
-{"name":"screener-api","version":"0.1.0","private":true,"scripts":{"dev":"wrangler dev","deploy":"wrangler deploy","types":"wrangler types worker-configuration.d.ts --env-interface WorkerBindings","typecheck":"tsc --noEmit","test:copilot":"node --import tsx --test test/copilot-provider.test.ts"},"devDependencies":{"@types/node":"^26.2.0","tsx":"^4.23.12","typescript":"^5.6.0","wrangler":"^4.0.0"},"dependencies":{"@cloudflare/ai-chat":"^0.10.1","@openrouter/ai-sdk-provider":"^3.0.0","agents":"^0.20.1","ai":"^7.0.61","zod":"^4.4.3"}}
+{
+  "name": "screener-api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types worker-configuration.d.ts --env-interface WorkerBindings",
+    "typecheck": "tsc --noEmit",
+    "test:copilot": "node --import tsx --test test/copilot-provider.test.ts test/copilot-validation.test.ts test/chart-spec.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@cloudflare/ai-chat": "^0.10.1",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "agents": "^0.20.1",
+    "ai": "^7.0.61",
+    "zod": "^4.4.3"
+  }
+}

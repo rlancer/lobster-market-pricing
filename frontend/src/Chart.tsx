@@ -50,20 +50,32 @@ interface BuiltData {
   numericX: boolean;
 }
 
+function asPlotNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 /** Turn raw query rows into Recharts data: sorted by x, pivoted by series. */
 function build(result: QueryResult, spec: ChartSpec): BuiltData {
   const src = result.rows;
-  const numericX = src.length > 0 && src.every((r) => typeof r[spec.x] === 'number');
+  const numericX = src.length > 0 && src.every((r) => asPlotNumber(r[spec.x]) != null);
   const sorted = [...src].sort((a, b) => {
-    const av = a[spec.x];
-    const bv = b[spec.x];
-    if (numericX) return (av as number) - (bv as number);
-    return String(av).localeCompare(String(bv));
+    if (numericX) return (asPlotNumber(a[spec.x]) ?? 0) - (asPlotNumber(b[spec.x]) ?? 0);
+    return String(a[spec.x]).localeCompare(String(b[spec.x]));
   });
+  const xOf = (row: Record<string, unknown>) => (numericX ? asPlotNumber(row[spec.x]) : row[spec.x]);
+  const yOf = (row: Record<string, unknown>) => {
+    const n = asPlotNumber(row[spec.y]);
+    return n == null ? row[spec.y] : n;
+  };
 
   if (!spec.series) {
     return {
-      rows: sorted.map((r) => ({ x: r[spec.x], [VAL_KEY]: r[spec.y] })),
+      rows: sorted.map((r) => ({ x: xOf(r), [VAL_KEY]: yOf(r) })),
       seriesKeys: [{ key: VAL_KEY, name: spec.y }],
       numericX,
     };
@@ -77,14 +89,15 @@ function build(result: QueryResult, spec: ChartSpec): BuiltData {
   const rows: Record<string, unknown>[] = [];
   const keyOf = (v: unknown) => (numericX ? String(Number(v)) : String(v));
   for (const r of sorted) {
-    const xk = keyOf(r[spec.x]);
+    const xVal = xOf(r);
+    const xk = keyOf(xVal);
     let point = byX.get(xk);
     if (!point) {
-      point = { x: r[spec.x] };
+      point = { x: xVal };
       byX.set(xk, point);
       rows.push(point);
     }
-    point[String(r[spec.series])] = r[spec.y];
+    point[String(r[spec.series])] = yOf(r);
   }
   return { rows, seriesKeys, numericX };
 }
@@ -97,15 +110,15 @@ function fmtTick(v: unknown): string {
 
 function seriesProps(kind: ChartKind, color: string): Record<string, unknown> {
   if (kind === 'line') {
-    return { type: 'monotone', stroke: color, strokeWidth: 2, dot: false, activeDot: { r: 3 }, connectNulls: true };
+    return { type: 'monotone', stroke: color, strokeWidth: 2, dot: false, activeDot: { r: 3 }, connectNulls: true, isAnimationActive: false };
   }
   if (kind === 'area') {
-    return { type: 'monotone', stroke: color, strokeWidth: 2, fill: color, fillOpacity: 0.15, dot: false, connectNulls: true };
+    return { type: 'monotone', stroke: color, strokeWidth: 2, fill: color, fillOpacity: 0.15, dot: false, connectNulls: true, isAnimationActive: false };
   }
   if (kind === 'scatter') {
-    return { fill: color, fillOpacity: 0.7, stroke: 'none' };
+    return { fill: color, fillOpacity: 0.7, stroke: 'none', isAnimationActive: false };
   }
-  return { fill: color, radius: [2, 2, 0, 0] as [number, number, number, number] };
+  return { fill: color, radius: [2, 2, 0, 0] as [number, number, number, number], isAnimationActive: false };
 }
 
 const CHART_COMPONENTS = {
@@ -122,7 +135,8 @@ const SERIES_COMPONENTS = {
 } as const;
 
 export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSpec }) {
-  const data = useMemo(() => build(result, spec), [result, spec]);
+  const kind: ChartKind = spec.kind && spec.kind in CHART_COMPONENTS ? spec.kind : 'line';
+  const data = useMemo(() => build(result, { ...spec, kind }), [result, spec]);
 
   const colSet = new Set(result.columns);
   if (!colSet.has(spec.x) || !colSet.has(spec.y)) {
@@ -136,10 +150,10 @@ export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSp
     return <div className="ai-chart ai-chart-empty">No data to chart.</div>;
   }
 
-  const Chart = CHART_COMPONENTS[spec.kind];
+  const Chart = CHART_COMPONENTS[kind];
   // Recharts chart/series elements share no common JSX prop type; the series
   // props are an intentionally loose per-kind spread.
-  const Series = SERIES_COMPONENTS[spec.kind] as ElementType;
+  const Series = SERIES_COMPONENTS[kind] as ElementType;
   const multi = data.seriesKeys.length > 1;
 
   const xAxisProps = data.numericX
@@ -150,7 +164,7 @@ export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSp
     <div className="ai-chart">
       {spec.title && <div className="ai-chart-title">{spec.title}</div>}
       <div className="ai-chart-body">
-        <ResponsiveContainer width="100%" height={280}>
+        <ResponsiveContainer width="100%" height={280} minWidth={0} minHeight={0}>
           <Chart data={data.rows} margin={{ top: 10, right: 14, bottom: 6, left: 6 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
             <XAxis
@@ -182,7 +196,8 @@ export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSp
                 key={s.key}
                 dataKey={s.key}
                 name={s.name}
-                {...seriesProps(spec.kind, PALETTE[i % PALETTE.length])}
+                {...(kind === 'scatter' ? { data: data.rows } : {})}
+                {...seriesProps(kind, PALETTE[i % PALETTE.length])}
               />
             ))}
           </Chart>
