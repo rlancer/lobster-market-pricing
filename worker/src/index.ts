@@ -24,7 +24,6 @@
 import { routeAgentRequest } from "agents";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
-import { dropSmokeTestRows } from "./smoke-test";
 
 
 // ---------------------------------------------------------------------------
@@ -54,7 +53,6 @@ const LIQ_MIN_ATM_CONTRACTS = 5;
 const LATEST_UNDERLYING =
   "SELECT ticker AS symbol, name, sector, spot_price, run_id, fetched_at " +
   "FROM options.underlying_snapshots " +
-  "WHERE ticker <> 'ZZZ' " +
   "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) = 1";
 
 // ---------------------------------------------------------------------------
@@ -553,7 +551,7 @@ async function loadLakeTables(env: Env): Promise<LakeTable[]> {
           name,
           row_count: num(cnt[0]?.n),
           columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
-          sample: dropSmokeTestRows(sample as Record<string, unknown>[]),
+          sample: sample as Record<string, unknown>[],
         };
       }),
   );
@@ -717,7 +715,7 @@ async function runQuery(env: Env, sqlIn: string, limit = 1000): Promise<{ column
     // Lab reruns) hit the isolate cache instead of the lake. QUERY_TTL_MS is a
     // bound, not a leak — the Map dies with the isolate and data refreshes nightly.
     const outer = `SELECT * FROM (${cleaned}) AS __q LIMIT ${lim}`;
-    const rows = dropSmokeTestRows(await r2sql(env, outer, "q_" + sqlHash(outer), QUERY_TTL_MS) as Row[]);
+    const rows = await r2sql(env, outer, "q_" + sqlHash(outer), QUERY_TTL_MS);
     const columns = rows.length ? Object.keys(rows[0]) : [];
     return { columns, rows, row_count: rows.length, truncated: rows.length >= lim, limit: lim };
   } catch (e) {
@@ -1598,7 +1596,7 @@ function capShareResult(raw: unknown): Record<string, unknown> | undefined {
     const src = row as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const col of columns) out[col] = jsonCell(src[col]);
-    return dropSmokeTestRows([out]);
+    return [out];
   });
   const result: Record<string, unknown> = {
     columns,

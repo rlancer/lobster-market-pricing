@@ -434,7 +434,13 @@ Invoke-WebRequest `
   -Body "[$probe]"
 ```
 
-Require HTTP 200 and `{"success":true}` before continuing. Query the catalog after the request; remove or account for the synthetic symbol when interpreting counts.
+Require HTTP 200 and `{"success":true}` before continuing. Then **delete the
+probe from the lake** so it never shows up as market data (do not leave it in
+place and filter it in the Worker):
+
+```powershell
+python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ
+```
 
 For local R2 SQL, verify whether the token is present without printing it:
 
@@ -488,11 +494,11 @@ See [`FOLLOW-UP-ACTIONS.md`](../FOLLOW-UP-ACTIONS.md) for the staged full-datase
 Tables are append-only; to purge rows (e.g. smoke/test data) or collapse a table
 to its latest-wins view, use Iceberg row mutations — `wrangler r2 sql` is
 read-only and a recreate is only for schema changes. Provide
-[`tools/iceberg_rewrite.py`](tools/iceberg_rewrite.py) (PyIceberg, atomic
-`overwrite()`): `python tools/iceberg_rewrite.py ohlc --exclude symbol=TEST
---dry-run`. See [AGENTS.md](AGENTS.md) → *R2 Data Catalog maintenance* for the
-mechanism (logical delete now, physical after hourly compaction), the PySpark
-`DELETE` alternative, and the gotchas.
+[`tools/iceberg_rewrite.py`](tools/iceberg_rewrite.py) (PyIceberg): row-level
+`--delete COL=VAL` for large tables (`python tools/iceberg_rewrite.py
+option_contracts --delete symbol=ZZZ --dry-run`), or `--exclude`/`--dedupe`
+overwrite for small tables. See [AGENTS.md](AGENTS.md) → *R2 Data Catalog
+maintenance* for the mechanism and gotchas.
 
 ## Security
 

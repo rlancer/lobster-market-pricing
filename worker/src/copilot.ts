@@ -172,7 +172,6 @@ function systemPrompt(schema: string): string {
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links.",
     "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
     "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
-    "- Smoke-test probes (symbol ZZZ, as_of_date/expiration 2099-01-01, run_id probe-*) are not market data. Always exclude them (`WHERE symbol <> 'ZZZ' AND as_of_date < '2099-01-01'`). Never treat 2099-01-01 as the latest snapshot.",
     "",
     "Cached frames:",
     "- For one-symbol chains, smiles, surfaces, or OI profiles, call run_query once with save_as and include dte and spot_price. Use list_frames and filter_frame for follow-ups rather than re-querying.",

@@ -1,35 +1,35 @@
 #!/usr/bin/env python3
-"""Rewrite (overwrite) an R2 Data Catalog Iceberg table, either to purge rows or
-to collapse it to its latest-wins view. Intended for one-off data hygiene on
-append-only Iceberg tables (see loader/AGENTS.md → "R2 Data Catalog maintenance").
+"""Rewrite or row-delete an R2 Data Catalog Iceberg table.
 
-Overwrite is an ATOMIC catalog commit: it rewrites the table's data files in
-one new snapshot and the old files become orphaned snapshots that the hourly
-compaction + snapshot-expiration maintenance reclaims. Because the table is
-recreated in place, R2 SQL and the screener worker see the new contents
-immediately after the commit.
+Use this for one-off data hygiene on append-only Iceberg tables (see
+loader/AGENTS.md → "R2 Data Catalog maintenance").
+
+Two mutation modes:
+
+  --delete COL=VAL   Iceberg row-level DELETE. Rewrites only the data files that
+                     contain matching rows (copy-on-write). Use this for large
+                     tables such as option_contracts — e.g. purging a pipeline
+                     smoke-test probe (symbol=ZZZ).
+  --exclude COL=VAL  Full-table overwrite() dropping matching rows. Fine for
+                     small tables (ohlc, securities); do not use on
+                     option_contracts.
+
+Overwrite/delete is an ATOMIC catalog commit. R2 SQL and the screener worker
+see the new contents immediately; compaction reclaims bytes later.
 
 Usage (from loader/):
   export R2_DATA_CATALOG_TOKEN=<token>   # R2 Storage Admin R&W + Data Catalog R&W
+  python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ --dry-run
+  python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ
   python tools/iceberg_rewrite.py corporate_actions --exclude ticker=PROBE
   python tools/iceberg_rewrite.py ohlc --exclude symbol=TEST
   python tools/iceberg_rewrite.py securities --dedupe ticker --drop ticker=PROBE
   python tools/iceberg_rewrite.py ohlc --dedupe symbol,date
 
-Options:
-  --exclude <col>=<val>   drop rows where col == val (repeatable; any match drops)
-  --dedupe  <keys>        keep the newest row per key (by fetched_at desc). When
-                          --dedupe is used the data goes through pandas (required
-                          fields are cast back to the table schema before commit).
-  --account / --bucket / --token   override defaults (defaults match this repo).
-
 Notes / gotchas:
-  - The overwrite rewrites the WHOLE table. Do not run it while the pipeline sink
-    for that table is actively ingesting (commit conflicts are possible, though
-    they are surfaced as errors and the table is left unchanged).
-  - Prefer a row-scoped, non-rewrite path (e.g. a PySpark DELETE ... WHERE) for
-    very large, frequently-appended tables; only the targeted delete files are
-    written, and compaction reclaims bytes hourly.
+  - Do not run a mutation while that table's Pipeline sink is actively ingesting
+    (commit conflicts are possible; they error and leave the table unchanged).
+  - --exclude/--dedupe rewrite the WHOLE table. Prefer --delete for large tables.
   - Requires: pip install "pyiceberg[pyiceberg-core]" pyarrow pandas (the
     pyiceberg-core extra is required for partition transforms on sink tables,
     which are partitioned by day(__ingest_ts)).
@@ -74,9 +74,19 @@ def connect(args) -> tuple[RestCatalog, tuple, object]:
     return catalog, ("options", args.table), table
 
 
+def sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def delete_filter(specs: list[tuple[str, str]]) -> str:
+    return " AND ".join(f"{col} = {sql_literal(val)}" for col, val in specs)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("table", help="table name under the options namespace")
+    p.add_argument("--delete", action="append", default=[], metavar="COL=VAL",
+                   help="row-level DELETE matching COL=VAL (repeatable; AND'd). Prefer this for large tables.")
     p.add_argument("--exclude", action="append", default=[], metavar="COL=VAL")
     p.add_argument("--dedupe", default=None, metavar="key1,key2")
     p.add_argument("--account", default=None)
@@ -85,7 +95,23 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true", help="report counts, do not commit")
     args = p.parse_args()
 
+    if args.delete and (args.exclude or args.dedupe):
+        raise SystemExit("--delete cannot be combined with --exclude/--dedupe")
+
     catalog, ident, table = connect(args)
+
+    if args.delete:
+        deletes = parse_excludes(args.delete)
+        filt = delete_filter(deletes)
+        matched = table.scan(row_filter=filt).to_arrow().num_rows
+        print(f"{args.table}: {matched} row(s) match {filt}")
+        if args.dry_run:
+            print("dry-run: not committing")
+            return
+        table.delete(delete_filter=filt)
+        table.refresh()
+        print(f"committed delete snapshot: {table.metadata.current_snapshot().snapshot_id}")
+        return
 
     scan = table.scan().to_arrow()
     before = scan.num_rows

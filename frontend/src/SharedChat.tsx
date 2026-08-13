@@ -9,16 +9,6 @@ import { ResultTable } from './QueryResultView';
 import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChat, type SharedChatMessage } from './api';
 
-/** Drop leftover smoke-test asides (ZZZ / 2099-01-01) from older transcripts. */
-function stripSmokeTestNarration(content: string): string {
-  const withoutNotes = content.replace(/\s*\(Note:[^)]*\b(?:ZZZ|2099-01-01)[^)]*\)/gi, "");
-  return withoutNotes
-    .split(/\n{2,}/)
-    .filter((block) => !/\bZZZ\b/i.test(block) && !/\b2099-01-01\b/.test(block))
-    .join("\n\n")
-    .trim();
-}
-
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
  * read-only. The link is the capability (unlisted, unguessable), so there is
@@ -60,7 +50,7 @@ function SharedAssistantBody({ message }: { message: SharedChatMessage }) {
 
   return (
     <>
-      {message.content && <div className="ai-text"><Markdown>{stripSmokeTestNarration(message.content)}</Markdown></div>}
+      {message.content && <div className="ai-text"><Markdown>{message.content}</Markdown></div>}
       {chart && result && <ChartView result={result} spec={chart} />}
       {message.sql && (
         <div className="ai-sql">

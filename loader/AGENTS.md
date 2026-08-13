@@ -69,7 +69,7 @@ not across the universe, so larger universes do not trip it.
 - Canonical checkpoint: `.sp500-catalog-load-state.json`.
 - Latest load: 502 complete symbols; NVR failed with CBOE HTTP 403.
 - NVR is intentionally recorded in `symbols/sp500-load-exceptions.json`.
-- Latest observed catalog counts included synthetic `ZZZ` smoke-test data; exclude `ZZZ` from S&P counts.
+- Latest observed catalog counts included synthetic `ZZZ` smoke-test data; delete those rows from the lake (`python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ`) rather than filtering them at query time.
 - Pipeline HTTP streams are authenticated (Bearer `PIPELINE_AUTH_TOKEN`) and the
   ingest token was rotated + saved to GitHub (2026-08-08). Treat unauthenticated
   `PIPELINE_*_URL`s as test-only.
@@ -281,7 +281,7 @@ Compile changed Python driver:
 python -m py_compile tools/load_sp500.py
 ```
 
-Loader behavior is covered by Vitest (`npx vitest run`); typecheck with `npx tsc --noEmit`. Validate both checkpoint and catalog. At minimum query contract, underlying-snapshot, and OHLC counts, then confirm 503 checkpoint groups with only the documented NVR failure. Smoke-test rows (`TEST`) were removed from the lake via `tools/iceberg_rewrite.py` (see the R2 Data Catalog maintenance section).
+Loader behavior is covered by Vitest (`npx vitest run`); typecheck with `npx tsc --noEmit`. Validate both checkpoint and catalog. At minimum query contract, underlying-snapshot, and OHLC counts, then confirm 503 checkpoint groups with only the documented NVR failure. Smoke-test rows (`TEST`, `ZZZ`) are removed from the lake via `tools/iceberg_rewrite.py` (see the R2 Data Catalog maintenance section) — never papered over with a query-time filter in the screener Worker.
 
 ## R2 Data Catalog maintenance (row-level cleanup / dedupe)
 
@@ -290,18 +290,19 @@ Tables are append-only; a re-run appends rather than overwrites. To remove rows
 mutation — **not** `wrangler r2 sql` (read-only) and **not** a schema recreate.
 
 How it works:
-- Iceberg v2 row-level **deletes** commit *delete files*: rows vanish logically at
-  commit time (R2 SQL and the screener Worker honor them immediately), and the
-  bytes are physically reclaimed later by the **hourly, automatic compaction** +
-  **snapshot expiration** (which now deletes data files). Both run once the table's
-  compaction credential is stored.
+- Iceberg v2 row-level **deletes** commit a new snapshot: matching rows vanish
+  logically at commit time (R2 SQL and the screener Worker honor them immediately),
+  and the bytes are physically reclaimed later by the **hourly, automatic
+  compaction** + **snapshot expiration**. Both run once the table's compaction
+  credential is stored.
 - Two writable paths (the catalog is standard Iceberg REST, base
   `https://catalog.cloudflarestorage.com/{ACCOUNT}/{BUCKET}`, warehouse
   `{ACCOUNT}_{BUCKET}`, auth `R2_DATA_CATALOG_TOKEN`):
-  - **PySpark `DELETE ... WHERE`** — writes small delete files; best for very large
-    tables (documented via the R2 Data Catalog Spark template).
-  - **PyIceberg `overwrite()`** — atomic whole-table rewrite in one snapshot. For
-    targeted hygiene on smaller tables this is the light path and needs no JVM.
+  - **PyIceberg `table.delete()`** (`--delete COL=VAL`) — row-level DELETE that
+    rewrites only files containing matches. Use this for large tables
+    (`option_contracts`) and for pipeline smoke-test probes (`symbol=ZZZ`).
+  - **PyIceberg `overwrite()`** (`--exclude` / `--dedupe`) — atomic whole-table
+    rewrite. Fine for smaller tables; do not use on `option_contracts`.
 
 Reusable tool: `tools/iceberg_rewrite.py` (PyIceberg). Requires
 `pip install "pyiceberg[pyiceberg-core]" pyarrow pandas` (the core extra is needed
@@ -311,6 +312,8 @@ for partition transforms — these tables are partitioned by `day(__ingest_ts)`)
 cd loader
 export R2_DATA_CATALOG_TOKEN=...   # R2 Storage Admin R&W + Data Catalog R&W
 # Dry-run first, then drop the --dry-run to commit:
+python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ --dry-run
+python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ
 python tools/iceberg_rewrite.py ohlc            --exclude symbol=TEST --dry-run
 python tools/iceberg_rewrite.py corporate_actions --exclude ticker=PROBE
 python tools/iceberg_rewrite.py securities      --dedupe ticker --drop ticker=PROBE
@@ -318,9 +321,10 @@ python tools/iceberg_rewrite.py ohlc            --dedupe symbol,date
 ```
 
 Gotchas:
-- `overwrite()` rewrites the **whole** table in one atomic commit; if it fails the
-  table is unchanged. Do not run it while that table's Pipeline sink is actively
-  ingesting (commit conflicts are surfaced as errors, never silent corruption).
+- `--delete` rewrites **only files that contain matches**. `--exclude`/`--dedupe`
+  (`overwrite()`) rewrite the **whole** table; if they fail the table is unchanged.
+  Do not run either while that table's Pipeline sink is actively ingesting
+  (commit conflicts are surfaced as errors, never silent corruption).
 - The pandas (`--dedupe`) path casts output back to the table schema so required
   fields stay required; the pure `--exclude` path keeps the schema as-is.
 - This is for **row cleanup, not schema change** — schema changes still mean a
