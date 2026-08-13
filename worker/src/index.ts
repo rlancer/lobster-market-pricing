@@ -22,7 +22,9 @@
  *    CAST(expiration AS DATE) - CURRENT_DATE (returns integer days).
  */
 import { routeAgentRequest } from "agents";
+import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
+import { dropSmokeTestRows } from "./smoke-test";
 
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,7 @@ const LIQ_MIN_ATM_CONTRACTS = 5;
 const LATEST_UNDERLYING =
   "SELECT ticker AS symbol, name, sector, spot_price, run_id, fetched_at " +
   "FROM options.underlying_snapshots " +
+  "WHERE ticker <> 'ZZZ' " +
   "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) = 1";
 
 // ---------------------------------------------------------------------------
@@ -550,7 +553,7 @@ async function loadLakeTables(env: Env): Promise<LakeTable[]> {
           name,
           row_count: num(cnt[0]?.n),
           columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
-          sample: sample as Record<string, unknown>[],
+          sample: dropSmokeTestRows(sample as Record<string, unknown>[]),
         };
       }),
   );
@@ -714,7 +717,7 @@ async function runQuery(env: Env, sqlIn: string, limit = 1000): Promise<{ column
     // Lab reruns) hit the isolate cache instead of the lake. QUERY_TTL_MS is a
     // bound, not a leak — the Map dies with the isolate and data refreshes nightly.
     const outer = `SELECT * FROM (${cleaned}) AS __q LIMIT ${lim}`;
-    const rows = await r2sql(env, outer, "q_" + sqlHash(outer), QUERY_TTL_MS);
+    const rows = dropSmokeTestRows(await r2sql(env, outer, "q_" + sqlHash(outer), QUERY_TTL_MS) as Row[]);
     const columns = rows.length ? Object.keys(rows[0]) : [];
     return { columns, rows, row_count: rows.length, truncated: rows.length >= lim, limit: lim };
   } catch (e) {
@@ -1522,6 +1525,8 @@ const SHARE_MAX_SQL = 10_000;               // chars — per message sql
 const SHARE_MAX_TOOLS = 20;                 // tool entries per message
 const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
 const SHARE_MAX_TITLE = 120;                // chars — auto-derived title
+const SHARE_MAX_RESULT_ROWS = 200;          // query rows snapshotted onto a share
+const SHARE_MAX_RESULT_COLS = 40;
 const SHARE_RATE_WINDOW_MS = 10 * 60_000;   // per-IP window
 const SHARE_RATE_LIMIT = 20;                // shares per window per IP
 const SHARE_ID_BYTES = 18;
@@ -1572,6 +1577,60 @@ function shareRateRecordLocal(ip: string): void {
   shareRateLocal.set(ip, list);
 }
 
+function jsonCell(value: unknown): unknown {
+  if (value == null) return value;
+  const t = typeof value;
+  if (t === "string" || t === "number" || t === "boolean") return value;
+  return String(value);
+}
+
+function capShareResult(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec.error === "string" && rec.error) return undefined;
+  const columns = Array.isArray(rec.columns)
+    ? rec.columns.filter((c): c is string => typeof c === "string" && c.length > 0).slice(0, SHARE_MAX_RESULT_COLS)
+    : [];
+  if (!columns.length) return undefined;
+  const rawRows = Array.isArray(rec.rows) ? rec.rows : [];
+  const rows = rawRows.slice(0, SHARE_MAX_RESULT_ROWS).flatMap((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return [];
+    const src = row as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const col of columns) out[col] = jsonCell(src[col]);
+    return dropSmokeTestRows([out]);
+  });
+  const result: Record<string, unknown> = {
+    columns,
+    rows,
+    row_count: typeof rec.row_count === "number" && Number.isFinite(rec.row_count) ? rec.row_count : rows.length,
+  };
+  if (rec.truncated === true) result.truncated = true;
+  if (typeof rec.limit === "number" && Number.isFinite(rec.limit)) result.limit = rec.limit;
+  return result;
+}
+
+function capShareChart(raw: unknown, columns?: string[]): ChartSpec | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const kind = rec.kind;
+  if (kind !== "line" && kind !== "area" && kind !== "scatter" && kind !== "bar") return undefined;
+  const x = str(rec.x)?.slice(0, 80);
+  const y = str(rec.y)?.slice(0, 80);
+  if (!x || !y) return undefined;
+  const spec: ChartSpec = {
+    kind,
+    x,
+    y,
+    ...(typeof rec.series === "string" && rec.series ? { series: rec.series.slice(0, 80) } : {}),
+    ...(typeof rec.title === "string" && rec.title ? { title: rec.title.slice(0, 120) } : {}),
+    ...(typeof rec.xLabel === "string" && rec.xLabel ? { xLabel: rec.xLabel.slice(0, 80) } : {}),
+    ...(typeof rec.yLabel === "string" && rec.yLabel ? { yLabel: rec.yLabel.slice(0, 80) } : {}),
+  };
+  if (columns?.length && !chartFitsResult(spec, columns)) return undefined;
+  return spec;
+}
+
 /**
  * Pass 2 — share-only tightening on top of the lake normalizer's output.
  * The shipped caps (20k chars, no byte budget) are looser than the D1 row
@@ -1581,18 +1640,26 @@ function shareRateRecordLocal(ip: string): void {
  * source_sql (last assistant sql, the future-alerts keystone) + auto title
  * (first user question). Never throws.
  */
-function normalizeShareRecord(pass1: Record<string, unknown>): {
+function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unknown): {
   messages: Record<string, unknown>[];
   sourceSql: string | null;
   title: string | null;
 } {
-  const messages = (JSON.parse(String(pass1.messages)) as unknown[]).map((m) => {
+  const raw = Array.isArray(rawMessages) ? rawMessages : [];
+  const messages = (JSON.parse(String(pass1.messages)) as unknown[]).map((m, index) => {
     const rec = m && typeof m === "object" ? (m as Record<string, unknown>) : {};
     const role = rec.role === "assistant" ? "assistant" : "user";
     const out: Record<string, unknown> = { role };
     if (typeof rec.content === "string" && rec.content) out.content = rec.content.slice(0, SHARE_MAX_CONTENT);
     if (typeof rec.sql === "string" && rec.sql) out.sql = rec.sql.slice(0, SHARE_MAX_SQL);
     if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) out.ts = rec.ts;
+    const original = raw[index] && typeof raw[index] === "object" && !Array.isArray(raw[index])
+      ? raw[index] as Record<string, unknown>
+      : {};
+    const result = capShareResult(original.result);
+    if (result) out.result = result;
+    const chart = capShareChart(original.chart, Array.isArray(result?.columns) ? result.columns as string[] : undefined);
+    if (chart) out.chart = chart;
     if (Array.isArray(rec.tools)) {
       // The schema tolerates tools (future ToolRow capture); v1 client never
       // sends them, so this is a defensive cap, not a UI feature.
@@ -1624,6 +1691,12 @@ function normalizeShareRecord(pass1: Record<string, unknown>): {
   // bound a single message far below the budget, so the loop is deterministic.
   const bytes = () => utf8Bytes(JSON.stringify(messages));
   while (messages.length > 1 && bytes() > SHARE_MESSAGES_MAX_BYTES) messages.shift();
+  if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
+    for (const m of [...messages].reverse()) delete m.result;
+  }
+  if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
+    for (const m of [...messages].reverse()) delete m.chart;
+  }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
     for (const m of [...messages].reverse()) delete m.sql; // newest last to lose sql
   }
@@ -1701,7 +1774,7 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   if ((recent?.n ?? 0) >= SHARE_RATE_LIMIT) return json(env, { error: "rate limited" }, 429);
 
   // Pass 2 — share-only tightening + budgets.
-  const { messages, sourceSql, title } = normalizeShareRecord(pass1);
+  const { messages, sourceSql, title } = normalizeShareRecord(pass1, body.messages);
   const messagesJson = JSON.stringify(messages);
   // Assembled-row check: messages JSON + source_sql + column overhead must sit
   // under the D1 2 MB row ceiling — a share can never 500 on INSERT.

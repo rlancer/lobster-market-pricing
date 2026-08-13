@@ -382,12 +382,28 @@ export interface ShareChatResponse {
 }
 
 /**
- * One message in a shared transcript — ChatHistoryMessage widened with
- * optional `tools`. v1 captures messages + SQL only; the field is
- * schema-ready for a future ToolRow snapshot (see PLAN-SHARE-CHAT).
+ * One message in a shared transcript — ChatHistoryMessage plus the query
+ * result / chart the live chat showed. Lake history still strips those;
+ * shares keep a capped snapshot so a recipient can see the data.
  */
 export interface SharedChatMessage extends ChatHistoryMessage {
   tools?: { name: string; args?: string; ok?: boolean; summary?: string }[];
+  result?: QueryResult;
+  chart?: {
+    title?: string;
+    kind: 'line' | 'area' | 'scatter' | 'bar';
+    x: string;
+    y: string;
+    series?: string;
+    xLabel?: string;
+    yLabel?: string;
+  };
+}
+
+export type ShareChatMessage = SharedChatMessage;
+
+export interface ShareChatRecord extends Omit<ChatHistoryRecord, 'messages'> {
+  messages: ShareChatMessage[];
 }
 
 /** Response of GET /api/share/:id — public, unlisted, read-only. No auth: the id is the key. */
@@ -488,7 +504,7 @@ export const api = {
   // Share the current conversation as a public unlisted link (D1
   // shared_chats). Unlike saveChatHistory this FAILS LOUDLY — the user
   // explicitly asked for the artifact, so errors surface for a retry.
-  shareChat: (record: ChatHistoryRecord) =>
+  shareChat: (record: ShareChatRecord) =>
     post<ShareChatResponse>('/api/share/chat', record),
   // Fetch a public shared transcript. No auth; unknown/expired ids 404
   // identically. The share_id is high-entropy, so the URL is the capability.

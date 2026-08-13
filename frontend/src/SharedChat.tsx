@@ -4,7 +4,20 @@ import { AppShell, HStack, Markdown, Spinner, Timestamp } from '@astryxdesign/co
 import './SharedChat.css';
 import { CopyButton } from './CopyButton';
 import { Sunglasses } from './Sunglasses';
-import { api, type SharedChat, type SharedChatMessage } from './api';
+import { ChartView } from './Chart';
+import { ResultTable } from './QueryResultView';
+import { chartFitsResult } from './chartSpec';
+import { api, type QueryResult, type SharedChat, type SharedChatMessage } from './api';
+
+/** Drop leftover smoke-test asides (ZZZ / 2099-01-01) from older transcripts. */
+function stripSmokeTestNarration(content: string): string {
+  const withoutNotes = content.replace(/\s*\(Note:[^)]*\b(?:ZZZ|2099-01-01)[^)]*\)/gi, "");
+  return withoutNotes
+    .split(/\n{2,}/)
+    .filter((block) => !/\bZZZ\b/i.test(block) && !/\b2099-01-01\b/.test(block))
+    .join("\n\n")
+    .trim();
+}
 
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
@@ -14,6 +27,67 @@ import { api, type SharedChat, type SharedChatMessage } from './api';
  * Rendered outside the workspace shell (see App.tsx: /share/* returns a bare
  * Outlet).
  */
+function SharedAssistantBody({ message }: { message: SharedChatMessage }) {
+  const [result, setResult] = useState<QueryResult | null>(message.result && !message.result.error ? message.result : null);
+  const [loading, setLoading] = useState(!message.result && Boolean(message.sql));
+
+  useEffect(() => {
+    if (message.result || !message.sql) {
+      setResult(message.result && !message.result.error ? message.result : null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    api.query(message.sql, 200)
+      .then((queryResult) => {
+        if (!cancelled && !queryResult.error) setResult(queryResult);
+      })
+      .catch(() => {
+        // Snapshot-less shares still show SQL; a live query miss is not fatal.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [message.result, message.sql]);
+
+  const chart = message.chart && result?.columns && chartFitsResult(message.chart, result.columns)
+    ? message.chart
+    : null;
+
+  return (
+    <>
+      {message.content && <div className="ai-text"><Markdown>{stripSmokeTestNarration(message.content)}</Markdown></div>}
+      {chart && result && <ChartView result={result} spec={chart} />}
+      {message.sql && (
+        <div className="ai-sql">
+          <div className="ai-sql-head">
+            <span>SQL</span>
+            <span className="ai-sql-actions">
+              <CopyButton text={message.sql} />
+            </span>
+          </div>
+          <pre>{message.sql}</pre>
+        </div>
+      )}
+      {loading && <div className="ai-empty">Loading query result…</div>}
+      {result && (
+        chart ? (
+          <details className="ai-result-details">
+            <summary>Query result ({result.row_count.toLocaleString()} rows)</summary>
+            <ResultTable result={result} />
+          </details>
+        ) : (
+          <ResultTable result={result} />
+        )
+      )}
+    </>
+  );
+}
+
 function SharedChatRoute() {
   const { shareId } = useParams({ strict: false }) as { shareId?: string };
   const [share, setShare] = useState<SharedChat | null>(null);
@@ -98,22 +172,9 @@ function SharedChatRoute() {
                 <div key={i} className={`ai-msg ai-${m.role}`}>
                   {m.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
                   <div className="ai-bubble">
-                    {m.content && (
-                      m.role === 'assistant'
-                        ? <div className="ai-text"><Markdown>{m.content}</Markdown></div>
-                        : <div className="ai-text">{m.content}</div>
-                    )}
-                    {m.sql && (
-                      <div className="ai-sql">
-                        <div className="ai-sql-head">
-                          <span>SQL</span>
-                          <span className="ai-sql-actions">
-                            <CopyButton text={m.sql} />
-                          </span>
-                        </div>
-                        <pre>{m.sql}</pre>
-                      </div>
-                    )}
+                    {m.role === 'assistant'
+                      ? <SharedAssistantBody message={m} />
+                      : (m.content && <div className="ai-text">{m.content}</div>)}
                   </div>
                 </div>
               ))}
