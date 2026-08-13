@@ -220,7 +220,10 @@ An OpenRouter-powered Copilot implemented as a Cloudflare Agents SDK
 The browser connects via `useAgent`/`useAgentChat` over the standard Agent
 WebSocket and renders typed AI SDK UI-message parts: reasoning, tool feed
 (streamed inputs + outputs), SQL, up to 200 result rows, chart specification,
-model metadata, and the final prose answer. The Worker owns the schema context,
+model metadata, and the final prose answer. Chart specs are merged across tool
+outputs for the turn (so `render_chart` cannot wipe the query rows the plot
+needs); if the model skips `render_chart` on a chart/smile/surface question,
+the client infers a spec from the result columns. The Worker owns the schema context,
 deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
 validation, news, web search, economic calendar, tool iteration, and the final
 prose answer.

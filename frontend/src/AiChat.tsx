@@ -23,6 +23,7 @@ import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type Qu
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
+import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -159,22 +160,35 @@ function ResultTable({ result }: { result: QueryResult }) {
 
 function presentationFromMessage(message: CopilotMessage): Presentation | null {
   const model = message.metadata?.model ?? '';
-  let presentation: Presentation | null = null;
+  let sql: string | null = null;
+  let result: QueryResult | null = null;
+  let chart: ChartSpec | null = null;
+  let frames: FrameMetadata[] = [];
+  let found = false;
   for (const part of message.parts) {
     if (!isToolUIPart(part)) continue;
     const output = getToolOutput(part);
     if (!output || typeof output !== 'object') continue;
     const candidate = output as ToolOutput;
-    if (!candidate.sql && !candidate.result && !candidate.chart && !candidate.frames) continue;
-    presentation = {
-      sql: candidate.sql ?? null,
-      result: candidate.result ?? null,
-      chart: candidate.chart ?? null,
-      model,
-      frames: candidate.frames ?? [],
-    };
+    if (candidate.sql) sql = candidate.sql;
+    if (candidate.result) {
+      result = candidate.result;
+      if (chart && result.columns && !chartFitsResult(chart, result.columns)) chart = null;
+    }
+    if (candidate.chart) chart = candidate.chart;
+    if (candidate.frames?.length) frames = candidate.frames;
+    if (candidate.sql || candidate.result || candidate.chart || candidate.frames) found = true;
   }
-  return presentation;
+  if (!found) return null;
+  if (chart && result?.columns && !chartFitsResult(chart, result.columns)) chart = null;
+  return { sql, result, chart, model, frames };
+}
+
+function withChartFallback(message: Msg, question: string): Msg {
+  if (message.role !== 'assistant' || message.chart || !message.result || message.result.error) return message;
+  if (!wantsChart(question)) return message;
+  const inferred = inferChartSpec(message.result.columns, message.result.rows);
+  return inferred ? { ...message, chart: inferred } : message;
 }
 
 /** Compact human-readable summary of a tool's input, instead of raw JSON. */
@@ -301,7 +315,15 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   });
 
   const busy = chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation;
-  const projectedMessages = useMemo(() => messages.map(projectMessage).filter((message): message is Msg => message !== null), [messages]);
+  const projectedMessages = useMemo(() => {
+    const projected = messages.map(projectMessage).filter((message): message is Msg => message !== null);
+    return projected.map((message, index) => {
+      if (message.role !== 'assistant') return message;
+      const previous = projected[index - 1];
+      const question = previous?.role === 'user' ? previous.content : '';
+      return withChartFallback(message, question);
+    });
+  }, [messages]);
   const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
   const reasoning = latestAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
   const tools = projectTools(latestAssistant);
@@ -495,9 +517,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                   <div className="ai-thinking-body">{message.reasoning}</div>
                 </details>
               )}
-              {message.role === 'assistant' && !message.content && (message.sql || message.result || message.chart) && (
-                <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
-              )}
+              {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
               {message.sql && (
                 <div className="ai-sql">
                   <div className="ai-sql-head">
@@ -512,8 +532,19 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                   <pre>{message.sql}</pre>
                 </div>
               )}
-              {message.result && <ResultTable result={message.result} />}
-              {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
+              {message.result && (
+                message.chart ? (
+                  <details className="ai-result-details">
+                    <summary>Query result ({message.result.row_count.toLocaleString()} rows)</summary>
+                    <ResultTable result={message.result} />
+                  </details>
+                ) : (
+                  <ResultTable result={message.result} />
+                )
+              )}
+              {message.role === 'assistant' && !message.content && (message.sql || message.result || message.chart) && (
+                <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
+              )}
               {message.role === 'assistant' && (message.ts !== undefined || message.model) && (
                 <ChatMessageMetadata
                   timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}

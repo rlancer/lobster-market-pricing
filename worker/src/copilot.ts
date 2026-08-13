@@ -9,6 +9,7 @@ import {
   type ModelMessage,
   type UIMessage,
 } from "ai";
+import { chartFitsResult, resolveColumn } from "./chart-spec";
 import { COPILOT_TOOL_INPUT_SCHEMAS, FRAME_QUERY_LIMIT, createCopilotModel } from "./copilot-contract";
 import { validateSqlSchema, type LakeTable } from "./copilot-sql";
 
@@ -177,7 +178,9 @@ function systemPrompt(schema: string): string {
     "- Frames expire after 15 minutes; refresh_frame re-runs their source SQL.",
     "",
     "Charting:",
-    "- When the user asks for a chart, call render_chart after producing chartable data. For a vol surface use x=strike, y=implied_vol, series=expiration; use exact result column names.",
+    "- When the user asks for a chart, graph, plot, smile, or surface, you MUST call render_chart after producing chartable data. Narrating \"let me render the chart\" does nothing — the UI only draws a chart from that tool.",
+    "- Prefer a compact aggregated frame (one row per x/series) so the plot is clean. For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
+    "- The final message is shown verbatim. Do not repeat chain-of-thought or tool narration; close with a 1-3 sentence takeaway.",
   ].join("\n");
 }
 
@@ -633,6 +636,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     `;
   }
 
+  private setCapturedResult(capture: Capture, result: QueryResult, sql: string): void {
+    capture.sql = sql;
+    capture.result = result;
+    if (capture.chart && (!result.columns.length || !chartFitsResult(capture.chart, result.columns))) {
+      capture.chart = null;
+    }
+  }
+
   private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames"> = {}): ToolOutput {
     return {
       ok,
@@ -670,8 +681,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           }
           status(save_as ? "Running query & caching rows…" : "Running query…");
           const result = await this.executeLakeQuery(sql, save_as ? FRAME_QUERY_LIMIT : RESULT_PERSIST_MAX_ROWS);
-          capture.sql = sql;
-          capture.result = result;
+          this.setCapturedResult(capture, result, sql);
           if (result.error) {
             persist();
             return this.output(false, `Query failed: ${result.error}`, { error: result.error, sql, result });
@@ -708,9 +718,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           }
           status("Filtering cached data…");
           const result = this.filterFrame(frame, args);
-          capture.result = result;
-          capture.sql = `-- slice of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
-          const sliceSql = capture.sql;
+          const sliceSql = `-- slice of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
+          this.setCapturedResult(capture, result, sliceSql);
           turn.successfulQuery = true;
           if (args.save_as && result.row_count > 0) this.saveFrame(args.save_as, result.columns, result.rows, frame.sql);
           persist();
@@ -725,8 +734,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           if (!frame) return this.output(false, `No cached frame '${name}'.`, { error: `No frame '${name}'.` });
           status("Refreshing cached data…");
           const result = await this.executeLakeQuery(frame.sql, FRAME_QUERY_LIMIT);
-          capture.sql = frame.sql;
-          capture.result = result;
+          this.setCapturedResult(capture, result, frame.sql);
           if (result.error) {
             persist();
             return this.output(false, `Refresh failed: ${result.error}`, { error: result.error, sql: frame.sql, result });
@@ -738,26 +746,38 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       render_chart: tool({
-        description: "Validate a chart specification for the most recent query result. Call after run_query or filter_frame when the user requested a chart.",
+        description: "Validate a chart specification for the most recent query result (or a named frame). Call after run_query or filter_frame when the user requested a chart. The UI only draws a chart from this tool.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart,
         execute: async (args) => this.safeTool(TOOL_LABELS.render_chart, capture, () => {
           const result = capture.result;
           if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
-          if (!result.columns.includes(args.x) || !result.columns.includes(args.y)) {
+          const x = resolveColumn(result.columns, args.x);
+          const y = resolveColumn(result.columns, args.y);
+          if (!x || !y) {
             const error = `Result lacks '${args.x}' or '${args.y}'. Available columns: ${result.columns.join(", ")}.`;
             return this.output(false, error, { error });
           }
+          const series = args.series ? resolveColumn(result.columns, args.series) ?? undefined : undefined;
           capture.chart = {
             kind: args.kind,
-            x: args.x,
-            y: args.y,
+            x,
+            y,
             ...(args.title ? { title: args.title } : {}),
-            ...(args.series && result.columns.includes(args.series) ? { series: args.series } : {}),
+            ...(series ? { series } : {}),
             ...(args.xLabel ? { xLabel: args.xLabel } : {}),
             ...(args.yLabel ? { yLabel: args.yLabel } : {}),
           };
           persist();
-          return this.output(true, "Chart specification validated.", { error: null, chart: capture.chart });
+          // Include sql+result so the client can plot even if it only reads the
+          // last tool output (render_chart used to return chart-only and wiped
+          // the rows the Recharts view needs).
+          return this.output(true, "Chart specification validated.", {
+            error: null,
+            sql: capture.sql,
+            result,
+            chart: capture.chart,
+            frames: this.frameMetadata(),
+          });
         }),
       }),
       get_news: tool({
@@ -900,6 +920,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             summary: typeof output.summary === "string" ? output.summary.slice(0, MAX_TOOL_SUMMARY_CHARS) : "Tool completed.",
             ...(output.sql !== undefined ? { sql: String(output.sql).slice(0, MAX_TOOL_SUMMARY_CHARS) } : {}),
             ...(output.result !== undefined ? { result: boundedResult(output.result) } : {}),
+            ...(output.chart !== undefined ? { chart: output.chart } : {}),
             ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
           },
         };
