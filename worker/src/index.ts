@@ -506,7 +506,7 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
 // a background refresh (ctx.waitUntil) recomputes, and a throttled background
 // probe diffs the lake's table/column shape against the cache so loader schema
 // changes refresh proactively instead of waiting for the next TTL expiry. Only
-// an explicit ?force=1 (SQL Lab refresh) or a truly empty cache (first-ever
+// an explicit ?force=1 (Data catalog refresh) or a truly empty cache (first-ever
 // call on a fresh D1) computes synchronously. D1 failures degrade to live
 // compute (the R2 SQL lake remains the source of truth — the cache is a
 // performance layer only).
@@ -665,7 +665,7 @@ function maybeProbeSchema(ctx: Pick<ExecutionContext, "waitUntil">, env: Env, pa
  * recompute. Fresh rows serve immediately (plus a throttled background
  * change-detection probe); stale rows serve the cached payload instantly while
  * the refresh runs in the background via ctx.waitUntil; only a truly empty
- * cache (first-ever call on a fresh D1) or an explicit ?force=1 (SQL Lab
+ * cache (first-ever call on a fresh D1) or an explicit ?force=1 (Data catalog
  * refresh) computes synchronously. Trade-off: after a TTL expiry a reader sees
  * the previous payload for at most one refresh cycle (~10s) instead of an 8s
  * stall, and background refreshes also fire when the lake's shape changes.
@@ -673,7 +673,7 @@ function maybeProbeSchema(ctx: Pick<ExecutionContext, "waitUntil">, env: Env, pa
 async function schemaTables(env: Env, ctx: Pick<ExecutionContext, "waitUntil">, force: boolean): Promise<LakeTable[]> {
   const row = await readSchemaRow(env);
   if (force) {
-    // Explicit user intent (SQL Lab refresh): recompute now, serve fresh.
+    // Explicit user intent (Data catalog refresh): recompute now, serve fresh.
     const tables = await loadLakeTables(env);
     await writeSchemaRow(env, tables);
     return tables;

@@ -10,19 +10,18 @@ import {
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, ChartNoAxesCombined, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
-import { api, useDbReady, type SectorRow, type Stats } from './api';
+import { api, useDbReady, type Stats } from './api';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
 // Workspace context — shared by the header (stats counts, liquidity gate) and
-// the route views (e.g. the screener reads liquidOnly/sectors). The context,
-// value type, and useWorkspace hook live in ./workspace so this file only
-// exports components (React Fast Refresh requirement).
+// the route views. The context, value type, and useWorkspace hook live in
+// ./workspace so this file only exports components (React Fast Refresh).
 // ---------------------------------------------------------------------------
 
 type Section = {
@@ -34,9 +33,7 @@ type Section = {
 };
 const SECTIONS: Section[] = [
   { to: '/', label: 'Chat', heading: 'Chat', icon: Sparkles, exact: true },
-  { to: '/market', label: 'Market', heading: 'Market screener', icon: ChartNoAxesCombined },
-  { to: '/research', label: 'Research', heading: 'Notebooks & research', icon: BookOpen },
-  { to: '/lab', label: 'SQL Lab', heading: 'SQL Lab', icon: Database },
+  { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 
 // Monitor and docs remain secondary destinations in the compact header.
@@ -73,13 +70,10 @@ function Layout() {
   const location = useLocation();
   const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [stats, setStats] = useState<Stats | null>(null);
-  const [sectors, setSectors] = useState<SectorRow[]>([]);
 
   const loadStats = useCallback(async () => {
     try {
-      const [s, sec] = await Promise.all([api.stats(liquidOnly), api.sectors(liquidOnly)]);
-      setStats(s);
-      setSectors(sec);
+      setStats(await api.stats(liquidOnly));
     } catch {
       /* header stats are best-effort */
     }
@@ -117,7 +111,7 @@ function Layout() {
     );
   }
 
-  const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, sectors, updatedAt };
+  const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, updatedAt };
 
   const navigation = <WorkspaceNavigation activeTo={active?.to} />;
   const isCopilot = location.pathname === '/' || location.pathname === '/ai';

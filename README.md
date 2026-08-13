@@ -37,7 +37,7 @@ lobster-market-pricing/
 │   ├── wrangler.jsonc       # Worker config (R2_SQL_ACCOUNT_ID, R2_SQL_BUCKET vars)
 │   └── .dev.vars            # local-dev R2_SQL_TOKEN (gitignored)
 ├── frontend/              # Vite + React + TS UI
-│   ├── src/{App.tsx, api.ts, App.css, Explorer.tsx, AiChat.tsx, …}
+│   ├── src/{App.tsx, api.ts, App.css, DataPage.tsx, AiChat.tsx, …}
 │   ├── .env                # VITE_API_BASE → deployed Worker URL
 │   └── vite.config.ts
 └── loader/                # CBOE → Pipelines → R2 Data Catalog loader (Worker + Container)
@@ -192,26 +192,18 @@ in-memory.
 
 ## UI features
 
-- Live stats header (underlyings / contracts / calls / puts / last updated)
-- Filters: symbol, call/put, sector, min volume, min open interest, IV range,
-  delta range, max |moneyness|% (near-the-money), row count
-- Sortable columns (volume, OI, strike, IV, greeks, etc.)
-- Calls/puts color-coded; moneyness % relative to spot shown per row
-- Debounced auto-refresh on filter changes
-- **Click any row to dive into that symbol's option chain** — chain view with
-  per-expiration calls/puts/strikes table
+Chat is the home surface. **Data** (`/data`) is the catalog of everything that
+can land in an answer:
 
-### Data Explorer (SQL Lab)
+- Copilot tools (`run_query`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
+- Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
+  Tavily news/search, Yahoo OHLC, Nasdaq earnings, OpenFIGI)
+- Iceberg lake tables with live row counts, columns, and sample rows
+- A read-only SQL editor (`POST /api/query`) — the same path Chat uses
 
-Browse the Iceberg lake and run arbitrary read-only SQL:
-
-- Tables: `options.option_contracts`, `options.underlyings`, `options.refresh_runs`
-- Upcoming-earnings rows (`options.earnings`, via the `earnings-daily` loader
-  job) auto-appear in `options.*`, so the Copilot can query/join them with no
-  extra wiring.
-- Sample queries use the `options.` schema prefix
-- Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted (read-only)
-- Backed by `GET /api/tables` and `POST /api/query`
+Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted. Chat deep-links
+into Data with the SQL attached. Old `/lab`, `/market`, and `/research` URLs
+redirect here.
 
 ### AI Copilot
 
@@ -293,7 +285,7 @@ escaping; sort columns are whitelisted). Key dialect constraints:
 - The Worker cache is in-isolate and tiered by how quickly the underlying data
   changes (all bounded by the nightly refresh): screener endpoints 30 min, the
   liquid-underlyings set 60 min, `/api/query` + symbol chains 60 min
-  (hash-keyed by SQL, so the chat's frame pulls and SQL Lab reruns share one
+  (hash-keyed by SQL, so the chat's frame pulls and Data catalog reruns share one
   lake fetch), and the symbol typeahead reference rows 12 h. The frontend keeps
   the full symbol universe in localStorage for 24 h and searches it
   client-side, so ticker search works across browser restarts with zero lake
