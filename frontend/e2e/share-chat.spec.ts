@@ -76,6 +76,7 @@ test.describe('Share chat (public unlisted transcripts)', () => {
     await expect(page.locator('.share-msgs')).toContainText(text.slice(0, 40));
     // SQL block is part of the transcript (the assistant ran a query).
     await expect(page.locator('.share-msgs .ai-sql pre')).toHaveCount(1);
+    await expect(page.locator('.share-msgs .ai-result')).toBeVisible({ timeout: 30_000 });
 
     // Recipient API: keyless GET returns the transcript and NEVER the
     // server-side abuse columns.
