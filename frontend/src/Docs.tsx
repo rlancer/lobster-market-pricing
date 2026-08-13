@@ -117,10 +117,11 @@ const JOBS = [
   ['cboe-options', 'Continuous, market-gated', 'The screener\u2019s core feed: CBOE option contracts, underlying snapshots, and refresh runs.'],
   ['ohlc-daily', 'Daily', 'Yahoo daily OHLC (1-year window) + realized volatility computed off split-adjusted closes.'],
   ['ohlc-backfill', 'On demand (POST /jobs/ohlc-backfill/trigger)', 'Item-scoped, resumable historical OHLC backfill; Yahoo dividend/split events land in corporate_actions.'],
+  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 65 optionable ETFs.'],
 ];
 
 const TABLES =
-  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · symbol_history · corporate_actions';
+  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · symbol_history · corporate_actions · etf_profiles · etf_holdings';
 
 const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },

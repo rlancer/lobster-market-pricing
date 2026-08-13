@@ -1,0 +1,20 @@
+{
+  "fields": [
+    {"name":"ticker","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"name","type":"string","required":false},
+    {"name":"family","type":"string","required":false},
+    {"name":"category","type":"string","required":false},
+    {"name":"legal_type","type":"string","required":false},
+    {"name":"asset_class","type":"string","required":false},
+    {"name":"expense_ratio","type":"float64","required":false},
+    {"name":"net_expense_ratio","type":"float64","required":false},
+    {"name":"net_assets","type":"float64","required":false},
+    {"name":"trailing_yield","type":"float64","required":false},
+    {"name":"inception_date","type":"string","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}
