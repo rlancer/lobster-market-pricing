@@ -22,6 +22,8 @@
 #   npx wrangler secret put PIPELINE_UNDERLYING_SNAPSHOTS_URL # stream cboe_underlying_snapshots_v2
 #   npx wrangler secret put PIPELINE_EARNINGS_URL       # stream cboe_earnings_v2 (earnings-daily job)
 #   npx wrangler secret put PIPELINE_ECON_URL           # stream cboe_econ_v2 (fred-econ-daily job)
+#   npx wrangler secret put PIPELINE_ETF_PROFILES_URL   # stream cboe_etf_profiles_v2 (etf-daily job)
+#   npx wrangler secret put PIPELINE_ETF_HOLDINGS_URL   # stream cboe_etf_holdings_v2 (etf-daily job)
 #   npx wrangler secret put FRED_API_KEY                # St. Louis Fed key for the econ calendar (fred-econ-daily)
 #   npx wrangler secret put PIPELINE_AUTH_TOKEN        # required (streams are authenticated)
 #
@@ -41,5 +43,7 @@ PIPELINE_SYMBOL_HISTORY_URL=
 PIPELINE_UNDERLYING_SNAPSHOTS_URL=
 PIPELINE_EARNINGS_URL=
 PIPELINE_ECON_URL=
+PIPELINE_ETF_PROFILES_URL=
+PIPELINE_ETF_HOLDINGS_URL=
 FRED_API_KEY=
 PIPELINE_AUTH_TOKEN=

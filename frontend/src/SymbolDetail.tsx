@@ -164,6 +164,18 @@ function SymbolDetail({ symbol, onBack }: Props) {
 
   const rv = detail?.realized_vol ?? null;
   const corpActions = detail?.corporate_actions ?? [];
+  const etf = detail?.etf_profile ?? null;
+  const holdings = detail?.etf_holdings ?? [];
+
+  const fmtFee = (v: number | null | undefined): string =>
+    v == null || Number.isNaN(v) ? '–' : `${(v * 100).toFixed(2)}%`;
+  const fmtAum = (v: number | null | undefined): string => {
+    if (v == null || Number.isNaN(v)) return '–';
+    if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+    if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+    if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+    return `$${fmtNum(v, 0)}`;
+  };
 
   return (
     <div className="symbol-detail">
@@ -243,6 +255,21 @@ function SymbolDetail({ symbol, onBack }: Props) {
               </span>
               </AstryxTooltip>
             ))}
+            {etf?.expense_ratio != null && (
+              <AstryxTooltip content="Annual report expense ratio (Yahoo fundProfile)" hasHoverIndication={false}>
+              <span>Expense <b>{fmtFee(etf.expense_ratio)}</b></span>
+              </AstryxTooltip>
+            )}
+            {etf?.trailing_yield != null && (
+              <AstryxTooltip content="Trailing distribution yield" hasHoverIndication={false}>
+              <span>Yield <b>{fmtFee(etf.trailing_yield)}</b></span>
+              </AstryxTooltip>
+            )}
+            {etf?.net_assets != null && (
+              <span>AUM <b>{fmtAum(etf.net_assets)}</b></span>
+            )}
+            {etf?.family && <span className="chip">{etf.family}</span>}
+            {etf?.asset_class && <span className="chip">{etf.asset_class}</span>}
           </div>
           <div className="ohlc-chart">
             <ResponsiveContainer width="100%" height="100%">
@@ -301,6 +328,31 @@ function SymbolDetail({ symbol, onBack }: Props) {
                         {b.chg == null ? '–' : `${b.chg >= 0 ? '+' : ''}${fmtNum(b.chg)}%`}
                       </td>
                       <td className="right num">{fmtInt(b.volume)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {holdings.length > 0 && (
+            <div className="ohlc-table-wrap">
+              <div className="panel-title">Top holdings</div>
+              <table className="ohlc-table">
+                <thead>
+                  <tr>
+                    <th className="left">#</th>
+                    <th className="left">Symbol</th>
+                    <th className="left">Name</th>
+                    <th className="right">Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {holdings.map((h) => (
+                    <tr key={`${h.rank}:${h.holding_symbol ?? h.holding_name}`}>
+                      <td className="left muted">{h.rank ?? '–'}</td>
+                      <td className="left"><b>{h.holding_symbol ?? '–'}</b></td>
+                      <td className="left muted">{h.holding_name ?? '–'}</td>
+                      <td className="right num">{h.weight == null ? '–' : `${(h.weight * 100).toFixed(2)}%`}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -231,6 +231,26 @@ export interface IvRankResponse {
   error?: string;
 }
 
+export interface EtfProfile {
+  ticker: string;
+  name: string | null;
+  family: string | null;
+  category: string | null;
+  asset_class: string | null;
+  expense_ratio: number | null;
+  net_expense_ratio: number | null;
+  net_assets: number | null;
+  trailing_yield: number | null;
+  inception_date: string | null;
+}
+
+export interface EtfHolding {
+  rank: number | null;
+  holding_symbol: string | null;
+  holding_name: string | null;
+  weight: number | null;
+}
+
 export interface SymbolDetail {
   underlying: {
     symbol: string;
@@ -249,6 +269,8 @@ export interface SymbolDetail {
   ohlc?: OhlcBar[];
   realized_vol?: RealizedVol | null;
   corporate_actions?: CorporateAction[];
+  etf_profile?: EtfProfile | null;
+  etf_holdings?: EtfHolding[];
 }
 
 export interface PremiumNotebookRow {
