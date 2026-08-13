@@ -213,8 +213,14 @@
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
-  max-width: min(520px, 100%);
   color: var(--muted);
+}
+.ai-busy + .ai-text,
+.ai-busy + .ai-sql,
+.ai-busy + .ai-result,
+.ai-busy + .ai-result-details,
+.ai-busy + .ai-chart {
+  margin-top: 10px;
 }
 .ai-busy-head {
   display: flex;
