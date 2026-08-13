@@ -1,4 +1,5 @@
-// OpenFIGI symbology mapper for the S&P 500 universe.
+// OpenFIGI symbology mapper for the merged universe (S&P 500 + Nasdaq-100
+// delta + major ETFs).
 //
 // Resolves each ticker via the OpenFIGI Mapping API and publishes two stream
 // payloads:
@@ -12,17 +13,22 @@
 // same id for the same ticker. The OpenFIGI-native ids (figi / composite_figi /
 // isin) are stored as enrichment columns on the securities row. Rename
 // continuity is expressed through symbol_history rows, not by mutating
-// security_id.
+// security_id. Name/sector fall back to universe.json constituents when
+// OpenFIGI does not resolve a ticker.
 //
 // Usage (from loader/; OPEN_FIGI + PIPELINE_*_URL + PIPELINE_AUTH_TOKEN in env):
 //   node tools/figi_map.ts
 //
-// Reads symbols from symbols/sp500.json. --limit N trims the universe for tests.
+// Reads symbols from symbols/universe.json. --limit N trims the universe for tests.
 
 import { securityIdForTicker } from "../src/symbology.ts";
-import sp500 from "../symbols/sp500.json" with { type: "json" };
+import universeData from "../symbols/universe.json" with { type: "json" };
 
-const SYMBOLS: string[] = Array.isArray(sp500.symbols) ? sp500.symbols : [];
+const SYMBOLS: string[] = Array.isArray(universeData.symbols) ? universeData.symbols : [];
+const CONSTITUENTS = (universeData.constituents ?? {}) as Record<
+  string,
+  { name?: string; sector?: string }
+>;
 
 const OPEN_FIGI_ENDPOINT = "https://api.openfigi.com/v3/mapping";
 const BATCH = 100;
@@ -52,6 +58,10 @@ function envStr(key: string): string {
 function dateStr(offsetDays = 0): string {
   const d = new Date(Date.now() - offsetDays * 86400000);
   return d.toISOString().slice(0, 10);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Map a batch of tickers through OpenFIGI, returning the first entry per symbol
@@ -100,22 +110,28 @@ const validFrom = dateStr(730); // ~2y backfill window start
 
 const securities: Record<string, unknown>[] = [];
 const history: Record<string, unknown>[] = [];
+const unresolved: string[] = [];
 
 for (let i = 0; i < universe.length; i += BATCH) {
+  if (i > 0) await sleep(250);
   const slice = universe.slice(i, i + BATCH);
   const entries = await mapBatch(slice, key);
   entries.forEach((entry, idx) => {
     const ticker = slice[idx];
+    const cons = CONSTITUENTS[ticker] ?? {};
     const resolved = typeof entry?.ticker === "string" ? entry.ticker.trim().toUpperCase() : ticker;
     const composite = typeof entry?.compositeFIGI === "string" ? entry.compositeFIGI.trim() : "";
     const figi = typeof entry?.figi === "string" ? entry.figi.trim() : "";
     const isin = typeof entry?.isin === "string" ? entry.isin.trim() : "";
-    const name = typeof entry?.name === "string" && entry.name.trim()
+    const figiName = typeof entry?.name === "string" && entry.name.trim()
       ? entry.name.trim()
-      : (typeof entry?.securityDescription === "string" ? entry.securityDescription : "");
+      : (typeof entry?.securityDescription === "string" ? entry.securityDescription.trim() : "");
+    const name = figiName || (typeof cons.name === "string" ? cons.name : "") || ticker;
     const exchange = typeof entry?.exchCode === "string" ? entry.exchCode : "";
-    const sector = typeof entry?.marketSector === "string" ? entry.marketSector : "";
+    const figiSector = typeof entry?.marketSector === "string" ? entry.marketSector : "";
+    const sector = figiSector || (typeof cons.sector === "string" ? cons.sector : "") || "";
     const currency = typeof entry?.currency === "string" ? entry.currency : "";
+    if (!figi) unresolved.push(ticker);
 
     const sid = securityIdForTicker(resolved === ticker ? ticker : resolved);
     securities.push({
@@ -145,6 +161,7 @@ await publish(historyUrl, auth, history, "symbol_history");
 
 console.log(JSON.stringify({
   mapped: securities.length, history_rows: history.length, run_id: runId,
+  unresolved_figi: unresolved.length, unresolved_tickers: unresolved,
   securities_published: Boolean(securitiesUrl) && securities.length > 0,
   history_published: Boolean(historyUrl) && history.length > 0,
 }, null, 2));

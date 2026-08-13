@@ -231,6 +231,26 @@ export interface IvRankResponse {
   error?: string;
 }
 
+export interface EtfProfile {
+  ticker: string;
+  name: string | null;
+  family: string | null;
+  category: string | null;
+  asset_class: string | null;
+  expense_ratio: number | null;
+  net_expense_ratio: number | null;
+  net_assets: number | null;
+  trailing_yield: number | null;
+  inception_date: string | null;
+}
+
+export interface EtfHolding {
+  rank: number | null;
+  holding_symbol: string | null;
+  holding_name: string | null;
+  weight: number | null;
+}
+
 export interface SymbolDetail {
   underlying: {
     symbol: string;
@@ -249,6 +269,8 @@ export interface SymbolDetail {
   ohlc?: OhlcBar[];
   realized_vol?: RealizedVol | null;
   corporate_actions?: CorporateAction[];
+  etf_profile?: EtfProfile | null;
+  etf_holdings?: EtfHolding[];
 }
 
 export interface PremiumNotebookRow {
@@ -382,12 +404,28 @@ export interface ShareChatResponse {
 }
 
 /**
- * One message in a shared transcript — ChatHistoryMessage widened with
- * optional `tools`. v1 captures messages + SQL only; the field is
- * schema-ready for a future ToolRow snapshot (see PLAN-SHARE-CHAT).
+ * One message in a shared transcript — ChatHistoryMessage plus the query
+ * result / chart the live chat showed. Lake history still strips those;
+ * shares keep a capped snapshot so a recipient can see the data.
  */
 export interface SharedChatMessage extends ChatHistoryMessage {
   tools?: { name: string; args?: string; ok?: boolean; summary?: string }[];
+  result?: QueryResult;
+  chart?: {
+    title?: string;
+    kind: 'line' | 'area' | 'scatter' | 'bar';
+    x: string;
+    y: string;
+    series?: string;
+    xLabel?: string;
+    yLabel?: string;
+  };
+}
+
+export type ShareChatMessage = SharedChatMessage;
+
+export interface ShareChatRecord extends Omit<ChatHistoryRecord, 'messages'> {
+  messages: ShareChatMessage[];
 }
 
 /** Response of GET /api/share/:id — public, unlisted, read-only. No auth: the id is the key. */
@@ -444,7 +482,7 @@ export const api = {
   screen: (params: Record<string, string | number | boolean | undefined>) =>
     get<ScreenResponse>(`/api/screen${qs(params)}`),
   // Lake schema, served from the Worker's D1 cache (recomputed when stale).
-  // `force` skips the cache and recomputes live from the lake (SQL Lab refresh).
+  // `force` skips the cache and recomputes live from the lake (Data catalog refresh).
   tables: (opts?: { force?: boolean }) =>
     get<TableInfo[]>(`/api/tables${qs({ force: opts?.force ? 1 : undefined })}`),
   query: (sql: string, limit?: number) => post<QueryResult>('/api/query', { sql, limit }),
@@ -488,7 +526,7 @@ export const api = {
   // Share the current conversation as a public unlisted link (D1
   // shared_chats). Unlike saveChatHistory this FAILS LOUDLY — the user
   // explicitly asked for the artifact, so errors surface for a retry.
-  shareChat: (record: ChatHistoryRecord) =>
+  shareChat: (record: ShareChatRecord) =>
     post<ShareChatResponse>('/api/share/chat', record),
   // Fetch a public shared transcript. No auth; unknown/expired ids 404
   // identically. The share_id is high-entropy, so the URL is the capability.

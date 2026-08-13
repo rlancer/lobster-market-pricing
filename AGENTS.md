@@ -5,6 +5,17 @@ lives next to the code — `frontend/AGENTS.md` (design-system rules) and
 `loader/AGENTS.md` (loader engineering invariants). This file is the contract
 for how work ships: read it before touching anything.
 
+## No hacky workarounds
+
+Do not paper over a real problem with a filter, a prompt footnote, a display
+scrubber, a special-case `if`, or any other shortcut that leaves the root
+cause in place. If the right fix is harder — deleting bad lake rows instead of
+hiding `ZZZ` on every query, a schema change instead of a parser exception, a
+real API instead of scraping a side effect — do the harder thing.
+
+Hard is fine. Permanent quality is the bar. Workarounds accumulate and become
+the system; this repo prefers one durable fix over a stack of clever hides.
+
 ## Every change ships as a PR
 
 New features — and all changes to tracked code — land via a **pull request

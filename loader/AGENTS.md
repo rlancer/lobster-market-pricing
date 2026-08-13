@@ -7,11 +7,12 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
 ## Current verified state
 
 - Scheduler: `EtlScheduler` Durable Object (`src/scheduler.ts`) runs a job
-  registry (`src/jobs/registry.ts`) with four jobs — `cboe-options` (item-scoped,
-  market-gated, item store `symbol_state`), `ohlc-daily` (batch, daily,
-  ungated, whole-universe via `symbols/universe.json`), `ohlc-backfill`
-  (item-scoped, resumable, manual), and `earnings-daily` (batch, daily,
-  ungated, ~2-week Nasdaq earnings-calendar window → `options.earnings`).
+  registry (`src/jobs/registry.ts`) — `cboe-options` (item-scoped, market-gated,
+  item store `symbol_state`), `ohlc-daily` (batch, daily, ungated),
+  `ohlc-backfill` (item-scoped, resumable, manual), `earnings-daily` (batch,
+  daily), `fred-econ-daily` (batch, daily), and `etf-daily` (batch, daily;
+  Yahoo fund profile + top holdings → `options.etf_profiles` /
+  `options.etf_holdings`).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`
@@ -61,15 +62,16 @@ python tools/refresh_universe.py --probe-cboe   # fetch NDX live, merge, validat
 - Output is deterministic and atomic; the `symbols/` dir is the only thing it writes.
 
 To actually consume the extended universe, the loader jobs (`cboe-options`,
-`ohlc-daily`, `ohlc-backfill`, `earnings-daily`) and `run-symbols.ts` enrichment
+`ohlc-daily`, `ohlc-backfill`, `earnings-daily`), `run-symbols.ts` enrichment,
+and `tools/figi_map.ts` (OpenFIGI → `options.securities` / `options.symbol_history`)
 import `universe.json` instead of `sp500.json`/`sp500_constituents.json` (wired
-2026-08-09). ETFs produce no earnings rows (harmless in `earnings-daily`).
+2026-08-09; figi_map switched 2026-08-12). ETFs produce no earnings rows (harmless in `earnings-daily`).
 `MAX_SYMBOLS` is enforced per-`runSymbols` *batch* (capped by `LOADER_BATCH_SIZE`),
 not across the universe, so larger universes do not trip it.
 - Canonical checkpoint: `.sp500-catalog-load-state.json`.
 - Latest load: 502 complete symbols; NVR failed with CBOE HTTP 403.
 - NVR is intentionally recorded in `symbols/sp500-load-exceptions.json`.
-- Latest observed catalog counts included synthetic `ZZZ` smoke-test data; exclude `ZZZ` from S&P counts.
+- Latest observed catalog counts included synthetic `ZZZ` smoke-test data; delete those rows from the lake (`python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ`) rather than filtering them at query time.
 - Pipeline HTTP streams are authenticated (Bearer `PIPELINE_AUTH_TOKEN`) and the
   ingest token was rotated + saved to GitHub (2026-08-08). Treat unauthenticated
   `PIPELINE_*_URL`s as test-only.
@@ -159,15 +161,20 @@ Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
 SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
 UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
 Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # provisioned 2026-08-09
+EtfProfiles:       <PIPELINE_ETF_PROFILES_URL secret — stream cboe_etf_profiles_v2>
+EtfHoldings:       <PIPELINE_ETF_HOLDINGS_URL secret — stream cboe_etf_holdings_v2>
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
-         cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2
+         cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
+         cboe_etf_profiles_v2, cboe_etf_holdings_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
-         cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink
+         cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
+         cboe_etf_profiles_sink, cboe_etf_holdings_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
-        options.securities, options.symbol_history, options.underlying_snapshots
+        options.securities, options.symbol_history, options.underlying_snapshots,
+        options.etf_profiles, options.etf_holdings
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline
@@ -281,7 +288,7 @@ Compile changed Python driver:
 python -m py_compile tools/load_sp500.py
 ```
 
-Loader behavior is covered by Vitest (`npx vitest run`); typecheck with `npx tsc --noEmit`. Validate both checkpoint and catalog. At minimum query contract, underlying-snapshot, and OHLC counts, then confirm 503 checkpoint groups with only the documented NVR failure. Smoke-test rows (`TEST`) were removed from the lake via `tools/iceberg_rewrite.py` (see the R2 Data Catalog maintenance section).
+Loader behavior is covered by Vitest (`npx vitest run`); typecheck with `npx tsc --noEmit`. Validate both checkpoint and catalog. At minimum query contract, underlying-snapshot, and OHLC counts, then confirm 503 checkpoint groups with only the documented NVR failure. Smoke-test rows (`TEST`, `ZZZ`) are removed from the lake via `tools/iceberg_rewrite.py` (see the R2 Data Catalog maintenance section) — never papered over with a query-time filter in the screener Worker.
 
 ## R2 Data Catalog maintenance (row-level cleanup / dedupe)
 
@@ -290,18 +297,19 @@ Tables are append-only; a re-run appends rather than overwrites. To remove rows
 mutation — **not** `wrangler r2 sql` (read-only) and **not** a schema recreate.
 
 How it works:
-- Iceberg v2 row-level **deletes** commit *delete files*: rows vanish logically at
-  commit time (R2 SQL and the screener Worker honor them immediately), and the
-  bytes are physically reclaimed later by the **hourly, automatic compaction** +
-  **snapshot expiration** (which now deletes data files). Both run once the table's
-  compaction credential is stored.
+- Iceberg v2 row-level **deletes** commit a new snapshot: matching rows vanish
+  logically at commit time (R2 SQL and the screener Worker honor them immediately),
+  and the bytes are physically reclaimed later by the **hourly, automatic
+  compaction** + **snapshot expiration**. Both run once the table's compaction
+  credential is stored.
 - Two writable paths (the catalog is standard Iceberg REST, base
   `https://catalog.cloudflarestorage.com/{ACCOUNT}/{BUCKET}`, warehouse
   `{ACCOUNT}_{BUCKET}`, auth `R2_DATA_CATALOG_TOKEN`):
-  - **PySpark `DELETE ... WHERE`** — writes small delete files; best for very large
-    tables (documented via the R2 Data Catalog Spark template).
-  - **PyIceberg `overwrite()`** — atomic whole-table rewrite in one snapshot. For
-    targeted hygiene on smaller tables this is the light path and needs no JVM.
+  - **PyIceberg `table.delete()`** (`--delete COL=VAL`) — row-level DELETE that
+    rewrites only files containing matches. Use this for large tables
+    (`option_contracts`) and for pipeline smoke-test probes (`symbol=ZZZ`).
+  - **PyIceberg `overwrite()`** (`--exclude` / `--dedupe`) — atomic whole-table
+    rewrite. Fine for smaller tables; do not use on `option_contracts`.
 
 Reusable tool: `tools/iceberg_rewrite.py` (PyIceberg). Requires
 `pip install "pyiceberg[pyiceberg-core]" pyarrow pandas` (the core extra is needed
@@ -311,6 +319,8 @@ for partition transforms — these tables are partitioned by `day(__ingest_ts)`)
 cd loader
 export R2_DATA_CATALOG_TOKEN=...   # R2 Storage Admin R&W + Data Catalog R&W
 # Dry-run first, then drop the --dry-run to commit:
+python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ --dry-run
+python tools/iceberg_rewrite.py option_contracts --delete symbol=ZZZ
 python tools/iceberg_rewrite.py ohlc            --exclude symbol=TEST --dry-run
 python tools/iceberg_rewrite.py corporate_actions --exclude ticker=PROBE
 python tools/iceberg_rewrite.py securities      --dedupe ticker --drop ticker=PROBE
@@ -318,9 +328,10 @@ python tools/iceberg_rewrite.py ohlc            --dedupe symbol,date
 ```
 
 Gotchas:
-- `overwrite()` rewrites the **whole** table in one atomic commit; if it fails the
-  table is unchanged. Do not run it while that table's Pipeline sink is actively
-  ingesting (commit conflicts are surfaced as errors, never silent corruption).
+- `--delete` rewrites **only files that contain matches**. `--exclude`/`--dedupe`
+  (`overwrite()`) rewrite the **whole** table; if they fail the table is unchanged.
+  Do not run either while that table's Pipeline sink is actively ingesting
+  (commit conflicts are surfaced as errors, never silent corruption).
 - The pandas (`--dedupe`) path casts output back to the table schema so required
   fields stay required; the pure `--exclude` path keeps the schema as-is.
 - This is for **row cleanup, not schema change** — schema changes still mean a

@@ -4,6 +4,7 @@ import { ohlcDailyJob } from "./ohlc-daily.js";
 import { ohlcBackfillJob } from "./ohlc-backfill.js";
 import { earningsDailyJob } from "./earnings-daily.js";
 import { fredEconDailyJob } from "./fred-econ-daily.js";
+import { etfDailyJob } from "./etf-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -18,6 +19,8 @@ import { fredEconDailyJob } from "./fred-econ-daily.js";
 //   - earnings-daily  — batch, ungated, daily cadence; ~2-week Nasdaq
 //     earnings-calendar window filtered to the merged universe
 //     (wraps publishEarningsDate).
+//   - etf-daily       — batch, ungated, daily cadence; Yahoo fundProfile +
+//     topHoldings for symbols/etfs.json → options.etf_profiles / etf_holdings.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -25,5 +28,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     ohlcBackfillJob(env),
     earningsDailyJob(env),
     fredEconDailyJob(env),
+    etfDailyJob(env),
   ];
 }
