@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {"name":"ticker","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"rank","type":"int64","required":true},
+    {"name":"holding_symbol","type":"string","required":false},
+    {"name":"holding_name","type":"string","required":false},
+    {"name":"weight","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

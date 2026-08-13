@@ -7,11 +7,12 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
 ## Current verified state
 
 - Scheduler: `EtlScheduler` Durable Object (`src/scheduler.ts`) runs a job
-  registry (`src/jobs/registry.ts`) with four jobs — `cboe-options` (item-scoped,
-  market-gated, item store `symbol_state`), `ohlc-daily` (batch, daily,
-  ungated, whole-universe via `symbols/universe.json`), `ohlc-backfill`
-  (item-scoped, resumable, manual), and `earnings-daily` (batch, daily,
-  ungated, ~2-week Nasdaq earnings-calendar window → `options.earnings`).
+  registry (`src/jobs/registry.ts`) — `cboe-options` (item-scoped, market-gated,
+  item store `symbol_state`), `ohlc-daily` (batch, daily, ungated),
+  `ohlc-backfill` (item-scoped, resumable, manual), `earnings-daily` (batch,
+  daily), `fred-econ-daily` (batch, daily), and `etf-daily` (batch, daily;
+  Yahoo fund profile + top holdings → `options.etf_profiles` /
+  `options.etf_holdings`).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`
@@ -61,9 +62,10 @@ python tools/refresh_universe.py --probe-cboe   # fetch NDX live, merge, validat
 - Output is deterministic and atomic; the `symbols/` dir is the only thing it writes.
 
 To actually consume the extended universe, the loader jobs (`cboe-options`,
-`ohlc-daily`, `ohlc-backfill`, `earnings-daily`) and `run-symbols.ts` enrichment
+`ohlc-daily`, `ohlc-backfill`, `earnings-daily`), `run-symbols.ts` enrichment,
+and `tools/figi_map.ts` (OpenFIGI → `options.securities` / `options.symbol_history`)
 import `universe.json` instead of `sp500.json`/`sp500_constituents.json` (wired
-2026-08-09). ETFs produce no earnings rows (harmless in `earnings-daily`).
+2026-08-09; figi_map switched 2026-08-12). ETFs produce no earnings rows (harmless in `earnings-daily`).
 `MAX_SYMBOLS` is enforced per-`runSymbols` *batch* (capped by `LOADER_BATCH_SIZE`),
 not across the universe, so larger universes do not trip it.
 - Canonical checkpoint: `.sp500-catalog-load-state.json`.
@@ -159,15 +161,20 @@ Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
 SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
 UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
 Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # provisioned 2026-08-09
+EtfProfiles:       <PIPELINE_ETF_PROFILES_URL secret — stream cboe_etf_profiles_v2>
+EtfHoldings:       <PIPELINE_ETF_HOLDINGS_URL secret — stream cboe_etf_holdings_v2>
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
-         cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2
+         cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
+         cboe_etf_profiles_v2, cboe_etf_holdings_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
-         cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink
+         cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
+         cboe_etf_profiles_sink, cboe_etf_holdings_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
-        options.securities, options.symbol_history, options.underlying_snapshots
+        options.securities, options.symbol_history, options.underlying_snapshots,
+        options.etf_profiles, options.etf_holdings
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline

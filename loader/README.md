@@ -126,15 +126,35 @@ job auto-refreshes the window daily (ungated). Provisioning recipe is identical
 to the earnings block above with names `cboe_econ_v2` / `cboe_econ_sink` /
 `cboe_econ_pipeline` and `schemas/econ_calendar.json`.
 
+### ETF fund profiles + top holdings (`etf-daily`)
+
+Yahoo chart v8 already stores ETF **distributions** on `options.corporate_actions`
+(same `events=div,split` path as equities — 59 of 65 ETFs have dividend rows;
+commodity trusts like GLD/SLV/USO typically pay none). `etf-daily` adds the
+facts that path does not carry:
+
+- `options.etf_profiles` — expense ratio, AUM, issuer/family, category, trailing
+  yield, inception (one row per ETF per run; latest-wins on `ticker`)
+- `options.etf_holdings` — Yahoo's **top-10** book (`rank`, `holding_symbol`,
+  `weight`), not the full portfolio. Full N-PORT holdings are a later table.
+
+Source is Yahoo `quoteSummary` modules `fundProfile,topHoldings,summaryDetail,defaultKeyStatistics`,
+which needs a crumb+cookie session (chart v8 does not). The job opens one
+session per pass and reuses it across `symbols/etfs.json` (65 names). Batch,
+ungated, daily. Dry-run unless `PIPELINE_ETF_PROFILES_URL` or
+`PIPELINE_ETF_HOLDINGS_URL` is set.
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
 - `src/ohlc.ts` — Yahoo OHLC + realized-vol + corporate-actions fetch/normalize/publish (period1/period2 windows, adjclose-based realized vol)
 - `src/symbology.ts` — deterministic ticker-derived `security_id` (shared by securities / symbol_history / corporate_actions / backfill)
+- `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
+- `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)

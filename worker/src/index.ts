@@ -389,11 +389,9 @@ function row(r: R2Row): { symbol: string; name: string | null; sector: string | 
 }
 
 // ---------------------------------------------------------------------------
-// Symbol detail enrichment: daily OHLC bars, realized vol, corporate actions.
-// These tables (options.ohlc / options.realized_vol / options.corporate_actions)
-// are newer than the chain data, so each query is isolated and degrades to
-// empty on failure (missing table, empty lake, transient R2 SQL error) — the
-// endpoint must keep serving contracts even when enrichment is unavailable.
+// Symbol detail enrichment: daily OHLC bars, realized vol, corporate actions,
+// and (for ETFs) fund profile + top holdings. These tables are newer than the
+// chain data, so each query is isolated and degrades to empty on failure.
 // OHLC is append-only across daily runs, so rows are deduped per (symbol,date)
 // keeping the newest run; bars come back newest-first and are flipped to
 // ascending for the chart.
@@ -409,9 +407,10 @@ function enrichQuery(env: Env, symbol: string, kind: string, sql: string, key: s
 
 async function enrichSymbol(env: Env, symbol: string): Promise<{
   ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
+  etf_profile: Row | null; etf_holdings: Row[];
 }> {
   const sym = lit(symbol);
-  const [ohlcRows, rvRows, caRows] = await Promise.all([
+  const [ohlcRows, rvRows, caRows, etfProfileRows, etfHoldingRows] = await Promise.all([
     enrichQuery(env, symbol, "ohlc",
       `SELECT date, open, high, low, close, volume FROM (` +
       `  SELECT date, open, high, low, close, volume,` +
@@ -433,6 +432,22 @@ async function enrichSymbol(env: Env, symbol: string): Promise<{
       `  FROM options.corporate_actions WHERE ticker = ${sym}` +
       `) WHERE rn = 1 ORDER BY ex_date DESC LIMIT 8`,
       `sym_ca_${symbol}`),
+    enrichQuery(env, symbol, "etf_profile",
+      `SELECT ticker, name, family, category, asset_class, expense_ratio, net_expense_ratio,` +
+      `  net_assets, trailing_yield, inception_date FROM (` +
+      `  SELECT ticker, name, family, category, asset_class, expense_ratio, net_expense_ratio,` +
+      `    net_assets, trailing_yield, inception_date,` +
+      `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+      `  FROM options.etf_profiles WHERE ticker = ${sym}` +
+      `) WHERE rn = 1`,
+      `sym_etf_${symbol}`),
+    enrichQuery(env, symbol, "etf_holdings",
+      `SELECT rank, holding_symbol, holding_name, weight FROM (` +
+      `  SELECT rank, holding_symbol, holding_name, weight,` +
+      `    ROW_NUMBER() OVER (PARTITION BY ticker, rank ORDER BY fetched_at DESC, run_id DESC) rn` +
+      `  FROM options.etf_holdings WHERE ticker = ${sym}` +
+      `) WHERE rn = 1 ORDER BY rank LIMIT 15`,
+      `sym_etfh_${symbol}`),
   ]);
   return {
     ohlc: (ohlcRows as Row[]).map((r) => ({
@@ -454,6 +469,24 @@ async function enrichSymbol(env: Env, symbol: string): Promise<{
       denominator: numOrNull(r.denominator),
       amount: numOrNull(r.amount),
     })),
+    etf_profile: etfProfileRows.length ? {
+      ticker: String(etfProfileRows[0].ticker),
+      name: strOrNull(etfProfileRows[0].name),
+      family: strOrNull(etfProfileRows[0].family),
+      category: strOrNull(etfProfileRows[0].category),
+      asset_class: strOrNull(etfProfileRows[0].asset_class),
+      expense_ratio: numOrNull(etfProfileRows[0].expense_ratio),
+      net_expense_ratio: numOrNull(etfProfileRows[0].net_expense_ratio),
+      net_assets: numOrNull(etfProfileRows[0].net_assets),
+      trailing_yield: numOrNull(etfProfileRows[0].trailing_yield),
+      inception_date: strOrNull(etfProfileRows[0].inception_date),
+    } : null,
+    etf_holdings: (etfHoldingRows as Row[]).map((r) => ({
+      rank: numOrNull(r.rank),
+      holding_symbol: strOrNull(r.holding_symbol),
+      holding_name: strOrNull(r.holding_name),
+      weight: numOrNull(r.weight),
+    })),
   };
 }
 
@@ -461,10 +494,11 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
   underlying: { symbol: string; name: string | null; sector: string | null; spot: number | null; fetched_at: string | null } | null;
   contracts: Row[]; expirations: string[]; n_contracts: number; liquid: boolean;
   ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
+  etf_profile: Row | null; etf_holdings: Row[];
 }> {
   const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`, "symu_" + symbol, QUERY_TTL_MS);
   if (!u.length) {
-    return { underlying: null, contracts: [], expirations: [], n_contracts: 0, liquid: false, ohlc: [], realized_vol: null, corporate_actions: [] };
+    return { underlying: null, contracts: [], expirations: [], n_contracts: 0, liquid: false, ohlc: [], realized_vol: null, corporate_actions: [], etf_profile: null, etf_holdings: [] };
   }
   const ud = u[0];
   // contracts for the latest run of this symbol + enrichment, in parallel.
@@ -492,6 +526,8 @@ async function symbolDetail(env: Env, symbol: string): Promise<{
     ohlc: enrich.ohlc,
     realized_vol: enrich.realized_vol,
     corporate_actions: enrich.corporate_actions,
+    etf_profile: enrich.etf_profile,
+    etf_holdings: enrich.etf_holdings,
   };
 }
 

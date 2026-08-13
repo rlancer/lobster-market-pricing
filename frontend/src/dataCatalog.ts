@@ -249,6 +249,18 @@ export const FEEDS: CatalogItem[] = [
     tools: ['run_query'],
   },
   {
+    id: 'feed:yahoo-etf',
+    kind: 'feed',
+    title: 'Yahoo ETF profiles',
+    summary: 'Expense ratio, AUM, yield, and top-10 holdings',
+    description:
+      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe. Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
+    provider: 'Yahoo Finance',
+    cadence: 'Daily (etf-daily job)',
+    tables: ['etf_profiles', 'etf_holdings'],
+    tools: ['run_query'],
+  },
+  {
     id: 'feed:nasdaq',
     kind: 'feed',
     title: 'Nasdaq earnings calendar',
@@ -329,6 +341,20 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
     description:
       'valid_from / valid_to / is_current rows so a rename does not orphan historical OHLC or corporate actions.',
     feeds: ['openfigi'],
+    tools: ['run_query'],
+  },
+  etf_profiles: {
+    summary: 'ETF expense ratio, AUM, yield, and fund family',
+    description:
+      'One row per ETF: family, category, asset class, expense_ratio, net_assets, trailing_yield, inception_date. Newest run wins per ticker. Join to option_contracts on ticker/symbol for ETF-vs-single-stock screens.',
+    feeds: ['yahoo-etf'],
+    tools: ['run_query'],
+  },
+  etf_holdings: {
+    summary: 'Top holdings and weights per ETF',
+    description:
+      'Ranked constituents (holding_symbol, holding_name, weight) for each ETF. Chat joins this to chains when concentration or “what does QQQ hold?” is part of the question.',
+    feeds: ['yahoo-etf'],
     tools: ['run_query'],
   },
   earnings: {

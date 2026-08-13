@@ -197,7 +197,7 @@ can land in an answer:
 
 - Copilot tools (`run_query`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
-  Tavily news/search, Yahoo OHLC, Nasdaq earnings, OpenFIGI)
+  Tavily news/search, Yahoo OHLC + ETF profiles/holdings, Nasdaq earnings, OpenFIGI)
 - Iceberg lake tables with live row counts, columns, and sample rows
 - A read-only SQL editor (`POST /api/query`) — the same path Chat uses
 
