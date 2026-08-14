@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, IconButton, Popover, Text, VStack } from '@astryxdesign/core';
+import { Button, Popover, Text, Tooltip, VStack } from '@astryxdesign/core';
 import { LogOut } from 'lucide-react';
 import { api } from './api';
 import { authClient, signInWithGoogle, signOut } from './auth';
@@ -68,13 +68,11 @@ export function AuthControls() {
         </VStack>
       }
     >
-      <IconButton
-        variant="ghost"
-        size="md"
-        label="Account"
-        tooltip="Account"
-        icon={<ProfileSunglasses className="topbar-profile-icon" />}
-      />
+      <Tooltip content="Account" hasHoverIndication={false}>
+        <button type="button" className="topbar-profile" aria-label="Account">
+          <ProfileSunglasses className="topbar-profile-icon" />
+        </button>
+      </Tooltip>
     </Popover>
   );
 }
