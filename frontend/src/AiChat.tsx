@@ -18,9 +18,9 @@ import {
   Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
-import { LogOut, Share2, SquarePen, Trash2 } from 'lucide-react';
+import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
-import { authClient, signInWithGoogle, signOut } from './auth';
+import { authClient } from './auth';
 import { notifyChatsChanged, rememberChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -217,7 +217,7 @@ function projectTools(message: CopilotMessage | undefined): ToolRow[] {
   });
 }
 
-function ChatAuthControls({
+function ChatDeleteControl({
   chatId,
   onNewChat,
 }: {
@@ -226,63 +226,21 @@ function ChatAuthControls({
 }) {
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
-  const [googleEnabled, setGoogleEnabled] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    api.health().then((health) => {
-      if (active) setGoogleEnabled(Boolean(health.auth?.google));
-    }).catch(() => {
-      if (active) setGoogleEnabled(false);
-    });
-    return () => { active = false; };
-  }, []);
-
-  if (isPending) return null;
-
-  if (!user) {
-    if (!googleEnabled) return null;
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        label="Sign in"
-        onClick={() => {
-          void signInWithGoogle().catch((err) => {
-            console.error("Google sign-in failed", err);
-          });
-        }}
-      />
-    );
-  }
-
+  if (isPending || !user) return null;
   return (
-    <section className="ai-head-auth">
-      <Tooltip content={user.email || user.name} hasHoverIndication={false}>
-        <span className="ai-user-name">{user.name || user.email}</span>
-      </Tooltip>
-      <IconButton
-        variant="ghost"
-        size="sm"
-        label="Remove from saved chats"
-        icon={<Trash2 size={16} />}
-        tooltip="Remove from saved chats"
-        onClick={() => {
-          void api.deleteChat(chatId).then(() => {
-            notifyChatsChanged();
-            onNewChat();
-          }).catch(() => { /* keep the chat so the user can retry */ });
-        }}
-      />
-      <IconButton
-        variant="ghost"
-        size="sm"
-        label="Sign out"
-        icon={<LogOut size={16} />}
-        tooltip="Sign out"
-        onClick={() => { void signOut(); }}
-      />
-    </section>
+    <IconButton
+      variant="ghost"
+      size="sm"
+      label="Remove from saved chats"
+      icon={<Trash2 size={16} />}
+      tooltip="Remove from saved chats"
+      onClick={() => {
+        void api.deleteChat(chatId).then(() => {
+          notifyChatsChanged();
+          onNewChat();
+        }).catch(() => { /* keep the chat so the user can retry */ });
+      }}
+    />
   );
 }
 
@@ -554,8 +512,8 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
-        <ChatAuthControls chatId={chatId} onNewChat={onNewChat} />
         <section className="ai-head-actions">
+          <ChatDeleteControl chatId={chatId} onNewChat={onNewChat} />
           <IconButton
             variant="ghost"
             size="sm"

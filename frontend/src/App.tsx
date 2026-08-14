@@ -13,6 +13,7 @@ import {
 import { BookOpen, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
+import { AuthControls } from './AuthControls';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type Stats, type UserChat } from './api';
@@ -241,6 +242,7 @@ function Layout() {
                 </Link>
               </Tooltip>
             </section>
+            <AuthControls />
           </HStack>
         )}
       >

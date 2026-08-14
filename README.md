@@ -120,7 +120,9 @@ cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 ### Worker — Better Auth (optional Copilot login)
 
 Chat stays anonymous by default. Google OAuth is optional so a signed-in user
-can reopen past conversations from the left nav. A chat is cataloged onto the
+can reopen past conversations from the left nav. Sign in / Sign out live in
+the app header so the account is available on every workspace page, not only
+Copilot. A chat is cataloged onto the
 user when they send a real turn (or when they sign in on a chat that already
 has a transcript) — not when they merely open a new empty UUID. Identity is
 Better Auth on the existing Worker D1 (`SCHEMA_DB` / `screener-schema-cache`). The
