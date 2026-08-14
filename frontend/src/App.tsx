@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useState, type ComponentProps } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import {
   AppShell,
@@ -17,7 +17,7 @@ import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
-import { CHATS_CHANGED_EVENT, chatPath, parseChatId } from './chatSession';
+import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -65,22 +65,26 @@ function ChatNavItem({
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
   const [chats, setChats] = useState<UserChat[] | null>(null);
+  const loadSeqRef = useRef(0);
 
   const loadChats = useCallback(() => {
     if (!user) {
       setChats(null);
       return;
     }
+    const seq = ++loadSeqRef.current;
     api.myChats().then((response) => {
-      setChats(response.items);
+      if (seq !== loadSeqRef.current) return;
+      setChats(sortUserChats(response.items));
     }).catch(() => {
+      if (seq !== loadSeqRef.current) return;
       setChats([]);
     });
   }, [user]);
 
   useEffect(() => {
     loadChats();
-  }, [loadChats, activeChatId]);
+  }, [loadChats]);
 
   useEffect(() => {
     const onChanged = () => { loadChats(); };
@@ -88,10 +92,12 @@ function ChatNavItem({
     return () => window.removeEventListener(CHATS_CHANGED_EVENT, onChanged);
   }, [loadChats]);
 
+  const hasHistory = Boolean(chats && chats.length > 0);
+
   return (
     <SideNavItem
       as={RouterLink}
-      href={activeChatId ? chatPath(activeChatId) : '/'}
+      href={hasHistory ? undefined : (activeChatId ? chatPath(activeChatId) : '/')}
       label="Chat"
       icon={Sparkles}
       isSelected={isSelected}
@@ -106,7 +112,10 @@ function ChatNavItem({
               label={chat.title || 'Untitled chat'}
               size="sm"
               isSelected={activeChatId === chat.chat_id}
-              onClick={onNavigate}
+              onClick={(event) => {
+                event.stopPropagation();
+                onNavigate();
+              }}
             />
           ))
         : null}

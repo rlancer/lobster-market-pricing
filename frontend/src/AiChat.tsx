@@ -238,15 +238,6 @@ function ChatAuthControls({
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    api.claimChat(chatId).then(() => {
-      notifyChatsChanged();
-    }).catch(() => {
-      // Claiming is best-effort; a later history save retries.
-    });
-  }, [user, chatId]);
-
   if (isPending) return null;
 
   if (!user) {
@@ -351,7 +342,11 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
+  const restoredIdsRef = useRef<Set<string> | null>(null);
+  const claimedRef = useRef(false);
   const navigate = useNavigate();
+  const { data: session } = authClient.useSession();
+  const user = session?.user ?? null;
   const host = API_BASE ? new URL(API_BASE).host : window.location.host;
   const agent = useAgent({
     agent: 'CopilotAgent',
@@ -378,6 +373,10 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     throttle: 80,
     resume: true,
     cancelOnClientAbort: false,
+    // Pages (dev.lobster.mp) and the Agent (api-dev.lobster.mp) are different
+    // origins. Default fetch credentials omit the session cookie, so owned
+    // history 401s and the UI looks like a blank welcome chat.
+    credentials: 'include',
     body: () => ({ origin: window.location.origin }),
     onData: (part) => {
       if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
@@ -439,11 +438,31 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     }
   }, [chatId]);
 
+  const firstUserTurn = projectedMessages.find((message) => message.role === 'user' && message.content.trim())?.content.trim() ?? null;
+  useEffect(() => {
+    if (!user || !firstUserTurn || claimedRef.current) return;
+    claimedRef.current = true;
+    api.claimChat(chatId, firstUserTurn).then((result) => {
+      if (result.created) notifyChatsChanged();
+    }).catch(() => {
+      claimedRef.current = false;
+    });
+  }, [user, chatId, firstUserTurn]);
+
   useEffect(() => {
     if (busy) return;
+    if (restoredIdsRef.current === null) {
+      restoredIdsRef.current = new Set(projectedMessages.map((message) => message.id));
+      for (const id of restoredIdsRef.current) capturedIdsRef.current.add(id);
+      if (restoredIdsRef.current.size > 0) {
+        sessionStorage.setItem(CAPTURED_IDS_PREFIX + chatId, JSON.stringify([...capturedIdsRef.current].slice(-100)));
+      }
+      return;
+    }
     for (let index = 0; index < projectedMessages.length; index++) {
       const assistant = projectedMessages[index];
       if (assistant.role !== 'assistant' || !assistant.content || capturedIdsRef.current.has(assistant.id)) continue;
+      if (restoredIdsRef.current.has(assistant.id)) continue;
       const turns: ChatHistoryMessage[] = projectedMessages.slice(0, index + 1).map((message) => ({
         role: message.role,
         content: message.content,

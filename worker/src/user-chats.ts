@@ -25,6 +25,19 @@ export function parseChatId(value: unknown): string | null {
   return CHAT_ID_RE.test(id) ? id : null;
 }
 
+/** Newest activity first. Ties break on created_at, then chat_id, so the list does not jitter. */
+export function compareUserChats(a: UserChatRow, b: UserChatRow): number {
+  if (b.updated_at !== a.updated_at) return b.updated_at - a.updated_at;
+  if (b.created_at !== a.created_at) return b.created_at - a.created_at;
+  if (a.chat_id < b.chat_id) return 1;
+  if (a.chat_id > b.chat_id) return -1;
+  return 0;
+}
+
+export function sortUserChats(rows: UserChatRow[]): UserChatRow[] {
+  return [...rows].sort(compareUserChats);
+}
+
 export function titleFromMessages(messages: unknown, fallback?: string | null): string | null {
   if (typeof fallback === "string" && fallback.trim()) return fallback.trim().slice(0, TITLE_MAX);
   if (!Array.isArray(messages)) return null;
@@ -86,19 +99,28 @@ export async function listUserChats(db: D1Database, userId: string): Promise<Use
     `SELECT chat_id, title, created_at, updated_at
      FROM user_chats
      WHERE user_id = ?1 AND deleted_at IS NULL
-     ORDER BY updated_at DESC
+     ORDER BY updated_at DESC, created_at DESC, chat_id DESC
      LIMIT ?2`,
   ).bind(userId, LIST_LIMIT).all<UserChatRow>();
-  return rows.results ?? [];
+  return sortUserChats(rows.results ?? []);
 }
 
-export type ClaimResult = { ok: true; chat_id: string; title: string | null } | { ok: false; status: 400 | 409; error: string };
+export type ClaimResult =
+  | { ok: true; chat_id: string; title: string | null; created: boolean }
+  | { ok: false; status: 400 | 409; error: string };
 
+/**
+ * Catalog a chat onto the signed-in user.
+ * Opening/claiming an already-owned row must not bump `updated_at` — that
+ * timestamp is recency, and only a saved turn (`touch`) or an explicit rename
+ * should move a row to the top of history.
+ */
 export async function claimChat(
   db: D1Database,
   userId: string,
   chatId: string,
   title: string | null,
+  opts: { touch?: boolean } = {},
 ): Promise<ClaimResult> {
   const now = Date.now();
   const existing = await ownerOf(db, chatId);
@@ -106,23 +128,36 @@ export async function claimChat(
     return { ok: false, status: 409, error: "chat is owned by another user" };
   }
   if (existing) {
-    await db.prepare(
-      `UPDATE user_chats
-       SET deleted_at = NULL,
-           updated_at = ?1,
-           title = COALESCE(?2, title)
-       WHERE chat_id = ?3 AND user_id = ?4`,
-    ).bind(now, title, chatId, userId).run();
-  } else {
-    await db.prepare(
-      `INSERT INTO user_chats (chat_id, user_id, title, created_at, updated_at, deleted_at)
-       VALUES (?1, ?2, ?3, ?4, ?4, NULL)`,
-    ).bind(chatId, userId, title, now).run();
+    const created = existing.deleted_at != null;
+    if (opts.touch) {
+      await db.prepare(
+        `UPDATE user_chats
+         SET deleted_at = NULL,
+             updated_at = ?1,
+             title = COALESCE(?2, title)
+         WHERE chat_id = ?3 AND user_id = ?4`,
+      ).bind(now, title, chatId, userId).run();
+    } else {
+      await db.prepare(
+        `UPDATE user_chats
+         SET deleted_at = NULL,
+             title = COALESCE(?1, title)
+         WHERE chat_id = ?2 AND user_id = ?3`,
+      ).bind(title, chatId, userId).run();
+    }
+    const row = await db.prepare(
+      "SELECT title FROM user_chats WHERE chat_id = ?1 AND user_id = ?2",
+    ).bind(chatId, userId).first<{ title: string | null }>();
+    return { ok: true, chat_id: chatId, title: row?.title ?? title, created };
   }
+  await db.prepare(
+    `INSERT INTO user_chats (chat_id, user_id, title, created_at, updated_at, deleted_at)
+     VALUES (?1, ?2, ?3, ?4, ?4, NULL)`,
+  ).bind(chatId, userId, title, now).run();
   const row = await db.prepare(
     "SELECT title FROM user_chats WHERE chat_id = ?1 AND user_id = ?2",
   ).bind(chatId, userId).first<{ title: string | null }>();
-  return { ok: true, chat_id: chatId, title: row?.title ?? title };
+  return { ok: true, chat_id: chatId, title: row?.title ?? title, created: true };
 }
 
 /** Best-effort catalog upsert used when a signed-in turn is captured. Never throws. */
@@ -133,7 +168,7 @@ export async function touchUserChat(
   title: string | null,
 ): Promise<void> {
   try {
-    await claimChat(db, userId, chatId, title);
+    await claimChat(db, userId, chatId, title, { touch: true });
   } catch (error) {
     console.error("user_chats upsert failed", error);
   }

@@ -120,8 +120,10 @@ cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 ### Worker — Better Auth (optional Copilot login)
 
 Chat stays anonymous by default. Google OAuth is optional so a signed-in user
-can reclaim the current conversation and reopen it later. Identity is Better
-Auth on the existing Worker D1 (`SCHEMA_DB` / `screener-schema-cache`). The
+can reopen past conversations from the left nav. A chat is cataloged onto the
+user when they send a real turn (or when they sign in on a chat that already
+has a transcript) — not when they merely open a new empty UUID. Identity is
+Better Auth on the existing Worker D1 (`SCHEMA_DB` / `screener-schema-cache`). The
 session is an HttpOnly, Secure, SameSite=Lax cookie; the Worker is the only
 thing that ever writes `user_id`.
 
@@ -215,8 +217,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 | `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
-| `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`). 401 if anonymous. |
-| `POST /api/chats/claim` | Claim the current `chat_id` onto the session user. Idempotent for the owner; 409 if another user already owns it. |
+| `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`), newest activity first. 401 if anonymous. |
+| `POST /api/chats/claim` | Catalog `chat_id` onto the session user. Idempotent for the owner and does **not** bump `updated_at` (opening a chat is not activity). 409 if another user already owns it. Recency is updated by a saved turn (`POST /api/chat/history`) or `PATCH` rename. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
 | `DELETE /api/chats/{id}` | Soft-delete a saved chat (hidden from the list; ownership remains so the Durable Object stays locked). |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url}`) |
@@ -278,9 +280,11 @@ Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The active UUID lives in the
 URL (`/chat/{id}`) and in `sessionStorage`, so a reload reconnects
 `useAgentChat` (`resume: true`) to the same instance and restores the turn.
-Anonymous chats stay UUID-capability. Signing in with Google claims the
-current `chat_id` onto that user in D1 `user_chats` and lists saved chats
-under Chat in the left nav; opening one navigates to `/chat/{id}`. Later
+Anonymous chats stay UUID-capability. Signing in with Google catalogs chats
+that already have a user turn onto that user in D1 `user_chats` and lists them
+under Chat in the left nav; opening one navigates to `/chat/{id}` and restores
+the Durable Object transcript (the Agent HTTP fetch sends the session cookie).
+Empty new-chat UUIDs stay off the list until the first user turn. Later
 signed-in chats inherit the owner. Once owned,
 `/agents/copilot-agent/{id}` requires a matching session — the Worker never
 accepts `user_id` from the client. `options.chat_history` stays admin/analytics

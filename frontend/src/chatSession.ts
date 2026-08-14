@@ -11,6 +11,22 @@ export function parseChatId(value: unknown): string | null {
   return CHAT_ID_RE.test(id) ? id : null;
 }
 
+/** Newest activity first. Ties break on created_at, then chat_id. */
+export function compareUserChats(
+  a: { chat_id: string; created_at: number; updated_at: number },
+  b: { chat_id: string; created_at: number; updated_at: number },
+): number {
+  if (b.updated_at !== a.updated_at) return b.updated_at - a.updated_at;
+  if (b.created_at !== a.created_at) return b.created_at - a.created_at;
+  if (a.chat_id < b.chat_id) return 1;
+  if (a.chat_id > b.chat_id) return -1;
+  return 0;
+}
+
+export function sortUserChats<T extends { chat_id: string; created_at: number; updated_at: number }>(items: T[]): T[] {
+  return [...items].sort(compareUserChats);
+}
+
 export function chatPath(chatId: string): string {
   return `/chat/${chatId}`;
 }
