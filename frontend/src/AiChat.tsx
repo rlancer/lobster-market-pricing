@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
@@ -347,6 +347,51 @@ function ChatAuthControls({
   );
 }
 
+function TurnProgress({
+  status,
+  reasoning,
+  tools,
+  writing,
+  onStop,
+  thinkingRef,
+}: {
+  status: string;
+  reasoning: string;
+  tools: ToolRow[];
+  writing: boolean;
+  onStop: () => void;
+  thinkingRef: RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div className="ai-busy">
+      <div className="ai-busy-head"><Spinner size="md" /><span className="ai-busy-status">{status}</span>
+        <button className="ai-stop" type="button" onClick={onStop} aria-label="Stop generating">Stop</button>
+      </div>
+      {reasoning && (
+        <details className="ai-thinking" open>
+          <summary>Thinking</summary>
+          <div className="ai-thinking-body" ref={thinkingRef}>{reasoning}</div>
+        </details>
+      )}
+      {tools.length > 0 && (
+        <div className="ai-tool-feed">
+          {tools.map((toolRow) => (
+            <div className={`ai-tool-row${toolRow.ok === null ? '' : toolRow.ok ? ' ok' : ' fail'}`} key={toolRow.callId}>
+              <span className="ai-tool-name">
+                <span className="ai-tool-state" aria-hidden="true">{toolRow.ok === null ? <Spinner size="sm" shade="subtle" /> : toolRow.ok ? '✓' : '✗'}</span>
+                {toolRow.display}
+              </span>
+              {toolRow.args && <code className="ai-tool-args">{toolRow.args}</code>}
+              {toolRow.ok !== null && toolRow.summary && <span className="ai-tool-summary" title={toolRow.summary}>{toolRow.summary}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {writing && <div className="ai-busy-writing">Writing answer…</div>}
+    </div>
+  );
+}
+
 function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNewChat: () => void; onOpenChat: (chatId: string) => void }) {
   const [input, setInput] = useState('');
   const [progressStatus, setProgressStatus] = useState('');
@@ -404,9 +449,14 @@ function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNe
     });
   }, [messages]);
   const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
-  const reasoning = latestAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
-  const tools = projectTools(latestAssistant);
-  const writing = Boolean(latestAssistant?.parts.some((part) => part.type === 'text' && part.text));
+  const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+  const liveAssistant = busy && lastUserIndex >= 0
+    ? messages.slice(lastUserIndex + 1).find((message) => message.role === 'assistant')
+    : undefined;
+  const liveAssistantId = liveAssistant?.id;
+  const reasoning = liveAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
+  const tools = projectTools(liveAssistant);
+  const writing = Boolean(liveAssistant?.parts.some((part) => part.type === 'text' && part.text));
   const visibleError = chatError?.message ?? connectionError?.message;
   const status = isRecovering
     ? 'Recovering interrupted answer…'
@@ -591,58 +641,71 @@ function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNe
           </section>
         )}
 
-        {projectedMessages.map((message) => (
-          <div key={message.id} className={`ai-msg ai-${message.role}`}>
-            {message.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
-            <div className="ai-bubble">
-              {message.content && (
-                message.role === 'assistant'
-                  ? <div className="ai-text"><Markdown>{message.content}</Markdown></div>
-                  : <div className="ai-text">{message.content}</div>
-              )}
-              {message.role === 'assistant' && message.reasoning && (
-                <details className="ai-thinking ai-thinking-done">
-                  <summary>Thinking</summary>
-                  <div className="ai-thinking-body">{message.reasoning}</div>
-                </details>
-              )}
-              {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
-              {message.sql && (
-                <div className="ai-sql">
-                  <div className="ai-sql-head">
-                    <span>SQL</span>
-                    <span className="ai-sql-actions">
-                      <CopyButton text={message.sql} />
-                      <Tooltip content="Open in Data" hasHoverIndication={false}>
-                        <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
-                      </Tooltip>
-                    </span>
-                  </div>
-                  <pre>{message.sql}</pre>
-                </div>
-              )}
-              {message.result && (
-                message.chart ? (
-                  <details className="ai-result-details">
-                    <summary>Query result ({message.result.row_count.toLocaleString()} rows)</summary>
-                    <ResultTable result={message.result} />
+        {projectedMessages.map((message) => {
+          const isLive = message.role === 'assistant' && message.id === liveAssistantId;
+          return (
+            <div key={message.id} className={`ai-msg ai-${message.role}`}>
+              {message.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
+              <div className="ai-bubble">
+                {isLive && (
+                  <TurnProgress
+                    status={status}
+                    reasoning={reasoning}
+                    tools={tools}
+                    writing={writing && !message.content}
+                    onStop={stop}
+                    thinkingRef={thinkingRef}
+                  />
+                )}
+                {message.content && (
+                  message.role === 'assistant'
+                    ? <div className="ai-text"><Markdown>{message.content}</Markdown></div>
+                    : <div className="ai-text">{message.content}</div>
+                )}
+                {message.role === 'assistant' && message.reasoning && !isLive && (
+                  <details className="ai-thinking ai-thinking-done">
+                    <summary>Thinking</summary>
+                    <div className="ai-thinking-body">{message.reasoning}</div>
                   </details>
-                ) : (
-                  <ResultTable result={message.result} />
-                )
-              )}
-              {message.role === 'assistant' && !message.content && (message.sql || message.result || message.chart) && (
-                <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
-              )}
-              {message.role === 'assistant' && (message.ts !== undefined || message.model) && (
-                <ChatMessageMetadata
-                  timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
-                  footer={message.model}
-                />
-              )}
+                )}
+                {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
+                {message.sql && (
+                  <div className="ai-sql">
+                    <div className="ai-sql-head">
+                      <span>SQL</span>
+                      <span className="ai-sql-actions">
+                        <CopyButton text={message.sql} />
+                        <Tooltip content="Open in Data" hasHoverIndication={false}>
+                          <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
+                        </Tooltip>
+                      </span>
+                    </div>
+                    <pre>{message.sql}</pre>
+                  </div>
+                )}
+                {message.result && (
+                  message.chart ? (
+                    <details className="ai-result-details">
+                      <summary>Query result ({message.result.row_count.toLocaleString()} rows)</summary>
+                      <ResultTable result={message.result} />
+                    </details>
+                  ) : (
+                    <ResultTable result={message.result} />
+                  )
+                )}
+                {message.role === 'assistant' && !isLive && !message.content && (message.sql || message.result || message.chart) && (
+                  <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
+                )}
+                {message.role === 'assistant' && !isLive && (message.ts !== undefined || message.model) && (
+                  <ChatMessageMetadata
+                    timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
+                    footer={message.model}
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {visibleError && !busy && (
           <div className="ai-msg ai-assistant">
@@ -651,34 +714,18 @@ function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNe
           </div>
         )}
 
-        {busy && (
+        {busy && !liveAssistantId && (
           <div className="ai-msg ai-assistant">
-            <span className="ai-msg-mark" aria-hidden="true">✦</span>
-            <div className="ai-bubble ai-busy">
-              <div className="ai-busy-head"><Spinner size="md" /><span className="ai-busy-status">{status}</span>
-                <button className="ai-stop" type="button" onClick={stop} aria-label="Stop generating">Stop</button>
-              </div>
-              {reasoning && (
-                <details className="ai-thinking" open={busy}>
-                  <summary>Thinking</summary>
-                  <div className="ai-thinking-body" ref={thinkingRef}>{reasoning}</div>
-                </details>
-              )}
-              {tools.length > 0 && (
-                <div className="ai-tool-feed">
-                  {tools.map((toolRow) => (
-                    <div className={`ai-tool-row${toolRow.ok === null ? '' : toolRow.ok ? ' ok' : ' fail'}`} key={toolRow.callId}>
-                      <span className="ai-tool-name">
-                        <span className="ai-tool-state" aria-hidden="true">{toolRow.ok === null ? <Spinner size="sm" shade="subtle" /> : toolRow.ok ? '✓' : '✗'}</span>
-                        {toolRow.display}
-                      </span>
-                      {toolRow.args && <code className="ai-tool-args">{toolRow.args}</code>}
-                      {toolRow.ok !== null && toolRow.summary && <span className="ai-tool-summary" title={toolRow.summary}>{toolRow.summary}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {writing && <div className="ai-busy-writing">Writing answer…</div>}
+            <span className="ai-msg-mark" aria-hidden="true">λ</span>
+            <div className="ai-bubble">
+              <TurnProgress
+                status={status}
+                reasoning={reasoning}
+                tools={tools}
+                writing={writing}
+                onStop={stop}
+                thinkingRef={thinkingRef}
+              />
             </div>
           </div>
         )}
