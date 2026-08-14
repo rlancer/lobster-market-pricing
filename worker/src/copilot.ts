@@ -10,7 +10,16 @@ import {
   type UIMessage,
 } from "ai";
 import { chartFitsResult, resolveColumn } from "./chart-spec";
-import { COPILOT_TOOL_INPUT_SCHEMAS, FRAME_QUERY_LIMIT, createCopilotModel } from "./copilot-contract";
+import { COPILOT_TOOL_INPUT_SCHEMAS, FRAME_QUERY_LIMIT, LAST_FRAME_NAME, createCopilotModel } from "./copilot-contract";
+import {
+  MAX_TOOL_SUMMARY_CHARS,
+  buildFrameSummary,
+  compileFrameQuery,
+  formatColumnSketch,
+  summarizeResult,
+  type FrameColumnSketch,
+  type FrameQueryArgs,
+} from "./copilot-frames";
 import { validateSqlSchema, type LakeTable } from "./copilot-sql";
 
 export interface CopilotEnv extends Cloudflare.Env {}
@@ -57,13 +66,6 @@ export interface FrameMetadata {
   row_count: number;
   sql: string;
   fetched_at: number;
-}
-
-interface FrameColumnSketch {
-  type: "number" | "string" | "boolean" | "other";
-  min?: number;
-  max?: number;
-  values?: string[];
 }
 
 interface StoredFrame extends FrameMetadata {
@@ -115,7 +117,6 @@ const FRAME_TTL_MS = 15 * 60_000;
 const MAX_FRAMES = 8;
 const MAX_FRAME_ROWS = 100_000;
 const RESULT_PERSIST_MAX_ROWS = 200;
-const MAX_TOOL_SUMMARY_CHARS = 12_000;
 const CONVERSATION_RETENTION_DAYS = 30;
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -174,7 +175,8 @@ function systemPrompt(schema: string): string {
     "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
     "",
     "Cached frames:",
-    "- For one-symbol chains, smiles, surfaces, or OI profiles, call run_query once with save_as and include dte and spot_price. Use list_frames and filter_frame for follow-ups rather than re-querying.",
+    "- run_query always caches the result as frame 'last'. Pass save_as for a named alias. Include dte and spot_price on one-symbol chains. Use list_frames and filter_frame for follow-ups rather than re-querying the lake.",
+    "- filter_frame slices (where/sort/project/limit) or reduces (aggregations avg/sum/count/min/max with optional group_by) via parameterized SQLite on cached rows — ATM IV on a cached chain must not re-hit the lake.",
     "- Frames expire after 15 minutes; refresh_frame re-runs their source SQL.",
     "",
     "Charting:",
@@ -182,227 +184,6 @@ function systemPrompt(schema: string): string {
     "- Prefer a compact aggregated frame (one row per x/series) so the plot is clean. For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
     "- The final message is shown verbatim. Do not repeat chain-of-thought or tool narration; close with a 1-3 sentence takeaway.",
   ].join("\n");
-}
-
-function summarizeResult(result: QueryResult): string {
-  const lines = [`Columns: ${result.columns.join(", ")}`, `Row count: ${result.row_count}`];
-  if (result.rows.length) {
-    lines.push("---", "Rows (pipe-separated):");
-    for (const row of result.rows.slice(0, 30)) {
-      lines.push("  " + result.columns.map((column) => {
-        const value = row[column];
-        if (value == null) return "null";
-        if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(4);
-        const text = String(value);
-        return text.length > 120 ? text.slice(0, 117) + "…" : text;
-      }).join(" | "));
-    }
-    if (result.rows.length > 30) lines.push(`  … (showing 30 of ${result.row_count} rows)`);
-  }
-  return lines.join("\n").slice(0, MAX_TOOL_SUMMARY_CHARS);
-}
-
-function buildFrameSummary(columns: string[], rows: Record<string, unknown>[]): Record<string, FrameColumnSketch> {
-  const result: Record<string, FrameColumnSketch> = {};
-  const sampled = rows.slice(0, 20_000);
-  for (const column of columns) {
-    let type: FrameColumnSketch["type"] = "other";
-    let min: number | undefined;
-    let max: number | undefined;
-    const values = new Set<string>();
-    for (const row of sampled) {
-      const value = row[column];
-      if (value == null) continue;
-      if (typeof value === "number") {
-        if (type === "other") type = "number";
-        min = min === undefined ? value : Math.min(min, value);
-        max = max === undefined ? value : Math.max(max, value);
-      } else if (typeof value === "boolean") {
-        if (type === "other") type = "boolean";
-      } else {
-        if (type === "other") type = "string";
-        if (values.size < 12) values.add(String(value));
-      }
-    }
-    result[column] = { type, ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(values.size ? { values: [...values].sort() } : {}) };
-  }
-  return result;
-}
-
-type ExprNode =
-  | { type: "literal"; value: unknown }
-  | { type: "column"; name: string }
-  | { type: "unary"; op: "!" | "-"; value: ExprNode }
-  | { type: "binary"; op: string; left: ExprNode; right: ExprNode }
-  | { type: "call"; name: string; args: ExprNode[] };
-
-interface ExprToken {
-  type: "number" | "string" | "identifier" | "operator" | "punctuation" | "eof";
-  value: string;
-}
-
-function tokenize(expression: string): ExprToken[] {
-  const tokens: ExprToken[] = [];
-  let i = 0;
-  while (i < expression.length) {
-    const char = expression[i];
-    if (/\s/.test(char)) { i++; continue; }
-    if (char === "'") {
-      let value = "";
-      i++;
-      let closed = false;
-      while (i < expression.length) {
-        if (expression[i] === "'") {
-          if (expression[i + 1] === "'") { value += "'"; i += 2; continue; }
-          i++;
-          closed = true;
-          break;
-        }
-        value += expression[i++];
-      }
-      if (!closed) throw new Error("unterminated string literal");
-      tokens.push({ type: "string", value });
-      continue;
-    }
-    const number = expression.slice(i).match(/^(?:\d+(?:\.\d*)?|\.\d+)/);
-    if (number) {
-      tokens.push({ type: "number", value: number[0] });
-      i += number[0].length;
-      continue;
-    }
-    const identifier = expression.slice(i).match(/^[A-Za-z_][A-Za-z0-9_]*/);
-    if (identifier) {
-      tokens.push({ type: "identifier", value: identifier[0] });
-      i += identifier[0].length;
-      continue;
-    }
-    const two = expression.slice(i, i + 2);
-    if (["<=", ">=", "==", "!=", "&&", "||"].includes(two)) {
-      tokens.push({ type: "operator", value: two });
-      i += 2;
-      continue;
-    }
-    if (["<", ">", "!", "-"].includes(char)) {
-      tokens.push({ type: "operator", value: char });
-      i++;
-      continue;
-    }
-    if (["(", ")", ","].includes(char)) {
-      tokens.push({ type: "punctuation", value: char });
-      i++;
-      continue;
-    }
-    throw new Error(`unsupported expression token '${char}'`);
-  }
-  tokens.push({ type: "eof", value: "" });
-  return tokens;
-}
-
-class ExprParser {
-  private index = 0;
-  constructor(private readonly tokens: ExprToken[], private readonly columns: Set<string>) {}
-
-  parse(): ExprNode {
-    const node = this.parseOr();
-    if (this.peek().type !== "eof") throw new Error(`unexpected token '${this.peek().value}'`);
-    return node;
-  }
-
-  private peek(): ExprToken { return this.tokens[this.index]; }
-  private take(): ExprToken { return this.tokens[this.index++]; }
-  private accept(value: string): boolean {
-    if (this.peek().value !== value) return false;
-    this.index++;
-    return true;
-  }
-  private parseOr(): ExprNode {
-    let node = this.parseAnd();
-    while (this.accept("||")) node = { type: "binary", op: "||", left: node, right: this.parseAnd() };
-    return node;
-  }
-  private parseAnd(): ExprNode {
-    let node = this.parseEquality();
-    while (this.accept("&&")) node = { type: "binary", op: "&&", left: node, right: this.parseEquality() };
-    return node;
-  }
-  private parseEquality(): ExprNode {
-    let node = this.parseComparison();
-    while (["==", "!="].includes(this.peek().value)) {
-      const op = this.take().value;
-      node = { type: "binary", op, left: node, right: this.parseComparison() };
-    }
-    return node;
-  }
-  private parseComparison(): ExprNode {
-    let node = this.parseUnary();
-    while (["<", "<=", ">", ">="].includes(this.peek().value)) {
-      const op = this.take().value;
-      node = { type: "binary", op, left: node, right: this.parseUnary() };
-    }
-    return node;
-  }
-  private parseUnary(): ExprNode {
-    if (this.accept("!")) return { type: "unary", op: "!", value: this.parseUnary() };
-    if (this.accept("-")) return { type: "unary", op: "-", value: this.parseUnary() };
-    return this.parsePrimary();
-  }
-  private parsePrimary(): ExprNode {
-    const token = this.take();
-    if (token.type === "number") return { type: "literal", value: Number(token.value) };
-    if (token.type === "string") return { type: "literal", value: token.value };
-    if (token.value === "(") {
-      const node = this.parseOr();
-      if (!this.accept(")")) throw new Error("missing closing parenthesis");
-      return node;
-    }
-    if (token.type !== "identifier") throw new Error(`unexpected token '${token.value}'`);
-    if (token.value === "true" || token.value === "false") return { type: "literal", value: token.value === "true" };
-    if (token.value === "null") return { type: "literal", value: null };
-    if (this.accept("(")) {
-      if (!["abs", "min", "max", "round"].includes(token.value)) throw new Error(`unknown function '${token.value}'`);
-      const args: ExprNode[] = [];
-      if (!this.accept(")")) {
-        do { args.push(this.parseOr()); } while (this.accept(","));
-        if (!this.accept(")")) throw new Error("missing closing parenthesis");
-      }
-      return { type: "call", name: token.value, args };
-    }
-    if (!this.columns.has(token.value)) throw new Error(`unknown column '${token.value}'`);
-    return { type: "column", name: token.value };
-  }
-}
-
-interface SqlExpr {
-  sql: string;
-  values: SqlValue[];
-}
-
-function jsonPath(column: string): string {
-  return `$.${JSON.stringify(column)}`;
-}
-
-function compileExpr(node: ExprNode): SqlExpr {
-  if (node.type === "literal") {
-    const value = node.value;
-    if (value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-      throw new Error("unsupported literal");
-    }
-    return { sql: "?", values: [value] };
-  }
-  if (node.type === "column") return { sql: "json_extract(row_json, ?)", values: [jsonPath(node.name)] };
-  if (node.type === "unary") {
-    const value = compileExpr(node.value);
-    return { sql: node.op === "!" ? `(NOT (${value.sql}))` : `(-(${value.sql}))`, values: value.values };
-  }
-  if (node.type === "call") {
-    if (!node.args.length) throw new Error(`${node.name} requires an argument`);
-    const args = node.args.map(compileExpr);
-    return { sql: `${node.name}(${args.map((arg) => arg.sql).join(", ")})`, values: args.flatMap((arg) => arg.values) };
-  }
-  const left = compileExpr(node.left);
-  const right = compileExpr(node.right);
-  const operator = node.op === "&&" ? "AND" : node.op === "||" ? "OR" : node.op === "==" ? "IS" : node.op === "!=" ? "IS NOT" : node.op;
-  return { sql: `((${left.sql}) ${operator} (${right.sql}))`, values: [...left.values, ...right.values] };
 }
 
 function boundedMessages(messages: UIMessage[], historyCharsMax: number): ModelMessage[] {
@@ -542,6 +323,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     for (const frame of overflow) this.deleteFrame(frame.name);
   }
 
+  private cacheQueryFrame(result: QueryResult, sql: string, saveAs?: string): string[] {
+    if (result.row_count <= 0) return [];
+    this.saveFrame(LAST_FRAME_NAME, result.columns, result.rows, sql);
+    if (saveAs && saveAs !== LAST_FRAME_NAME) this.saveFrame(saveAs, result.columns, result.rows, sql);
+    const alias = saveAs && saveAs !== LAST_FRAME_NAME ? ` Alias '${saveAs}'.` : "";
+    return [`Cached as frame '${LAST_FRAME_NAME}' (${result.row_count} rows).${alias}`];
+  }
+
   @callable()
   async getFrameMetadata(): Promise<FrameMetadata[]> {
     this.ensureCopilotSchema();
@@ -574,36 +363,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       const columnSummary = columns.map((column) => {
         const sketch = summary[column];
         if (!sketch) return column;
-        if (sketch.type === "number") return `${column}: number ${sketch.min ?? "?"}..${sketch.max ?? "?"}`;
-        if (sketch.type === "string" && sketch.values?.length) return `${column}: string {${sketch.values.join(", ")}}`;
-        return `${column}: ${sketch.type}`;
+        return formatColumnSketch(column, sketch, true);
       }).join(", ");
       return `- '${frame.name}': ${frame.row_count} rows × ${columns.length} cols, age ${age < 1 ? "<1" : age} min — ${columnSummary}`;
     }).join("\n").slice(0, MAX_TOOL_SUMMARY_CHARS);
   }
 
-  private filterFrame(frame: StoredFrame, args: { where?: string; sort?: string; limit?: number; project?: string[] }): QueryResult {
-    const columnSet = new Set(frame.columns);
-    const where = args.where?.trim()
-      ? compileExpr(new ExprParser(tokenize(args.where), columnSet).parse())
-      : { sql: "1", values: [] as SqlValue[] };
-    const sort = args.sort?.trim()
-      ? compileExpr(new ExprParser(tokenize(args.sort), columnSet).parse())
-      : null;
-    const requested = args.project?.filter((column) => columnSet.has(column));
-    const columns = requested?.length ? frame.columns.filter((column) => requested.includes(column)) : frame.columns;
-    const projectionValues: SqlValue[] = [];
-    const projection = requested?.length
-      ? `json_object(${columns.map((column) => {
-        projectionValues.push(column, jsonPath(column));
-        return "?, json_extract(row_json, ?)";
-      }).join(", ")})`
-      : "row_json";
-    const limit = Math.max(0, Math.min(Math.round(args.limit ?? FRAME_QUERY_LIMIT), FRAME_QUERY_LIMIT));
-    const query = `SELECT ${projection} AS row_json FROM frame_rows WHERE frame_name = ? AND (${where.sql})${sort ? ` ORDER BY ${sort.sql}, row_index ASC` : " ORDER BY row_index ASC"} LIMIT ?`;
-    const values: SqlValue[] = [...projectionValues, frame.name, ...where.values, ...(sort?.values ?? []), limit];
-    const rows = this.dynamicSql<{ row_json: string }>(query, values).map((row) => JSON.parse(row.row_json) as Record<string, unknown>);
-    return { columns, rows, row_count: rows.length, truncated: false, limit: rows.length };
+  private filterFrame(frame: StoredFrame, args: FrameQueryArgs): QueryResult {
+    const compiled = compileFrameQuery(frame.columns, frame.name, args);
+    const rows = this.dynamicSql<{ row_json: string }>(compiled.sql, compiled.values).map((row) => JSON.parse(row.row_json) as Record<string, unknown>);
+    return { columns: compiled.columns, rows, row_count: rows.length, truncated: false, limit: rows.length };
   }
 
   private resetTurnBudget(turnId: string, total: number): Capture {
@@ -670,7 +439,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, capture);
     return {
       run_query: tool({
-        description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Pass save_as to cache up to 5000 rows as a per-chat frame for local follow-up filtering.",
+        description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Every successful result is cached as frame 'last' (up to 5000 rows) for local filter/reduce follow-ups. Pass save_as for a named alias.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
         execute: async ({ sql, save_as }) => this.safeTool(TOOL_LABELS.run_query, capture, async () => {
           const issues = validateSqlSchema(sql, tables);
@@ -679,18 +448,18 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             const message = errors.map((issue) => issue.message).join(" ");
             return this.output(false, `Schema validation failed: ${message}`, { error: message });
           }
-          status(save_as ? "Running query & caching rows…" : "Running query…");
-          const result = await this.executeLakeQuery(sql, save_as ? FRAME_QUERY_LIMIT : RESULT_PERSIST_MAX_ROWS);
+          status("Running query…");
+          const result = await this.executeLakeQuery(sql, FRAME_QUERY_LIMIT);
           this.setCapturedResult(capture, result, sql);
           if (result.error) {
             persist();
             return this.output(false, `Query failed: ${result.error}`, { error: result.error, sql, result });
           }
           turn.successfulQuery = true;
-          if (save_as && result.row_count > 0) this.saveFrame(save_as, result.columns, result.rows, sql);
+          const cached = this.cacheQueryFrame(result, sql, save_as);
           persist();
-          const warnings = issues.filter((issue) => issue.severity === "warning").map((issue) => issue.message).join(" ");
-          const summary = `${warnings ? `Schema notes: ${warnings}\n` : ""}${summarizeResult(result)}${save_as && result.row_count > 0 ? `\nSaved frame '${save_as}' (${result.row_count} rows).` : ""}`;
+          const warnings = issues.filter((issue) => issue.severity === "warning").map((issue) => issue.message);
+          const summary = summarizeResult(result, [...(warnings.length ? [`Schema notes: ${warnings.join(" ")}`] : []), ...cached]);
           return this.output(true, summary, { error: null, sql, result, frames: this.frameMetadata() });
         }),
       }),
@@ -708,7 +477,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         execute: async () => this.safeTool(TOOL_LABELS.list_frames, capture, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
       }),
       filter_frame: tool({
-        description: "Filter, sort, project, and limit a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round.",
+        description: "Filter, sort, project, limit, or reduce a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round. aggregations (avg/sum/count/min/max) with optional group_by compile to the same parameterized SQLite path. Use frame 'last' for the most recent run_query result.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame,
         execute: async (args) => this.safeTool(TOOL_LABELS.filter_frame, capture, () => {
           const frame = this.getFrame(args.frame);
@@ -716,14 +485,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           if (Date.now() - frame.fetched_at > FRAME_TTL_MS) {
             return this.output(false, `Frame '${args.frame}' is stale. Call refresh_frame and retry.`, { error: `Frame '${args.frame}' is stale.` });
           }
-          status("Filtering cached data…");
+          const reducing = Boolean(args.aggregations?.length);
+          status(reducing ? "Reducing cached data…" : "Filtering cached data…");
           const result = this.filterFrame(frame, args);
-          const sliceSql = `-- slice of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
+          const sliceSql = `-- ${reducing ? "reduction" : "slice"} of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
           this.setCapturedResult(capture, result, sliceSql);
           turn.successfulQuery = true;
           if (args.save_as && result.row_count > 0) this.saveFrame(args.save_as, result.columns, result.rows, frame.sql);
           persist();
-          return this.output(true, `${summarizeResult(result)}${args.save_as ? `\nSaved frame '${args.save_as}'.` : ""}`, { error: null, sql: sliceSql, result, frames: this.frameMetadata() });
+          const notes = args.save_as ? [`Saved frame '${args.save_as}'.`] : [];
+          return this.output(true, summarizeResult(result, notes), { error: null, sql: sliceSql, result, frames: this.frameMetadata() });
         }),
       }),
       refresh_frame: tool({
@@ -742,7 +513,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           turn.successfulQuery = true;
           if (result.row_count > 0) this.saveFrame(name, result.columns, result.rows, frame.sql);
           persist();
-          return this.output(true, `Refreshed frame '${name}' (${result.row_count} rows).`, { error: null, sql: frame.sql, result, frames: this.frameMetadata() });
+          return this.output(true, summarizeResult(result, [`Refreshed frame '${name}' (${result.row_count} rows).`]), { error: null, sql: frame.sql, result, frames: this.frameMetadata() });
         }),
       }),
       render_chart: tool({

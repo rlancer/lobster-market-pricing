@@ -2,6 +2,13 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { z } from "zod";
 
 export const FRAME_QUERY_LIMIT = 5_000;
+export const LAST_FRAME_NAME = "last";
+
+const frameAggregation = z.object({
+  fn: z.enum(["avg", "sum", "count", "min", "max"]),
+  column: z.string().min(1).optional(),
+  as: z.string().trim().min(1).max(80).optional(),
+}).strict();
 
 export const COPILOT_TOOL_INPUT_SCHEMAS = {
   run_query: z.object({ sql: z.string().min(1), save_as: z.string().trim().min(1).max(80).optional() }).strict(),
@@ -14,6 +21,8 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     limit: z.number().int().min(0).max(FRAME_QUERY_LIMIT).optional(),
     project: z.array(z.string()).max(100).optional(),
     save_as: z.string().trim().min(1).max(80).optional(),
+    group_by: z.array(z.string().min(1)).max(16).optional(),
+    aggregations: z.array(frameAggregation).max(32).optional(),
   }).strict(),
   refresh_frame: z.object({ frame: z.string().trim().min(1) }).strict(),
   render_chart: z.object({
