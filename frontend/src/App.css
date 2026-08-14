@@ -75,24 +75,36 @@ button, select { cursor: pointer; }
   font-family: var(--font-family-code);
   font-size: var(--font-size-xs);
 }
-.docs-link {
+.docs-link,
+.topbar-profile {
   display: grid;
   place-items: center;
   width: var(--size-element-lg);
   height: var(--size-element-lg);
+  padding: var(--spacing-0);
+  border: var(--spacing-0);
   border-radius: var(--radius-full);
+  background: transparent;
   color: var(--muted);
   text-decoration: none;
+  cursor: pointer;
   transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 .docs-link:hover,
-.docs-link.active {
+.docs-link.active,
+.topbar-profile:hover {
   color: var(--accent);
   background: var(--color-accent-muted);
 }
-.docs-link:focus-visible {
+.docs-link:focus-visible,
+.topbar-profile:focus-visible {
   outline: var(--spacing-0-5) solid var(--accent);
   outline-offset: var(--spacing-0-5);
+}
+.topbar-profile-icon {
+  display: block;
+  width: var(--size-element-lg);
+  height: var(--size-element-lg);
 }
 .content {
   min-height: 100%;
@@ -349,7 +361,9 @@ button, select { cursor: pointer; }
   .topbar-tools { gap: var(--spacing-1); }
   .topbar-tools .liq-filter,
   .topbar-tools .monitor-status { display: none; }
-  .docs-link {
+  .docs-link,
+  .topbar-profile,
+  .topbar-profile-icon {
     width: var(--size-element-md);
     height: var(--size-element-md);
   }
