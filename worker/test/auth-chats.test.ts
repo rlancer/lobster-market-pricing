@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cookieDomainFor, isTrustedOrigin, trustedOrigins } from "../src/auth.ts";
-import { copilotAgentChatId, compareUserChats, parseChatId, sortUserChats, titleFromMessages } from "../src/user-chats.ts";
+import { copilotAgentChatId, compareUserChats, historyTitle, parseChatId, sortUserChats, titleFromMessages } from "../src/user-chats.ts";
 
 test("parseChatId accepts UUIDs and rejects junk", () => {
   const id = "3b1d0a2e-7c4f-4a11-9f2d-8e6c1b0a9d77";
@@ -20,6 +20,15 @@ test("copilotAgentChatId reads the Agent instance name", () => {
   assert.equal(copilotAgentChatId("/agents/copilot-agent/nope"), null);
 });
 
+test("historyTitle rejects blank titles so Untitled shells stay out of the list", () => {
+  assert.equal(historyTitle(null), null);
+  assert.equal(historyTitle(undefined), null);
+  assert.equal(historyTitle(""), null);
+  assert.equal(historyTitle("   "), null);
+  assert.equal(historyTitle("Chart NVDA"), "Chart NVDA");
+  assert.equal(historyTitle("  Chart NVDA  "), "Chart NVDA");
+});
+
 test("titleFromMessages uses the first user turn, never client user_id", () => {
   assert.equal(titleFromMessages([{ role: "user", content: "  Chart NVDA smile  " }]), "Chart NVDA smile");
   assert.equal(
@@ -27,6 +36,7 @@ test("titleFromMessages uses the first user turn, never client user_id", () => {
     "second",
   );
   assert.equal(titleFromMessages([], "Saved title"), "Saved title");
+  assert.equal(titleFromMessages([], "  "), null);
   const long = "x".repeat(200);
   assert.equal(titleFromMessages([{ role: "user", content: long }])?.length, 120);
 });
