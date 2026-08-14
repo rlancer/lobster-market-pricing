@@ -92,7 +92,8 @@ function ChatNavItem({
     return () => window.removeEventListener(CHATS_CHANGED_EVENT, onChanged);
   }, [loadChats]);
 
-  const hasHistory = Boolean(chats && chats.length > 0);
+  const history = (chats ?? []).filter((chat): chat is UserChat & { title: string } => Boolean(chat.title?.trim()));
+  const hasHistory = history.length > 0;
 
   return (
     <SideNavItem
@@ -103,13 +104,13 @@ function ChatNavItem({
       isSelected={isSelected}
       onClick={onNavigate}
     >
-      {chats && chats.length > 0
-        ? chats.map((chat) => (
+      {hasHistory
+        ? history.map((chat) => (
             <SideNavItem
               key={chat.chat_id}
               as={RouterLink}
               href={chatPath(chat.chat_id)}
-              label={chat.title || 'Untitled chat'}
+              label={chat.title.trim()}
               size="sm"
               isSelected={activeChatId === chat.chat_id}
               onClick={(event) => {

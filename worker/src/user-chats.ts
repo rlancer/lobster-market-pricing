@@ -38,8 +38,16 @@ export function sortUserChats(rows: UserChatRow[]): UserChatRow[] {
   return [...rows].sort(compareUserChats);
 }
 
+/** Non-empty catalog title, or null. History never lists untitled shells. */
+export function historyTitle(title: string | null | undefined): string | null {
+  if (typeof title !== "string") return null;
+  const trimmed = title.trim().slice(0, TITLE_MAX);
+  return trimmed || null;
+}
+
 export function titleFromMessages(messages: unknown, fallback?: string | null): string | null {
-  if (typeof fallback === "string" && fallback.trim()) return fallback.trim().slice(0, TITLE_MAX);
+  const named = historyTitle(fallback);
+  if (named) return named;
   if (!Array.isArray(messages)) return null;
   for (const message of messages) {
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
@@ -98,7 +106,10 @@ export async function listUserChats(db: D1Database, userId: string): Promise<Use
   const rows = await db.prepare(
     `SELECT chat_id, title, created_at, updated_at
      FROM user_chats
-     WHERE user_id = ?1 AND deleted_at IS NULL
+     WHERE user_id = ?1
+       AND deleted_at IS NULL
+       AND title IS NOT NULL
+       AND TRIM(title) != ''
      ORDER BY updated_at DESC, created_at DESC, chat_id DESC
      LIMIT ?2`,
   ).bind(userId, LIST_LIMIT).all<UserChatRow>();
@@ -114,6 +125,10 @@ export type ClaimResult =
  * Opening/claiming an already-owned row must not bump `updated_at` — that
  * timestamp is recency, and only a saved turn (`touch`) or an explicit rename
  * should move a row to the top of history.
+ *
+ * A new row is created only when there is a real title (first user turn).
+ * Untitled claims are rejected so blank "Untitled chat" shells never land
+ * in the sidebar. Soft-deleted empty rows stay deleted unless a title arrives.
  */
 export async function claimChat(
   db: D1Database,
@@ -122,42 +137,53 @@ export async function claimChat(
   title: string | null,
   opts: { touch?: boolean } = {},
 ): Promise<ClaimResult> {
+  const named = historyTitle(title);
   const now = Date.now();
   const existing = await ownerOf(db, chatId);
   if (existing && existing.user_id !== userId) {
     return { ok: false, status: 409, error: "chat is owned by another user" };
   }
-  if (existing) {
-    const created = existing.deleted_at != null;
-    if (opts.touch) {
-      await db.prepare(
-        `UPDATE user_chats
-         SET deleted_at = NULL,
-             updated_at = ?1,
-             title = COALESCE(?2, title)
-         WHERE chat_id = ?3 AND user_id = ?4`,
-      ).bind(now, title, chatId, userId).run();
-    } else {
-      await db.prepare(
-        `UPDATE user_chats
-         SET deleted_at = NULL,
-             title = COALESCE(?1, title)
-         WHERE chat_id = ?2 AND user_id = ?3`,
-      ).bind(title, chatId, userId).run();
-    }
+  if (!existing) {
+    if (!named) return { ok: false, status: 400, error: "title is required" };
+    await db.prepare(
+      `INSERT INTO user_chats (chat_id, user_id, title, created_at, updated_at, deleted_at)
+       VALUES (?1, ?2, ?3, ?4, ?4, NULL)`,
+    ).bind(chatId, userId, named, now).run();
+    return { ok: true, chat_id: chatId, title: named, created: true };
+  }
+  const resurrect = existing.deleted_at != null;
+  if (resurrect && !named) {
     const row = await db.prepare(
       "SELECT title FROM user_chats WHERE chat_id = ?1 AND user_id = ?2",
     ).bind(chatId, userId).first<{ title: string | null }>();
-    return { ok: true, chat_id: chatId, title: row?.title ?? title, created };
+    return { ok: true, chat_id: chatId, title: historyTitle(row?.title ?? null), created: false };
   }
-  await db.prepare(
-    `INSERT INTO user_chats (chat_id, user_id, title, created_at, updated_at, deleted_at)
-     VALUES (?1, ?2, ?3, ?4, ?4, NULL)`,
-  ).bind(chatId, userId, title, now).run();
+  if (!named && !opts.touch) {
+    const row = await db.prepare(
+      "SELECT title FROM user_chats WHERE chat_id = ?1 AND user_id = ?2",
+    ).bind(chatId, userId).first<{ title: string | null }>();
+    return { ok: true, chat_id: chatId, title: historyTitle(row?.title ?? null), created: false };
+  }
+  if (opts.touch) {
+    await db.prepare(
+      `UPDATE user_chats
+       SET deleted_at = NULL,
+           updated_at = ?1,
+           title = COALESCE(?2, title)
+       WHERE chat_id = ?3 AND user_id = ?4`,
+    ).bind(now, named, chatId, userId).run();
+  } else {
+    await db.prepare(
+      `UPDATE user_chats
+       SET deleted_at = NULL,
+           title = COALESCE(?1, title)
+       WHERE chat_id = ?2 AND user_id = ?3`,
+    ).bind(named, chatId, userId).run();
+  }
   const row = await db.prepare(
     "SELECT title FROM user_chats WHERE chat_id = ?1 AND user_id = ?2",
   ).bind(chatId, userId).first<{ title: string | null }>();
-  return { ok: true, chat_id: chatId, title: row?.title ?? title, created: true };
+  return { ok: true, chat_id: chatId, title: row?.title ?? named, created: resurrect };
 }
 
 /** Best-effort catalog upsert used when a signed-in turn is captured. Never throws. */
