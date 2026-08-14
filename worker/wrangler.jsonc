@@ -38,5 +38,45 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "workers_dev": true,
+  // Sibling hostname under the product domain so the Better Auth session
+  // cookie can be set on `.lobster.mp` and ride between Pages (lobster.mp)
+  // and this Worker. workers.dev stays as a fallback for unauthenticated
+  // API calls; login requires the shared parent domain.
+  "routes": [
+    { "pattern": "api.lobster.mp", "custom_domain": true }
+  ],
+  "env": {
+    "dev": {
+      "name": "screener-api-dev",
+      "workers_dev": true,
+      "vars": {
+        "R2_SQL_ACCOUNT_ID": "3315bb3e7d2e3556bfea6fb3947a890e",
+        "R2_SQL_BUCKET": "cboe-options-data",
+        "CORS_ORIGIN": "*",
+        "LOADER_BASE_URL": "https://cboe-to-r2.robertlancer.workers.dev",
+        "COPILOT_MODEL": "deepseek/deepseek-v4-flash-0731",
+        "COPILOT_REASONING_EFFORT": "high",
+        "COPILOT_MAX_OUTPUT_TOKENS": "8192",
+        "COPILOT_MAX_HISTORY_CHARS": "48000"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "CopilotAgent", "class_name": "CopilotAgent" }
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "SCHEMA_DB",
+          "database_name": "screener-schema-cache",
+          "database_id": "b0efdfb0-9774-45ea-a6f2-e12361bcb4dd",
+          "migrations_dir": "./migrations"
+        }
+      ],
+      "routes": [
+        { "pattern": "api-dev.lobster.mp", "custom_domain": true }
+      ]
+    }
   }
 }

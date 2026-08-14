@@ -24,7 +24,7 @@ description = "Run the screener-api Worker locally on http://127.0.0.1:8787 (rea
 run = "cd worker && npx wrangler dev"
 
 [tasks.worker-deploy]
-description = "Deploy the screener-api Worker to Cloudflare (workers.dev). Set R2_SQL_TOKEN via: cd worker && npx wrangler secret put R2_SQL_TOKEN"
+description = "Deploy the screener-api Worker to Cloudflare (api.lobster.mp + workers.dev). Set R2_SQL_TOKEN via: cd worker && npx wrangler secret put R2_SQL_TOKEN"
 run = "cd worker && npx wrangler deploy"
 
 [tasks.build]

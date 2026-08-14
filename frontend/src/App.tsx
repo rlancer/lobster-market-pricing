@@ -15,7 +15,9 @@ import './App.css';
 import { Sunglasses } from './Sunglasses';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
-import { api, useDbReady, type Stats } from './api';
+import { api, useDbReady, type Stats, type UserChat } from './api';
+import { authClient } from './auth';
+import { CHATS_CHANGED_EVENT, chatPath, parseChatId } from './chatSession';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -41,16 +43,92 @@ const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'D
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
-  ({ href = '/', ...props }, ref) => <Link ref={ref} to={href as '/'} {...props} />,
+  ({ href = '/', ...props }, ref) => {
+    const chatId = parseChatId(href.match(/^\/chat\/([^/?#]+)/)?.[1]);
+    if (chatId) {
+      return <Link ref={ref} to="/chat/$chatId" params={{ chatId }} {...props} />;
+    }
+    return <Link ref={ref} to={href as '/'} {...props} />;
+  },
 );
 RouterLink.displayName = 'RouterLink';
 
-function WorkspaceNavigation({ activeTo }: { activeTo?: string }) {
+function ChatNavItem({
+  isSelected,
+  activeChatId,
+  onNavigate,
+}: {
+  isSelected: boolean;
+  activeChatId: string | null;
+  onNavigate: () => void;
+}) {
+  const { data: session } = authClient.useSession();
+  const user = session?.user ?? null;
+  const [chats, setChats] = useState<UserChat[] | null>(null);
+
+  const loadChats = useCallback(() => {
+    if (!user) {
+      setChats(null);
+      return;
+    }
+    api.myChats().then((response) => {
+      setChats(response.items);
+    }).catch(() => {
+      setChats([]);
+    });
+  }, [user]);
+
+  useEffect(() => {
+    loadChats();
+  }, [loadChats, activeChatId]);
+
+  useEffect(() => {
+    const onChanged = () => { loadChats(); };
+    window.addEventListener(CHATS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(CHATS_CHANGED_EVENT, onChanged);
+  }, [loadChats]);
+
+  return (
+    <SideNavItem
+      as={RouterLink}
+      href={activeChatId ? chatPath(activeChatId) : '/'}
+      label="Chat"
+      icon={Sparkles}
+      isSelected={isSelected}
+      onClick={onNavigate}
+    >
+      {chats && chats.length > 0
+        ? chats.map((chat) => (
+            <SideNavItem
+              key={chat.chat_id}
+              as={RouterLink}
+              href={chatPath(chat.chat_id)}
+              label={chat.title || 'Untitled chat'}
+              size="sm"
+              isSelected={activeChatId === chat.chat_id}
+              onClick={onNavigate}
+            />
+          ))
+        : null}
+    </SideNavItem>
+  );
+}
+
+function WorkspaceNavigation({
+  activeTo,
+  isChat,
+  activeChatId,
+}: {
+  activeTo?: string;
+  isChat: boolean;
+  activeChatId: string | null;
+}) {
   const { closeMobileNav } = useAppShellMobile();
 
   return (
     <SideNav className="workspace-nav">
-      {SECTIONS.map((section) => (
+      <ChatNavItem isSelected={isChat} activeChatId={activeChatId} onNavigate={closeMobileNav} />
+      {SECTIONS.filter((section) => section.to !== '/').map((section) => (
         <SideNavItem
           key={section.to}
           as={RouterLink}
@@ -98,6 +176,8 @@ function Layout() {
   const active = [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
     s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
   );
+  const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
+  const isCopilot = Boolean(activeChatId) || location.pathname === '/' || location.pathname === '/ai';
 
   if (!db.ready) {
     return (
@@ -113,8 +193,7 @@ function Layout() {
 
   const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, updatedAt };
 
-  const navigation = <WorkspaceNavigation activeTo={active?.to} />;
-  const isCopilot = location.pathname === '/' || location.pathname === '/ai';
+  const navigation = <WorkspaceNavigation activeTo={active?.to} isChat={isCopilot} activeChatId={activeChatId} />;
 
   return (
     <WorkspaceContext.Provider value={value}>

@@ -11,6 +11,7 @@ import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
+import { ensureChatId, parseChatId, rememberChatId } from './chatSession';
 
 function MonitorView() {
   return (
@@ -27,9 +28,24 @@ function MonitorView() {
 
 const rootRoute = createRootRoute({ component: App });
 
+function redirectToChat(chatId = ensureChatId()): never {
+  throw redirect({ to: '/chat/$chatId', params: { chatId } });
+}
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  beforeLoad: () => redirectToChat(),
+});
+
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat/$chatId',
+  beforeLoad: ({ params }) => {
+    const chatId = parseChatId(params.chatId);
+    if (!chatId) return redirectToChat();
+    rememberChatId(chatId);
+  },
   component: AiChat,
 });
 
@@ -85,7 +101,7 @@ const symbolRoute = createRoute({
 const aiRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ai',
-  component: AiChat,
+  beforeLoad: () => redirectToChat(),
 });
 
 const monitorRoute = createRoute({
@@ -169,6 +185,7 @@ const docsRoute = docsLayoutRoute.addChildren([
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  chatRoute,
   dataRoute,
   labRoute,
   marketRoute,

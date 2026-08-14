@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types worker-configuration.d.ts --env-interface WorkerBindings",
     "typecheck": "tsc --noEmit",
-    "test:copilot": "node --import tsx --test test/copilot-provider.test.ts test/copilot-validation.test.ts test/copilot-frames.test.ts test/chart-spec.test.ts"
+    "test:copilot": "node --import tsx --test test/copilot-provider.test.ts test/copilot-validation.test.ts test/copilot-frames.test.ts test/chart-spec.test.ts test/auth-chats.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
@@ -20,6 +20,7 @@
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "agents": "^0.20.1",
     "ai": "^7.0.61",
+    "better-auth": "^1.6.27",
     "zod": "^4.4.3"
   }
 }

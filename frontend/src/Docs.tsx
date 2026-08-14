@@ -145,7 +145,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Deep-links into Data so you can inspect the SQL or browse the catalog.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat; opening one goes to /chat/<id>. Anonymous UUID chats still work. Deep-links into Data so you can inspect the SQL or browse the catalog.',
   },
   {
     route: '/data',
@@ -463,10 +463,12 @@ mise run sync                # npm install (frontend + worker)
 mise run worker-dev          # Cloudflare Worker  → http://127.0.0.1:8787
 mise run frontend            # Vite dev server    → http://127.0.0.1:5173`}</pre>
       <p className="docs-note">
-        <code>frontend/.env</code> sets <code>VITE_API_BASE</code> to the deployed Worker. For local dev,
-        point it at <code>http://127.0.0.1:8787</code> or leave it empty to use the Vite <code>/api</code>{' '}
-        proxy. Secrets (<code>R2_SQL_TOKEN</code>, <code>LOADER_TOKEN</code>) live in{' '}
-        <code>.dev.vars</code> for local runs — see <code>.env.example</code>.
+        <code>frontend/.env</code> sets <code>VITE_API_BASE</code> to the deployed Worker
+        (<code>https://api.lobster.mp</code>). For local dev, point it at{' '}
+        <code>http://127.0.0.1:8787</code> or leave it empty to use the Vite <code>/api</code>{' '}
+        proxy. Secrets (<code>R2_SQL_TOKEN</code>, <code>LOADER_TOKEN</code>,{' '}
+        <code>BETTER_AUTH_SECRET</code>, Google OAuth) live in <code>.dev.vars</code> for
+        local runs — see <code>.env.example</code>.
       </p>
     </Section>
   );
@@ -479,9 +481,9 @@ export function DocsDeploy() {
   return (
     <Section id="deploy" num="07" title="Deployment">
       <ul className="docs-ordered doc-list">
-        <li><b>Worker</b> — <code>mise run worker-deploy</code> (wrangler deploy → screener-api.robertlancer.workers.dev).</li>
+        <li><b>Worker</b> — <code>mise run worker-deploy</code> (wrangler deploy → api.lobster.mp, plus the workers.dev fallback).</li>
         <li><b>Loader</b> — GitHub Action <code>deploy-loader.yml</code> on push to main: deploys <code>cboe-to-r2</code> and applies D1 migrations.</li>
-        <li><b>Frontend</b> — GitHub Action <code>deploy.yml</code> on push to main: builds and deploys to Cloudflare Pages (lobster.mp).</li>
+        <li><b>Frontend</b> — GitHub Action <code>deploy.yml</code> on push to main: builds and deploys to Cloudflare Pages (lobster.mp). Preview uses api-dev.lobster.mp so the session cookie can share <code>.lobster.mp</code>.</li>
       </ul>
       <p className="docs-note">
         Credentials are the project’s de-facto secret store: every token lives in GitHub Actions secrets
