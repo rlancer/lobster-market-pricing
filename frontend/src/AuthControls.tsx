@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Avatar, Button, HStack, IconButton, Text } from '@astryxdesign/core';
+import { Button, IconButton, Popover, Text, VStack } from '@astryxdesign/core';
 import { LogOut } from 'lucide-react';
 import { api } from './api';
 import { authClient, signInWithGoogle, signOut } from './auth';
+import { ProfileSunglasses } from './Sunglasses';
 
 /**
  * Optional Google account controls for the app header. Chat stays anonymous
@@ -43,25 +44,37 @@ export function AuthControls() {
   }
 
   const displayName = user.name || user.email || 'Account';
+  const email = user.email && user.email !== displayName ? user.email : null;
+
   return (
-    <HStack gap={2} vAlign="center" className="topbar-auth">
-      <Avatar
-        size="sm"
-        name={displayName}
-        src={user.image ?? undefined}
-        tooltip={user.email || displayName}
-      />
-      <Text type="supporting" className="topbar-user-name" maxLines={1} textWrap="nowrap">
-        {displayName}
-      </Text>
+    <Popover
+      placement="below"
+      alignment="end"
+      label="Account"
+      width="16rem"
+      content={
+        <VStack gap={3}>
+          <VStack gap={0.5}>
+            <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
+            {email ? <Text type="supporting" maxLines={1}>{email}</Text> : null}
+          </VStack>
+          <Button
+            variant="ghost"
+            size="sm"
+            label="Sign out"
+            icon={<LogOut size={16} />}
+            onClick={() => { void signOut(); }}
+          />
+        </VStack>
+      }
+    >
       <IconButton
         variant="ghost"
-        size="sm"
-        label="Sign out"
-        icon={<LogOut size={16} />}
-        tooltip="Sign out"
-        onClick={() => { void signOut(); }}
+        size="md"
+        label="Account"
+        tooltip="Account"
+        icon={<ProfileSunglasses className="topbar-profile-icon" />}
       />
-    </HStack>
+    </Popover>
   );
 }

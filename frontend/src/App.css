@@ -94,11 +94,10 @@ button, select { cursor: pointer; }
   outline: var(--spacing-0-5) solid var(--accent);
   outline-offset: var(--spacing-0-5);
 }
-.topbar-auth {
-  min-width: 0;
-}
-.topbar-user-name {
-  max-width: var(--size-content-xs, 10rem);
+.topbar-profile-icon {
+  display: block;
+  width: var(--size-element-sm);
+  height: var(--size-element-sm);
 }
 .content {
   min-height: 100%;
@@ -355,7 +354,6 @@ button, select { cursor: pointer; }
   .topbar-tools { gap: var(--spacing-1); }
   .topbar-tools .liq-filter,
   .topbar-tools .monitor-status { display: none; }
-  .topbar-user-name { display: none; }
   .docs-link {
     width: var(--size-element-md);
     height: var(--size-element-md);
