@@ -462,6 +462,7 @@ export interface UserChatClaim {
   ok: boolean;
   chat_id: string;
   title: string | null;
+  created: boolean;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
