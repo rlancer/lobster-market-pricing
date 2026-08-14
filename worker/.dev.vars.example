@@ -19,6 +19,14 @@ LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
 # admin endpoint 401s and /api/query stays closed to chat_history.
 ADMIN_TOKEN=
 
+# Better Auth (optional Copilot login — Google OAuth only, no passwords).
+# BETTER_AUTH_SECRET must be a long random string. Cookie domain is derived
+# from the request host (lobster.mp siblings vs localhost). Mirror the same
+# three values as Worker / GitHub secrets. Leave blank to keep chat anonymous.
+BETTER_AUTH_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
 # Pipeline stream ingest for Copilot chat history (cboe_chat_history_v2) —
 # POST /api/chat/history publishes one record per chat turn to
 # options.chat_history. The URL subdomain is the credential: set as a Worker

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import './AiChat.css';
 import {
   Button,
@@ -18,8 +18,10 @@ import {
   Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
-import { Share2, SquarePen } from 'lucide-react';
+import { LogOut, Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
+import { authClient, signInWithGoogle, signOut } from './auth';
+import { notifyChatsChanged, rememberChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -32,7 +34,6 @@ const EXAMPLES = [
   'Chart the IV smile for NVDA',
   'What underlyings have the most open interest?',
 ];
-const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
 const CAPTURED_IDS_PREFIX = 'openinterest_copilot_captured_';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -216,6 +217,84 @@ function projectTools(message: CopilotMessage | undefined): ToolRow[] {
   });
 }
 
+function ChatAuthControls({
+  chatId,
+  onNewChat,
+}: {
+  chatId: string;
+  onNewChat: () => void;
+}) {
+  const { data: session, isPending } = authClient.useSession();
+  const user = session?.user ?? null;
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api.health().then((health) => {
+      if (active) setGoogleEnabled(Boolean(health.auth?.google));
+    }).catch(() => {
+      if (active) setGoogleEnabled(false);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    api.claimChat(chatId).then(() => {
+      notifyChatsChanged();
+    }).catch(() => {
+      // Claiming is best-effort; a later history save retries.
+    });
+  }, [user, chatId]);
+
+  if (isPending) return null;
+
+  if (!user) {
+    if (!googleEnabled) return null;
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        label="Sign in"
+        onClick={() => {
+          void signInWithGoogle().catch((err) => {
+            console.error("Google sign-in failed", err);
+          });
+        }}
+      />
+    );
+  }
+
+  return (
+    <section className="ai-head-auth">
+      <Tooltip content={user.email || user.name} hasHoverIndication={false}>
+        <span className="ai-user-name">{user.name || user.email}</span>
+      </Tooltip>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Remove from saved chats"
+        icon={<Trash2 size={16} />}
+        tooltip="Remove from saved chats"
+        onClick={() => {
+          void api.deleteChat(chatId).then(() => {
+            notifyChatsChanged();
+            onNewChat();
+          }).catch(() => { /* keep the chat so the user can retry */ });
+        }}
+      />
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Sign out"
+        icon={<LogOut size={16} />}
+        tooltip="Sign out"
+        onClick={() => { void signOut(); }}
+      />
+    </section>
+  );
+}
+
 function TurnProgress({
   status,
   reasoning,
@@ -381,7 +460,9 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
       };
       capturedIdsRef.current.add(assistant.id);
       sessionStorage.setItem(CAPTURED_IDS_PREFIX + chatId, JSON.stringify([...capturedIdsRef.current].slice(-100)));
-      api.saveChatHistory(record).catch(() => {
+      api.saveChatHistory(record).then(() => {
+        notifyChatsChanged();
+      }).catch(() => {
         // Best-effort abuse-context-preserving history capture.
       });
     }
@@ -454,6 +535,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
+        <ChatAuthControls chatId={chatId} onNewChat={onNewChat} />
         <section className="ai-head-actions">
           <IconButton
             variant="ghost"
@@ -647,18 +729,16 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
 }
 
 function AiChat() {
-  const [chatId, setChatId] = useState(() => {
-    const existing = sessionStorage.getItem(ACTIVE_CHAT_KEY);
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
-    return created;
-  });
+  const { chatId } = useParams({ from: '/chat/$chatId' });
+  const navigate = useNavigate();
+  useEffect(() => {
+    rememberChatId(chatId);
+  }, [chatId]);
   const newChat = useCallback(() => {
     const created = crypto.randomUUID();
-    sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
-    setChatId(created);
-  }, []);
+    rememberChatId(created);
+    void navigate({ to: '/chat/$chatId', params: { chatId: created } });
+  }, [navigate]);
   return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
 }
 

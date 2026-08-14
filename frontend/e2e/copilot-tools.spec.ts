@@ -23,6 +23,7 @@ const LOCAL_WORKER = 'http://127.0.0.1:8787';
 
 async function openChat(page: Page): Promise<void> {
   await page.goto('/');
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/i);
   await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
 }
 

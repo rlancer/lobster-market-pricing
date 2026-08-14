@@ -34,6 +34,7 @@ test.describe('Server-funded Copilot Agent', () => {
     });
 
     await page.goto('/');
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/i);
     await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
     const storedAiPreferences = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('openinterest_ai_')));
     expect(storedAiPreferences).toEqual([]);
@@ -58,6 +59,7 @@ test.describe('Server-funded Copilot Agent', () => {
     test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
     test.setTimeout(600_000);
     await page.goto('/');
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/i);
     await ask(page, 'Chart the IV smile for NVDA');
     await lastAnswer(page, 540_000);
     await expect(page.locator('.ai-chart').last()).toBeVisible();
@@ -66,6 +68,7 @@ test.describe('Server-funded Copilot Agent', () => {
 
   test('oversized question is rejected before a model answer', async ({ page }) => {
     await page.goto('/');
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/i);
     await ask(page, 'x'.repeat(4_001));
     await expect(page.locator('.ai-msg.ai-assistant .ai-err').last()).toContainText('question exceeds 4000 characters', { timeout: 30_000 });
     await expect(page.locator('.ai-sql')).toHaveCount(0);
