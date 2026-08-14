@@ -275,7 +275,11 @@ function ChatAuthControls({
         variant="ghost"
         size="sm"
         label="Sign in"
-        onClick={() => { void signInWithGoogle(); }}
+        onClick={() => {
+          void signInWithGoogle().catch((err) => {
+            console.error("Google sign-in failed", err);
+          });
+        }}
       />
     );
   }

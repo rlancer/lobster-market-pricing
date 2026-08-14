@@ -1963,6 +1963,12 @@ async function loaderGet(env: Env, path: string, cacheKey: string): Promise<unkn
 
 function withCors(env: Env, req: Request, resp: Response): Response {
   const headers = new Headers(resp.headers);
+  // `new Headers(resp.headers)` can drop Set-Cookie in some runtimes. The OAuth
+  // callback sets the session cookie here; without it, Google returns the user
+  // to Pages still signed out.
+  if (headers.getSetCookie().length === 0) {
+    for (const cookie of resp.headers.getSetCookie()) headers.append("Set-Cookie", cookie);
+  }
   const origin = req.headers.get("Origin") ?? "";
   if (origin && isTrustedOrigin(origin)) {
     headers.set("Access-Control-Allow-Origin", origin);
@@ -2153,13 +2159,16 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
-    if (url.pathname.startsWith("/api/auth/")) {
-      const auth = createAuth(env, req);
-      if (!auth) return withCors(env, req, json(env, { error: "auth is not configured" }, 503, "private"));
-      return auth.handler(req);
-    }
     if (req.method === "OPTIONS") {
       return withCors(env, req, new Response(null, { status: 204 }));
+    }
+    if (url.pathname.startsWith("/api/auth/")) {
+      // Pages (dev.lobster.mp) and the Worker (api-dev.lobster.mp) are different
+      // origins. Better Auth does not emit CORS headers, so a credentialed
+      // sign-in fetch is dropped by the browser unless we wrap it like /api/*.
+      const auth = createAuth(env, req);
+      if (!auth) return withCors(env, req, json(env, { error: "auth is not configured" }, 503, "private"));
+      return withCors(env, req, await auth.handler(req));
     }
     try {
       const denied = await authorizeCopilotAgent(env, req);

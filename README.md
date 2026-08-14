@@ -86,7 +86,7 @@ R2_SQL_TOKEN=cfat_...
 
 - `R2_SQL_ACCOUNT_ID` — Cloudflare account ID hosting the lake
 - `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (warehouse is `{ACCOUNT_ID}_{BUCKET}`)
-- `CORS_ORIGIN` — fallback `*` for untrusted origins. Credentialed Copilot login echoes a trusted `Origin` (lobster.mp and siblings) with `Access-Control-Allow-Credentials`.
+- `CORS_ORIGIN` — fallback `*` for untrusted origins. Credentialed Copilot login (including `/api/auth/*`) echoes a trusted `Origin` (lobster.mp and siblings) with `Access-Control-Allow-Credentials`. Better Auth itself does not set CORS headers.
 
 ### Loader — `LOADER_TOKEN` (secret)
 
