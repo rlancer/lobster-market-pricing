@@ -32,13 +32,6 @@
   white-space: nowrap;
   max-width: var(--size-content-xs, 10rem);
 }
-.ai-chats-popover {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  max-height: 20rem;
-  overflow: auto;
-}
 .ai-head-actions {
   display: flex;
   align-items: center;

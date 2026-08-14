@@ -275,11 +275,13 @@ byte/character caps reject or trim runaway payloads before they consume model cr
 
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
-messages and the turn budget persist there. The active UUID lives in
-`sessionStorage`, so a reload reconnects `useAgentChat` (`resume: true`) to the
-same instance and restores the turn. Anonymous chats stay UUID-capability.
-Signing in with Google claims the current `chat_id` onto that user in D1
-`user_chats`; later signed-in chats inherit the owner. Once owned,
+messages and the turn budget persist there. The active UUID lives in the
+URL (`/chat/{id}`) and in `sessionStorage`, so a reload reconnects
+`useAgentChat` (`resume: true`) to the same instance and restores the turn.
+Anonymous chats stay UUID-capability. Signing in with Google claims the
+current `chat_id` onto that user in D1 `user_chats` and lists saved chats
+under Chat in the left nav; opening one navigates to `/chat/{id}`. Later
+signed-in chats inherit the owner. Once owned,
 `/agents/copilot-agent/{id}` requires a matching session — the Worker never
 accepts `user_id` from the client. `options.chat_history` stays admin/analytics
 capture (POST `/api/chat/history` stamps `user_id` from the session when

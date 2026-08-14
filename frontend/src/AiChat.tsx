@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import './AiChat.css';
 import {
   Button,
@@ -12,18 +12,16 @@ import {
   Dialog,
   DialogHeader,
   IconButton,
-  List,
-  ListItem,
   Markdown,
-  Popover,
   Spinner,
   Timestamp,
   Tooltip,
   useChatStreamScroll,
 } from '@astryxdesign/core';
-import { History, LogOut, Share2, SquarePen } from 'lucide-react';
-import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse, type UserChat } from './api';
+import { LogOut, Share2, SquarePen, Trash2 } from 'lucide-react';
+import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle, signOut } from './auth';
+import { notifyChatsChanged, rememberChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -36,7 +34,6 @@ const EXAMPLES = [
   'Chart the IV smile for NVDA',
   'What underlyings have the most open interest?',
 ];
-const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
 const CAPTURED_IDS_PREFIX = 'openinterest_copilot_captured_';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -222,18 +219,14 @@ function projectTools(message: CopilotMessage | undefined): ToolRow[] {
 
 function ChatAuthControls({
   chatId,
-  onOpenChat,
   onNewChat,
 }: {
   chatId: string;
-  onOpenChat: (chatId: string) => void;
   onNewChat: () => void;
 }) {
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
   const [googleEnabled, setGoogleEnabled] = useState(false);
-  const [chats, setChats] = useState<UserChat[] | null>(null);
-  const [chatsOpen, setChatsOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -246,25 +239,13 @@ function ChatAuthControls({
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      setChats(null);
-      return;
-    }
-    api.claimChat(chatId).catch(() => {
+    if (!user) return;
+    api.claimChat(chatId).then(() => {
+      notifyChatsChanged();
+    }).catch(() => {
       // Claiming is best-effort; a later history save retries.
     });
   }, [user, chatId]);
-
-  useEffect(() => {
-    if (!user || !chatsOpen) return;
-    let active = true;
-    api.myChats().then((response) => {
-      if (active) setChats(response.items);
-    }).catch(() => {
-      if (active) setChats([]);
-    });
-    return () => { active = false; };
-  }, [user, chatsOpen, chatId]);
 
   if (isPending) return null;
 
@@ -284,57 +265,24 @@ function ChatAuthControls({
     );
   }
 
-  const currentSaved = (chats ?? []).some((chat) => chat.chat_id === chatId);
-  const chatList = (
-    <section className="ai-chats-popover">
-      <List density="compact" header="Saved chats">
-        {(chats ?? []).length === 0
-          ? <ListItem label={chats === null ? 'Loading…' : 'No saved chats yet'} />
-          : (chats ?? []).map((chat) => (
-              <ListItem
-                key={chat.chat_id}
-                label={chat.title || 'Untitled chat'}
-                description={new Date(chat.updated_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                onClick={() => {
-                  setChatsOpen(false);
-                  if (chat.chat_id !== chatId) onOpenChat(chat.chat_id);
-                }}
-              />
-            ))}
-      </List>
-      {currentSaved && (
-        <Button
-          variant="ghost"
-          size="sm"
-          label="Remove current chat"
-          onClick={() => {
-            void api.deleteChat(chatId).then(() => {
-              setChats((current) => current?.filter((item) => item.chat_id !== chatId) ?? null);
-              setChatsOpen(false);
-              onNewChat();
-            }).catch(() => { /* keep the row so the user can retry */ });
-          }}
-        />
-      )}
-    </section>
-  );
-
   return (
     <section className="ai-head-auth">
-      <Popover
-        isOpen={chatsOpen}
-        onOpenChange={setChatsOpen}
-        placement="below"
-        alignment="start"
-        width="20rem"
-        label="Saved chats"
-        content={chatList}
-      >
-        <IconButton variant="ghost" size="sm" label="Saved chats" icon={<History size={16} />} tooltip="Saved chats" />
-      </Popover>
       <Tooltip content={user.email || user.name} hasHoverIndication={false}>
         <span className="ai-user-name">{user.name || user.email}</span>
       </Tooltip>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Remove from saved chats"
+        icon={<Trash2 size={16} />}
+        tooltip="Remove from saved chats"
+        onClick={() => {
+          void api.deleteChat(chatId).then(() => {
+            notifyChatsChanged();
+            onNewChat();
+          }).catch(() => { /* keep the chat so the user can retry */ });
+        }}
+      />
       <IconButton
         variant="ghost"
         size="sm"
@@ -392,7 +340,7 @@ function TurnProgress({
   );
 }
 
-function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNewChat: () => void; onOpenChat: (chatId: string) => void }) {
+function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () => void }) {
   const [input, setInput] = useState('');
   const [progressStatus, setProgressStatus] = useState('');
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
@@ -512,7 +460,9 @@ function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNe
       };
       capturedIdsRef.current.add(assistant.id);
       sessionStorage.setItem(CAPTURED_IDS_PREFIX + chatId, JSON.stringify([...capturedIdsRef.current].slice(-100)));
-      api.saveChatHistory(record).catch(() => {
+      api.saveChatHistory(record).then(() => {
+        notifyChatsChanged();
+      }).catch(() => {
         // Best-effort abuse-context-preserving history capture.
       });
     }
@@ -585,7 +535,7 @@ function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNe
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
-        <ChatAuthControls chatId={chatId} onOpenChat={onOpenChat} onNewChat={onNewChat} />
+        <ChatAuthControls chatId={chatId} onNewChat={onNewChat} />
         <section className="ai-head-actions">
           <IconButton
             variant="ghost"
@@ -779,23 +729,17 @@ function AiChatSession({ chatId, onNewChat, onOpenChat }: { chatId: string; onNe
 }
 
 function AiChat() {
-  const [chatId, setChatId] = useState(() => {
-    const existing = sessionStorage.getItem(ACTIVE_CHAT_KEY);
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
-    return created;
-  });
-  const openChat = useCallback((id: string) => {
-    sessionStorage.setItem(ACTIVE_CHAT_KEY, id);
-    setChatId(id);
-  }, []);
+  const { chatId } = useParams({ from: '/chat/$chatId' });
+  const navigate = useNavigate();
+  useEffect(() => {
+    rememberChatId(chatId);
+  }, [chatId]);
   const newChat = useCallback(() => {
     const created = crypto.randomUUID();
-    sessionStorage.setItem(ACTIVE_CHAT_KEY, created);
-    setChatId(created);
-  }, []);
-  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} onOpenChat={openChat} />;
+    rememberChatId(created);
+    void navigate({ to: '/chat/$chatId', params: { chatId: created } });
+  }, [navigate]);
+  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
 }
 
 export default AiChat;
