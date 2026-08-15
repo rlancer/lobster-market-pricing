@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
-  Avatar,
   Button,
   EmptyState,
   Heading,
@@ -19,42 +18,36 @@ import { api, type TimelineAuthor, type TimelinePost } from './api';
 function PostRow({ post }: { post: TimelinePost }) {
   const flags = [post.has_sql ? 'SQL' : null, post.has_chart ? 'Chart' : null].filter(Boolean).join(' · ');
   return (
-    <VStack as="article" className="timeline-post" gap={3}>
-      <HStack gap={3} vAlign="center">
-        <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link" aria-label={`@${post.handle}`}>
-          <Avatar name={post.name || post.handle} size="md" tooltip={false} />
+    <VStack as="article" className="timeline-post" gap={2}>
+      <Link
+        to="/share/$shareId"
+        params={{ shareId: post.share_id }}
+        className="timeline-post-title"
+      >
+        <Heading level={2}>{post.title?.trim() || 'Shared chat'}</Heading>
+      </Link>
+      <HStack gap={2} vAlign="center" className="timeline-post-byline">
+        <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
+          <Text type="supporting">@{post.handle}</Text>
         </Link>
-        <VStack gap={0}>
-          <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-            <Text weight="semibold">@{post.handle}</Text>
-          </Link>
-          <Timestamp value={post.published_at / 1000} format="auto" isLive />
-        </VStack>
+        <Text type="supporting">·</Text>
+        <Timestamp value={post.published_at / 1000} format="auto" isLive />
       </HStack>
-      <VStack gap={2} className="timeline-post-body">
+      {post.excerpt ? (
+        <VStack gap={0} className="timeline-excerpt">
+          <Markdown>{post.excerpt}</Markdown>
+        </VStack>
+      ) : null}
+      <HStack gap={3} vAlign="center" className="timeline-post-meta">
+        {flags ? <Text type="supporting">{flags}</Text> : null}
         <Link
           to="/share/$shareId"
           params={{ shareId: post.share_id }}
-          className="timeline-post-title"
+          className="timeline-post-open"
         >
-          <Heading level={2}>{post.title?.trim() || 'Shared chat'}</Heading>
+          <Text type="supporting">View full chat</Text>
         </Link>
-        {post.excerpt ? (
-          <VStack gap={0} className="timeline-excerpt">
-            <Markdown>{post.excerpt}</Markdown>
-          </VStack>
-        ) : null}
-        <HStack gap={3} vAlign="center" className="timeline-post-meta">
-          {flags ? <Text type="supporting">{flags}</Text> : null}
-          <Link
-            to="/share/$shareId"
-            params={{ shareId: post.share_id }}
-            className="timeline-post-open"
-          >
-            <Text type="supporting">View full chat</Text>
-          </Link>
-        </HStack>
-      </VStack>
+      </HStack>
     </VStack>
   );
 }

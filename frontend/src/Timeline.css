@@ -22,9 +22,9 @@
   min-width: 0;
 }
 
-.timeline-post-body {
-  width: 100%;
-  min-width: 0;
+.timeline-post-byline,
+.timeline-post-meta {
+  flex-wrap: wrap;
 }
 
 .timeline-excerpt {
@@ -32,8 +32,8 @@
   color: var(--color-text);
 }
 
-.timeline-post-meta {
-  flex-wrap: wrap;
+.timeline-author-link:hover {
+  color: var(--color-text-accent);
 }
 
 .timeline-post-title:hover :is(h2, h1),
