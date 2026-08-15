@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Spinner, Text, Tooltip, VStack } from '@astryxdesign/core';
+import { HStack, IconButton, Spinner, Text, Tooltip, VStack } from '@astryxdesign/core';
+import { X } from 'lucide-react';
 import { api, type ChatTickerLink, type TickerResearch } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
 import './Research.css';
@@ -8,6 +9,7 @@ import './Research.css';
 /**
  * Chat-attached ticker research widget. Lists securities linked to this chat
  * (via Copilot `research_ticker`) and expands the active brief inline.
+ * Chips toggle; an explicit close control dismisses the panel on mobile.
  */
 export function ChatTickerWidget({
   chatId,
@@ -30,9 +32,11 @@ export function ChatTickerWidget({
       .then((res) => {
         if (!alive) return;
         setLinks(res.items);
+        // Keep the open panel only if that ticker is still linked; never
+        // auto-expand on first load (especially painful on mobile).
         setActive((current) => {
           if (current && res.items.some((item) => item.ticker === current)) return current;
-          return res.items[0]?.ticker ?? null;
+          return null;
         });
       })
       .catch(() => {
@@ -66,6 +70,8 @@ export function ChatTickerWidget({
 
   if (!loadingLinks && links.length === 0) return null;
 
+  const closePanel = () => setActive(null);
+
   return (
     <VStack className="chat-research" gap={0}>
       <div className="ai-frames chat-research-strip">
@@ -74,26 +80,52 @@ export function ChatTickerWidget({
         {links.map((link) => (
           <Tooltip
             key={link.security_id}
-            content={link.name ? `${link.name} · ${link.mention_count}×` : `${link.mention_count} mentions`}
+            content={
+              active === link.ticker
+                ? 'Close research'
+                : (link.name ? `${link.name} · ${link.mention_count}×` : `${link.mention_count} mentions`)
+            }
             hasHoverIndication={false}
           >
             <button
               type="button"
               className={`ai-frame-chip chat-ticker-chip${active === link.ticker ? ' active' : ''}`}
-              onClick={() => setActive(link.ticker)}
+              aria-pressed={active === link.ticker}
+              onClick={() => setActive((current) => (current === link.ticker ? null : link.ticker))}
             >
               <b>{link.ticker}</b>
             </button>
           </Tooltip>
         ))}
         {active && (
-          <Link to="/research/$ticker" params={{ ticker: active }} className="chat-research-open">
-            Open research ↗
-          </Link>
+          <HStack gap={2} vAlign="center" className="chat-research-actions">
+            <Link to="/research/$ticker" params={{ ticker: active }} className="chat-research-open">
+              Open research ↗
+            </Link>
+            <IconButton
+              variant="ghost"
+              size="sm"
+              label="Close research"
+              icon={<X size={16} />}
+              tooltip="Close"
+              onClick={closePanel}
+            />
+          </HStack>
         )}
       </div>
       {active && (
         <div className="chat-research-panel">
+          <HStack gap={2} vAlign="center" className="chat-research-panel-bar">
+            <Text type="supporting" className="chat-research-panel-title">{active}</Text>
+            <IconButton
+              variant="ghost"
+              size="sm"
+              label="Close research"
+              icon={<X size={16} />}
+              tooltip="Close"
+              onClick={closePanel}
+            />
+          </HStack>
           {loadingBrief && <ResearchLoading label={`Researching ${active}…`} />}
           {!loadingBrief && brief && <ResearchBriefView research={brief} compact />}
           {!loadingBrief && !brief && <Text type="supporting">No research available.</Text>}

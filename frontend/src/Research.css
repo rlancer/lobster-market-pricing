@@ -103,7 +103,27 @@
   border-top: var(--border-width) solid color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.chat-research-open {
+.chat-research-panel-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  justify-content: space-between;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-bottom: var(--border-width) solid color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--panel) 96%, var(--accent));
+}
+
+.chat-research-panel-title {
+  font-family: var(--font-family-code);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.chat-research-actions {
   margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
+.chat-research-open {
   align-self: center;
 }
