@@ -87,12 +87,14 @@
   background: transparent;
 }
 
-.chat-ticker-chip {
+.chat-ticker-chip,
+.chat-context-chip {
   cursor: pointer;
   font: inherit;
 }
 
-.chat-ticker-chip.active {
+.chat-ticker-chip.active,
+.chat-context-chip.active {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
@@ -126,4 +128,26 @@
 
 .chat-research-open {
   align-self: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.chat-frame-panel-body {
+  padding: var(--spacing-3) var(--spacing-4) var(--spacing-4);
+  min-width: 0;
+}
+
+.chat-frame-meta,
+.chat-frame-columns {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-relaxed);
+  word-break: break-word;
+}
+
+.chat-frame-panel-body .ai-sql {
+  margin-top: 0;
 }

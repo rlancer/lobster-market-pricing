@@ -52,23 +52,15 @@
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
-.ai-frames-label {
-  font-family: var(--font-family-code);
-  font-size: var(--font-size-xs);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--accent-2, var(--accent));
-  opacity: .85;
-}
 .ai-frame-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-1);
   max-width: 260px;
-  padding: 3px 8px;
-  font-size: 12px;
+  padding: var(--spacing-0-5) var(--spacing-2);
+  font-size: var(--font-size-xs);
   color: var(--color-text-cyan, var(--accent-2));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: var(--border-width) solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: var(--radius-element);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
@@ -79,18 +71,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ai-frame-meta { opacity: .72; white-space: nowrap; }
-.ai-frame-drop {
-  border: none;
-  background: none;
-  color: inherit;
-  font-size: 11px;
-  line-height: 1;
-  padding: 1px 2px;
-  cursor: pointer;
-  opacity: .6;
-}
-.ai-frame-drop:hover { opacity: 1; color: var(--color-error); }
 
 /* ---- messages ------------------------------------------------------------ */
 .ai-messages {

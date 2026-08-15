@@ -30,7 +30,7 @@ import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
-import { ChatTickerWidget } from './ChatTickerWidget';
+import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -52,14 +52,6 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: 'Web search',
   research_ticker: 'Ticker research',
 };
-
-interface FrameMetadata {
-  name: string;
-  columns: string[];
-  row_count: number;
-  sql: string;
-  fetched_at: number;
-}
 
 interface Presentation {
   sql: string | null;
@@ -615,24 +607,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         </div>
       )}
 
-      {frames.length > 0 && (
-        <div className="ai-frames">
-          <span className="ai-frames-label">Session data</span>
-          {frames.map((frame) => {
-            const ageMin = Math.round((Date.now() - frame.fetched_at) / 60000);
-            return (
-              <Tooltip key={frame.name} content={`${frame.row_count.toLocaleString()} rows · ${frame.columns.length} cols · ${frame.sql}`} hasHoverIndication={false}>
-                <span className="ai-frame-chip">
-                  <b>{frame.name}</b>
-                  <span className="ai-frame-meta">{frame.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}</span>
-                </span>
-              </Tooltip>
-            );
-          })}
-        </div>
-      )}
-
-      <ChatTickerWidget chatId={chatId} refreshKey={researchRefreshKey} />
+      <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
 
       <section className="ai-messages" ref={scrollRef}>
         {projectedMessages.length === 0 && (
