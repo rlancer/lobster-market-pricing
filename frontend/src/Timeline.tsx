@@ -13,7 +13,7 @@ import {
 } from '@astryxdesign/core';
 import { Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
-import { api, type TimelineAuthor, type TimelinePost } from './api';
+import { api, type TimelinePost } from './api';
 
 function PostRow({ post }: { post: TimelinePost }) {
   const flags = [post.has_sql ? 'SQL' : null, post.has_chart ? 'Chart' : null].filter(Boolean).join(' · ');
