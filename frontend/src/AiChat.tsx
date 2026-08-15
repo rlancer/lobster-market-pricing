@@ -21,7 +21,7 @@ import {
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient } from './auth';
-import { notifyChatsChanged, rememberChatId } from './chatSession';
+import { notifyChatsChanged, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -712,8 +712,7 @@ function AiChat() {
     rememberChatId(chatId);
   }, [chatId]);
   const newChat = useCallback(() => {
-    const created = crypto.randomUUID();
-    rememberChatId(created);
+    const created = startNewChatId();
     void navigate({ to: '/chat/$chatId', params: { chatId: created } });
   }, [navigate]);
   return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;

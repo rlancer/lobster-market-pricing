@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
@@ -20,7 +20,7 @@ import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
-import { CHATS_CHANGED_EVENT, chatPath, parseChatId, rememberChatId, sortUserChats } from './chatSession';
+import { CHATS_CHANGED_EVENT, chatPath, parseChatId, startNewChatId, sortUserChats } from './chatSession';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -104,25 +104,16 @@ function WorkspaceNavigation({
   const history = useSavedChats();
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
-  const liveChatId = activeChatId && !historySelected ? activeChatId : null;
 
-  const goToChat = (event: MouseEvent) => {
-    event.preventDefault();
+  const goToChat = () => {
     closeMobileNav();
-    if (liveChatId) {
-      void navigate({ to: '/chat/$chatId', params: { chatId: liveChatId } });
-      return;
-    }
-    const created = crypto.randomUUID();
-    rememberChatId(created);
+    const created = startNewChatId();
     void navigate({ to: '/chat/$chatId', params: { chatId: created } });
   };
 
   return (
     <SideNav className="workspace-nav">
       <SideNavItem
-        as={RouterLink}
-        href={liveChatId ? chatPath(liveChatId) : '/'}
         label="Chat"
         icon={Sparkles}
         isSelected={isChat && !historySelected}

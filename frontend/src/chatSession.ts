@@ -48,6 +48,11 @@ export function ensureChatId(): string {
   return rememberChatId(readStoredChatId() ?? crypto.randomUUID());
 }
 
+/** Fresh conversation UUID — never reuse a history/session id. */
+export function startNewChatId(): string {
+  return rememberChatId(crypto.randomUUID());
+}
+
 export function notifyChatsChanged(): void {
   window.dispatchEvent(new Event(CHATS_CHANGED_EVENT));
 }
