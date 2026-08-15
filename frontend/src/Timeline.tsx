@@ -6,6 +6,7 @@ import {
   EmptyState,
   Heading,
   HStack,
+  Markdown,
   Spinner,
   Text,
   Timestamp,
@@ -18,7 +19,7 @@ import { api, type TimelineAuthor, type TimelinePost } from './api';
 function PostRow({ post }: { post: TimelinePost }) {
   const flags = [post.has_sql ? 'SQL' : null, post.has_chart ? 'Chart' : null].filter(Boolean).join(' · ');
   return (
-    <VStack as="article" className="timeline-post" gap={2}>
+    <VStack as="article" className="timeline-post" gap={3}>
       <HStack gap={3} vAlign="center">
         <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link" aria-label={`@${post.handle}`}>
           <Avatar name={post.name || post.handle} size="md" tooltip={false} />
@@ -30,19 +31,30 @@ function PostRow({ post }: { post: TimelinePost }) {
           <Timestamp value={post.published_at / 1000} format="auto" isLive />
         </VStack>
       </HStack>
-      <Link
-        to="/share/$shareId"
-        params={{ shareId: post.share_id }}
-        className="timeline-post-body"
-      >
-        <VStack gap={1}>
+      <VStack gap={2} className="timeline-post-body">
+        <Link
+          to="/share/$shareId"
+          params={{ shareId: post.share_id }}
+          className="timeline-post-title"
+        >
           <Heading level={2}>{post.title?.trim() || 'Shared chat'}</Heading>
-          {post.excerpt ? (
-            <Text type="supporting" maxLines={3}>{post.excerpt}</Text>
-          ) : null}
+        </Link>
+        {post.excerpt ? (
+          <VStack gap={0} className="timeline-excerpt">
+            <Markdown>{post.excerpt}</Markdown>
+          </VStack>
+        ) : null}
+        <HStack gap={3} vAlign="center" className="timeline-post-meta">
           {flags ? <Text type="supporting">{flags}</Text> : null}
-        </VStack>
-      </Link>
+          <Link
+            to="/share/$shareId"
+            params={{ shareId: post.share_id }}
+            className="timeline-post-open"
+          >
+            <Text type="supporting">View full chat</Text>
+          </Link>
+        </HStack>
+      </VStack>
     </VStack>
   );
 }

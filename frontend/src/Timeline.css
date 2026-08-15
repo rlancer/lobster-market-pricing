@@ -10,18 +10,34 @@
 
 .timeline-post {
   width: 100%;
-  padding-block: var(--spacing-4);
+  padding-block: var(--spacing-6);
   border-bottom: var(--border-width) solid var(--color-border);
 }
 
 .timeline-author-link,
-.timeline-post-body {
+.timeline-post-title,
+.timeline-post-open {
   color: inherit;
   text-decoration: none;
   min-width: 0;
 }
 
-.timeline-post-body:hover :is(h2, h1) {
+.timeline-post-body {
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-excerpt {
+  width: 100%;
+  color: var(--color-text);
+}
+
+.timeline-post-meta {
+  flex-wrap: wrap;
+}
+
+.timeline-post-title:hover :is(h2, h1),
+.timeline-post-open:hover {
   color: var(--color-text-accent);
 }
 
