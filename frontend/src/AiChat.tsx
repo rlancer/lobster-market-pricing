@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
-import { useNavigate, useParams } from '@tanstack/react-router';
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
 import {
   Button,
@@ -21,7 +21,7 @@ import {
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient } from './auth';
-import { notifyChatsChanged, rememberChatId, startNewChatId } from './chatSession';
+import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -706,15 +706,19 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
 }
 
 function AiChat() {
-  const { chatId } = useParams({ from: '/chat/$chatId' });
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
+  const [liveId, setLiveId] = useState(ensureLiveChatId);
+  const chatId = routeChatId ?? liveId;
   useEffect(() => {
     rememberChatId(chatId);
   }, [chatId]);
   const newChat = useCallback(() => {
     const created = startNewChatId();
-    void navigate({ to: '/chat/$chatId', params: { chatId: created } });
-  }, [navigate]);
+    setLiveId(created);
+    if (routeChatId) void navigate({ to: '/' });
+  }, [navigate, routeChatId]);
   return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
 }
 

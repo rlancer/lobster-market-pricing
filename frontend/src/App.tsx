@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import {
   AppShell,
   HStack,
@@ -20,7 +20,7 @@ import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
-import { CHATS_CHANGED_EVENT, chatPath, parseChatId, startNewChatId, sortUserChats } from './chatSession';
+import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -100,24 +100,19 @@ function WorkspaceNavigation({
   activeChatId: string | null;
 }) {
   const { closeMobileNav } = useAppShellMobile();
-  const navigate = useNavigate();
   const history = useSavedChats();
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
 
-  const goToChat = () => {
-    closeMobileNav();
-    const created = startNewChatId();
-    void navigate({ to: '/chat/$chatId', params: { chatId: created } });
-  };
-
   return (
     <SideNav className="workspace-nav">
       <SideNavItem
+        as={RouterLink}
+        href="/"
         label="Chat"
         icon={Sparkles}
         isSelected={isChat && !historySelected}
-        onClick={goToChat}
+        onClick={closeMobileNav}
       />
       {history.length > 0 ? (
         <SideNavSection
