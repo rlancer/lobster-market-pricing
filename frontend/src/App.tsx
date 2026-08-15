@@ -103,7 +103,7 @@ function WorkspaceNavigation({
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
   const liveChatId = activeChatId && !historySelected ? activeChatId : null;
 
-  const goToChat = (event: MouseEvent<HTMLElement>) => {
+  const goToChat = (event: MouseEvent) => {
     event.preventDefault();
     closeMobileNav();
     if (liveChatId) {
