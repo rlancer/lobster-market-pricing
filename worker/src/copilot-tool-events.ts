@@ -27,6 +27,7 @@ const KNOWN_TOOLS = new Set([
   "get_news",
   "web_search",
   "eco_calendar",
+  "research_ticker",
 ]);
 
 export interface ToolEventInput {

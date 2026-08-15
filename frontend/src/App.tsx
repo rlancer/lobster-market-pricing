@@ -12,7 +12,7 @@ import {
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, Newspaper, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
 import { AuthControls } from './AuthControls';
@@ -39,6 +39,7 @@ type Section = {
 const SECTIONS: Section[] = [
   { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
+  { to: '/research', label: 'Research', heading: 'Research', icon: LineChart },
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 
@@ -58,6 +59,13 @@ const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
     }
     if (href === '/chat') {
       return <Link ref={ref} to="/chat" {...props} />;
+    }
+    const researchTicker = href.match(/^\/research\/([^/?#]+)/)?.[1];
+    if (researchTicker) {
+      return <Link ref={ref} to="/research/$ticker" params={{ ticker: researchTicker }} {...props} />;
+    }
+    if (href === '/research') {
+      return <Link ref={ref} to="/research" {...props} />;
     }
     return <Link ref={ref} to={href as '/'} {...props} />;
   },
@@ -165,7 +173,11 @@ function WorkspaceNavigation({
           href={section.to}
           label={section.label}
           icon={section.icon}
-          isSelected={activeTo === section.to}
+          isSelected={
+            section.to === '/research'
+              ? Boolean(activeTo?.startsWith('/research'))
+              : activeTo === section.to
+          }
           onClick={closeMobileNav}
         />
       ))}

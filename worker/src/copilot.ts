@@ -53,6 +53,12 @@ export interface CalendarResult {
   error?: string;
 }
 
+export interface ResearchToolResult {
+  research?: import("./research").TickerResearch;
+  summary: string;
+  error?: string;
+}
+
 export interface ChartSpec {
   title?: string;
   kind: "line" | "area" | "scatter" | "bar";
@@ -93,6 +99,7 @@ interface ToolOutput {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   frames?: FrameMetadata[];
+  research?: import("./research").TickerResearch | null;
 }
 
 interface CopilotMetadata {
@@ -132,6 +139,7 @@ export const TOOL_LABELS: Record<string, string> = {
   get_news: "News",
   eco_calendar: "Eco calendar",
   web_search: "Web search",
+  research_ticker: "Ticker research",
 };
 
 function positiveInt(value: string | undefined, fallback: number, max: number): number {
@@ -174,6 +182,7 @@ function systemPrompt(schema: string): string {
     "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
     "- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.",
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links.",
+    "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It OpenFIGI-normalizes the symbol, links this chat to that security, and returns price/volume technicals, fundamentals, earnings, and news. Ground the suggestion in that brief.",
     "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
     "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
     "",
@@ -243,6 +252,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected abstract fetchNews(symbol: string, limit: number): Promise<NewsResult>;
   protected abstract searchWeb(query: string, limit: number): Promise<SearchResult>;
   protected abstract fetchEconomicCalendar(days: number): Promise<CalendarResult>;
+  protected abstract researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }): Promise<ResearchToolResult>;
 
   private ensureCopilotSchema(): void {
     this.sql`CREATE TABLE IF NOT EXISTS frames (
@@ -416,7 +426,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     }
   }
 
-  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames"> = {}): ToolOutput {
+  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research"> = {}): ToolOutput {
     return {
       ok,
       summary: summary.slice(0, MAX_TOOL_SUMMARY_CHARS),
@@ -621,6 +631,24 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           if (result.error) return this.output(false, `Macro calendar temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.date}${item.time ? ` ${item.time}` : ""} — ${item.title}`).join("\n") : "No scheduled macro events in the requested window.";
           return this.output(true, summary, { error: null });
+        }),
+      }),
+      research_ticker: tool({
+        description:
+          "Normalize a ticker via OpenFIGI, link it to this chat, and return a cached research brief " +
+          "(recent price/volume moves, consolidation/accumulation, fundamentals, earnings, news). " +
+          "Call whenever you suggest a trade or deep-dive a specific underlying.",
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker,
+        execute: async ({ symbol, force }) => this.safeTool("research_ticker", TOOL_LABELS.research_ticker, { symbol, force }, capture, async () => {
+          const chatId = typeof this.name === "string" ? this.name : undefined;
+          const result = await this.researchTicker(symbol, { force, chatId });
+          if (result.error && !result.research) {
+            return this.output(false, `Research unavailable: ${result.error}`, { error: result.error });
+          }
+          return this.output(true, result.summary, {
+            error: result.error ?? null,
+            research: result.research ?? null,
+          });
         }),
       }),
     };

@@ -217,7 +217,10 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits |
-| `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Yahoo Finance ticker RSS proxy, keyless; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
+| `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, Yahoo fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
+| `GET /api/research/{ticker}/chats` | Chats previously linked to this security (cross-ticker graph via `security_id`). |
+| `GET /api/chats/{id}/tickers` | Tickers linked to a chat (for the chat research widget). |
+| `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
@@ -254,18 +257,21 @@ in-memory.
 
 ## UI features
 
-The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Data** (`/data`) is the catalog of everything that
-can land in an answer:
+The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Research**
+(`/research`, `/research/{ticker}`) shows OpenFIGI-normalized ticker briefs
+(also attached as a widget when Copilot calls `research_ticker`). **Data**
+(`/data`) is the catalog of everything that can land in an answer:
 
-- Copilot tools (`run_query`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
+- Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
-  Tavily news/search, Yahoo OHLC + ETF profiles/holdings, Nasdaq earnings, OpenFIGI)
+  Tavily news/search, Yahoo OHLC + ETF profiles/holdings + quoteSummary fundamentals,
+  Nasdaq earnings, OpenFIGI)
 - Iceberg lake tables with live row counts, columns, and sample rows
 - A read-only SQL editor (`POST /api/query`) — the same path Chat uses
 
 Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted. Chat deep-links
-into Data with the SQL attached. Old `/lab`, `/market`, and `/research` URLs
-redirect here.
+into Data with the SQL attached. Old `/lab` and `/market` URLs redirect to Data;
+`/symbol/{sym}` redirects to `/research/{sym}`.
 
 ### AI Copilot
 
@@ -279,7 +285,7 @@ outputs for the turn (so `render_chart` cannot wipe the query rows the plot
 needs); if the model skips `render_chart` on a chart/smile/surface question,
 the client infers a spec from the result columns. The Worker owns the schema context,
 deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
-validation, news, web search, economic calendar, tool iteration, and the final
+validation, OpenFIGI ticker research (`research_ticker`), news, web search, economic calendar, tool iteration, and the final
 prose answer.
 
 Every chat uses the site's `OPEN_ROUTER_KEY` secret with

@@ -10,6 +10,11 @@ R2_SQL_TOKEN=
 # Never commit the value or expose it to browser code.
 OPEN_ROUTER_KEY=
 
+# OpenFIGI Mapping API key — live ticker normalize for /api/research and the
+# Copilot research_ticker tool (same key as loader figi_map). Optional: without
+# it, resolution falls back to lake options.securities then ticker-derived ids.
+OPEN_FIGI=
+
 # Optional override for local dev; defaults to the production loader.
 LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
 

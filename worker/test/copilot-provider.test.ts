@@ -98,6 +98,7 @@ test('OpenRouter request and UI stream preserve Copilot contracts', async () => 
     get_news: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news, execute: async () => ({ ok: true }) }),
     web_search: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search, execute: async () => ({ ok: true }) }),
     eco_calendar: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar, execute: async () => ({ ok: true }) }),
+    research_ticker: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker, execute: async () => ({ ok: true }) }),
   };
   const model = createCopilotModel(
     { OPEN_ROUTER_KEY: 'server-secret', COPILOT_MODEL: modelSlug },
