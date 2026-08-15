@@ -26,6 +26,7 @@ import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type Ses
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
 import { getHandle, setHandle, suggestHandle } from "./profiles";
+import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
 import {
   authorizeCopilotAgent,
   claimChat,
@@ -1567,8 +1568,10 @@ async function adminChatHistory(
 // capability: anyone with the link can view, nobody can enumerate. Unlike the
 // best-effort lake capture, a share is explicitly user-requested, so it
 // either succeeds or fails loudly (502 on D1 failure, 413/429 on budget/rate)
-// letting the user retry. No auth — the id is the key; reads are cached
-// public, max-age=60 via json().
+// letting the user retry. Creating a share does not require auth (the id is
+// the key); a session, when present, stamps share_owners so the author can
+// opt the share onto GET /api/timeline. Reads are cached public, max-age=60
+// via json().
 //
 // Row budgets. D1 caps a row at 2,000,000 bytes, and the lake strike caps are
 // LOOSER than that allows (100 msg × 20k content + 20k sql → ~4 MB worst
@@ -1852,6 +1855,7 @@ async function createShare(env: Env, req: Request): Promise<Response> {
 
   const shareId = base62Encode(crypto.getRandomValues(new Uint8Array(SHARE_ID_BYTES)));
   const now = Date.now();
+  const user = await getSessionUser(env, req);
   try {
     await env.SCHEMA_DB.prepare(
       `INSERT INTO shared_chats
@@ -1869,6 +1873,7 @@ async function createShare(env: Env, req: Request): Promise<Response> {
       ua || null,
       now,
     ).run();
+    if (user) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
   } catch (dbErr) {
     // Explicitly user-requested → fail LOUDLY so they can retry (unlike the
     // best-effort lake capture, where D1-buffering absorbs write failures).
@@ -1876,7 +1881,13 @@ async function createShare(env: Env, req: Request): Promise<Response> {
     return json(env, { error: "storage unavailable" }, 502);
   }
   shareRateRecordLocal(ip);
-  return json(env, { share_id: shareId, url: "/share/" + shareId });
+  const handle = user ? await getHandle(env.SCHEMA_DB, user.id) : null;
+  return json(env, {
+    share_id: shareId,
+    url: "/share/" + shareId,
+    can_publish: Boolean(handle),
+    on_timeline: false,
+  });
 }
 
 /**
@@ -1907,6 +1918,7 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
   } catch {
     /* rows are written by us; tolerate a corrupt one rather than 500 */
   }
+  const author = await getTimelineAuthor(env.SCHEMA_DB, shareId);
   return json(env, {
     share_id: row.share_id,
     title: row.title,
@@ -1915,6 +1927,8 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     created_at: row.created_at,
     messages,
     source_sql: row.source_sql,
+    on_timeline: Boolean(author),
+    author,
   });
 }
 
@@ -2170,6 +2184,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;
+
+  const timeline = await handleTimeline(env, req, path);
+  if (timeline) return timeline;
 
   // Copilot chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")

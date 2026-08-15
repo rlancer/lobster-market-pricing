@@ -554,6 +554,9 @@
   padding: var(--spacing-2);
 }
 .ai-share-row .ai-sql-copy:hover { text-decoration: underline; }
+.ai-share-publish {
+  margin-top: var(--spacing-2);
+}
 .ai-share-actions {
   display: flex;
   justify-content: flex-end;

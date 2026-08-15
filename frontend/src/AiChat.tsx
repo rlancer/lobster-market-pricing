@@ -14,6 +14,7 @@ import {
   IconButton,
   Markdown,
   Spinner,
+  Switch,
   Timestamp,
   Tooltip,
   useChatStreamScroll,
@@ -297,6 +298,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [onTimeline, setOnTimeline] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -494,6 +496,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         messages: turns,
       });
       setShareResult(response);
+      setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
     } catch (error) {
       setShareError(String((error as Error)?.message ?? error));
@@ -507,6 +510,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     setShareOpen(false);
     setShareResult(null);
     setShareError(null);
+    setOnTimeline(false);
   };
 
   return (
@@ -669,7 +673,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         />
       </footer>
 
-      <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={460}>
+      <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={480}>
         <DialogHeader
           title={shareError ? 'Share failed' : shareResult ? 'Chat shared' : 'Share chat'}
           subtitle={shareResult ? 'Anyone with this link can view the transcript — no account needed.' : undefined}
@@ -685,6 +689,26 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                 <input id="ai-share-url" className="ai-share-url" value={new URL(shareResult.url, window.location.href).toString()} readOnly onFocus={(event) => event.currentTarget.select()} />
                 <CopyButton text={new URL(shareResult.url, window.location.href).toString()} tooltip="Copy link" />
               </div>
+              <Switch
+                className="ai-share-publish"
+                label="Post to public timeline"
+                description={shareResult.can_publish
+                  ? 'Anyone visiting the site will see this chat on the home feed, attributed to your handle.'
+                  : 'Sign in with a public handle before sharing to post chats on the timeline. The link still works for anyone you send it to.'}
+                value={onTimeline}
+                onChange={setOnTimeline}
+                isDisabled={!shareResult.can_publish}
+                disabledMessage={shareResult.can_publish
+                  ? undefined
+                  : 'Sign in with a public handle, then share again to post this chat on the timeline.'}
+                changeAction={async (checked) => {
+                  if (!shareResult.can_publish) return;
+                  if (checked) await api.publishTimeline(shareResult.share_id);
+                  else await api.unpublishTimeline(shareResult.share_id);
+                }}
+                labelSpacing="spread"
+                width="100%"
+              />
             </div>
             <div className="ai-share-actions">
               <Button variant="secondary" label="Done" onClick={closeShareDialog} />
@@ -717,7 +741,7 @@ function AiChat() {
   const newChat = useCallback(() => {
     const created = startNewChatId();
     setLiveId(created);
-    if (routeChatId) void navigate({ to: '/' });
+    if (routeChatId) void navigate({ to: '/chat' });
   }, [navigate, routeChatId]);
   return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
 }

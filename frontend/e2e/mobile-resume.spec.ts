@@ -4,8 +4,8 @@ const READY = process.env.COPILOT_E2E_READY === '1';
 const IS_REMOTE = Boolean(process.env.E2E_TARGET || process.env.E2E_API_URL);
 
 async function openChat(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  await page.goto('/chat');
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
   await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
 }
 
@@ -69,7 +69,7 @@ test.describe('Agent reconnect and durable recovery', () => {
     await page.getByRole('button', { name: 'New chat' }).click();
     const newId = await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_chat_id'));
     expect(newId).not.toBe(oldId);
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
     await expect(page.locator('.ai-msg')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Ask the Lobster' })).toBeVisible();
   });

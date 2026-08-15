@@ -4,7 +4,7 @@
  * Google identity stays in Better Auth's "user" row. Handle is the product
  * slug — unique, lowercase, letters+digits — claimed on first login and
  * editable later. Chat ownership still keys off user_id; handle is only for
- * the public surface (timeline /u/{handle} later).
+ * the public surface (timeline /u/{handle}).
  */
 const HANDLE_MIN = 3;
 const HANDLE_MAX = 24;

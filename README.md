@@ -124,8 +124,8 @@ can reopen past conversations from the left nav. Sign in / Sign out live in
 the app header so the account is available on every workspace page, not only
 Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
 letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
-`user` row). Handles are editable from the account popover and will be the
-URL slug for a later `/u/{handle}` profile; chat ownership still keys off
+`user` row). Handles are editable from the account popover and are the URL slug for
+`/u/{handle}` (that handle's public posts). Chat ownership still keys off
 `user_id`. A chat is cataloged onto the
 user when they send a real turn (or when they sign in on a chat that already
 has a transcript) — not when they merely open a new empty UUID. Identity is
@@ -229,8 +229,11 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/chats/claim` | Catalog `chat_id` onto the session user **with a title** (the first user turn). Untitled claims are rejected (400) so blank shells are not cataloged. Idempotent for the owner and does **not** bump `updated_at` (opening a chat is not activity). 409 if another user already owns it. Recency is updated by a saved turn (`POST /api/chat/history`) or `PATCH` rename. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
 | `DELETE /api/chats/{id}` | Soft-delete a saved chat (hidden from the list; ownership remains so the Durable Object stays locked). |
-| `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url}`) |
-| `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned |
+| `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
+| `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name}`. |
+| `GET /api/timeline` | Public feed of opted-in shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile). `{items, next_before, profile}`. 404 if `handle` is set and unknown. |
+| `POST /api/timeline` | List a share on the public timeline (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. |
+| `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner only. |
 
 ### `/api/screen` query parameters
 
@@ -248,7 +251,7 @@ in-memory.
 
 ## UI features
 
-Chat is the home surface. **Data** (`/data`) is the catalog of everything that
+The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Data** (`/data`) is the catalog of everything that
 can land in an answer:
 
 - Copilot tools (`run_query`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
@@ -285,7 +288,7 @@ byte/character caps reject or trim runaway payloads before they consume model cr
 
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
-messages and the turn budget persist there. The live conversation is `/`
+messages and the turn budget persist there. The live conversation is `/chat`
 with the UUID in `sessionStorage` only, so a reload reconnects
 `useAgentChat` (`resume: true`) to the same instance and restores the turn.
 Anonymous chats stay UUID-capability. Signing in with Google catalogs chats
@@ -313,7 +316,11 @@ and returns a public, unlisted link `/share/<share_id>`. The `share_id` is
 base62 of 18 random bytes, so the URL is the capability: anyone with the link
 can view, nobody can enumerate, and a fresh incognito tab renders the
 read-only transcript (user + assistant bubbles, SQL blocks) with no key or
-login. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
+login. From the share dialog, a signed-in author with a handle can opt the
+share onto the **public timeline** (`POST /api/timeline`) — the home feed at
+`/` and that author's `/u/{handle}`. Unlisted stays the default; turning the
+switch off removes the listing (`DELETE /api/timeline/{id}`) without revoking
+the link. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
 10,000 chars), a byte budget on the serialized transcript (≤ 1.2 MB of UTF-8
 bytes, oldest turns dropped first — never JS string length, which miscounts
 CJK/emoji), a whole-row check against D1's 2 MB ceiling, oversized-body 413

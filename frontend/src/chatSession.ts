@@ -1,4 +1,4 @@
-/** Live Copilot conversation UUID — sessionStorage. Saved chats also use `/chat/$chatId`. */
+/** Live Copilot conversation UUID — sessionStorage. Saved chats use `/chat/$chatId`; the live session is `/chat`. */
 
 const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -53,14 +53,14 @@ function readLiveChatId(): string | null {
   }
 }
 
-/** Home `/` conversation — not overwritten when opening a saved `/chat/{id}`. */
+/** Live `/chat` conversation — not overwritten when opening a saved `/chat/{id}`. */
 export function ensureLiveChatId(): string {
   const id = readLiveChatId() ?? crypto.randomUUID();
   sessionStorage.setItem(LIVE_CHAT_KEY, id);
   return rememberChatId(id);
 }
 
-/** Replace the home `/` conversation with a fresh UUID. */
+/** Replace the live `/chat` conversation with a fresh UUID. */
 export function startNewChatId(): string {
   const id = crypto.randomUUID();
   sessionStorage.setItem(LIVE_CHAT_KEY, id);
