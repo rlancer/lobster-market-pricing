@@ -240,7 +240,20 @@ jobs:
       # copy production secret values through the browser or repository.
       # Auth secrets are synced here so preview can sign in on the shared
       # parent domain (dev.lobster.mp → api-dev.lobster.mp) without waiting
-      # for a main deploy.
+      # for a main deploy. ADMIN_TOKEN too — preview agents debug via
+      # api-dev.lobster.mp/api/admin/chat_history.
+      - name: Set ADMIN_TOKEN secret on screener-api-dev (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.ADMIN_TOKEN }}" ]; then
+            echo "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api-dev
+          else
+            echo "ADMIN_TOKEN not set — skipping (chat history admin endpoint stays closed on preview)"
+          fi
+        working-directory: worker
+
       - name: Set BETTER_AUTH_SECRET secret on screener-api-dev (if configured)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
