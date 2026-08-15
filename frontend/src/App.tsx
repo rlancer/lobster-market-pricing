@@ -7,6 +7,7 @@ import {
   MobileNavToggle,
   SideNav,
   SideNavItem,
+  SideNavSection,
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
@@ -54,15 +55,7 @@ const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
 );
 RouterLink.displayName = 'RouterLink';
 
-function ChatNavItem({
-  isSelected,
-  activeChatId,
-  onNavigate,
-}: {
-  isSelected: boolean;
-  activeChatId: string | null;
-  onNavigate: () => void;
-}) {
+function useSavedChats() {
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
   const [chats, setChats] = useState<UserChat[] | null>(null);
@@ -93,36 +86,7 @@ function ChatNavItem({
     return () => window.removeEventListener(CHATS_CHANGED_EVENT, onChanged);
   }, [loadChats]);
 
-  const history = (chats ?? []).filter((chat): chat is UserChat & { title: string } => Boolean(chat.title?.trim()));
-  const hasHistory = history.length > 0;
-
-  return (
-    <SideNavItem
-      as={RouterLink}
-      href={hasHistory ? undefined : (activeChatId ? chatPath(activeChatId) : '/')}
-      label="Chat"
-      icon={Sparkles}
-      isSelected={isSelected}
-      onClick={onNavigate}
-    >
-      {hasHistory
-        ? history.map((chat) => (
-            <SideNavItem
-              key={chat.chat_id}
-              as={RouterLink}
-              href={chatPath(chat.chat_id)}
-              label={chat.title.trim()}
-              size="sm"
-              isSelected={activeChatId === chat.chat_id}
-              onClick={(event) => {
-                event.stopPropagation();
-                onNavigate();
-              }}
-            />
-          ))
-        : null}
-    </SideNavItem>
-  );
+  return (chats ?? []).filter((chat): chat is UserChat & { title: string } => Boolean(chat.title?.trim()));
 }
 
 function WorkspaceNavigation({
@@ -135,10 +99,19 @@ function WorkspaceNavigation({
   activeChatId: string | null;
 }) {
   const { closeMobileNav } = useAppShellMobile();
+  const history = useSavedChats();
+  const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
 
   return (
     <SideNav className="workspace-nav">
-      <ChatNavItem isSelected={isChat} activeChatId={activeChatId} onNavigate={closeMobileNav} />
+      <SideNavItem
+        as={RouterLink}
+        href={activeChatId ? chatPath(activeChatId) : '/'}
+        label="Chat"
+        icon={Sparkles}
+        isSelected={isChat && !historySelected}
+        onClick={closeMobileNav}
+      />
       {SECTIONS.filter((section) => section.to !== '/').map((section) => (
         <SideNavItem
           key={section.to}
@@ -150,6 +123,20 @@ function WorkspaceNavigation({
           onClick={closeMobileNav}
         />
       ))}
+      {history.length > 0 ? (
+        <SideNavSection title="Chat history">
+          {history.map((chat) => (
+            <SideNavItem
+              key={chat.chat_id}
+              as={RouterLink}
+              href={chatPath(chat.chat_id)}
+              label={chat.title.trim()}
+              isSelected={activeChatId === chat.chat_id}
+              onClick={closeMobileNav}
+            />
+          ))}
+        </SideNavSection>
+      ) : null}
     </SideNav>
   );
 }

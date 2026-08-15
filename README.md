@@ -284,7 +284,7 @@ URL (`/chat/{id}`) and in `sessionStorage`, so a reload reconnects
 `useAgentChat` (`resume: true`) to the same instance and restores the turn.
 Anonymous chats stay UUID-capability. Signing in with Google catalogs chats
 that already have a user turn onto that user in D1 `user_chats` and lists them
-under Chat in the left nav; opening one navigates to `/chat/{id}` and restores
+under Chat history in the left nav; opening one navigates to `/chat/{id}` and restores
 the Durable Object transcript (the Agent HTTP fetch sends the session cookie).
 Empty new-chat UUIDs stay off the list until the first user turn. Later
 signed-in chats inherit the owner. Once owned,

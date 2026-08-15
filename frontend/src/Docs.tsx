@@ -145,7 +145,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat; opening one goes to /chat/<id>. Anonymous UUID chats still work. Deep-links into Data so you can inspect the SQL or browse the catalog.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. Anonymous UUID chats still work. Deep-links into Data so you can inspect the SQL or browse the catalog.',
   },
   {
     route: '/data',
