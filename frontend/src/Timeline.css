@@ -10,18 +10,42 @@
 
 .timeline-post {
   width: 100%;
-  padding-block: var(--spacing-4);
+  padding-block: var(--spacing-6);
   border-bottom: var(--border-width) solid var(--color-border);
 }
 
+.timeline-post-head {
+  width: 100%;
+}
+
+.timeline-post-title :is(h1, h2) {
+  margin-block-end: 0;
+}
+
 .timeline-author-link,
-.timeline-post-body {
+.timeline-post-title,
+.timeline-post-open {
   color: inherit;
   text-decoration: none;
   min-width: 0;
 }
 
-.timeline-post-body:hover :is(h2, h1) {
+.timeline-post-byline,
+.timeline-post-meta {
+  flex-wrap: wrap;
+}
+
+.timeline-excerpt {
+  width: 100%;
+  color: var(--color-text);
+}
+
+.timeline-author-link:hover {
+  color: var(--color-text-accent);
+}
+
+.timeline-post-title:hover :is(h2, h1),
+.timeline-post-open:hover {
   color: var(--color-text-accent);
 }
 

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
-  Avatar,
   Button,
   EmptyState,
   Heading,
   HStack,
+  Markdown,
   Spinner,
   Text,
   Timestamp,
@@ -13,36 +13,43 @@ import {
 } from '@astryxdesign/core';
 import { Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
-import { api, type TimelineAuthor, type TimelinePost } from './api';
+import { api, type TimelinePost } from './api';
 
 function PostRow({ post }: { post: TimelinePost }) {
   const flags = [post.has_sql ? 'SQL' : null, post.has_chart ? 'Chart' : null].filter(Boolean).join(' · ');
   return (
     <VStack as="article" className="timeline-post" gap={2}>
-      <HStack gap={3} vAlign="center">
-        <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link" aria-label={`@${post.handle}`}>
-          <Avatar name={post.name || post.handle} size="md" tooltip={false} />
-        </Link>
-        <VStack gap={0}>
-          <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-            <Text weight="semibold">@{post.handle}</Text>
-          </Link>
-          <Timestamp value={post.published_at / 1000} format="auto" isLive />
-        </VStack>
-      </HStack>
-      <Link
-        to="/share/$shareId"
-        params={{ shareId: post.share_id }}
-        className="timeline-post-body"
-      >
-        <VStack gap={1}>
+      <VStack gap={0} className="timeline-post-head">
+        <Link
+          to="/share/$shareId"
+          params={{ shareId: post.share_id }}
+          className="timeline-post-title"
+        >
           <Heading level={2}>{post.title?.trim() || 'Shared chat'}</Heading>
-          {post.excerpt ? (
-            <Text type="supporting" maxLines={3}>{post.excerpt}</Text>
-          ) : null}
-          {flags ? <Text type="supporting">{flags}</Text> : null}
+        </Link>
+        <HStack gap={2} vAlign="center" className="timeline-post-byline">
+          <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
+            <Text type="supporting">@{post.handle}</Text>
+          </Link>
+          <Text type="supporting">·</Text>
+          <Timestamp value={post.published_at / 1000} format="auto" isLive />
+        </HStack>
+      </VStack>
+      {post.excerpt ? (
+        <VStack gap={0} className="timeline-excerpt">
+          <Markdown>{post.excerpt}</Markdown>
         </VStack>
-      </Link>
+      ) : null}
+      <HStack gap={3} vAlign="center" className="timeline-post-meta">
+        {flags ? <Text type="supporting">{flags}</Text> : null}
+        <Link
+          to="/share/$shareId"
+          params={{ shareId: post.share_id }}
+          className="timeline-post-open"
+        >
+          <Text type="supporting">View full chat</Text>
+        </Link>
+      </HStack>
     </VStack>
   );
 }
@@ -52,7 +59,6 @@ export default function TimelinePage() {
   const { handle: handleParam } = useParams({ strict: false }) as { handle?: string };
   const handle = handleParam?.trim().toLowerCase() || undefined;
   const [items, setItems] = useState<TimelinePost[]>([]);
-  const [profile, setProfile] = useState<TimelineAuthor | null>(null);
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -72,7 +78,6 @@ export default function TimelinePage() {
     try {
       const feed = await api.timeline({ handle, before: before ?? undefined });
       if (seq !== loadSeqRef.current) return;
-      setProfile(feed.profile);
       setNextBefore(feed.next_before);
       setItems((prev) => appending ? [...prev, ...feed.items] : feed.items);
     } catch (err) {
@@ -81,7 +86,6 @@ export default function TimelinePage() {
       if (handle && /API 404|API 400/.test(message)) {
         setMissing(true);
         setItems([]);
-        setProfile(null);
       } else {
         setError('Could not load the timeline.');
       }
@@ -97,18 +101,8 @@ export default function TimelinePage() {
     void load();
   }, [load]);
 
-  const title = profile ? `@${profile.handle}` : 'Timeline';
-  const subtitle = profile
-    ? (profile.name && profile.name !== profile.handle ? profile.name : 'Public chats from this handle.')
-    : 'Public chats people chose to share.';
-
   return (
     <VStack className="timeline" gap={5}>
-      <VStack gap={1}>
-        <Heading level={1}>{title}</Heading>
-        <Text type="supporting">{subtitle}</Text>
-      </VStack>
-
       {loading && (
         <HStack gap={3} vAlign="center" className="timeline-state">
           <Spinner size="md" />

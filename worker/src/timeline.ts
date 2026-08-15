@@ -11,7 +11,8 @@ import { getHandle, parseHandle } from "./profiles";
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
 const LIST_MAX = 50;
-export const EXCERPT_MAX = 280;
+/** Safety ceiling for a single first-message preview (not a display truncate). */
+export const EXCERPT_MAX = 100_000;
 
 export interface TimelineEnv extends AuthEnv {
   SCHEMA_DB: D1Database;
@@ -32,7 +33,11 @@ function messageRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-/** Compact public blurb: assistant answer, else the title / first user turn. */
+/**
+ * Timeline preview body: the first full assistant answer, else the first user
+ * turn, else the title. Keeps paragraph breaks so the feed can render the
+ * message expanded; only a large safety ceiling applies.
+ */
 export function excerptFromMessages(messages: unknown, title: string | null): string {
   const rows = Array.isArray(messages) ? messages : [];
   let text = "";
@@ -53,9 +58,15 @@ export function excerptFromMessages(messages: unknown, title: string | null): st
     }
   }
   if (!text && typeof title === "string") text = title;
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (compact.length <= EXCERPT_MAX) return compact;
-  return compact.slice(0, EXCERPT_MAX - 1).trimEnd() + "…";
+  // Trim edges and collapse runs of spaces/tabs, but keep newlines so markdown
+  // and multi-paragraph answers stay readable on the infinite-scroll feed.
+  const normalized = text
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (normalized.length <= EXCERPT_MAX) return normalized;
+  return normalized.slice(0, EXCERPT_MAX - 1).trimEnd() + "…";
 }
 
 export function flagsFromMessages(messages: unknown): { has_sql: boolean; has_chart: boolean } {
@@ -140,16 +151,27 @@ interface TimelineRow {
   published_at: number;
   title: string | null;
   model: string | null;
+  messages: string | null;
   handle: string;
   name: string;
 }
 
 function itemFromRow(row: TimelineRow) {
+  // Prefer a live first-message preview from the share so older posts stored
+  // under the old 280-char cap still render expanded on the feed.
+  let excerpt = row.excerpt ?? "";
+  if (row.messages) {
+    try {
+      excerpt = excerptFromMessages(JSON.parse(row.messages), row.title) || excerpt;
+    } catch {
+      // Keep the denormalized excerpt if the snapshot JSON is unreadable.
+    }
+  }
   return {
     share_id: row.share_id,
     url: "/share/" + row.share_id,
     title: row.title,
-    excerpt: row.excerpt ?? "",
+    excerpt,
     handle: row.handle,
     name: row.name,
     published_at: row.published_at,
@@ -187,7 +209,7 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   bindings.push(parsed.limit + 1);
   const sql =
     `SELECT p.share_id, p.excerpt, p.has_sql, p.has_chart, p.published_at,
-            s.title, s.model, pr.handle, u.name
+            s.title, s.model, s.messages, pr.handle, u.name
      FROM timeline_posts p
      JOIN shared_chats s ON s.share_id = p.share_id
      JOIN user_profiles pr ON pr.user_id = p.user_id

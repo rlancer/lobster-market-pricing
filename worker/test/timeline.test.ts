@@ -24,12 +24,17 @@ test("excerptFromMessages falls back to the user turn, then the title", () => {
   assert.equal(excerptFromMessages(null, null), "");
 });
 
-test("excerptFromMessages collapses whitespace and caps length", () => {
+test("excerptFromMessages keeps paragraph breaks and the full first message", () => {
+  const body = "Technology leads open interest.\n\nHealthcare is second.";
+  assert.equal(
+    excerptFromMessages([{ role: "assistant", content: `  ${body}  ` }], null),
+    body,
+  );
   const long = "word ".repeat(200).trim();
   const excerpt = excerptFromMessages([{ role: "assistant", content: `a\n\n${long}` }], null);
-  assert.ok(excerpt.length <= 280);
-  assert.equal(excerpt.endsWith("…"), true);
-  assert.equal(excerpt.includes("\n"), false);
+  assert.equal(excerpt.startsWith("a\n\n"), true);
+  assert.equal(excerpt.includes(long), true);
+  assert.equal(excerpt.endsWith("…"), false);
 });
 
 test("flagsFromMessages detects sql and chart snapshots", () => {
