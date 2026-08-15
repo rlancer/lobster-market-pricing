@@ -5,7 +5,6 @@ import {
   EmptyState,
   Heading,
   HStack,
-  Markdown,
   Spinner,
   Text,
   Timestamp,
@@ -13,12 +12,18 @@ import {
 } from '@astryxdesign/core';
 import { Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
-import { api, type TimelinePost } from './api';
+import { TranscriptMessage } from './ChatTranscript';
+import { api, type SharedChatMessage, type TimelinePost } from './api';
 
 function PostRow({ post }: { post: TimelinePost }) {
-  const flags = [post.has_sql ? 'SQL' : null, post.has_chart ? 'Chart' : null].filter(Boolean).join(' · ');
+  const messages: SharedChatMessage[] = post.messages?.length
+    ? post.messages
+    : post.excerpt
+      ? [{ role: 'assistant', content: post.excerpt }]
+      : [];
+
   return (
-    <VStack as="article" className="timeline-post" gap={2}>
+    <VStack as="article" className="timeline-post" gap={3}>
       <VStack gap={0} className="timeline-post-head">
         <Link
           to="/share/$shareId"
@@ -35,13 +40,22 @@ function PostRow({ post }: { post: TimelinePost }) {
           <Timestamp value={post.published_at / 1000} format="auto" isLive />
         </HStack>
       </VStack>
-      {post.excerpt ? (
-        <VStack gap={0} className="timeline-excerpt">
-          <Markdown>{post.excerpt}</Markdown>
+
+      {messages.length > 0 && (
+        <VStack gap={3} className="timeline-msgs" aria-label="Chat preview">
+          {messages.map((message, index) => (
+            <TranscriptMessage
+              key={`${post.share_id}-${index}`}
+              message={message}
+              openInData
+              hydrateResult={false}
+              collapseSql
+            />
+          ))}
         </VStack>
-      ) : null}
+      )}
+
       <HStack gap={3} vAlign="center" className="timeline-post-meta">
-        {flags ? <Text type="supporting">{flags}</Text> : null}
         <Link
           to="/share/$shareId"
           params={{ shareId: post.share_id }}

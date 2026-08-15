@@ -521,6 +521,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
       const turns: ShareChatMessage[] = projectedMessages.map((message) => ({
         role: message.role,
         content: message.content,
+        ...(message.reasoning ? { reasoning: message.reasoning } : {}),
         ...(message.sql ? { sql: message.sql } : {}),
         ...(message.ts ? { ts: message.ts } : {}),
         ...(message.result && !message.result.error ? {

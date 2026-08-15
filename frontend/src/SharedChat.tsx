@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
-import { AppShell, HStack, Markdown, Spinner, Timestamp } from '@astryxdesign/core';
+import { AppShell, HStack, Spinner, Timestamp } from '@astryxdesign/core';
 import './SharedChat.css';
-import { CopyButton } from './CopyButton';
 import { Sunglasses } from './Sunglasses';
-import { ChartView } from './Chart';
-import { ResultTable } from './QueryResultView';
-import { chartFitsResult } from './chartSpec';
-import { api, type QueryResult, type SharedChat, type SharedChatMessage } from './api';
+import { TranscriptMessage } from './ChatTranscript';
+import { api, type SharedChat, type SharedChatMessage } from './api';
 
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
@@ -17,67 +14,6 @@ import { api, type QueryResult, type SharedChat, type SharedChatMessage } from '
  * Rendered outside the workspace shell (see App.tsx: /share/* returns a bare
  * Outlet).
  */
-function SharedAssistantBody({ message }: { message: SharedChatMessage }) {
-  const [result, setResult] = useState<QueryResult | null>(message.result && !message.result.error ? message.result : null);
-  const [loading, setLoading] = useState(!message.result && Boolean(message.sql));
-
-  useEffect(() => {
-    if (message.result || !message.sql) {
-      setResult(message.result && !message.result.error ? message.result : null);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    api.query(message.sql, 200)
-      .then((queryResult) => {
-        if (!cancelled && !queryResult.error) setResult(queryResult);
-      })
-      .catch(() => {
-        // Snapshot-less shares still show SQL; a live query miss is not fatal.
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [message.result, message.sql]);
-
-  const chart = message.chart && result?.columns && chartFitsResult(message.chart, result.columns)
-    ? message.chart
-    : null;
-
-  return (
-    <>
-      {message.content && <div className="ai-text"><Markdown>{message.content}</Markdown></div>}
-      {chart && result && <ChartView result={result} spec={chart} />}
-      {message.sql && (
-        <div className="ai-sql">
-          <div className="ai-sql-head">
-            <span>SQL</span>
-            <span className="ai-sql-actions">
-              <CopyButton text={message.sql} />
-            </span>
-          </div>
-          <pre>{message.sql}</pre>
-        </div>
-      )}
-      {loading && <div className="ai-empty">Loading query result…</div>}
-      {result && (
-        chart ? (
-          <details className="ai-result-details">
-            <summary>Query result ({result.row_count.toLocaleString()} rows)</summary>
-            <ResultTable result={result} />
-          </details>
-        ) : (
-          <ResultTable result={result} />
-        )
-      )}
-    </>
-  );
-}
-
 function SharedChatRoute() {
   const { shareId } = useParams({ strict: false }) as { shareId?: string };
   const [share, setShare] = useState<SharedChat | null>(null);
@@ -164,14 +100,7 @@ function SharedChatRoute() {
             </header>
             <section className="share-msgs" aria-label="Shared conversation">
               {share.messages.map((m: SharedChatMessage, i: number) => (
-                <div key={i} className={`ai-msg ai-${m.role}`}>
-                  {m.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
-                  <div className="ai-bubble">
-                    {m.role === 'assistant'
-                      ? <SharedAssistantBody message={m} />
-                      : (m.content && <div className="ai-text">{m.content}</div>)}
-                  </div>
-                </div>
+                <TranscriptMessage key={i} message={m} />
               ))}
             </section>
           </>

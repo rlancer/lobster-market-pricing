@@ -1,6 +1,9 @@
+/* Timeline feed — reuses chat bubble / SQL / Thinking chrome from AiChat. */
+@import './AiChat.css';
+
 .timeline {
   width: 100%;
-  max-width: 42rem;
+  max-width: 52rem;
   margin-inline: auto;
 }
 
@@ -35,9 +38,17 @@
   flex-wrap: wrap;
 }
 
-.timeline-excerpt {
+.timeline-msgs {
   width: 100%;
-  color: var(--color-text);
+}
+
+/* Feed bubbles sit edge-to-edge in the post card — full width like the share page. */
+.timeline-msgs .ai-msg {
+  width: 100%;
+}
+
+.timeline-msgs .ai-bubble {
+  max-width: min(720px, 100%);
 }
 
 .timeline-author-link:hover {

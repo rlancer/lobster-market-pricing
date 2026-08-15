@@ -379,7 +379,8 @@
   align-items: center;
   gap: 14px;
 }
-.ai-sql-head button {
+.ai-sql-head button,
+.ai-sql-head .ai-sql-open {
   background: none;
   border: none;
   color: var(--accent);
@@ -387,8 +388,10 @@
   text-transform: none;
   letter-spacing: 0;
   cursor: pointer;
+  text-decoration: none;
 }
-.ai-sql-head button:hover { text-decoration: underline; }
+.ai-sql-head button:hover,
+.ai-sql-head .ai-sql-open:hover { text-decoration: underline; }
 .ai-sql pre {
   margin: 0;
   padding: 12px 14px;
@@ -398,6 +401,20 @@
   line-height: 1.55;
   color: var(--color-text-cyan, var(--accent-2));
 }
+.ai-sql-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.ai-sql-collapsible > summary::-webkit-details-marker { display: none; }
+.ai-sql-collapsible > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-inline-end: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.ai-sql-collapsible[open] > summary::before { content: '▾'; }
 
 /* ---- result table -------------------------------------------------------- */
 .ai-result {

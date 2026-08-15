@@ -413,6 +413,8 @@ export interface ShareChatResponse {
  * shares keep a capped snapshot so a recipient can see the data.
  */
 export interface SharedChatMessage extends ChatHistoryMessage {
+  /** Model reasoning / thinking trace when the share captured it. */
+  reasoning?: string;
   tools?: { name: string; args?: string; ok?: boolean; summary?: string }[];
   result?: QueryResult;
   chart?: {
@@ -458,6 +460,11 @@ export interface TimelinePost {
   url: string;
   title: string | null;
   excerpt: string;
+  /**
+   * First user→assistant turn (or a lone first message) for chat-style feed
+   * rendering — includes sql / reasoning / chart when the share has them.
+   */
+  messages: SharedChatMessage[];
   handle: string;
   name: string;
   published_at: number;

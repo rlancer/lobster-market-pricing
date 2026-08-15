@@ -1602,6 +1602,7 @@ const SHARE_MESSAGES_MAX_BYTES = 1_200_000; // serialized messages JSON, UTF-8 b
 const SHARE_ROW_MAX_BYTES = 2_000_000;      // D1 row ceiling (messages + source_sql + columns)
 const SHARE_MAX_CONTENT = 5_000;            // chars — per message content
 const SHARE_MAX_SQL = 10_000;               // chars — per message sql
+const SHARE_MAX_REASONING = 20_000;         // chars — per message thinking trace
 const SHARE_MAX_TOOLS = 20;                 // tool entries per message
 const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
 const SHARE_MAX_TITLE = 120;                // chars — auto-derived title
@@ -1736,6 +1737,14 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     const original = raw[index] && typeof raw[index] === "object" && !Array.isArray(raw[index])
       ? raw[index] as Record<string, unknown>
       : {};
+    // Reasoning may arrive on the lake-normalized message or only on the raw
+    // client payload — keep whichever is present so share/timeline can show
+    // the same Thinking disclosure as the live chat.
+    const reasoningRaw =
+      (typeof rec.reasoning === "string" && rec.reasoning)
+      || (typeof original.reasoning === "string" && original.reasoning)
+      || "";
+    if (reasoningRaw) out.reasoning = reasoningRaw.slice(0, SHARE_MAX_REASONING);
     const result = capShareResult(original.result);
     if (result) out.result = result;
     const chart = capShareChart(original.chart, Array.isArray(result?.columns) ? result.columns as string[] : undefined);
