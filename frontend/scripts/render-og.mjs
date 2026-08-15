@@ -65,6 +65,21 @@ function lobsterSvg(size = 96) {
 </svg>`;
 }
 
+/** Brand glasses from Sunglasses.tsx / favicon — dark-theme tokens inlined. */
+function sunglassesSvg(width = 112, height = 48) {
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 24 28 12" width="${width}" height="${height}" aria-hidden="true">
+  <g fill="${COLORS.body}" stroke="${COLORS.text}" stroke-linejoin="round" stroke-width="1.5">
+    <rect x="39" y="27" width="8" height="6" rx="2" />
+    <rect x="49" y="27" width="8" height="6" rx="2" />
+    <path d="M47 29.5H49M39 29L37 28M57 29L59 28" fill="none" />
+  </g>
+  <g fill="none" stroke="${COLORS.iconBlue}" stroke-linecap="round" stroke-width="1.2">
+    <path d="M41 29L43 28M51 29L53 28" />
+  </g>
+</svg>`;
+}
+
 function ogHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -138,8 +153,8 @@ function squareHtml() {
       width: 1200px;
       height: 1200px;
       background:
-        radial-gradient(ellipse 70% 60% at 50% 42%, ${COLORS.accentMuted} 0%, transparent 60%),
-        radial-gradient(ellipse 50% 40% at 70% 20%, #9EB7FF18 0%, transparent 50%),
+        radial-gradient(ellipse 70% 50% at 50% 50%, ${COLORS.accentMuted} 0%, transparent 58%),
+        radial-gradient(ellipse 45% 35% at 68% 32%, #9EB7FF18 0%, transparent 50%),
         linear-gradient(160deg, ${COLORS.body} 0%, ${COLORS.surface} 100%);
       display: grid;
       place-items: center;
@@ -158,21 +173,19 @@ function squareHtml() {
       border-radius: 50%;
       border: 1px dashed ${COLORS.borderBlue}55;
     }
-    .mascot {
+    .mark {
       position: relative;
-      width: 720px;
-      height: 720px;
       display: grid;
       place-items: center;
       filter: drop-shadow(0 28px 56px #000A10AA);
     }
-    .mascot svg { width: 680px; height: 680px; }
+    .mark svg { width: 720px; height: 308px; }
   </style>
 </head>
 <body>
   <div class="stage">
     <div class="ring" aria-hidden="true"></div>
-    <div class="mascot">${lobsterSvg(680)}</div>
+    <div class="mark">${sunglassesSvg(720, 308)}</div>
   </div>
 </body>
 </html>`;
@@ -192,14 +205,14 @@ function iconHtml() {
       display: grid;
       place-items: center;
       background:
-        radial-gradient(circle at 50% 45%, ${COLORS.accentMuted} 0%, transparent 55%),
+        radial-gradient(circle at 50% 48%, ${COLORS.accentMuted} 0%, transparent 55%),
         ${COLORS.body};
     }
-    svg { width: 440px; height: 440px; }
+    svg { width: 360px; height: 154px; }
   </style>
 </head>
 <body>
-  <div class="stage">${lobsterSvg(440)}</div>
+  <div class="stage">${sunglassesSvg(360, 154)}</div>
 </body>
 </html>`;
 }
