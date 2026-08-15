@@ -1292,10 +1292,10 @@ function secureEqual(a: string, b: string): boolean {
 
 /** True when the request carries the ADMIN_TOKEN bearer secret. */
 function adminAuthorized(req: Request, env: Env): boolean {
-  const expected = env.ADMIN_TOKEN;
+  const expected = (env.ADMIN_TOKEN ?? "").trim();
   if (!expected) return false;
   const header = req.headers.get("Authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  const token = (header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "").trim();
   return token.length > 0 && secureEqual(token, expected);
 }
 

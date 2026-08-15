@@ -248,7 +248,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           if [ -n "${{ secrets.ADMIN_TOKEN }}" ]; then
-            echo "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api-dev
+            printf '%s' "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api-dev
           else
             echo "ADMIN_TOKEN not set — skipping (chat history admin endpoint stays closed on preview)"
           fi
