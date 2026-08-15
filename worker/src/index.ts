@@ -43,6 +43,17 @@ import {
   parseToolEventListQuery,
   purgeExpiredToolEvents,
 } from "./copilot-tool-events";
+import { listChatTickers, listSecurityChats } from "./chat-tickers";
+import {
+  getOrComputeResearch,
+  parseTickerParam,
+  summarizeResearch,
+  type EarningsBrief,
+  type RealizedVolBrief,
+  type ResearchDeps,
+  type TickerResearch,
+} from "./research";
+import type { LakeSecurityRow } from "./figi";
 
 
 // ---------------------------------------------------------------------------
@@ -55,6 +66,8 @@ export interface Env extends Cloudflare.Env {
   BETTER_AUTH_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
+  OPEN_FIGI?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1969,7 +1982,136 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
   protected override fetchEconomicCalendar(days: number) {
     return econCalendar(this.env, days);
   }
+
+  protected override researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }) {
+    return researchTickerForAgent(this.env, symbol, opts);
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Ticker research — OpenFIGI normalize + cached brief for chat widget / route
+// ---------------------------------------------------------------------------
+
+async function lakeSecurityLookup(env: Env, ticker: string): Promise<LakeSecurityRow | null> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT security_id, ticker, figi, composite_figi, isin, name, exchange, currency, sector FROM (` +
+        `  SELECT security_id, ticker, figi, composite_figi, isin, name, exchange, currency, sector,` +
+        `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.securities WHERE ticker = ${lit(ticker)}` +
+        `) WHERE rn = 1`,
+      "sec_" + ticker,
+      QUERY_TTL_MS,
+    );
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadResearchEarnings(env: Env, ticker: string): Promise<EarningsBrief[]> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT earnings_date, time, fiscal_q, eps_forecast, last_year_eps, name FROM (` +
+        `  SELECT earnings_date, time, fiscal_q, eps_forecast, last_year_eps, name,` +
+        `    ROW_NUMBER() OVER (PARTITION BY symbol, earnings_date ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.earnings WHERE symbol = ${lit(ticker)}` +
+        `) WHERE rn = 1 ORDER BY earnings_date DESC LIMIT 6`,
+      "earn_" + ticker,
+      QUERY_TTL_MS,
+    );
+    return rows.map((r) => ({
+      earnings_date: String(r.earnings_date),
+      time: strOrNull(r.time),
+      fiscal_q: strOrNull(r.fiscal_q),
+      eps_forecast: numOrNull(r.eps_forecast),
+      last_year_eps: numOrNull(r.last_year_eps),
+      name: strOrNull(r.name),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function researchDepsFor(env: Env): ResearchDeps {
+  return {
+    lakeLookup: (ticker) => lakeSecurityLookup(env, ticker),
+    loadOhlc: async (ticker) => {
+      const enrich = await enrichSymbol(env, ticker);
+      return enrich.ohlc.map((r) => ({
+        date: String(r.date),
+        open: numOrNull(r.open),
+        high: numOrNull(r.high),
+        low: numOrNull(r.low),
+        close: numOrNull(r.close),
+        volume: numOrNull(r.volume),
+      }));
+    },
+    loadRealizedVol: async (ticker) => {
+      const enrich = await enrichSymbol(env, ticker);
+      if (!enrich.realized_vol) return null;
+      return {
+        as_of_date: String(enrich.realized_vol.as_of_date),
+        realized_vol_30d: numOrNull(enrich.realized_vol.realized_vol_30d),
+        realized_vol_90d: numOrNull(enrich.realized_vol.realized_vol_90d),
+      } satisfies RealizedVolBrief;
+    },
+    loadEarnings: (ticker) => loadResearchEarnings(env, ticker),
+    loadNews: async (ticker, limit) => {
+      const result = await news(env, ticker, limit);
+      return {
+        items: result.items.map((item) => ({ title: item.title, link: item.link })),
+        error: result.error,
+      };
+    },
+    loadEtfProfile: async (ticker) => {
+      const enrich = await enrichSymbol(env, ticker);
+      if (!enrich.etf_profile) return null;
+      return {
+        name: strOrNull(enrich.etf_profile.name),
+        family: strOrNull(enrich.etf_profile.family),
+        category: strOrNull(enrich.etf_profile.category),
+        net_assets: numOrNull(enrich.etf_profile.net_assets),
+        expense_ratio: numOrNull(enrich.etf_profile.expense_ratio),
+      };
+    },
+  };
+}
+
+async function researchTickerForAgent(
+  env: Env,
+  symbol: string,
+  opts?: { force?: boolean; chatId?: string },
+): Promise<{ research?: TickerResearch; summary: string; error?: string }> {
+  try {
+    const research = await getOrComputeResearch(env, symbol, researchDepsFor(env), {
+      force: opts?.force,
+      chatId: opts?.chatId,
+    });
+    return { research, summary: summarizeResearch(research) };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { summary: `Research failed: ${message}`, error: message };
+  }
+}
+
+async function handleResearchGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
+  const ticker = parseTickerParam(tickerRaw);
+  if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+  const chatId = url.searchParams.get("chat_id")?.trim() || undefined;
+  try {
+    const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), { force, chatId });
+    return json(env, research, 200, "private");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return json(env, { error: message }, 502, "private");
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -2084,6 +2226,13 @@ async function handleUserChats(env: Env, req: Request, path: string): Promise<Re
     if (!result.ok) return json(env, { error: result.error }, result.status, "private");
     return json(env, result, 200, "private");
   }
+  const tickersMatch = path.match(/^\/api\/chats\/([^/]+)\/tickers$/);
+  if (tickersMatch && req.method === "GET") {
+    const chatId = parseChatId(decodeURIComponent(tickersMatch[1]));
+    if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
+    const items = await listChatTickers(env.SCHEMA_DB, chatId);
+    return json(env, { chat_id: chatId, items }, 200, "private");
+  }
   const item = path.match(/^\/api\/chats\/([^/]+)$/);
   if (!item) return null;
   const chatId = parseChatId(decodeURIComponent(item[1]));
@@ -2156,6 +2305,21 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path.startsWith("/api/symbol/")) {
     const sym = decodeURIComponent(path.slice("/api/symbol/".length)).toUpperCase();
     return json(env, await symbolDetail(env, sym));
+  }
+
+  if (path.startsWith("/api/research/")) {
+    const rest = decodeURIComponent(path.slice("/api/research/".length));
+    const [tickerPart, sub] = rest.split("/");
+    if (sub === "chats" && req.method === "GET") {
+      const ticker = parseTickerParam(tickerPart);
+      if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+      const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), { force: false });
+      const chats = await listSecurityChats(env.SCHEMA_DB, research.identity.security_id, num(q.get("limit") ?? 20));
+      return json(env, { ticker: research.identity.ticker, security_id: research.identity.security_id, items: chats }, 200, "private");
+    }
+    if (!sub && (req.method === "GET" || req.method === "POST")) {
+      return handleResearchGet(env, req, tickerPart);
+    }
   }
 
   if (path === "/api/underlyings")

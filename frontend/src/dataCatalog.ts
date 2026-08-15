@@ -140,6 +140,21 @@ export const TOOLS: CatalogItem[] = [
     live: 'news',
   },
   {
+    id: 'tool:research_ticker',
+    kind: 'tool',
+    title: 'research_ticker',
+    summary: 'OpenFIGI-normalized ticker research brief',
+    description:
+      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker via OpenFIGI (lake/ticker fallback), links the chat to that security_id, and returns a cached brief: recent price/volume moves, consolidation/accumulation, Yahoo fundamentals (market cap, PE, debt), earnings, and news. Powers the chat ticker widget and /research/{ticker}.',
+    endpoint: 'GET /api/research/{ticker}',
+    feeds: ['openfigi', 'yahoo', 'nasdaq', 'tavily-news'],
+    tables: ['ohlc', 'realized_vol', 'earnings', 'securities'],
+    params: [
+      { name: 'symbol', type: 'string', note: 'Ticker to normalize and research' },
+      { name: 'force', type: 'boolean?', note: 'Bypass the 1h D1 research cache' },
+    ],
+  },
+  {
     id: 'tool:web_search',
     kind: 'tool',
     title: 'web_search',
@@ -220,7 +235,7 @@ export const FEEDS: CatalogItem[] = [
     provider: 'Tavily',
     cadence: 'On demand (cached ~briefly)',
     endpoint: 'GET /api/news',
-    tools: ['get_news'],
+    tools: ['get_news', 'research_ticker'],
     live: 'news',
   },
   {
@@ -246,7 +261,7 @@ export const FEEDS: CatalogItem[] = [
     provider: 'Yahoo Finance',
     cadence: 'Daily (ungated) + on-demand backfill',
     tables: ['ohlc', 'realized_vol', 'corporate_actions'],
-    tools: ['run_query'],
+    tools: ['run_query', 'research_ticker'],
   },
   {
     id: 'feed:yahoo-etf',
@@ -270,7 +285,7 @@ export const FEEDS: CatalogItem[] = [
     provider: 'Nasdaq',
     cadence: 'Daily (ungated)',
     tables: ['earnings'],
-    tools: ['run_query'],
+    tools: ['run_query', 'research_ticker'],
   },
   {
     id: 'feed:openfigi',
@@ -280,9 +295,9 @@ export const FEEDS: CatalogItem[] = [
     description:
       'Bloomberg OpenFIGI mapping for the universe manifest. Lands on options.securities (and ticker validity on options.symbol_history) so Chat can resolve names, sectors, and identifier history — not just the live CBOE ticker.',
     provider: 'OpenFIGI',
-    cadence: 'With securities / symbology loads',
+    cadence: 'With securities / symbology loads + live Worker resolve',
     tables: ['securities', 'symbol_history'],
-    tools: ['run_query'],
+    tools: ['run_query', 'research_ticker'],
   },
 ];
 

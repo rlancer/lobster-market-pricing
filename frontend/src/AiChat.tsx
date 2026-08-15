@@ -30,6 +30,7 @@ import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
+import { ChatTickerWidget } from './ChatTickerWidget';
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -49,6 +50,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_news: 'News',
   eco_calendar: 'Eco calendar',
   web_search: 'Web search',
+  research_ticker: 'Ticker research',
 };
 
 interface FrameMetadata {
@@ -166,6 +168,8 @@ function formatToolArgs(name: string, input: unknown): string {
     case 'render_chart':
       return `${String(o.kind ?? 'line')} · ${String(o.x ?? '?')} × ${String(o.y ?? '?')}${o.series ? ` by ${String(o.series)}` : ''}`;
     case 'get_news':
+      return String(o.symbol ?? '').toUpperCase();
+    case 'research_ticker':
       return String(o.symbol ?? '').toUpperCase();
     case 'web_search':
       return squeeze(o.query).slice(0, 120);
@@ -311,6 +315,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const [shareError, setShareError] = useState<string | null>(null);
   const [onTimeline, setOnTimeline] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [researchRefreshKey, setResearchRefreshKey] = useState(0);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -399,6 +404,25 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   useEffect(() => {
     if (latestPresentation) setFrames(latestPresentation.frames);
   }, [latestFrameSignature]);
+
+  // Refresh the chat ticker widget whenever research_ticker succeeds.
+  const researchToolSig = useMemo(() => {
+    const ids: string[] = [];
+    for (const message of messages) {
+      for (const part of message.parts) {
+        if (!isToolUIPart(part)) continue;
+        if (getToolName(part) !== 'research_ticker') continue;
+        const state = getToolPartState(part);
+        if (state === 'complete') ids.push(getToolCallId(part));
+      }
+    }
+    return ids.join('|');
+  }, [messages]);
+
+  useEffect(() => {
+    if (!researchToolSig) return;
+    setResearchRefreshKey((n) => n + 1);
+  }, [researchToolSig]);
 
   useEffect(() => {
     let active = true;
@@ -607,6 +631,8 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
           })}
         </div>
       )}
+
+      <ChatTickerWidget chatId={chatId} refreshKey={researchRefreshKey} />
 
       <section className="ai-messages" ref={scrollRef}>
         {projectedMessages.length === 0 && (

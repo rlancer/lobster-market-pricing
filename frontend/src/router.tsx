@@ -11,6 +11,7 @@ import TimelinePage from './Timeline';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
+import ResearchPage from './ResearchPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 import { parseChatId } from './chatSession';
 
@@ -90,16 +91,23 @@ const marketRoute = createRoute({
 const researchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/research',
-  beforeLoad: () => {
-    throw redirect({ to: '/data', search: { sql: undefined, item: undefined } });
-  },
+  component: ResearchPage,
+});
+
+const researchTickerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/research/$ticker',
+  component: ResearchPage,
 });
 
 const symbolRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/symbol/$symbol',
-  beforeLoad: () => {
-    throw redirect({ to: '/data', search: { sql: undefined, item: 'table:option_contracts' } });
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: '/research/$ticker',
+      params: { ticker: params.symbol.toUpperCase() },
+    });
   },
 });
 
@@ -203,6 +211,7 @@ const routeTree = rootRoute.addChildren([
   labRoute,
   marketRoute,
   researchRoute,
+  researchTickerRoute,
   aiRoute,
   monitorRoute,
   symbolRoute,

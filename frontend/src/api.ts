@@ -518,6 +518,103 @@ export interface UserChatClaim {
   created: boolean;
 }
 
+export interface TickerIdentity {
+  security_id: string;
+  ticker: string;
+  figi: string | null;
+  composite_figi: string | null;
+  isin: string | null;
+  name: string | null;
+  exchange: string | null;
+  currency: string | null;
+  sector: string | null;
+  source: string;
+  resolved_at: number;
+}
+
+export interface TickerResearch {
+  identity: TickerIdentity;
+  price: {
+    spot: number | null;
+    change_1d_pct: number | null;
+    change_5d_pct: number | null;
+    change_21d_pct: number | null;
+    change_63d_pct: number | null;
+    high_63d: number | null;
+    low_63d: number | null;
+    volume_latest: number | null;
+    volume_avg_20d: number | null;
+    volume_relative_20d: number | null;
+  };
+  technicals: {
+    trend: string;
+    consolidation: boolean;
+    consolidation_range_pct: number | null;
+    accumulation: string;
+    notes: string[];
+  };
+  realized_vol: {
+    as_of_date: string;
+    realized_vol_30d: number | null;
+    realized_vol_90d: number | null;
+  } | null;
+  fundamentals: {
+    market_cap: number | null;
+    enterprise_value: number | null;
+    trailing_pe: number | null;
+    forward_pe: number | null;
+    peg_ratio: number | null;
+    price_to_book: number | null;
+    total_debt: number | null;
+    debt_to_equity: number | null;
+    profit_margins: number | null;
+    revenue_growth: number | null;
+    source: string | null;
+  };
+  earnings: Array<{
+    earnings_date: string;
+    time: string | null;
+    fiscal_q: string | null;
+    eps_forecast: number | null;
+    last_year_eps: number | null;
+    name: string | null;
+  }>;
+  news: Array<{ title: string; link: string }>;
+  etf: {
+    name: string | null;
+    family: string | null;
+    category: string | null;
+    net_assets: number | null;
+    expense_ratio: number | null;
+  } | null;
+  computed_at: string;
+  expires_at: string;
+  cache_hit: boolean;
+}
+
+export interface ChatTickerLink {
+  chat_id: string;
+  security_id: string;
+  ticker: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  mention_count: number;
+  name?: string | null;
+  figi?: string | null;
+  composite_figi?: string | null;
+}
+
+export interface ChatTickerList {
+  chat_id: string;
+  items: ChatTickerLink[];
+}
+
+export interface ResearchChatsResponse {
+  ticker: string;
+  security_id: string;
+  items: ChatTickerLink[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(API_BASE + path, { credentials: 'include', ...init });
   if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
@@ -649,6 +746,19 @@ export const api = {
     patch<{ ok: boolean; title: string }>(`/api/chats/${encodeURIComponent(chatId)}`, { title }),
   deleteChat: (chatId: string) =>
     del<{ ok: boolean }>(`/api/chats/${encodeURIComponent(chatId)}`),
+  research: (ticker: string, opts?: { force?: boolean; chatId?: string }) =>
+    get<TickerResearch>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}${qs({
+        force: opts?.force ? 1 : undefined,
+        chat_id: opts?.chatId,
+      })}`,
+    ),
+  researchChats: (ticker: string, limit?: number) =>
+    get<ResearchChatsResponse>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}/chats${qs({ limit })}`,
+    ),
+  chatTickers: (chatId: string) =>
+    get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),
 };
 
 import { useState, useEffect } from 'react';

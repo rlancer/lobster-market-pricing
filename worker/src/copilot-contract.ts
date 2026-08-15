@@ -37,6 +37,10 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   get_news: z.object({ symbol: z.string().trim().min(1), limit: z.number().int().min(1).max(20).default(8) }).strict(),
   web_search: z.object({ query: z.string().trim().min(1).max(200), max_results: z.number().int().min(1).max(5).default(5) }).strict(),
   eco_calendar: z.object({ days: z.number().int().min(7).max(90).default(30) }).strict(),
+  research_ticker: z.object({
+    symbol: z.string().trim().min(1).max(16),
+    force: z.boolean().optional(),
+  }).strict(),
 } as const;
 
 export interface CopilotModelEnv {

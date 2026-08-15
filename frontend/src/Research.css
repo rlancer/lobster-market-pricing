@@ -1,0 +1,129 @@
+.research-page {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: var(--spacing-6) var(--spacing-5) var(--spacing-8);
+  min-height: 100%;
+}
+
+.research-page-head {
+  max-width: 40rem;
+}
+
+.research-lookup {
+  width: 100%;
+  max-width: 24rem;
+}
+
+.research-empty {
+  padding-block: var(--spacing-6);
+}
+
+.research-chip-link,
+.research-news-link,
+.research-chat-link,
+.chat-research-open {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+}
+
+.research-chip-link:hover,
+.research-news-link:hover,
+.research-chat-link:hover,
+.chat-research-open:hover {
+  text-decoration: underline;
+}
+
+.research-chip-link {
+  padding: var(--spacing-1) var(--spacing-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: var(--panel);
+}
+
+.research-brief {
+  width: 100%;
+}
+
+.research-brief.compact {
+  padding: var(--spacing-3) var(--spacing-4) var(--spacing-4);
+}
+
+.research-title-row {
+  flex-wrap: wrap;
+}
+
+.research-id-line,
+.research-foot {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+}
+
+.research-section {
+  border-top: var(--border-width) solid var(--color-border);
+  padding-top: var(--spacing-3);
+}
+
+.research-meta {
+  width: 100%;
+}
+
+.research-state {
+  padding: var(--spacing-4);
+}
+
+.research-err {
+  color: var(--color-error);
+}
+
+.chat-research {
+  flex-shrink: 0;
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent));
+}
+
+.chat-research-strip {
+  border-bottom: none;
+  background: transparent;
+}
+
+.chat-ticker-chip {
+  cursor: pointer;
+  font: inherit;
+}
+
+.chat-ticker-chip.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.chat-research-panel {
+  max-height: 40vh;
+  overflow: auto;
+  border-top: var(--border-width) solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.chat-research-panel-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  justify-content: space-between;
+  padding: var(--spacing-2) var(--spacing-3);
+  border-bottom: var(--border-width) solid color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--panel) 96%, var(--accent));
+}
+
+.chat-research-panel-title {
+  font-family: var(--font-family-code);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.chat-research-actions {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
+.chat-research-open {
+  align-self: center;
+}
