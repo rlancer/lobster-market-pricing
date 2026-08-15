@@ -1,10 +1,12 @@
 /**
- * Durable Copilot tool-call events for admin debugging.
+ * Durable Copilot tool-call events for debugging.
  *
  * CopilotAgent records every tool outcome (ok / error / args / sql) into D1
  * `copilot_tool_events`. Lake `options.chat_history` deliberately strips tools;
- * this table is the only durable index of failed tool calls. Guarded by the
- * same ADMIN_TOKEN bearer as GET /api/admin/chat_history.
+ * this table is the only durable index of failed tool calls. The read path is
+ * public (`GET /api/tool_calls`) — payloads are capped tool args/errors/SQL,
+ * not transcripts or abuse metadata. Pass `share_id` to resolve a share's
+ * originating chat without needing ADMIN_TOKEN.
  */
 
 export const TOOL_EVENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -60,6 +62,7 @@ export interface ToolEventRow {
 
 export interface ToolEventListQuery {
   chat_id?: string | null;
+  share_id?: string | null;
   tool?: string | null;
   /** null = no ok filter (all outcomes). */
   ok?: boolean | null;
@@ -72,6 +75,7 @@ export interface ToolEventListResult {
   limit: number;
   before: string | null;
   chat_id: string | null;
+  share_id: string | null;
   tool: string | null;
   ok_filter: boolean | null;
   items: ToolEventRow[];
@@ -154,9 +158,10 @@ export function normalizeToolEvent(input: ToolEventInput): {
 }
 
 /**
- * Parse admin list filters. Omitting `ok` defaults to failures (`false`) —
+ * Parse tool-call list filters. Omitting `ok` defaults to failures (`false`) —
  * that is the debug use case. Pass `ok=all` for every outcome, or
- * `ok=true` / `ok=false` explicitly.
+ * `ok=true` / `ok=false` explicitly. `share_id` resolves to the originating
+ * chat_id via shared_chats (so a share URL is enough to debug).
  */
 export function parseToolEventListQuery(params: URLSearchParams): ToolEventListQuery & { error?: string } {
   const limitRaw = params.get("limit");
@@ -168,6 +173,7 @@ export function parseToolEventListQuery(params: URLSearchParams): ToolEventListQ
   }
 
   const chatId = trimOrNull(params.get("chat_id"), TOOL_EVENT_AUX_MAX);
+  const shareId = trimOrNull(params.get("share_id"), TOOL_EVENT_AUX_MAX);
   const toolRaw = trimOrNull(params.get("tool"), TOOL_EVENT_AUX_MAX);
   if (toolRaw && !KNOWN_TOOLS.has(toolRaw)) {
     return { error: `unknown tool '${toolRaw}'` };
@@ -189,7 +195,15 @@ export function parseToolEventListQuery(params: URLSearchParams): ToolEventListQ
     before = beforeRaw;
   }
 
-  return { chat_id: chatId, tool: toolRaw, ok, limit, before };
+  return { chat_id: chatId, share_id: shareId, tool: toolRaw, ok, limit, before };
+}
+
+/** Look up the originating chat_id for a public share. */
+export async function chatIdForShare(db: D1Database, shareId: string): Promise<string | null> {
+  const row = await db.prepare(
+    "SELECT chat_id FROM shared_chats WHERE share_id = ?1 LIMIT 1",
+  ).bind(shareId).first<{ chat_id: string }>();
+  return row?.chat_id ?? null;
 }
 
 function rowToEvent(row: {
@@ -262,6 +276,7 @@ export async function purgeExpiredToolEvents(db: D1Database, now = Date.now()): 
 export async function listToolEvents(db: D1Database, query: ToolEventListQuery): Promise<ToolEventListResult> {
   const limit = clamp(query.limit ?? 100, 1, TOOL_EVENT_ADMIN_LIMIT_MAX);
   const chatId = trimOrNull(query.chat_id, TOOL_EVENT_AUX_MAX);
+  const shareId = trimOrNull(query.share_id, TOOL_EVENT_AUX_MAX);
   const tool = trimOrNull(query.tool, TOOL_EVENT_AUX_MAX);
   const okFilter = typeof query.ok === "boolean" ? query.ok : null;
   const beforeIso = query.before && Number.isFinite(Date.parse(query.before)) ? query.before : null;
@@ -313,6 +328,7 @@ export async function listToolEvents(db: D1Database, query: ToolEventListQuery):
     limit,
     before: beforeIso,
     chat_id: chatId,
+    share_id: shareId,
     tool,
     ok_filter: okFilter,
     items: (rows.results ?? []).map(rowToEvent),

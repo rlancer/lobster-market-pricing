@@ -137,11 +137,12 @@ jobs:
           fi
         working-directory: worker
 
-      # Admin bearer token guarding GET /api/admin/chat_history (lake
-      # transcripts) and GET /api/admin/tool_calls (D1 tool-call debug log).
-      # Same guarded pattern: synced here because GitHub secrets are the
-      # project's de-facto secrets manager, and skipped (leaving an existing
-      # value intact) until the GitHub secret exists.
+      # Admin bearer token guarding GET /api/admin/chat_history (transcripts
+      # with ip/user_id) and private lake SQL. Tool-call debug is public
+      # (GET /api/tool_calls). Same guarded pattern: synced here because
+      # GitHub secrets are the project's de-facto secrets manager, and
+      # skipped (leaving an existing value intact) until the GitHub secret
+      # exists.
       - name: Set ADMIN_TOKEN secret on Worker (if configured)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -150,7 +151,7 @@ jobs:
           if [ -n "${{ secrets.ADMIN_TOKEN }}" ]; then
             echo "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api
           else
-            echo "ADMIN_TOKEN not set — skipping (chat history / tool_calls admin endpoints stay closed)"
+            echo "ADMIN_TOKEN not set — skipping (chat history admin endpoint stays closed)"
           fi
         working-directory: worker
 

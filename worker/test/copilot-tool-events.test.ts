@@ -55,6 +55,7 @@ test("normalizeToolEvent caps fields and requires ids", () => {
 test("parseToolEventListQuery defaults ok to failures and accepts ok=all", () => {
   assert.deepEqual(parseToolEventListQuery(new URLSearchParams()), {
     chat_id: null,
+    share_id: null,
     tool: null,
     ok: false,
     limit: 100,
@@ -62,14 +63,15 @@ test("parseToolEventListQuery defaults ok to failures and accepts ok=all", () =>
   });
   assert.deepEqual(parseToolEventListQuery(new URLSearchParams("ok=all&limit=10")), {
     chat_id: null,
+    share_id: null,
     tool: null,
     ok: null,
     limit: 10,
     before: null,
   });
   assert.deepEqual(
-    parseToolEventListQuery(new URLSearchParams("ok=true&tool=run_query&chat_id=abc")),
-    { chat_id: "abc", tool: "run_query", ok: true, limit: 100, before: null },
+    parseToolEventListQuery(new URLSearchParams("ok=true&tool=run_query&chat_id=abc&share_id=share1")),
+    { chat_id: "abc", share_id: "share1", tool: "run_query", ok: true, limit: 100, before: null },
   );
   assert.equal(parseToolEventListQuery(new URLSearchParams("tool=nope")).error, "unknown tool 'nope'");
   assert.equal(parseToolEventListQuery(new URLSearchParams("ok=maybe")).error, "ok must be true, false, or all");
