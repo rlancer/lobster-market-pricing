@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Lobster MP — Ask the Lobster">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Lobster MP mascot">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#07131F"/>
       <stop offset="48%" stop-color="#0C1C29"/>
       <stop offset="100%" stop-color="#0A1A28"/>
     </linearGradient>
-    <radialGradient id="glow" cx="18%" cy="55%" r="55%">
+    <radialGradient id="glow" cx="50%" cy="48%" r="45%">
       <stop offset="0%" stop-color="#35D0BA" stop-opacity="0.12"/>
       <stop offset="100%" stop-color="#35D0BA" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
-  <g transform="translate(116 115) scale(4.2)">
+  <g transform="translate(380 95) scale(4.6)">
 
   <g fill="none" stroke="#9EB7FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5">
     <path d="M41 26C33 17 23 12 13 14" />
@@ -45,9 +45,4 @@
   </g>
   <path d="M42 36Q48 42 54 36" fill="none" stroke="#07131F" stroke-linecap="round" stroke-width="2.5" />
 </g>
-  <text x="580" y="210" fill="#35D0BA" font-family="Segoe UI, sans-serif" font-size="22" font-weight="600" letter-spacing="2">OPTIONS COPILOT</text>
-  <text x="580" y="310" fill="#EAF7F3" font-family="Segoe UI, sans-serif" font-size="72" font-weight="700">Ask the</text>
-  <text x="580" y="390" fill="#35D0BA" font-family="Segoe UI, sans-serif" font-size="72" font-weight="700">Lobster</text>
-  <text x="580" y="460" fill="#8EA8AA" font-family="Segoe UI, sans-serif" font-size="24">Live US equities &amp; ETF options — chains, IV, greeks, news, and SQL.</text>
-  <text x="580" y="520" fill="#9EB7FF" font-family="Segoe UI, sans-serif" font-size="22">lobster.mp</text>
 </svg>
