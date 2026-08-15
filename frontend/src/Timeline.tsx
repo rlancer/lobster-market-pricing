@@ -59,7 +59,6 @@ export default function TimelinePage() {
   const { handle: handleParam } = useParams({ strict: false }) as { handle?: string };
   const handle = handleParam?.trim().toLowerCase() || undefined;
   const [items, setItems] = useState<TimelinePost[]>([]);
-  const [profile, setProfile] = useState<TimelineAuthor | null>(null);
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -79,7 +78,6 @@ export default function TimelinePage() {
     try {
       const feed = await api.timeline({ handle, before: before ?? undefined });
       if (seq !== loadSeqRef.current) return;
-      setProfile(feed.profile);
       setNextBefore(feed.next_before);
       setItems((prev) => appending ? [...prev, ...feed.items] : feed.items);
     } catch (err) {
@@ -88,7 +86,6 @@ export default function TimelinePage() {
       if (handle && /API 404|API 400/.test(message)) {
         setMissing(true);
         setItems([]);
-        setProfile(null);
       } else {
         setError('Could not load the timeline.');
       }
@@ -104,18 +101,8 @@ export default function TimelinePage() {
     void load();
   }, [load]);
 
-  const title = profile ? `@${profile.handle}` : 'Timeline';
-  const subtitle = profile
-    ? (profile.name && profile.name !== profile.handle ? profile.name : 'Public chats from this handle.')
-    : 'Public chats people chose to share.';
-
   return (
     <VStack className="timeline" gap={5}>
-      <VStack gap={1}>
-        <Heading level={1}>{title}</Heading>
-        <Text type="supporting">{subtitle}</Text>
-      </VStack>
-
       {loading && (
         <HStack gap={3} vAlign="center" className="timeline-state">
           <Spinner size="md" />
