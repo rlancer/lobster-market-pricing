@@ -100,7 +100,7 @@ function SharedChatRoute() {
             </header>
             <section className="share-msgs" aria-label="Shared conversation">
               {share.messages.map((m: SharedChatMessage, i: number) => (
-                <TranscriptMessage key={i} message={m} />
+                <TranscriptMessage key={i} message={m} collapseSql />
               ))}
             </section>
           </>
