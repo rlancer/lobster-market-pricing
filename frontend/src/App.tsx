@@ -7,10 +7,12 @@ import {
   MobileNavToggle,
   SideNav,
   SideNavItem,
+  SideNavSection,
+  IconButton,
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
 import { AuthControls } from './AuthControls';
@@ -100,6 +102,7 @@ function WorkspaceNavigation({
   const { closeMobileNav } = useAppShellMobile();
   const navigate = useNavigate();
   const history = useSavedChats();
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
   const liveChatId = activeChatId && !historySelected ? activeChatId : null;
 
@@ -126,19 +129,31 @@ function WorkspaceNavigation({
         onClick={goToChat}
       />
       {history.length > 0 ? (
-        <SideNavItem label="Chat history" collapsible>
-          {history.map((chat) => (
-            <SideNavItem
-              key={chat.chat_id}
-              as={RouterLink}
-              href={chatPath(chat.chat_id)}
-              label={chat.title.trim()}
+        <SideNavSection
+          title="Chat history"
+          endContent={(
+            <IconButton
+              variant="ghost"
               size="sm"
-              isSelected={activeChatId === chat.chat_id}
-              onClick={closeMobileNav}
+              label={historyCollapsed ? 'Expand chat history' : 'Collapse chat history'}
+              icon={historyCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+              onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
             />
-          ))}
-        </SideNavItem>
+          )}
+        >
+          {historyCollapsed
+            ? null
+            : history.map((chat) => (
+                <SideNavItem
+                  key={chat.chat_id}
+                  as={RouterLink}
+                  href={chatPath(chat.chat_id)}
+                  label={chat.title.trim()}
+                  isSelected={activeChatId === chat.chat_id}
+                  onClick={closeMobileNav}
+                />
+              ))}
+        </SideNavSection>
       ) : null}
       {SECTIONS.filter((section) => section.to !== '/').map((section) => (
         <SideNavItem
