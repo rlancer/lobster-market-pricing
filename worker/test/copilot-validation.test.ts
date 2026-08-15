@@ -52,3 +52,34 @@ test('semicolons inside string literals are not multiple statements', () => {
 test('real multiple statements are still rejected', () => {
   assert.ok(errorMessages('SELECT * FROM options.option_contracts LIMIT 1; SELECT * FROM options.option_contracts').includes('Multiple SQL statements are not allowed.'));
 });
+
+test('CTE names are valid FROM/JOIN targets, not unknown lake tables', () => {
+  // Regression from share vMdGNSQ8G4WCl42CcsukdsRi ("Best calls to sell"):
+  // the validator treated CTE aliases as options.* tables and forced the
+  // model to flatten, burning the turn before a final answer.
+  for (const sql of [
+    `WITH base AS (SELECT symbol FROM options.option_contracts LIMIT 5)
+     SELECT symbol FROM base LIMIT 5`,
+    `WITH ranked AS (
+       SELECT symbol, open_interest,
+              ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY open_interest DESC) rn
+       FROM options.option_contracts
+     )
+     SELECT symbol, open_interest FROM ranked WHERE rn = 1 LIMIT 20`,
+    `WITH a AS (SELECT symbol FROM options.option_contracts LIMIT 10),
+          b AS (SELECT symbol FROM a)
+     SELECT b.symbol FROM b LIMIT 10`,
+    `WITH base (sym) AS (SELECT symbol FROM options.option_contracts LIMIT 5)
+     SELECT sym FROM base LIMIT 5`,
+  ]) {
+    const errors = errorMessages(sql);
+    assert.equal(errors.length, 0, `unexpected errors for CTE SQL: ${errors.join('; ')}`);
+  }
+});
+
+test('unknown real tables are still rejected even inside WITH queries', () => {
+  const errors = errorMessages(
+    `WITH base AS (SELECT symbol FROM options.not_a_table LIMIT 5) SELECT * FROM base LIMIT 5`,
+  );
+  assert.ok(errors.some((m) => m.includes('Unknown table options.not_a_table')));
+});
