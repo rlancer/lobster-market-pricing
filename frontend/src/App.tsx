@@ -1,5 +1,5 @@
-import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
-import { Link, Outlet, useLocation } from '@tanstack/react-router';
+import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
   HStack,
@@ -7,7 +7,6 @@ import {
   MobileNavToggle,
   SideNav,
   SideNavItem,
-  SideNavSection,
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
@@ -19,7 +18,7 @@ import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
-import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
+import { CHATS_CHANGED_EVENT, chatPath, parseChatId, rememberChatId, sortUserChats } from './chatSession';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -99,19 +98,48 @@ function WorkspaceNavigation({
   activeChatId: string | null;
 }) {
   const { closeMobileNav } = useAppShellMobile();
+  const navigate = useNavigate();
   const history = useSavedChats();
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
+  const liveChatId = activeChatId && !historySelected ? activeChatId : null;
+
+  const goToChat = (event: MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    closeMobileNav();
+    if (liveChatId) {
+      void navigate({ to: '/chat/$chatId', params: { chatId: liveChatId } });
+      return;
+    }
+    const created = crypto.randomUUID();
+    rememberChatId(created);
+    void navigate({ to: '/chat/$chatId', params: { chatId: created } });
+  };
 
   return (
     <SideNav className="workspace-nav">
       <SideNavItem
         as={RouterLink}
-        href={activeChatId ? chatPath(activeChatId) : '/'}
+        href={liveChatId ? chatPath(liveChatId) : '/'}
         label="Chat"
         icon={Sparkles}
         isSelected={isChat && !historySelected}
-        onClick={closeMobileNav}
+        onClick={goToChat}
       />
+      {history.length > 0 ? (
+        <SideNavItem label="Chat history" collapsible>
+          {history.map((chat) => (
+            <SideNavItem
+              key={chat.chat_id}
+              as={RouterLink}
+              href={chatPath(chat.chat_id)}
+              label={chat.title.trim()}
+              size="sm"
+              isSelected={activeChatId === chat.chat_id}
+              onClick={closeMobileNav}
+            />
+          ))}
+        </SideNavItem>
+      ) : null}
       {SECTIONS.filter((section) => section.to !== '/').map((section) => (
         <SideNavItem
           key={section.to}
@@ -123,20 +151,6 @@ function WorkspaceNavigation({
           onClick={closeMobileNav}
         />
       ))}
-      {history.length > 0 ? (
-        <SideNavSection title="Chat history">
-          {history.map((chat) => (
-            <SideNavItem
-              key={chat.chat_id}
-              as={RouterLink}
-              href={chatPath(chat.chat_id)}
-              label={chat.title.trim()}
-              isSelected={activeChatId === chat.chat_id}
-              onClick={closeMobileNav}
-            />
-          ))}
-        </SideNavSection>
-      ) : null}
     </SideNav>
   );
 }
