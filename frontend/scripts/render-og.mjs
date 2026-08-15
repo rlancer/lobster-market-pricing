@@ -65,6 +65,21 @@ function lobsterSvg(size = 96) {
 </svg>`;
 }
 
+/** Brand glasses from Sunglasses.tsx / favicon — dark-theme tokens inlined. */
+function sunglassesSvg(width = 112, height = 48) {
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 24 28 12" width="${width}" height="${height}" aria-hidden="true">
+  <g fill="${COLORS.body}" stroke="${COLORS.text}" stroke-linejoin="round" stroke-width="1.5">
+    <rect x="39" y="27" width="8" height="6" rx="2" />
+    <rect x="49" y="27" width="8" height="6" rx="2" />
+    <path d="M47 29.5H49M39 29L37 28M57 29L59 28" fill="none" />
+  </g>
+  <g fill="none" stroke="${COLORS.iconBlue}" stroke-linecap="round" stroke-width="1.2">
+    <path d="M41 29L43 28M51 29L53 28" />
+  </g>
+</svg>`;
+}
+
 function ogHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -77,120 +92,49 @@ function ogHtml() {
       height: 630px;
       overflow: hidden;
       background: ${COLORS.body};
-      font-family: "Bahnschrift SemiCondensed", "Segoe UI Semibold", "Segoe UI", sans-serif;
-      color: ${COLORS.text};
     }
     .stage {
       position: relative;
       width: 1200px;
       height: 630px;
       overflow: hidden;
+      display: grid;
+      place-items: center;
       background:
-        radial-gradient(ellipse 70% 80% at 18% 55%, ${COLORS.accentMuted} 0%, transparent 55%),
-        radial-gradient(ellipse 55% 70% at 88% 20%, #9EB7FF22 0%, transparent 50%),
+        radial-gradient(ellipse 55% 75% at 50% 48%, ${COLORS.accentMuted} 0%, transparent 58%),
+        radial-gradient(ellipse 40% 55% at 72% 28%, #9EB7FF18 0%, transparent 50%),
         linear-gradient(145deg, ${COLORS.body} 0%, ${COLORS.surface} 48%, #0A1A28 100%);
     }
-    .grid {
+    .ring {
       position: absolute;
-      inset: 0;
-      background-image:
-        linear-gradient(${COLORS.border}33 1px, transparent 1px),
-        linear-gradient(90deg, ${COLORS.border}33 1px, transparent 1px);
-      background-size: 48px 48px;
-      mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, #000 20%, transparent 75%);
-      opacity: 0.55;
-    }
-    .orbit {
-      position: absolute;
-      left: 40px;
-      top: 70px;
-      width: 520px;
-      height: 520px;
+      width: 540px;
+      height: 540px;
       border-radius: 50%;
       border: 1px solid ${COLORS.border};
       opacity: 0.55;
     }
-    .orbit::before {
+    .ring::before {
       content: "";
       position: absolute;
-      inset: 48px;
+      inset: 42px;
       border-radius: 50%;
       border: 1px dashed ${COLORS.borderBlue}55;
     }
     .mascot {
-      position: absolute;
-      left: 96px;
-      top: 95px;
-      width: 400px;
-      height: 400px;
+      position: relative;
+      width: 480px;
+      height: 480px;
       display: grid;
       place-items: center;
       filter: drop-shadow(0 24px 48px #000A1099);
     }
-    .mascot svg { width: 360px; height: 360px; }
-    .copy {
-      position: absolute;
-      left: 580px;
-      top: 0;
-      bottom: 0;
-      right: 64px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 22px;
-    }
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: ${COLORS.accent};
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .eyebrow::before {
-      content: "";
-      width: 28px;
-      height: 3px;
-      border-radius: 2px;
-      background: ${COLORS.accent};
-    }
-    h1 {
-      font-size: 92px;
-      font-weight: 700;
-      letter-spacing: -0.04em;
-      line-height: 0.95;
-    }
-    h1 span { color: ${COLORS.accent}; }
-    p {
-      max-width: 480px;
-      color: ${COLORS.muted};
-      font-size: 28px;
-      font-weight: 500;
-      line-height: 1.35;
-      font-family: "Segoe UI", Aptos, sans-serif;
-    }
-    .url {
-      margin-top: 8px;
-      color: ${COLORS.iconBlue};
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
+    .mascot svg { width: 440px; height: 440px; }
   </style>
 </head>
 <body>
   <div class="stage">
-    <div class="grid" aria-hidden="true"></div>
-    <div class="orbit" aria-hidden="true"></div>
-    <div class="mascot">${lobsterSvg(360)}</div>
-    <div class="copy">
-      <div class="eyebrow">Options Copilot</div>
-      <h1>Ask the<br /><span>Lobster</span></h1>
-      <p>Live US equities &amp; ETF options — chains, IV, greeks, news, and SQL.</p>
-      <div class="url">lobster.mp</div>
-    </div>
+    <div class="ring" aria-hidden="true"></div>
+    <div class="mascot">${lobsterSvg(440)}</div>
   </div>
 </body>
 </html>`;
@@ -209,8 +153,8 @@ function squareHtml() {
       width: 1200px;
       height: 1200px;
       background:
-        radial-gradient(ellipse 70% 60% at 50% 42%, ${COLORS.accentMuted} 0%, transparent 60%),
-        radial-gradient(ellipse 50% 40% at 70% 20%, #9EB7FF18 0%, transparent 50%),
+        radial-gradient(ellipse 70% 50% at 50% 50%, ${COLORS.accentMuted} 0%, transparent 58%),
+        radial-gradient(ellipse 45% 35% at 68% 32%, #9EB7FF18 0%, transparent 50%),
         linear-gradient(160deg, ${COLORS.body} 0%, ${COLORS.surface} 100%);
       display: grid;
       place-items: center;
@@ -229,21 +173,19 @@ function squareHtml() {
       border-radius: 50%;
       border: 1px dashed ${COLORS.borderBlue}55;
     }
-    .mascot {
+    .mark {
       position: relative;
-      width: 720px;
-      height: 720px;
       display: grid;
       place-items: center;
       filter: drop-shadow(0 28px 56px #000A10AA);
     }
-    .mascot svg { width: 680px; height: 680px; }
+    .mark svg { width: 720px; height: 308px; }
   </style>
 </head>
 <body>
   <div class="stage">
     <div class="ring" aria-hidden="true"></div>
-    <div class="mascot">${lobsterSvg(680)}</div>
+    <div class="mark">${sunglassesSvg(720, 308)}</div>
   </div>
 </body>
 </html>`;
@@ -263,14 +205,14 @@ function iconHtml() {
       display: grid;
       place-items: center;
       background:
-        radial-gradient(circle at 50% 45%, ${COLORS.accentMuted} 0%, transparent 55%),
+        radial-gradient(circle at 50% 48%, ${COLORS.accentMuted} 0%, transparent 55%),
         ${COLORS.body};
     }
-    svg { width: 440px; height: 440px; }
+    svg { width: 360px; height: 154px; }
   </style>
 </head>
 <body>
-  <div class="stage">${lobsterSvg(440)}</div>
+  <div class="stage">${sunglassesSvg(360, 154)}</div>
 </body>
 </html>`;
 }
@@ -304,26 +246,21 @@ try {
 writeFileSync(
   join(publicDir, 'og.svg'),
   `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Lobster MP — Ask the Lobster">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Lobster MP mascot">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="${COLORS.body}"/>
       <stop offset="48%" stop-color="${COLORS.surface}"/>
       <stop offset="100%" stop-color="#0A1A28"/>
     </linearGradient>
-    <radialGradient id="glow" cx="18%" cy="55%" r="55%">
+    <radialGradient id="glow" cx="50%" cy="48%" r="45%">
       <stop offset="0%" stop-color="${COLORS.accent}" stop-opacity="0.12"/>
       <stop offset="100%" stop-color="${COLORS.accent}" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <rect width="1200" height="630" fill="url(#glow)"/>
-  <g transform="translate(116 115) scale(4.2)">${lobsterSvg(96).replace(/<\/?svg[^>]*>/g, '')}</g>
-  <text x="580" y="210" fill="${COLORS.accent}" font-family="Segoe UI, sans-serif" font-size="22" font-weight="600" letter-spacing="2">OPTIONS COPILOT</text>
-  <text x="580" y="310" fill="${COLORS.text}" font-family="Segoe UI, sans-serif" font-size="72" font-weight="700">Ask the</text>
-  <text x="580" y="390" fill="${COLORS.accent}" font-family="Segoe UI, sans-serif" font-size="72" font-weight="700">Lobster</text>
-  <text x="580" y="460" fill="${COLORS.muted}" font-family="Segoe UI, sans-serif" font-size="24">Live US equities &amp; ETF options — chains, IV, greeks, news, and SQL.</text>
-  <text x="580" y="520" fill="${COLORS.iconBlue}" font-family="Segoe UI, sans-serif" font-size="22">lobster.mp</text>
+  <g transform="translate(380 95) scale(4.6)">${lobsterSvg(96).replace(/<\/?svg[^>]*>/g, '')}</g>
 </svg>
 `,
 );
