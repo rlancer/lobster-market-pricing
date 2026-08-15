@@ -521,6 +521,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
       const turns: ShareChatMessage[] = projectedMessages.map((message) => ({
         role: message.role,
         content: message.content,
+        ...(message.reasoning ? { reasoning: message.reasoning } : {}),
         ...(message.sql ? { sql: message.sql } : {}),
         ...(message.ts ? { ts: message.ts } : {}),
         ...(message.result && !message.result.error ? {
@@ -660,18 +661,37 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                 )}
                 {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
                 {message.sql && (
-                  <div className="ai-sql">
-                    <div className="ai-sql-head">
-                      <span>SQL</span>
-                      <span className="ai-sql-actions">
-                        <CopyButton text={message.sql} />
-                        <Tooltip content="Open in Data" hasHoverIndication={false}>
-                          <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
-                        </Tooltip>
-                      </span>
+                  isLive ? (
+                    <div className="ai-sql">
+                      <div className="ai-sql-head">
+                        <span>SQL</span>
+                        <span className="ai-sql-actions">
+                          <CopyButton text={message.sql} />
+                          <Tooltip content="Open in Data" hasHoverIndication={false}>
+                            <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
+                          </Tooltip>
+                        </span>
+                      </div>
+                      <pre>{message.sql}</pre>
                     </div>
-                    <pre>{message.sql}</pre>
-                  </div>
+                  ) : (
+                    <details className="ai-sql ai-sql-collapsible">
+                      <summary className="ai-sql-head">
+                        <span>SQL</span>
+                        <span
+                          className="ai-sql-actions"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <CopyButton text={message.sql} />
+                          <Tooltip content="Open in Data" hasHoverIndication={false}>
+                            <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
+                          </Tooltip>
+                        </span>
+                      </summary>
+                      <pre>{message.sql}</pre>
+                    </details>
+                  )
                 )}
                 {message.result && (
                   message.chart ? (

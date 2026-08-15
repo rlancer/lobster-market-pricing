@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { excerptFromMessages, flagsFromMessages, parseTimelineQuery } from "../src/timeline.ts";
+import {
+  excerptFromMessages,
+  flagsFromMessages,
+  parseTimelineQuery,
+  previewMessagesFromShare,
+} from "../src/timeline.ts";
 
 test("excerptFromMessages prefers the first assistant answer", () => {
   assert.equal(
@@ -35,6 +40,42 @@ test("excerptFromMessages keeps paragraph breaks and the full first message", ()
   assert.equal(excerpt.startsWith("a\n\n"), true);
   assert.equal(excerpt.includes(long), true);
   assert.equal(excerpt.endsWith("…"), false);
+});
+
+test("previewMessagesFromShare returns the first user→assistant turn with sql and reasoning", () => {
+  const preview = previewMessagesFromShare([
+    { role: "user", content: "Best calls?" },
+    {
+      role: "assistant",
+      content: "FISV leads.",
+      reasoning: "Scan ATM calls by OI.",
+      sql: "SELECT 1",
+      result: { columns: ["a"], rows: [{ a: 1 }], row_count: 1 },
+      chart: { kind: "bar", x: "a", y: "a" },
+    },
+    { role: "user", content: "More?" },
+    { role: "assistant", content: "Later turn." },
+  ]);
+  assert.equal(preview.length, 2);
+  assert.deepEqual(preview[0], { role: "user", content: "Best calls?" });
+  assert.equal(preview[1]?.role, "assistant");
+  assert.equal(preview[1]?.content, "FISV leads.");
+  assert.equal(preview[1]?.reasoning, "Scan ATM calls by OI.");
+  assert.equal(preview[1]?.sql, "SELECT 1");
+  assert.deepEqual(preview[1]?.chart, { kind: "bar", x: "a", y: "a" });
+  assert.equal("result" in (preview[1] ?? {}), false);
+});
+
+test("previewMessagesFromShare falls back to a lone user turn or title", () => {
+  assert.deepEqual(
+    previewMessagesFromShare([{ role: "user", content: "Hello" }]),
+    [{ role: "user", content: "Hello" }],
+  );
+  assert.deepEqual(
+    previewMessagesFromShare([], "Saved title"),
+    [{ role: "assistant", content: "Saved title" }],
+  );
+  assert.deepEqual(previewMessagesFromShare([]), []);
 });
 
 test("flagsFromMessages detects sql and chart snapshots", () => {

@@ -69,6 +69,69 @@ export function excerptFromMessages(messages: unknown, title: string | null): st
   return normalized.slice(0, EXCERPT_MAX - 1).trimEnd() + "…";
 }
 
+/**
+ * First chat turn for the feed: the opening user question (when present) plus
+ * the first assistant answer — same bubble layout as /share and /chat. Falls
+ * back to a lone user turn or a title-only assistant stub.
+ */
+export function previewMessagesFromShare(messages: unknown, title: string | null = null): Record<string, unknown>[] {
+  const rows = Array.isArray(messages) ? messages : [];
+  let assistantIndex = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const rec = messageRecord(rows[i]);
+    if (rec?.role === "assistant" && (
+      (typeof rec.content === "string" && rec.content.trim())
+      || (typeof rec.sql === "string" && rec.sql.trim())
+      || (typeof rec.reasoning === "string" && rec.reasoning.trim())
+    )) {
+      assistantIndex = i;
+      break;
+    }
+  }
+  if (assistantIndex >= 0) {
+    const out: Record<string, unknown>[] = [];
+    if (assistantIndex > 0) {
+      const prev = messageRecord(rows[assistantIndex - 1]);
+      if (prev?.role === "user") {
+        const user = slimPreviewMessage(prev);
+        if (user) out.push(user);
+      }
+    }
+    const assistant = slimPreviewMessage(messageRecord(rows[assistantIndex])!);
+    if (assistant) out.push(assistant);
+    return out;
+  }
+  for (const row of rows) {
+    const rec = messageRecord(row);
+    if (rec?.role === "user") {
+      const user = slimPreviewMessage(rec);
+      if (user) return [user];
+    }
+  }
+  if (typeof title === "string" && title.trim()) {
+    return [{ role: "assistant", content: title.trim() }];
+  }
+  return [];
+}
+
+/** Cap feed payload: keep chat chrome fields, drop bulky result row snapshots. */
+function slimPreviewMessage(rec: Record<string, unknown>): Record<string, unknown> | null {
+  const role = rec.role === "assistant" ? "assistant" : rec.role === "user" ? "user" : null;
+  if (!role) return null;
+  const out: Record<string, unknown> = { role };
+  if (typeof rec.content === "string" && rec.content) out.content = rec.content.slice(0, EXCERPT_MAX);
+  if (typeof rec.reasoning === "string" && rec.reasoning.trim()) {
+    out.reasoning = rec.reasoning.slice(0, EXCERPT_MAX);
+  }
+  if (typeof rec.sql === "string" && rec.sql.trim()) out.sql = rec.sql.slice(0, 20_000);
+  if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) out.ts = rec.ts;
+  if (rec.chart && typeof rec.chart === "object" && !Array.isArray(rec.chart)) out.chart = rec.chart;
+  // Omit result rows from the list payload — AssistantMessageBody re-runs SQL
+  // when needed, same path as snapshot-less shares.
+  if (!out.content && !out.sql && !out.reasoning && !out.chart) return null;
+  return out;
+}
+
 export function flagsFromMessages(messages: unknown): { has_sql: boolean; has_chart: boolean } {
   const rows = Array.isArray(messages) ? messages : [];
   let has_sql = false;
@@ -159,19 +222,25 @@ interface TimelineRow {
 function itemFromRow(row: TimelineRow) {
   // Prefer a live first-message preview from the share so older posts stored
   // under the old 280-char cap still render expanded on the feed.
-  let excerpt = row.excerpt ?? "";
+  let parsed: unknown = [];
   if (row.messages) {
     try {
-      excerpt = excerptFromMessages(JSON.parse(row.messages), row.title) || excerpt;
+      parsed = JSON.parse(row.messages);
     } catch {
-      // Keep the denormalized excerpt if the snapshot JSON is unreadable.
+      parsed = [];
     }
+  }
+  const messages = previewMessagesFromShare(parsed, row.title);
+  let excerpt = row.excerpt ?? "";
+  if (messages.length) {
+    excerpt = excerptFromMessages(parsed, row.title) || excerpt;
   }
   return {
     share_id: row.share_id,
     url: "/share/" + row.share_id,
     title: row.title,
     excerpt,
+    messages,
     handle: row.handle,
     name: row.name,
     published_at: row.published_at,
