@@ -13,10 +13,11 @@ OPEN_ROUTER_KEY=
 # Optional override for local dev; defaults to the production loader.
 LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
 
-# Admin bearer token guarding GET /api/admin/chat_history (the only read path
-# for the options.chat_history lake table). Generate a long random value;
-# deployed via `wrangler secret put ADMIN_TOKEN` + a GitHub secret. No value =
-# admin endpoint 401s and /api/query stays closed to chat_history.
+# Admin bearer token guarding GET /api/admin/chat_history (lake transcripts)
+# and GET /api/admin/tool_calls (D1 Copilot tool-call debug log). Generate a
+# long random value; deployed via `wrangler secret put ADMIN_TOKEN` + a GitHub
+# secret. No value = admin endpoints 401 and /api/query stays closed to
+# chat_history.
 ADMIN_TOKEN=
 
 # Better Auth (optional Copilot login — Google OAuth only, no passwords).

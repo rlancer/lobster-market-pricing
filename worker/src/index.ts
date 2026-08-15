@@ -37,6 +37,11 @@ import {
   titleFromMessages,
   touchUserChat,
 } from "./user-chats";
+import {
+  listToolEvents,
+  parseToolEventListQuery,
+  purgeExpiredToolEvents,
+} from "./copilot-tool-events";
 
 
 // ---------------------------------------------------------------------------
@@ -1237,9 +1242,11 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 //
 // Access control. The table is PRIVATE: it is excluded from /api/tables (see
 // PRIVATE_LAKE_TABLES above) and /api/query refuses any SQL referencing it
-// unless the request carries the admin token. The only read path is
-// GET /api/admin/chat_history (Bearer ADMIN_TOKEN) — no admin UI, the
-// endpoint is the admin surface.
+// unless the request carries the admin token. The only lake read path is
+// GET /api/admin/chat_history (Bearer ADMIN_TOKEN). Failed Copilot tool calls
+// are NOT in the lake — they live in D1 `copilot_tool_events` and are read via
+// GET /api/admin/tool_calls (same bearer). No admin UI; the endpoints are the
+// admin surface.
 //
 // Capture is best-effort and server-side. `ip` (CF-Connecting-IP) and
 // `user_agent` (request header) are recorded for abuse tracking and are never
@@ -2194,6 +2201,28 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/admin/chat_history" && req.method === "GET") {
     if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
     return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
+  }
+  // Copilot tool-call debug log (D1). Server-side capture from CopilotAgent —
+  // the durable answer to "why did this chat's tool fail?". Same ADMIN_TOKEN
+  // as chat_history. Omitting ok defaults to failures; pass ok=all for every
+  // outcome.
+  if (path === "/api/admin/tool_calls" && req.method === "GET") {
+    if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
+    const parsed = parseToolEventListQuery(q);
+    if (parsed.error) return json(env, { ok: false, error: parsed.error }, 400);
+    ctx.waitUntil(purgeExpiredToolEvents(env.SCHEMA_DB));
+    return json(
+      env,
+      await listToolEvents(env.SCHEMA_DB, {
+        chat_id: parsed.chat_id,
+        tool: parsed.tool,
+        ok: parsed.ok,
+        limit: parsed.limit,
+        before: parsed.before,
+      }),
+      200,
+      "private",
+    );
   }
 
   // Copilot chat shares: create (open, user-requested) + public read. The id
