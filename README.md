@@ -122,7 +122,11 @@ cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 Chat stays anonymous by default. Google OAuth is optional so a signed-in user
 can reopen past conversations from the left nav. Sign in / Sign out live in
 the app header so the account is available on every workspace page, not only
-Copilot. A chat is cataloged onto the
+Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
+letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
+`user` row). Handles are editable from the account popover and will be the
+URL slug for a later `/u/{handle}` profile; chat ownership still keys off
+`user_id`. A chat is cataloged onto the
 user when they send a real turn (or when they sign in on a chat that already
 has a transcript) — not when they merely open a new empty UUID. Identity is
 Better Auth on the existing Worker D1 (`SCHEMA_DB` / `screener-schema-cache`). The
@@ -219,6 +223,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 | `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
+| `GET /api/me` | Signed-in profile: Google identity plus `handle` (null until claimed) and `suggested_handle` (email/name slug, only when unset). 401 if anonymous. |
+| `PATCH /api/me` | Claim or rename handle (`{handle}`). 3–24 chars, start with a letter, lowercase letters and numbers only. 400 if invalid/reserved, 409 if taken. |
 | `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`), newest activity first. Only rows with a non-empty title are returned — empty new-chat UUIDs never appear as "Untitled chat". 401 if anonymous. |
 | `POST /api/chats/claim` | Catalog `chat_id` onto the session user **with a title** (the first user turn). Untitled claims are rejected (400) so blank shells are not cataloged. Idempotent for the owner and does **not** bump `updated_at` (opening a chat is not activity). 409 if another user already owns it. Recency is updated by a saved turn (`POST /api/chat/history`) or `PATCH` rename. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |

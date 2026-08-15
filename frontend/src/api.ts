@@ -446,6 +446,21 @@ export interface Health {
   auth?: { google: boolean };
 }
 
+export interface ProfileMe {
+  ok: true;
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  handle: string | null;
+  suggested_handle: string | null;
+}
+
+export interface ProfileHandle {
+  ok: true;
+  handle: string;
+}
+
 export interface UserChat {
   chat_id: string;
   title: string | null;
@@ -571,6 +586,18 @@ export const api = {
   // identically. The share_id is high-entropy, so the URL is the capability.
   sharedChat: (shareId: string) =>
     get<SharedChat>(`/api/share/${encodeURIComponent(shareId)}`),
+  me: () => get<ProfileMe>('/api/me'),
+  setHandle: async (handle: string) => {
+    const r = await fetch(`${API_BASE}/api/me`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle }),
+    });
+    const data = await r.json().catch(() => ({})) as { error?: string; handle?: string; ok?: boolean };
+    if (!r.ok) throw new Error(typeof data.error === 'string' ? data.error : `API ${r.status}`);
+    return data as ProfileHandle;
+  },
   myChats: () => get<UserChatList>('/api/chats'),
   claimChat: (chat_id: string, title?: string) =>
     post<UserChatClaim>('/api/chats/claim', { chat_id, ...(title ? { title } : {}) }),

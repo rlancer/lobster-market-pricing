@@ -25,6 +25,7 @@ import { routeAgentRequest } from "agents";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
+import { getHandle, setHandle, suggestHandle } from "./profiles";
 import {
   authorizeCopilotAgent,
   claimChat,
@@ -1999,6 +2000,36 @@ async function requireUser(env: Env, req: Request): Promise<SessionUser | Respon
   return user;
 }
 
+async function handleMe(env: Env, req: Request, path: string): Promise<Response | null> {
+  if (path !== "/api/me") return null;
+  const user = await requireUser(env, req);
+  if (user instanceof Response) return user;
+  if (req.method === "GET") {
+    const handle = await getHandle(env.SCHEMA_DB, user.id);
+    return json(env, {
+      ok: true,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      handle,
+      suggested_handle: handle ? null : suggestHandle(user.email, user.name),
+    }, 200, "private");
+  }
+  if (req.method === "PATCH") {
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const result = await setHandle(env.SCHEMA_DB, user.id, body.handle);
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, { ok: true, handle: result.handle }, 200, "private");
+  }
+  return json(env, { error: "method not allowed" }, 405, "private");
+}
+
 async function handleUserChats(env: Env, req: Request, path: string): Promise<Response | null> {
   if (path === "/api/chats" && req.method === "GET") {
     const user = await requireUser(env, req);
@@ -2133,6 +2164,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     }
     return json(env, await runQuery(env, sql, body.limit ?? 1000));
   }
+
+  const me = await handleMe(env, req, path);
+  if (me) return me;
 
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;
