@@ -11,7 +11,7 @@ import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
-import { ensureChatId, parseChatId, rememberChatId } from './chatSession';
+import { parseChatId } from './chatSession';
 
 function MonitorView() {
   return (
@@ -28,23 +28,21 @@ function MonitorView() {
 
 const rootRoute = createRootRoute({ component: App });
 
-function redirectToChat(chatId = ensureChatId()): never {
-  throw redirect({ to: '/chat/$chatId', params: { chatId } });
+function redirectToChat(): never {
+  throw redirect({ to: '/' });
 }
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => redirectToChat(),
+  component: AiChat,
 });
 
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat/$chatId',
   beforeLoad: ({ params }) => {
-    const chatId = parseChatId(params.chatId);
-    if (!chatId) return redirectToChat();
-    rememberChatId(chatId);
+    if (!parseChatId(params.chatId)) return redirectToChat();
   },
   component: AiChat,
 });

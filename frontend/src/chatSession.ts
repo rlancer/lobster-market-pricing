@@ -1,8 +1,9 @@
-/** Active Copilot conversation UUID — sessionStorage plus `/chat/$chatId`. */
+/** Live Copilot conversation UUID — sessionStorage. Saved chats also use `/chat/$chatId`. */
 
 const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
+export const LIVE_CHAT_KEY = 'openinterest_copilot_live_chat_id';
 export const CHATS_CHANGED_EVENT = 'lobster:chats-changed';
 
 export function parseChatId(value: unknown): string | null {
@@ -44,8 +45,26 @@ export function readStoredChatId(): string | null {
   }
 }
 
-export function ensureChatId(): string {
-  return rememberChatId(readStoredChatId() ?? crypto.randomUUID());
+function readLiveChatId(): string | null {
+  try {
+    return parseChatId(sessionStorage.getItem(LIVE_CHAT_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/** Home `/` conversation — not overwritten when opening a saved `/chat/{id}`. */
+export function ensureLiveChatId(): string {
+  const id = readLiveChatId() ?? crypto.randomUUID();
+  sessionStorage.setItem(LIVE_CHAT_KEY, id);
+  return rememberChatId(id);
+}
+
+/** Replace the home `/` conversation with a fresh UUID. */
+export function startNewChatId(): string {
+  const id = crypto.randomUUID();
+  sessionStorage.setItem(LIVE_CHAT_KEY, id);
+  return rememberChatId(id);
 }
 
 export function notifyChatsChanged(): void {
