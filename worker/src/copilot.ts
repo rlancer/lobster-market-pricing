@@ -20,9 +20,12 @@ import {
   type FrameColumnSketch,
   type FrameQueryArgs,
 } from "./copilot-frames";
+import { insertToolEvent, purgeExpiredToolEvents } from "./copilot-tool-events";
 import { validateSqlSchema, type LakeTable } from "./copilot-sql";
 
-export interface CopilotEnv extends Cloudflare.Env {}
+export interface CopilotEnv extends Cloudflare.Env {
+  SCHEMA_DB: D1Database;
+}
 
 export interface QueryResult {
   columns: string[];
@@ -426,13 +429,52 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     };
   }
 
-  private async safeTool(label: string, capture: Capture, operation: () => Promise<ToolOutput> | ToolOutput): Promise<ToolOutput> {
+  /** Append one tool outcome to D1 for admin debugging. Never blocks the model loop. */
+  private recordToolEvent(toolName: string, args: unknown, output: ToolOutput, durationMs: number): void {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return;
+    let turnId = "unknown";
     try {
-      return await operation();
+      turnId = this.readTurnBudget().turn_id;
+    } catch {
+      // Turn budget may not be initialized yet — still record with a placeholder.
+    }
+    const eventId = crypto.randomUUID();
+    const model = typeof this.env.COPILOT_MODEL === "string" ? this.env.COPILOT_MODEL : null;
+    this.ctx.waitUntil(
+      insertToolEvent(this.env.SCHEMA_DB, {
+        event_id: eventId,
+        chat_id: chatId,
+        turn_id: turnId,
+        tool_name: toolName,
+        ok: output.ok,
+        args,
+        error: output.error ?? null,
+        summary: output.summary,
+        sql: output.sql ?? null,
+        duration_ms: durationMs,
+        model,
+      }),
+    );
+  }
+
+  private async safeTool(
+    toolName: string,
+    label: string,
+    args: unknown,
+    capture: Capture,
+    operation: () => Promise<ToolOutput> | ToolOutput,
+  ): Promise<ToolOutput> {
+    const started = Date.now();
+    let output: ToolOutput;
+    try {
+      output = await operation();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return this.output(false, `${label} failed: ${message}`, { error: message });
+      output = this.output(false, `${label} failed: ${message}`, { error: message });
     }
+    this.recordToolEvent(toolName, args, output, Date.now() - started);
+    return output;
   }
 
   private createTools(tables: LakeTable[], capture: Capture, status: (value: string) => void, turn: { used: number; successfulQuery: boolean }) {
@@ -441,7 +483,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       run_query: tool({
         description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Every successful result is cached as frame 'last' (up to 5000 rows) for local filter/reduce follow-ups. Pass save_as for a named alias.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
-        execute: async ({ sql, save_as }) => this.safeTool(TOOL_LABELS.run_query, capture, async () => {
+        execute: async ({ sql, save_as }) => this.safeTool("run_query", TOOL_LABELS.run_query, { sql, save_as }, capture, async () => {
           const issues = validateSqlSchema(sql, tables);
           const errors = issues.filter((issue) => issue.severity === "error");
           if (errors.length) {
@@ -466,7 +508,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       check_schema: tool({
         description: "Validate proposed SQL against the real options table and column names without executing it.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema,
-        execute: async ({ sql }) => this.safeTool(TOOL_LABELS.check_schema, capture, () => {
+        execute: async ({ sql }) => this.safeTool("check_schema", TOOL_LABELS.check_schema, { sql }, capture, () => {
           const issues = validateSqlSchema(sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
           return this.output(issues.every((issue) => !issue.startsWith("[error]")), issues.join("\n") || "SQL matches the current schema.", { issues });
         }),
@@ -474,12 +516,12 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       list_frames: tool({
         description: "List this chat's cached result frames, including columns, row counts, age, and value sketches.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.list_frames,
-        execute: async () => this.safeTool(TOOL_LABELS.list_frames, capture, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
+        execute: async () => this.safeTool("list_frames", TOOL_LABELS.list_frames, {}, capture, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
       }),
       filter_frame: tool({
         description: "Filter, sort, project, limit, or reduce a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round. aggregations (avg/sum/count/min/max) with optional group_by compile to the same parameterized SQLite path. Use frame 'last' for the most recent run_query result.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame,
-        execute: async (args) => this.safeTool(TOOL_LABELS.filter_frame, capture, () => {
+        execute: async (args) => this.safeTool("filter_frame", TOOL_LABELS.filter_frame, args, capture, () => {
           const frame = this.getFrame(args.frame);
           if (!frame) return this.output(false, `No cached frame '${args.frame}'.`, { error: `No frame '${args.frame}'.` });
           if (Date.now() - frame.fetched_at > FRAME_TTL_MS) {
@@ -500,7 +542,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       refresh_frame: tool({
         description: "Re-run a cached frame's source query after it becomes stale.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.refresh_frame,
-        execute: async ({ frame: name }) => this.safeTool(TOOL_LABELS.refresh_frame, capture, async () => {
+        execute: async ({ frame: name }) => this.safeTool("refresh_frame", TOOL_LABELS.refresh_frame, { frame: name }, capture, async () => {
           const frame = this.getFrame(name);
           if (!frame) return this.output(false, `No cached frame '${name}'.`, { error: `No frame '${name}'.` });
           status("Refreshing cached data…");
@@ -519,7 +561,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       render_chart: tool({
         description: "Validate a chart specification for the most recent query result (or a named frame). Call after run_query or filter_frame when the user requested a chart. The UI only draws a chart from this tool.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart,
-        execute: async (args) => this.safeTool(TOOL_LABELS.render_chart, capture, () => {
+        execute: async (args) => this.safeTool("render_chart", TOOL_LABELS.render_chart, args, capture, () => {
           const result = capture.result;
           if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
           const x = resolveColumn(result.columns, args.x);
@@ -554,7 +596,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       get_news: tool({
         description: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news,
-        execute: async ({ symbol, limit }) => this.safeTool(TOOL_LABELS.get_news, capture, async () => {
+        execute: async ({ symbol, limit }) => this.safeTool("get_news", TOOL_LABELS.get_news, { symbol, limit }, capture, async () => {
           const result = await this.fetchNews(symbol.toUpperCase(), limit);
           if (result.error) return this.output(false, `News temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No recent headlines found for ${result.symbol}.`;
@@ -564,7 +606,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       web_search: tool({
         description: "Search for current market commentary or events and return up to five citable links.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search,
-        execute: async ({ query, max_results }) => this.safeTool(TOOL_LABELS.web_search, capture, async () => {
+        execute: async ({ query, max_results }) => this.safeTool("web_search", TOOL_LABELS.web_search, { query, max_results }, capture, async () => {
           const result = await this.searchWeb(query, max_results);
           if (result.error) return this.output(false, `Web search temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.results.length ? result.results.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No results found for "${result.query}".`;
@@ -574,7 +616,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       eco_calendar: tool({
         description: "Fetch scheduled macro events for the next 7 to 90 days.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar,
-        execute: async ({ days }) => this.safeTool(TOOL_LABELS.eco_calendar, capture, async () => {
+        execute: async ({ days }) => this.safeTool("eco_calendar", TOOL_LABELS.eco_calendar, { days }, capture, async () => {
           const result = await this.fetchEconomicCalendar(days);
           if (result.error) return this.output(false, `Macro calendar temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.date}${item.time ? ` ${item.time}` : ""} — ${item.title}`).join("\n") : "No scheduled macro events in the requested window.";
@@ -587,6 +629,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   override async onChatMessage(_onFinish: unknown, options: OnChatMessageOptions): Promise<Response> {
     this.ensureCopilotSchema();
     this.cleanupRetention();
+    if (this.env.SCHEMA_DB) {
+      this.ctx.waitUntil(purgeExpiredToolEvents(this.env.SCHEMA_DB));
+    }
     if (!this.env.COPILOT_MODEL?.trim()) return Response.json({ error: "COPILOT_MODEL is not configured" }, { status: 503 });
     if (!this.env.OPEN_ROUTER_KEY?.trim()) return Response.json({ error: "Copilot is not configured" }, { status: 503 });
 

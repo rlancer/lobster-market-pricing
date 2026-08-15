@@ -229,6 +229,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/chats/claim` | Catalog `chat_id` onto the session user **with a title** (the first user turn). Untitled claims are rejected (400) so blank shells are not cataloged. Idempotent for the owner and does **not** bump `updated_at` (opening a chat is not activity). 409 if another user already owns it. Recency is updated by a saved turn (`POST /api/chat/history`) or `PATCH` rename. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
 | `DELETE /api/chats/{id}` | Soft-delete a saved chat (hidden from the list; ownership remains so the Durable Object stays locked). |
+| `POST /api/chat/history` | Best-effort capture of a completed Copilot turn into the lake (`options.chat_history`). Fire-and-forget from the browser; never blocks chat. |
+| `GET /api/admin/chat_history` | Admin-only newest-first transcripts from the lake (`Bearer ADMIN_TOKEN`). Strips tools/results — content + last SQL only. Holds ip/user_id — keep gated. |
+| `GET /api/tool_calls` | Public Copilot tool-call debug log from D1 (no token). Defaults to failures (`ok=false`); filter with `chat_id`, `share_id`, `tool`, `ok=true\|false\|all`, `limit`, `before` (ISO). Each item has tool name, capped args, error, summary, sql, duration, turn/chat ids. `/api/admin/tool_calls` is an alias. |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name}`. |
 | `GET /api/timeline` | Public feed of opted-in shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile). `{items, next_before, profile}`. 404 if `handle` is set and unknown. |
@@ -305,7 +308,10 @@ signed-in chats inherit the owner. Once owned,
 `/agents/copilot-agent/{id}` requires a matching session — the Worker never
 accepts `user_id` from the client. `options.chat_history` stays admin/analytics
 capture (POST `/api/chat/history` stamps `user_id` from the session when
-logged in) and is not the user-facing catalog. `chatRecovery` (bounded retries)
+logged in) and is not the user-facing catalog. Every tool outcome (success or
+failure) is also appended server-side into D1 `copilot_tool_events` for admin
+debugging via `GET /api/tool_calls` — lake history intentionally strips
+tools/errors. `chatRecovery` (bounded retries)
 re-drives an interrupted answer if the Worker/Agent is evicted mid-turn, and
 the client shows a "Recovering interrupted answer…" indicator. Cached result
 frames live only in the Agent's SQLite (`frames`/`frame_rows`) with a 15-minute

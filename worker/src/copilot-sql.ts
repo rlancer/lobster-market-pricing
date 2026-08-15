@@ -41,6 +41,22 @@ function stripSqlLiteralsAndComments(sql: string): string {
     .replace(/'[^']*(?:''[^']*)*'/g, "");
 }
 
+/**
+ * CTE names declared via `WITH name AS (` / `WITH name (cols) AS (`.
+ * These are valid FROM/JOIN targets and must not be reported as unknown lake
+ * tables (regression: Copilot burned whole turns flattening CTEs after a
+ * false "Unknown table options.base" reject).
+ */
+function declaredCteNames(sql: string): Set<string> {
+  const names = new Set<string>();
+  if (!/^\s*with\b/i.test(sql)) return names;
+  for (const match of sql.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s+as\s*\(/gi)) {
+    const name = match[1].toLowerCase();
+    if (!SQL_ALIAS_KEYWORDS[name]) names.add(name);
+  }
+  return names;
+}
+
 export function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIssue[] {
   const issues: ValidatedIssue[] = [];
   const trimmed = sql.trim().replace(/;+\s*$/, "");
@@ -58,9 +74,11 @@ export function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIs
   if (/\bwindow\s+[A-Za-z_]/i.test(trimmed)) issues.push({ severity: "error", message: "Named WINDOW clauses are not supported." });
 
   const tableMap = new Map(tables.map((table) => [table.name.toLowerCase(), table]));
+  const ctes = declaredCteNames(trimmed);
   const references = [...trimmed.matchAll(/\b(?:from|join)\s+(?:options\.)?([A-Za-z_][A-Za-z0-9_]*)\b/gi)];
   for (const match of references) {
     const name = match[1].toLowerCase();
+    if (ctes.has(name)) continue;
     if (!tableMap.has(name) && !/^\w+$/.test(name)) continue;
     if (!tableMap.has(name)) issues.push({ severity: "error", message: `Unknown table options.${match[1]}.` });
   }
@@ -76,6 +94,7 @@ export function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIs
   for (const match of trimmed.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
     const qualifier = match[1].toLowerCase();
     if (qualifier === "options") continue;
+    if (ctes.has(qualifier)) continue;
     const table = aliases.get(qualifier);
     if (!table) continue;
     const column = match[2].toLowerCase();

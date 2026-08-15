@@ -37,6 +37,12 @@ import {
   titleFromMessages,
   touchUserChat,
 } from "./user-chats";
+import {
+  chatIdForShare,
+  listToolEvents,
+  parseToolEventListQuery,
+  purgeExpiredToolEvents,
+} from "./copilot-tool-events";
 
 
 // ---------------------------------------------------------------------------
@@ -1237,9 +1243,11 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 //
 // Access control. The table is PRIVATE: it is excluded from /api/tables (see
 // PRIVATE_LAKE_TABLES above) and /api/query refuses any SQL referencing it
-// unless the request carries the admin token. The only read path is
-// GET /api/admin/chat_history (Bearer ADMIN_TOKEN) — no admin UI, the
-// endpoint is the admin surface.
+// unless the request carries the admin token. The only lake read path is
+// GET /api/admin/chat_history (Bearer ADMIN_TOKEN). Failed Copilot tool calls
+// are NOT in the lake — they live in D1 `copilot_tool_events` and are read via
+// the public GET /api/tool_calls (capped args/errors/SQL only; no ip/user_id).
+// No admin UI; the endpoints are the admin/debug surface.
 //
 // Capture is best-effort and server-side. `ip` (CF-Connecting-IP) and
 // `user_agent` (request header) are recorded for abuse tracking and are never
@@ -1284,10 +1292,10 @@ function secureEqual(a: string, b: string): boolean {
 
 /** True when the request carries the ADMIN_TOKEN bearer secret. */
 function adminAuthorized(req: Request, env: Env): boolean {
-  const expected = env.ADMIN_TOKEN;
+  const expected = (env.ADMIN_TOKEN ?? "").trim();
   if (!expected) return false;
   const header = req.headers.get("Authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  const token = (header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "").trim();
   return token.length > 0 && secureEqual(token, expected);
 }
 
@@ -2194,6 +2202,35 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/admin/chat_history" && req.method === "GET") {
     if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
     return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
+  }
+  // Copilot tool-call debug log (D1). Public — payloads are capped tool
+  // args/errors/SQL, not transcripts or abuse metadata. Omitting ok defaults
+  // to failures; pass ok=all for every outcome. share_id resolves the
+  // originating chat so a share URL is enough to debug.
+  if ((path === "/api/tool_calls" || path === "/api/admin/tool_calls") && req.method === "GET") {
+    const parsed = parseToolEventListQuery(q);
+    if (parsed.error) return json(env, { ok: false, error: parsed.error }, 400);
+    let chatId = parsed.chat_id ?? null;
+    if (parsed.share_id) {
+      const fromShare = await chatIdForShare(env.SCHEMA_DB, parsed.share_id);
+      if (!fromShare) return json(env, { ok: false, error: "share not found" }, 404);
+      // share_id wins when both are supplied — the share is the capability.
+      chatId = fromShare;
+    }
+    ctx.waitUntil(purgeExpiredToolEvents(env.SCHEMA_DB));
+    return json(
+      env,
+      await listToolEvents(env.SCHEMA_DB, {
+        chat_id: chatId,
+        share_id: parsed.share_id,
+        tool: parsed.tool,
+        ok: parsed.ok,
+        limit: parsed.limit,
+        before: parsed.before,
+      }),
+      200,
+      "private",
+    );
   }
 
   // Copilot chat shares: create (open, user-requested) + public read. The id
