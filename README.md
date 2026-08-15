@@ -291,7 +291,12 @@ Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The live conversation is `/chat`
 with the UUID in `sessionStorage` only, so a reload reconnects
 `useAgentChat` (`resume: true`) to the same instance and restores the turn.
-Anonymous chats stay UUID-capability. Signing in with Google catalogs chats
+Stop detaches the browser from the live stream without cancelling the Durable
+Object turn; Start (or a follow-up send) calls `resumeStream()` and continues
+from the buffered chunks. Unexpected WebSocket drops are detected and retried
+(PartySocket backoff plus `online` / `visibilitychange` kicks) until the
+socket is back, then the same resume path reattaches. Anonymous chats stay
+UUID-capability. Signing in with Google catalogs chats
 that already have a user turn onto that user in D1 `user_chats` and lists them
 under Chat history in the left nav; opening one navigates to `/chat/{id}` and restores
 the Durable Object transcript (the Agent HTTP fetch sends the session cookie).

@@ -14,6 +14,7 @@ import {
   IconButton,
   Markdown,
   Spinner,
+  StatusDot,
   Switch,
   Timestamp,
   Tooltip,
@@ -22,6 +23,7 @@ import {
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient } from './auth';
+import { useAgentReconnect } from './chatConnection';
 import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -250,20 +252,29 @@ function TurnProgress({
   reasoning,
   tools,
   writing,
-  onStop,
+  action,
+  onAction,
   thinkingRef,
 }: {
   status: string;
   reasoning: string;
   tools: ToolRow[];
   writing: boolean;
-  onStop: () => void;
+  action: 'stop' | 'start';
+  onAction: () => void;
   thinkingRef: RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div className="ai-busy">
-      <div className="ai-busy-head"><Spinner size="md" /><span className="ai-busy-status">{status}</span>
-        <button className="ai-stop" type="button" onClick={onStop} aria-label="Stop generating">Stop</button>
+      <div className="ai-busy-head">{action === 'stop' && <Spinner size="md" />}<span className="ai-busy-status">{status}</span>
+        <button
+          className={action === 'start' ? 'ai-stop ai-start' : 'ai-stop'}
+          type="button"
+          onClick={onAction}
+          aria-label={action === 'start' ? 'Start generating' : 'Stop generating'}
+        >
+          {action === 'start' ? 'Start' : 'Stop'}
+        </button>
       </div>
       {reasoning && (
         <details className="ai-thinking" open>
@@ -299,11 +310,13 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [onTimeline, setOnTimeline] = useState(false);
+  const [paused, setPaused] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
   const restoredIdsRef = useRef<Set<string> | null>(null);
   const claimedRef = useRef(false);
+  const pausedRef = useRef(false);
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -312,11 +325,16 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     agent: 'CopilotAgent',
     name: chatId,
     host,
+    maxRetries: Number.POSITIVE_INFINITY,
+    minReconnectionDelay: 400,
+    maxReconnectionDelay: 10_000,
+    connectionTimeout: 8_000,
   });
+  const { state: socketState, reconnect: reconnectSocket } = useAgentReconnect(agent);
   const {
     messages,
     sendMessage,
-    stop,
+    resumeStream,
     status: chatStatus,
     error: chatError,
     isStreaming,
@@ -331,7 +349,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     // synchronously, tripping React's "Maximum update depth exceeded" and
     // crashing the chat UI mid-turn (swallowing the final written answer).
     throttle: 80,
-    resume: true,
+    resume: !paused,
     cancelOnClientAbort: false,
     // Pages (dev.lobster.mp) and the Agent (api-dev.lobster.mp) are different
     // origins. Default fetch credentials omit the session cookie, so owned
@@ -345,7 +363,8 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     },
   });
 
-  const busy = chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation;
+  const busy = !paused && (chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation);
+  const disconnected = socketState !== 'open';
   const projectedMessages = useMemo(() => {
     const projected = messages.map(projectMessage).filter((message): message is Msg => message !== null);
     return projected.map((message, index) => {
@@ -357,17 +376,23 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   }, [messages]);
   const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
   const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
-  const liveAssistant = busy && lastUserIndex >= 0
+  const liveAssistant = (busy || paused) && lastUserIndex >= 0
     ? messages.slice(lastUserIndex + 1).find((message) => message.role === 'assistant')
     : undefined;
   const liveAssistantId = liveAssistant?.id;
   const reasoning = liveAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
   const tools = projectTools(liveAssistant);
   const writing = Boolean(liveAssistant?.parts.some((part) => part.type === 'text' && part.text));
-  const visibleError = chatError?.message ?? connectionError?.message;
-  const status = isRecovering
-    ? 'Recovering interrupted answer…'
-    : progressStatus || (chatStatus === 'submitted' ? 'Starting…' : 'Thinking…');
+  const visibleError = !busy && !paused && socketState === 'open'
+    ? chatError?.message ?? connectionError?.message
+    : undefined;
+  const status = paused
+    ? 'Paused — start to resume'
+    : disconnected
+      ? (socketState === 'offline' ? 'Offline — reconnecting when you are back…' : 'Reconnecting…')
+      : isRecovering
+        ? 'Recovering interrupted answer…'
+        : progressStatus || (chatStatus === 'submitted' ? 'Starting…' : 'Thinking…');
   const latestPresentation = latestAssistant ? presentationFromMessage(latestAssistant) : null;
   const latestFrameSignature = JSON.stringify(latestPresentation?.frames ?? []);
 
@@ -457,14 +482,36 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     if (element) element.scrollTop = element.scrollHeight;
   }, [reasoning]);
 
+  useEffect(() => {
+    const becamePaused = paused && !pausedRef.current;
+    const becameLive = !paused && pausedRef.current;
+    pausedRef.current = paused;
+    if (becamePaused) reconnectSocket({ quiet: true, force: true });
+    if (becameLive) void resumeStream().catch(() => {});
+  }, [paused, reconnectSocket, resumeStream]);
+
+  useEffect(() => {
+    if (paused || socketState !== 'open') return;
+    void resumeStream().catch(() => {});
+  }, [paused, socketState, resumeStream]);
+
+  const pauseTurn = useCallback(() => {
+    setPaused(true);
+  }, []);
+
+  const startTurn = useCallback(() => {
+    setPaused(false);
+  }, []);
+
   const send = useCallback((raw: string) => {
     const question = raw.trim();
     if (!question || busy) return;
     if (startedAtRef.current === null) startedAtRef.current = Date.now();
     setInput('');
     setProgressStatus('Starting…');
+    if (paused) setPaused(false);
     sendMessage({ text: question });
-  }, [busy, sendMessage]);
+  }, [busy, paused, sendMessage]);
 
   const canShare = projectedMessages.some((message) => message.role === 'assistant' && message.content);
   const shareChat = async () => {
@@ -532,6 +579,17 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         </section>
       </header>
 
+      {disconnected && (
+        <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
+          <StatusDot
+            variant={socketState === 'offline' ? 'warning' : 'accent'}
+            label={socketState === 'offline' ? 'Offline' : 'Reconnecting'}
+            isPulsing
+          />
+          <span>{socketState === 'offline' ? 'Offline — reconnecting when you are back online.' : 'Connection lost — reconnecting…'}</span>
+        </div>
+      )}
+
       {frames.length > 0 && (
         <div className="ai-frames">
           <span className="ai-frames-label">Session data</span>
@@ -563,7 +621,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
             </header>
             <nav className="ai-examples" aria-label="Suggested questions">
               {EXAMPLES.map((example) => (
-                <button key={example} className="ai-example-card" onClick={() => send(example)} disabled={busy}>
+                <button key={example} className="ai-example-card" onClick={() => send(example)} disabled={busy || disconnected}>
                   <span>{example}</span>
                   <span className="ai-example-arrow" aria-hidden="true">↗</span>
                 </button>
@@ -584,7 +642,8 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                     reasoning={reasoning}
                     tools={tools}
                     writing={writing && !message.content}
-                    onStop={stop}
+                    onAction={paused ? startTurn : pauseTurn}
+                    action={paused ? 'start' : 'stop'}
                     thinkingRef={thinkingRef}
                   />
                 )}
@@ -638,14 +697,14 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
           );
         })}
 
-        {visibleError && !busy && (
+        {visibleError && !busy && !paused && (
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">λ</span>
             <div className="ai-bubble"><div className="ai-err">{visibleError}</div></div>
           </div>
         )}
 
-        {busy && !liveAssistantId && (
+        {(busy || paused) && !liveAssistantId && (
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">λ</span>
             <div className="ai-bubble">
@@ -654,7 +713,8 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
                 reasoning={reasoning}
                 tools={tools}
                 writing={writing}
-                onStop={stop}
+                action={paused ? 'start' : 'stop'}
+                onAction={paused ? startTurn : pauseTurn}
                 thinkingRef={thinkingRef}
               />
             </div>
@@ -667,8 +727,16 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
           value={input}
           onChange={setInput}
           onSubmit={send}
-          isDisabled={busy}
-          placeholder="Ask about liquidity, volatility, or a ticker…"
+          isDisabled={busy || disconnected}
+          placeholder={
+            socketState === 'offline'
+              ? 'Waiting for network…'
+              : socketState === 'reconnecting'
+                ? 'Reconnecting…'
+                : paused
+                  ? 'Start to resume, or ask a follow-up…'
+                  : 'Ask about liquidity, volatility, or a ticker…'
+          }
           sendButton={<ChatSendButton />}
         />
       </footer>

@@ -63,6 +63,31 @@ test.describe('Agent reconnect and durable recovery', () => {
     expect(await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_chat_id'))).toBe(chatId);
   });
 
+  test('Stop pauses the turn and Start resumes it', async ({ page }) => {
+    test.skip(!READY && !IS_REMOTE, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
+    await openChat(page);
+    await ask(page, 'Which sector has the most open interest? Answer in one concise sentence.');
+    await expect(page.getByRole('button', { name: 'Stop generating' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Stop generating' }).click();
+    await expect(page.getByRole('button', { name: 'Start generating' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Paused — start to resume')).toBeVisible();
+    await page.getByRole('button', { name: 'Start generating' }).click();
+    await expect(page.getByRole('button', { name: 'Stop generating' })).toBeVisible({ timeout: 30_000 });
+    const answer = await waitForAnswerText(page, 360_000);
+    expect(answer.length).toBeGreaterThan(20);
+  });
+
+  test('offline disconnect shows reconnecting and recovers when back online', async ({ page, context }) => {
+    await openChat(page);
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+    await expect(page.locator('.ai-conn')).toHaveCount(0, { timeout: 30_000 });
+    await context.setOffline(true);
+    await expect(page.locator('.ai-conn')).toContainText(/offline|reconnect/i, { timeout: 15_000 });
+    await context.setOffline(false);
+    await expect(page.locator('.ai-conn')).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+  });
+
   test('New Chat switches to a clean Agent instance', async ({ page }) => {
     await openChat(page);
     const oldId = await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_chat_id'));
