@@ -19,20 +19,22 @@ function PostRow({ post }: { post: TimelinePost }) {
   const flags = [post.has_sql ? 'SQL' : null, post.has_chart ? 'Chart' : null].filter(Boolean).join(' · ');
   return (
     <VStack as="article" className="timeline-post" gap={2}>
-      <Link
-        to="/share/$shareId"
-        params={{ shareId: post.share_id }}
-        className="timeline-post-title"
-      >
-        <Heading level={2}>{post.title?.trim() || 'Shared chat'}</Heading>
-      </Link>
-      <HStack gap={2} vAlign="center" className="timeline-post-byline">
-        <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-          <Text type="supporting">@{post.handle}</Text>
+      <VStack gap={0} className="timeline-post-head">
+        <Link
+          to="/share/$shareId"
+          params={{ shareId: post.share_id }}
+          className="timeline-post-title"
+        >
+          <Heading level={2}>{post.title?.trim() || 'Shared chat'}</Heading>
         </Link>
-        <Text type="supporting">·</Text>
-        <Timestamp value={post.published_at / 1000} format="auto" isLive />
-      </HStack>
+        <HStack gap={2} vAlign="center" className="timeline-post-byline">
+          <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
+            <Text type="supporting">@{post.handle}</Text>
+          </Link>
+          <Text type="supporting">·</Text>
+          <Timestamp value={post.published_at / 1000} format="auto" isLive />
+        </HStack>
+      </VStack>
       {post.excerpt ? (
         <VStack gap={0} className="timeline-excerpt">
           <Markdown>{post.excerpt}</Markdown>
