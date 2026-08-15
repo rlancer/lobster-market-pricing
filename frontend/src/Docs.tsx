@@ -109,7 +109,7 @@ const COMPONENTS = [
   {
     dir: 'frontend/',
     title: 'React UI',
-    body: 'Vite + React + TanStack Router. Chat, the Data catalog, monitor — plus the docs portal you are reading.',
+    body: 'Vite + React + TanStack Router. Timeline home, Chat, the Data catalog, monitor — plus the docs portal you are reading.',
   },
 ];
 
@@ -138,14 +138,22 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/web_search', desc: 'Open web search (Tavily) — Chat web_search tool' },
   { method: 'GET', path: '/api/econ_calendar', desc: 'Upcoming FRED macro releases + FOMC/Beige (lake + live fallback) — Chat eco_calendar tool' },
   { method: 'GET', path: '/api/notebook/premium', desc: '45-day premium-leaders notebook (calls + puts)' },
+  { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats (limit, before cursor, optional handle filter)' },
+  { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the public timeline (session + handle required)' },
+  { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline; the unlisted link remains' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 
 const SURFACES = [
   {
     route: '/',
+    title: 'Timeline',
+    body: 'The home feed of chats people chose to share publicly. Each post is an opted-in share attributed to a handle; the unlisted /share/<id> link still works either way. A handle’s posts also live at /u/<handle>.',
+  },
+  {
+    route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The Chat item itself stays at /. Anonymous UUID chats still work. Deep-links into Data so you can inspect the SQL or browse the catalog.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
   },
   {
     route: '/data',
@@ -442,7 +450,7 @@ export function DocsFrontend() {
   return (
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
-        The React app (Vite + TanStack Router) is Chat plus a Data catalog on one shell — sidebar navigation plus a header with the liquidity gate and dataset status. The question-mark icon in the header brings you here.
+        The React app (Vite + TanStack Router) is a public timeline, Chat, and a Data catalog on one shell — sidebar navigation plus a header with the liquidity gate and dataset status. The question-mark icon in the header brings you here.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>

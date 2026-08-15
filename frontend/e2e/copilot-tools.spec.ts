@@ -22,8 +22,8 @@ const READY = process.env.COPILOT_E2E_READY === '1';
 const LOCAL_WORKER = 'http://127.0.0.1:8787';
 
 async function openChat(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  await page.goto('/chat');
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
   await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
 }
 

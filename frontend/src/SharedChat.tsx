@@ -120,12 +120,12 @@ function SharedChatRoute() {
       mobileNav={false}
       topNav={(
         <HStack as="header" className="share-head" gap={4} vAlign="center">
-          <Link to="/" className="share-brand" aria-label="Lobster Copilot home">
+          <Link to="/" className="share-brand" aria-label="Lobster home">
             <Sunglasses className="share-brand-logo" />
             <span className="share-brand-name"><b>Lobster</b><em>share</em></span>
           </Link>
           <span className="share-head-spacer" aria-hidden="true" />
-          <Link to="/" className="share-open">
+          <Link to="/chat" className="share-open">
             Open in Copilot ↗
           </Link>
         </HStack>
@@ -144,7 +144,7 @@ function SharedChatRoute() {
             <p>
               This link doesn&apos;t point to a shared chat — it may have expired or been removed.
             </p>
-            <Link to="/" className="share-open">Open the Copilot</Link>
+            <Link to="/chat" className="share-open">Open the Copilot</Link>
           </div>
         )}
         {!loading && !missing && share && (
@@ -152,9 +152,14 @@ function SharedChatRoute() {
             <header className="share-title-row">
               <h1 className="share-title">{share.title ?? 'Shared chat'}</h1>
               <p className="share-meta">
+                {share.author && (
+                  <Link to="/u/$handle" params={{ handle: share.author.handle }} className="share-author">
+                    @{share.author.handle}
+                  </Link>
+                )}
                 <Timestamp value={share.created_at / 1000} format="date_time" />
                 {share.model && <span>· {share.model}</span>}
-                <span>· site-funded chat</span>
+                {share.on_timeline && <span>· on the timeline</span>}
               </p>
             </header>
             <section className="share-msgs" aria-label="Shared conversation">

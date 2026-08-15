@@ -7,6 +7,7 @@ import {
 import App from './App';
 import DataPage from './DataPage';
 import AiChat from './AiChat';
+import TimelinePage from './Timeline';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
@@ -29,12 +30,18 @@ function MonitorView() {
 const rootRoute = createRootRoute({ component: App });
 
 function redirectToChat(): never {
-  throw redirect({ to: '/' });
+  throw redirect({ to: '/chat' });
 }
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
+  component: TimelinePage,
+});
+
+const chatIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat',
   component: AiChat,
 });
 
@@ -114,6 +121,12 @@ const shareRoute = createRoute({
   component: SharedChat,
 });
 
+const profileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/u/$handle',
+  component: TimelinePage,
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -183,7 +196,9 @@ const docsRoute = docsLayoutRoute.addChildren([
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  chatIndexRoute,
   chatRoute,
+  profileRoute,
   dataRoute,
   labRoute,
   marketRoute,

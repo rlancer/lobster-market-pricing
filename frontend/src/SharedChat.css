@@ -45,6 +45,12 @@
   white-space: nowrap;
 }
 .share-open:hover { text-decoration: underline; }
+.share-author {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.share-author:hover { text-decoration: underline; }
 
 .share-content {
   width: 100%;

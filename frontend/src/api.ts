@@ -401,6 +401,10 @@ export interface ShareChatResponse {
   share_id: string;
   /** Canonical path — prefix with window.location.origin for the shareable URL. */
   url: string;
+  /** True when the current session owns this share and has a public handle. */
+  can_publish?: boolean;
+  /** True when this share is listed on the public timeline. */
+  on_timeline?: boolean;
 }
 
 /**
@@ -439,6 +443,33 @@ export interface SharedChat {
   messages: SharedChatMessage[];
   /** The last assistant SQL, denormalized for a future alert-rerun feature. */
   source_sql: string | null;
+  /** True when the author opted this share onto the public timeline. */
+  on_timeline?: boolean;
+  author?: { handle: string; name: string } | null;
+}
+
+export interface TimelineAuthor {
+  handle: string;
+  name: string;
+}
+
+export interface TimelinePost {
+  share_id: string;
+  url: string;
+  title: string | null;
+  excerpt: string;
+  handle: string;
+  name: string;
+  published_at: number;
+  model: string | null;
+  has_sql: boolean;
+  has_chart: boolean;
+}
+
+export interface TimelineFeed {
+  items: TimelinePost[];
+  next_before: number | null;
+  profile: TimelineAuthor | null;
 }
 
 export interface Health {
@@ -586,6 +617,12 @@ export const api = {
   // identically. The share_id is high-entropy, so the URL is the capability.
   sharedChat: (shareId: string) =>
     get<SharedChat>(`/api/share/${encodeURIComponent(shareId)}`),
+  timeline: (opts?: { handle?: string; before?: number; limit?: number }) =>
+    get<TimelineFeed>(`/api/timeline${qs({ handle: opts?.handle, before: opts?.before, limit: opts?.limit })}`),
+  publishTimeline: (share_id: string) =>
+    post<{ ok: boolean; share_id: string; published_at: number }>('/api/timeline', { share_id }),
+  unpublishTimeline: (shareId: string) =>
+    del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
   me: () => get<ProfileMe>('/api/me'),
   setHandle: async (handle: string) => {
     const r = await fetch(`${API_BASE}/api/me`, {

@@ -12,7 +12,7 @@ import {
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, Newspaper, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
 import { AuthControls } from './AuthControls';
@@ -37,7 +37,8 @@ type Section = {
   exact?: boolean;
 };
 const SECTIONS: Section[] = [
-  { to: '/', label: 'Chat', heading: 'Chat', icon: Sparkles, exact: true },
+  { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
+  { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 
@@ -50,6 +51,13 @@ const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
     const chatId = parseChatId(href.match(/^\/chat\/([^/?#]+)/)?.[1]);
     if (chatId) {
       return <Link ref={ref} to="/chat/$chatId" params={{ chatId }} {...props} />;
+    }
+    const publicHandle = href.match(/^\/u\/([^/?#]+)/)?.[1];
+    if (publicHandle) {
+      return <Link ref={ref} to="/u/$handle" params={{ handle: publicHandle }} {...props} />;
+    }
+    if (href === '/chat') {
+      return <Link ref={ref} to="/chat" {...props} />;
     }
     return <Link ref={ref} to={href as '/'} {...props} />;
   },
@@ -103,12 +111,21 @@ function WorkspaceNavigation({
   const history = useSavedChats();
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
+  const isTimeline = activeTo === '/' || Boolean(activeTo?.startsWith('/u/'));
 
   return (
     <SideNav className="workspace-nav">
       <SideNavItem
         as={RouterLink}
         href="/"
+        label="Timeline"
+        icon={Newspaper}
+        isSelected={isTimeline}
+        onClick={closeMobileNav}
+      />
+      <SideNavItem
+        as={RouterLink}
+        href="/chat"
         label="Chat"
         icon={Sparkles}
         isSelected={isChat && !historySelected}
@@ -141,7 +158,7 @@ function WorkspaceNavigation({
               ))}
         </SideNavSection>
       ) : null}
-      {SECTIONS.filter((section) => section.to !== '/').map((section) => (
+      {SECTIONS.filter((section) => section.to !== '/' && section.to !== '/chat').map((section) => (
         <SideNavItem
           key={section.to}
           as={RouterLink}
@@ -186,11 +203,14 @@ function Layout() {
       })
     : '–';
 
-  const active = [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
-    s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
-  );
+  const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
+  const active = isTimeline
+    ? SECTIONS[0]
+    : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
+      s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
+    );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
-  const isCopilot = Boolean(activeChatId) || location.pathname === '/' || location.pathname === '/ai';
+  const isCopilot = Boolean(activeChatId) || location.pathname === '/chat' || location.pathname === '/ai';
 
   if (!db.ready) {
     return (

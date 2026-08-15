@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import {
   Button,
   Dialog,
@@ -167,7 +168,11 @@ export function AuthControls() {
           <VStack gap={3}>
             <VStack gap={0.5}>
               <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
-              {currentHandle ? <Text type="supporting" maxLines={1}>@{currentHandle}</Text> : null}
+              {currentHandle ? (
+                <Link to="/u/$handle" params={{ handle: currentHandle }} className="topbar-handle-link">
+                  <Text type="supporting" maxLines={1}>@{currentHandle}</Text>
+                </Link>
+              ) : null}
               {email ? <Text type="supporting" maxLines={1}>{email}</Text> : null}
             </VStack>
             <HandleField value={draft} error={error} onChange={onDraftChange} />
