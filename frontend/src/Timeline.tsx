@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
-  Avatar,
   Button,
   ChatComposer,
   ChatSendButton,
@@ -197,41 +196,27 @@ function PostRow({ post }: { post: TimelinePost }) {
   const titleText = post.title?.trim() || 'Shared chat';
   const userMessage = messages.find((message) => message.role === 'user');
   const showTitle = !titlesMatch(titleText, userMessage?.content);
-  const authorName = post.name?.trim() || post.handle;
 
   return (
     <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
-      <HStack gap={3} vAlign="start" className="timeline-post-head">
-        <Link
-          to="/u/$handle"
-          params={{ handle: post.handle }}
-          className="timeline-avatar-link"
-          aria-label={`@${post.handle}`}
-        >
-          <Avatar name={authorName} size="md" tooltip={false} />
-        </Link>
-        <VStack gap={1} className="timeline-post-identity">
-          <HStack gap={2} vAlign="center" className="timeline-post-byline">
-            <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-              <Text weight="semibold" maxLines={1}>{authorName}</Text>
-            </Link>
-            <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-              <Text type="supporting" maxLines={1}>@{post.handle}</Text>
-            </Link>
-            <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-            <Timestamp value={post.published_at / 1000} format="auto" isLive />
-          </HStack>
-          {showTitle && (
-            <Link
-              to="/share/$shareId"
-              params={{ shareId: post.share_id }}
-              className="timeline-post-title"
-            >
-              <Heading level={2}>{titleText}</Heading>
-            </Link>
-          )}
-        </VStack>
-      </HStack>
+      <VStack gap={1} className="timeline-post-head">
+        <HStack gap={2} vAlign="center" className="timeline-post-byline">
+          <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
+            <Text weight="semibold" maxLines={1}>@{post.handle}</Text>
+          </Link>
+          <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+          <Timestamp value={post.published_at / 1000} format="auto" isLive />
+        </HStack>
+        {showTitle && (
+          <Link
+            to="/share/$shareId"
+            params={{ shareId: post.share_id }}
+            className="timeline-post-title"
+          >
+            <Heading level={2}>{titleText}</Heading>
+          </Link>
+        )}
+      </VStack>
 
       {messages.length > 0 && (
         <FeedPreview>
@@ -294,13 +279,7 @@ function FeedSkeleton() {
     <VStack gap={0} className="timeline-feed" aria-hidden="true">
       {[0, 1, 2].map((index) => (
         <VStack key={index} gap={3} className="timeline-post timeline-post-skeleton" paddingBlock={6}>
-          <HStack gap={3} vAlign="center">
-            <Skeleton width="var(--size-element-lg)" height="var(--size-element-lg)" radius="rounded" index={index} />
-            <VStack gap={2} className="timeline-skeleton-copy">
-              <Skeleton width="40%" height="var(--spacing-4)" index={index} />
-              <Skeleton width="28%" height="var(--spacing-3)" index={index} />
-            </VStack>
-          </HStack>
+          <Skeleton width="28%" height="var(--spacing-4)" index={index} />
           <Skeleton width="92%" height="var(--spacing-4)" index={index} />
           <Skeleton width="100%" height="calc(var(--size-element-lg) * 4)" radius={3} index={index} />
         </VStack>
@@ -370,8 +349,6 @@ export default function TimelinePage() {
     void navigate({ to: '/chat' });
   }, [navigate]);
 
-  const profileName = profile?.name?.trim() || profile?.handle || handle;
-
   return (
     <VStack className="timeline" gap={0}>
       <TimelineAskComposer
@@ -383,10 +360,8 @@ export default function TimelinePage() {
       <VStack gap={5} className="timeline-body" paddingBlock={5}>
         {handle && !loading && !missing && profile && (
           <HStack as="header" gap={4} vAlign="center" className="timeline-profile">
-            <Avatar name={profileName || handle} size="lg" tooltip={false} />
             <VStack gap={0} className="timeline-profile-copy">
-              <Heading level={1}>{profileName}</Heading>
-              <Text type="supporting">@{profile.handle}</Text>
+              <Heading level={1}>@{profile.handle}</Heading>
             </VStack>
             <Button
               variant="secondary"

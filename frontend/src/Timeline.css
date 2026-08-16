@@ -87,28 +87,9 @@
   animation: none;
 }
 
-.timeline-post-head,
-.timeline-post-identity,
-.timeline-skeleton-copy {
+.timeline-post-head {
   min-width: 0;
-  flex: 1;
-}
-
-.timeline-avatar-link {
-  flex-shrink: 0;
-  color: inherit;
-  text-decoration: none;
-  border-radius: var(--radius-rounded, 999px);
-  transition: transform var(--duration-fast) var(--ease-standard);
-}
-
-.timeline-avatar-link:hover {
-  transform: scale(1.04);
-}
-
-.timeline-avatar-link:focus-visible {
-  outline: var(--border-width-emphasized, 2px) solid var(--color-border-focus, var(--color-text-accent));
-  outline-offset: var(--spacing-0-5);
+  width: 100%;
 }
 
 .timeline-post-title :is(h1, h2) {
@@ -247,10 +228,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .timeline-post,
-  .timeline-profile,
-  .timeline-avatar-link {
+  .timeline-profile {
     animation: none;
-    transition: none;
   }
 
   .timeline-post-open {
