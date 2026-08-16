@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Link, useLocation } from '@tanstack/react-router';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from '@tanstack/react-router';
 import { Button, HStack, Theme, Token } from '@astryxdesign/core';
 import { lobsterTheme } from './theme';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -106,8 +106,31 @@ function Section({
 }
 
 export default function BrandPage() {
-  const { hash } = useLocation();
-  const active = hash.replace(/^#/, '') || 'identity';
+  const [active, setActive] = useState<string>(BRAND_PAGES[0].id);
+
+  useEffect(() => {
+    const nodes = BRAND_PAGES
+      .map((page) => document.getElementById(page.id))
+      .filter((node): node is HTMLElement => Boolean(node));
+    if (nodes.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        const top = visible[0]?.target.id;
+        if (top) setActive(top);
+      },
+      {
+        root: null,
+        rootMargin: '0px 0px -65% 0px',
+        threshold: [0.1, 0.25, 0.5],
+      },
+    );
+    for (const node of nodes) observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="brand">
