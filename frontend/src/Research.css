@@ -1,5 +1,5 @@
 .research-page {
-  max-width: 52rem;
+  max-width: 72rem;
   margin: 0 auto;
   padding: var(--spacing-6) var(--spacing-5) var(--spacing-8);
   min-height: 100%;
@@ -12,6 +12,10 @@
 .research-lookup {
   width: 100%;
   max-width: 24rem;
+}
+
+.research-lookup-inline {
+  max-width: 20rem;
 }
 
 .research-empty {
@@ -53,6 +57,278 @@
   flex-wrap: wrap;
 }
 
+.research-price-row {
+  flex-wrap: wrap;
+  margin-block-start: var(--spacing-1);
+}
+
+.research-spot {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-tight);
+}
+
+.research-brief.compact .research-spot {
+  font-size: var(--font-size-xl);
+}
+
+.research-change {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.research-change.up {
+  color: var(--color-success);
+}
+
+.research-change.down {
+  color: var(--color-error);
+}
+
+.research-change-secondary {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+}
+
+.research-commentary-body {
+  max-width: 40rem;
+  line-height: var(--line-height-relaxed);
+}
+
+.research-stats {
+  width: 100%;
+  row-gap: var(--spacing-3);
+}
+
+.research-stat {
+  min-width: 4.5rem;
+}
+
+.research-stat-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.research-stat-value {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.research-chart {
+  width: 100%;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--panel);
+  padding: var(--spacing-3) var(--spacing-4);
+}
+
+.research-chart-empty {
+  min-height: 6rem;
+  justify-content: center;
+}
+
+.research-chart-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.research-chart-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.research-chart-plot {
+  width: 100%;
+  height: 16rem;
+}
+
+.research-commentary-chat {
+  max-width: 40rem;
+}
+
+.research-chat-msg {
+  width: 100%;
+}
+
+.research-chat-avatar {
+  flex-shrink: 0;
+  margin-block-start: var(--spacing-1);
+}
+
+.research-chat-bubble-wrap {
+  min-width: 0;
+  flex: 1;
+}
+
+.research-chat-bubble {
+  max-width: 100%;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-container);
+  border-bottom-left-radius: var(--radius-inner);
+  background: var(--panel);
+  border: var(--border-width) solid var(--color-border);
+  line-height: var(--line-height-relaxed);
+  white-space: pre-wrap;
+}
+
+.research-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.research-field-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.research-select {
+  background: var(--panel);
+  border: var(--border-width) solid var(--color-border);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-element);
+  padding: var(--spacing-2) var(--spacing-3);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  min-width: 14rem;
+}
+
+.research-select-narrow {
+  min-width: 6rem;
+}
+
+.research-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.research-chain-controls {
+  width: 100%;
+}
+
+.research-chain-meta,
+.research-chain-legend {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+}
+
+.research-chain-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--panel);
+}
+
+.research-chain-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.research-chain-table th,
+.research-chain-table td {
+  padding: var(--spacing-1) var(--spacing-2);
+  border-bottom: var(--border-width) solid var(--color-border);
+  white-space: nowrap;
+}
+
+.research-chain-table thead th {
+  background: color-mix(in srgb, var(--panel) 88%, var(--color-text-primary));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.research-chain-table .grp {
+  text-align: center;
+  font-weight: 700;
+}
+
+.research-chain-table .call-grp {
+  color: var(--call, var(--color-success));
+  background: color-mix(in srgb, var(--call, var(--color-success)) 12%, transparent);
+}
+
+.research-chain-table .put-grp {
+  color: var(--put, var(--color-error));
+  background: color-mix(in srgb, var(--put, var(--color-error)) 12%, transparent);
+}
+
+.research-chain-table .strike-h {
+  text-align: center;
+  color: var(--color-text-primary);
+}
+
+.research-chain-table .sub-head th {
+  top: 1.75rem;
+  font-size: var(--font-size-xs);
+}
+
+.research-chain-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.research-chain-table .right {
+  text-align: right;
+}
+
+.research-chain-table .call-col {
+  color: var(--call, var(--color-success));
+  font-weight: 600;
+}
+
+.research-chain-table .put-col {
+  color: var(--put, var(--color-error));
+  font-weight: 600;
+}
+
+.research-chain-table .itm {
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+  font-weight: 600;
+}
+
+.research-chain-table .strike-cell {
+  text-align: center;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--panel) 88%, var(--color-text-primary));
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.research-chain-table tbody tr.atm-row {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 var(--border-width) var(--accent);
+}
+
+.research-chain-table .strike-cell.strike-atm {
+  color: var(--accent);
+}
+
+.research-chain-table .empty {
+  text-align: center;
+  color: var(--color-text-secondary);
+  padding: var(--spacing-4);
+}
+
+.research-secondary {
+  max-width: 40rem;
+}
+
 .research-id-line,
 .research-foot {
   font-family: var(--font-family-code);
@@ -91,6 +367,16 @@
 .chat-context-chip {
   cursor: pointer;
   font: inherit;
+}
+
+.chat-ticker-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.chat-ticker-link:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .chat-ticker-chip.active,

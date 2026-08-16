@@ -218,8 +218,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits |
 | `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, Yahoo fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
+| `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Cached alongside the research payload. |
 | `GET /api/research/{ticker}/chats` | Chats previously linked to this security (cross-ticker graph via `security_id`). |
-| `GET /api/chats/{id}/tickers` | Tickers linked to a chat (for the chat research widget). |
+| `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
 | `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
@@ -258,8 +259,10 @@ in-memory.
 ## UI features
 
 The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Research**
-(`/research`, `/research/{ticker}`) shows OpenFIGI-normalized ticker briefs
-(also attached as a widget when Copilot calls `research_ticker`). **Data**
+(`/research`, `/research/{ticker}`) is the ticker detail page — spot + compact
+fundamentals, a ranged OHLC chart, Lobster commentary as a chat bubble with
+follow-up → new chat, and an options-chain explorer. Chat ticker chips (from
+`research_ticker`) link there. **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
 - Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)

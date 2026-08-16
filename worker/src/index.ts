@@ -55,6 +55,8 @@ import {
   type ResearchDeps,
   type TickerResearch,
 } from "./research";
+import { getOrComputeCommentary } from "./research-commentary";
+import { createCopilotModel } from "./copilot-contract";
 import type { LakeSecurityRow } from "./figi";
 
 
@@ -2114,6 +2116,30 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string): Pro
   }
 }
 
+async function handleResearchCommentaryGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
+  const ticker = parseTickerParam(tickerRaw);
+  if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+  try {
+    const origin = new URL(req.url).origin;
+    const commentary = await getOrComputeCommentary(env, ticker, {
+      ...researchDepsFor(env),
+      createModel: () => {
+        if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
+        return createCopilotModel(
+          { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+          origin,
+        );
+      },
+    }, { force });
+    return json(env, commentary, 200, "private");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return json(env, { error: message }, 502, "private");
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -2331,6 +2357,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
       const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), { force: false });
       const chats = await listSecurityChats(env.SCHEMA_DB, research.identity.security_id, num(q.get("limit") ?? 20));
       return json(env, { ticker: research.identity.ticker, security_id: research.identity.security_id, items: chats }, 200, "private");
+    }
+    if (sub === "commentary" && req.method === "GET") {
+      return handleResearchCommentaryGet(env, req, tickerPart);
     }
     if (!sub && (req.method === "GET" || req.method === "POST")) {
       return handleResearchGet(env, req, tickerPart);
