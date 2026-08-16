@@ -14,6 +14,10 @@
   max-width: 24rem;
 }
 
+.research-lookup-inline {
+  max-width: 20rem;
+}
+
 .research-empty {
   padding-block: var(--spacing-6);
 }
@@ -51,6 +55,47 @@
 
 .research-title-row {
   flex-wrap: wrap;
+}
+
+.research-price-row {
+  flex-wrap: wrap;
+  margin-block-start: var(--spacing-1);
+}
+
+.research-spot {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-tight);
+}
+
+.research-brief.compact .research-spot {
+  font-size: var(--font-size-xl);
+}
+
+.research-change {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.research-change.up {
+  color: var(--color-success);
+}
+
+.research-change.down {
+  color: var(--color-error);
+}
+
+.research-change-secondary {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+}
+
+.research-commentary-body {
+  max-width: 40rem;
+  line-height: var(--line-height-relaxed);
 }
 
 .research-id-line,
@@ -91,6 +136,16 @@
 .chat-context-chip {
   cursor: pointer;
   font: inherit;
+}
+
+.chat-ticker-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.chat-ticker-link:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .chat-ticker-chip.active,

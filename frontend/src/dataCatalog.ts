@@ -145,7 +145,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'research_ticker',
     summary: 'OpenFIGI-normalized ticker research brief',
     description:
-      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker via OpenFIGI (lake/ticker fallback), links the chat to that security_id, and returns a cached brief: recent price/volume moves, consolidation/accumulation, Yahoo fundamentals (market cap, PE, debt), earnings, and news. Powers the chat ticker widget and /research/{ticker}.',
+      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker via OpenFIGI (lake/ticker fallback), links the chat to that security_id, and returns a cached brief: recent price/volume moves, consolidation/accumulation, Yahoo fundamentals (market cap, PE, debt), earnings, and news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
     endpoint: 'GET /api/research/{ticker}',
     feeds: ['openfigi', 'yahoo', 'nasdaq', 'tavily-news'],
     tables: ['ohlc', 'realized_vol', 'earnings', 'securities'],

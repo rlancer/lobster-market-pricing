@@ -29,16 +29,27 @@ function fmtSpot(v: number | null | undefined): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function changeClass(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v) || v === 0) return '';
+  return v > 0 ? 'up' : 'down';
+}
+
 export function ResearchBriefView({
   research,
   relatedChats,
+  commentary,
+  commentaryLoading = false,
   compact = false,
 }: {
   research: TickerResearch;
   relatedChats?: ChatTickerLink[];
+  /** Lobster take — loaded separately so price can paint first. */
+  commentary?: string | null;
+  commentaryLoading?: boolean;
   compact?: boolean;
 }) {
   const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
+  const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
 
   return (
     <VStack className={`research-brief${compact ? ' compact' : ''}`} gap={compact ? 3 : 5}>
@@ -46,6 +57,17 @@ export function ResearchBriefView({
         <HStack gap={3} vAlign="end" className="research-title-row">
           <Heading level={compact ? 3 : 1}>{identity.ticker}</Heading>
           {identity.name ? <Text type="supporting">{identity.name}</Text> : null}
+        </HStack>
+        <HStack gap={3} vAlign="end" className="research-price-row">
+          <Text className="research-spot">{fmtSpot(price.spot)}</Text>
+          <Text className={`research-change ${changeClass(price.change_1d_pct)}`}>
+            {fmtPct(price.change_1d_pct)} 1d
+          </Text>
+          {!compact && (
+            <Text type="supporting" className="research-change-secondary">
+              {fmtPct(price.change_5d_pct)} 5d · {fmtPct(price.change_21d_pct)} 21d
+            </Text>
+          )}
         </HStack>
         <Text type="supporting" className="research-id-line">
           {identity.figi ? `FIGI ${identity.figi}` : 'FIGI pending'}
@@ -55,15 +77,30 @@ export function ResearchBriefView({
         </Text>
       </VStack>
 
+      <VStack gap={2} className="research-section research-commentary">
+        <Heading level={3}>Lobster commentary</Heading>
+        {commentaryLoading && !resolvedCommentary && (
+          <HStack gap={2} vAlign="center">
+            <Spinner size="sm" />
+            <Text type="supporting">Writing the take…</Text>
+          </HStack>
+        )}
+        {resolvedCommentary && <Text className="research-commentary-body">{resolvedCommentary}</Text>}
+        {!commentaryLoading && !resolvedCommentary && (
+          <Text type="supporting">No commentary yet.</Text>
+        )}
+      </VStack>
+
       <MetadataList className="research-meta" columns="multi" label={{ position: "top" }}>
-        <MetadataListItem label="Spot">{fmtSpot(price.spot)}</MetadataListItem>
-        <MetadataListItem label="1d">{fmtPct(price.change_1d_pct)}</MetadataListItem>
-        <MetadataListItem label="5d">{fmtPct(price.change_5d_pct)}</MetadataListItem>
-        <MetadataListItem label="21d">{fmtPct(price.change_21d_pct)}</MetadataListItem>
         <MetadataListItem label="Vol vs 20d">{price.volume_relative_20d != null ? `${(price.volume_relative_20d * 100).toFixed(0)}%` : '—'}</MetadataListItem>
         <MetadataListItem label="Trend">{technicals.trend}</MetadataListItem>
         <MetadataListItem label="Consolidation">{technicals.consolidation ? `yes${technicals.consolidation_range_pct != null ? ` (${technicals.consolidation_range_pct.toFixed(1)}%)` : ''}` : 'no'}</MetadataListItem>
         <MetadataListItem label="Flow">{technicals.accumulation}</MetadataListItem>
+        {!compact && (
+          <MetadataListItem label="63d range">
+            {fmtSpot(price.low_63d)} – {fmtSpot(price.high_63d)}
+          </MetadataListItem>
+        )}
       </MetadataList>
 
       {!compact && (

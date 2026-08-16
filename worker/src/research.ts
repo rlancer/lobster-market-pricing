@@ -94,6 +94,10 @@ export interface TickerResearch {
     net_assets: number | null;
     expense_ratio: number | null;
   } | null;
+  /** Lobster take for the ticker detail page (lazy; may be absent on chat-tool path). */
+  commentary?: string | null;
+  commentary_source?: "llm" | "notes" | null;
+  commentary_computed_at?: string | null;
   computed_at: string;
   expires_at: string;
   cache_hit: boolean;

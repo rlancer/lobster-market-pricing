@@ -596,8 +596,20 @@ export interface TickerResearch {
     net_assets: number | null;
     expense_ratio: number | null;
   } | null;
+  commentary?: string | null;
+  commentary_source?: 'llm' | 'notes' | null;
+  commentary_computed_at?: string | null;
   computed_at: string;
   expires_at: string;
+  cache_hit: boolean;
+}
+
+export interface TickerCommentary {
+  ticker: string;
+  security_id: string;
+  commentary: string;
+  source: 'llm' | 'notes';
+  computed_at: string;
   cache_hit: boolean;
 }
 
@@ -760,6 +772,12 @@ export const api = {
       `/api/research/${encodeURIComponent(ticker.toUpperCase())}${qs({
         force: opts?.force ? 1 : undefined,
         chat_id: opts?.chatId,
+      })}`,
+    ),
+  researchCommentary: (ticker: string, opts?: { force?: boolean }) =>
+    get<TickerCommentary>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}/commentary${qs({
+        force: opts?.force ? 1 : undefined,
       })}`,
     ),
   researchChats: (ticker: string, limit?: number) =>
