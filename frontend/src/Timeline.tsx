@@ -72,6 +72,7 @@ function FeedPreview({ children }: { children: ReactNode }) {
         <Button
           variant="ghost"
           size="sm"
+          className="timeline-continue"
           label="Continue reading"
           endContent={<ArrowRight size={14} aria-hidden="true" />}
           onClick={() => setExpanded(true)}
@@ -158,9 +159,14 @@ function PostRow({ post }: { post: TimelinePost }) {
               </HStack>
             )}
             {post.model && (
-              <Text type="supporting" className="timeline-model" maxLines={1}>
-                {shortModel(post.model)}
-              </Text>
+              <>
+                {(post.has_sql || post.has_chart) && (
+                  <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+                )}
+                <Text type="supporting" className="timeline-model" maxLines={1}>
+                  {shortModel(post.model)}
+                </Text>
+              </>
             )}
           </HStack>
         )}

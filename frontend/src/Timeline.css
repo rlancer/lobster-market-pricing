@@ -157,6 +157,11 @@
   );
 }
 
+.timeline-continue {
+  align-self: flex-start;
+  margin-block-start: calc(var(--spacing-1) * -1);
+}
+
 /* Feed bubbles sit edge-to-edge in the post — full width like the share page. */
 .timeline-msgs .ai-msg {
   width: 100%;
