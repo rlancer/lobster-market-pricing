@@ -30,6 +30,47 @@ test.describe('Public timeline', () => {
     }).toBe(true);
   });
 
+  test('timeline posts show author identity and a view-full-chat affordance', async ({ page }) => {
+    await page.route('**/api/timeline**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000001',
+            url: '/share/TestShareId000000000000001',
+            title: 'Should I buy SPY calls',
+            excerpt: 'Liquidity looks thin.',
+            messages: [
+              { role: 'user', content: 'Should I buy SPY calls' },
+              { role: 'assistant', content: 'Liquidity looks thin across the near-dated SPY call board.' },
+            ],
+            handle: 'thelobster',
+            name: 'Robert Lancer',
+            published_at: Date.now(),
+            model: 'deepseek/deepseek-v4-flash-0731',
+            has_sql: true,
+            has_chart: false,
+          }],
+          next_before: null,
+          profile: null,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
+    await expect(post).toBeVisible();
+    await expect(post.getByRole('link', { name: 'Robert Lancer' })).toBeVisible();
+    await expect(post.getByRole('link', { name: '@thelobster' }).first()).toBeVisible();
+    await expect(post.getByText('SQL')).toBeVisible();
+    await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
+    // Title matches the user bubble — don't duplicate it as a heading.
+    await expect(post.getByRole('heading', { name: 'Should I buy SPY calls' })).toHaveCount(0);
+    await expect(post.getByRole('link', { name: 'View full chat' })).toBeVisible();
+  });
+
+
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline`);
     expect(res.status()).toBe(200);
