@@ -30,6 +30,99 @@ test.describe('Public timeline', () => {
     }).toBe(true);
   });
 
+  test('timeline posts show author identity and a view-full-chat affordance', async ({ page }) => {
+    await page.route('**/api/timeline**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000001',
+            url: '/share/TestShareId000000000000001',
+            title: 'Should I buy SPY calls',
+            excerpt: 'Liquidity looks thin.',
+            messages: [
+              { role: 'user', content: 'Should I buy SPY calls' },
+              { role: 'assistant', content: 'Liquidity looks thin across the near-dated SPY call board.' },
+            ],
+            handle: 'thelobster',
+            name: 'Robert Lancer',
+            published_at: Date.now(),
+            model: 'deepseek/deepseek-v4-flash-0731',
+            has_sql: true,
+            has_chart: false,
+          }],
+          next_before: null,
+          profile: null,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
+    await expect(post).toBeVisible();
+    await expect(post.getByRole('link', { name: '@thelobster' })).toBeVisible();
+    await expect(post.getByRole('link', { name: 'Robert Lancer' })).toHaveCount(0);
+    await expect(post.getByText('SQL')).toBeVisible();
+    await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
+    // Title matches the user bubble — don't duplicate it as a heading.
+    await expect(post.getByRole('heading', { name: 'Should I buy SPY calls' })).toHaveCount(0);
+    await expect(post.getByRole('link', { name: 'View full chat' })).toBeVisible();
+  });
+
+  test('ask composer collapses to a chip after scrolling the feed', async ({ page }) => {
+    await page.route('**/api/timeline**', async (route) => {
+      const items = Array.from({ length: 8 }, (_, index) => ({
+        share_id: `TestShareId0000000000000${index}`,
+        url: `/share/TestShareId0000000000000${index}`,
+        title: `Question ${index}`,
+        excerpt: 'A'.repeat(400),
+        messages: [
+          { role: 'user', content: `Question ${index}` },
+          { role: 'assistant', content: `${'Long answer paragraph. '.repeat(20)}` },
+        ],
+        handle: 'thelobster',
+        name: 'Robert Lancer',
+        published_at: Date.now() - index * 60_000,
+        model: null,
+        has_sql: false,
+        has_chart: false,
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items, next_before: null, profile: null }),
+      });
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const composer = page.getByRole('region', { name: 'Ask the Lobster' });
+    await expect(composer.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+
+    await page.evaluate(() => {
+      const sentinel = document.querySelector('.timeline-composer-sentinel');
+      let current = sentinel?.parentElement ?? null;
+      while (current) {
+        const overflowY = getComputedStyle(current).overflowY;
+        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
+          current.scrollTop += 1200;
+          return;
+        }
+        current = current.parentElement;
+      }
+      window.scrollBy(0, 1200);
+    });
+    await expect(composer).toHaveAttribute('data-collapsed', 'true');
+    await expect(composer.getByRole('button', { name: 'Ask the Lobster' })).toBeVisible();
+    await expect(composer.getByRole('textbox', { name: 'Message input' })).toHaveCount(0);
+
+    await composer.getByRole('button', { name: 'Ask the Lobster' }).click();
+    await expect(composer).not.toHaveAttribute('data-collapsed', 'true');
+    await expect(composer.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+  });
+
+
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline`);
     expect(res.status()).toBe(200);
