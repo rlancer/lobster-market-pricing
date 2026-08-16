@@ -24,7 +24,7 @@ import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
-import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId } from './chatSession';
+import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId, takePendingPrompt } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -701,6 +701,15 @@ function AiChatSession({
   const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat;
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
   const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing';
+
+  const pendingConsumedRef = useRef(false);
+  useEffect(() => {
+    if (pendingConsumedRef.current) return;
+    if (busy || disconnected || accessBlocked || socketState !== 'open') return;
+    const pending = takePendingPrompt();
+    pendingConsumedRef.current = true;
+    if (pending) send(pending);
+  }, [accessBlocked, busy, disconnected, send, socketState]);
 
   useEffect(() => {
     if (!accessBlocked) return;

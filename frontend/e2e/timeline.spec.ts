@@ -8,10 +8,22 @@ test.describe('Public timeline', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
     await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Timeline' }).first()).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
 
     await page.getByRole('link', { name: 'Chat', exact: true }).first().click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
     await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+  });
+
+  test('timeline composer opens a new chat with the typed prompt', async ({ page }) => {
+    await page.goto('/');
+    const composer = page.getByRole('region', { name: 'Ask the Lobster' }).getByRole('textbox', { name: 'Message input' });
+    await expect(composer).toBeVisible();
+    await composer.fill('Find the most liquid calls expiring within 30 days');
+    await composer.press('Enter');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('openinterest_copilot_pending_prompt'))).toBeNull();
+    await expect(page.locator('.ai-msg.ai-user').getByText('Find the most liquid calls expiring within 30 days')).toBeVisible({ timeout: 30_000 });
   });
 
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {

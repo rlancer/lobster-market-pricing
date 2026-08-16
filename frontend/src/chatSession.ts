@@ -4,6 +4,7 @@ const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 export const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
 export const LIVE_CHAT_KEY = 'openinterest_copilot_live_chat_id';
+export const PENDING_PROMPT_KEY = 'openinterest_copilot_pending_prompt';
 export const CHATS_CHANGED_EVENT = 'lobster:chats-changed';
 
 export function parseChatId(value: unknown): string | null {
@@ -65,6 +66,26 @@ export function startNewChatId(): string {
   const id = crypto.randomUUID();
   sessionStorage.setItem(LIVE_CHAT_KEY, id);
   return rememberChatId(id);
+}
+
+/** Stash a prompt for `/chat` to auto-send once the agent socket is ready. */
+export function stashPendingPrompt(text: string): void {
+  const prompt = text.trim();
+  if (!prompt) return;
+  sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+}
+
+/** Read and clear a pending timeline/home prompt, if any. */
+export function takePendingPrompt(): string | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_PROMPT_KEY);
+    if (raw == null) return null;
+    sessionStorage.removeItem(PENDING_PROMPT_KEY);
+    const prompt = raw.trim();
+    return prompt || null;
+  } catch {
+    return null;
+  }
 }
 
 export function notifyChatsChanged(): void {
