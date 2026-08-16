@@ -327,7 +327,9 @@ function AiChatSession({
   const [onTimeline, setOnTimeline] = useState(false);
   const [paused, setPaused] = useState(false);
   const [researchRefreshKey, setResearchRefreshKey] = useState(0);
-  const [chatAccess, setChatAccess] = useState<'unknown' | 'ok' | 'unauthorized' | 'forbidden'>('unknown');
+  const [chatAccess, setChatAccess] = useState<'unknown' | 'ok' | 'unauthorized' | 'forbidden'>(
+    isSavedChat ? 'unknown' : 'ok',
+  );
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -348,35 +350,6 @@ function AiChatSession({
     connectionTimeout: 8_000,
   });
   const { state: socketState, reconnect: reconnectSocket } = useAgentReconnect(agent);
-  const getInitialMessages = useCallback(async ({ url }: { url?: string }) => {
-    if (!url) return [];
-    const getMessagesUrl = new URL(url);
-    getMessagesUrl.pathname += '/get-messages';
-    try {
-      const response = await fetch(getMessagesUrl.toString(), { credentials: 'include' });
-      if (response.status === 401) {
-        setChatAccess('unauthorized');
-        return [];
-      }
-      if (response.status === 403) {
-        setChatAccess('forbidden');
-        return [];
-      }
-      if (!response.ok) {
-        console.warn(`Failed to fetch initial messages: ${response.status} ${response.statusText}`);
-        setChatAccess('ok');
-        return [];
-      }
-      setChatAccess('ok');
-      const text = await response.text();
-      if (!text.trim()) return [];
-      return JSON.parse(text) as CopilotMessage[];
-    } catch (error) {
-      console.warn('Failed to fetch initial messages:', error);
-      setChatAccess('ok');
-      return [];
-    }
-  }, []);
   const {
     messages,
     sendMessage,
@@ -401,7 +374,6 @@ function AiChatSession({
     // origins. Default fetch credentials omit the session cookie, so owned
     // history 401s and the UI looks like a blank welcome chat.
     credentials: 'include',
-    getInitialMessages,
     body: () => ({ origin: window.location.origin }),
     onData: (part) => {
       if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
@@ -409,6 +381,50 @@ function AiChatSession({
       }
     },
   });
+
+  // Probe access for saved chats. Do not replace useAgentChat's getInitialMessages
+  // — a custom fetcher runs before the agent HTTP URL exists and caches [].
+  useEffect(() => {
+    if (!isSavedChat) {
+      setChatAccess('ok');
+      return;
+    }
+    let alive = true;
+    const probe = async () => {
+      const raw = agent.getHttpUrl?.() ?? '';
+      if (!raw) {
+        // Agent URL appears once PartySocket binds; retry shortly.
+        return false;
+      }
+      const getMessagesUrl = new URL(raw.replace(/^ws/i, 'http'));
+      getMessagesUrl.pathname = getMessagesUrl.pathname.replace(/\/$/, '') + '/get-messages';
+      try {
+        const response = await fetch(getMessagesUrl.toString(), { credentials: 'include' });
+        if (!alive) return true;
+        if (response.status === 401) setChatAccess('unauthorized');
+        else if (response.status === 403) setChatAccess('forbidden');
+        else setChatAccess('ok');
+      } catch {
+        if (alive) setChatAccess('ok');
+      }
+      return true;
+    };
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      void probe().then((done) => {
+        if (!alive || done) return;
+        tries += 1;
+        if (tries < 40) timer = setTimeout(tick, 100);
+        else setChatAccess('ok');
+      });
+    };
+    tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isSavedChat, agent, chatId, user?.id]);
 
   const busy = !paused && (chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation);
   const disconnected = socketState !== 'open';
