@@ -19,6 +19,17 @@ import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChatMessage, type TimelineAuthor, type TimelinePost } from './api';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
 
+/** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
+function nearestScrollRoot(node: HTMLElement | null): Element | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const { overflowY } = getComputedStyle(current);
+    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
 function shortModel(model: string): string {
   const leaf = model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model;
@@ -28,6 +39,101 @@ function shortModel(model: string): string {
 function titlesMatch(title: string, userContent: string | undefined): boolean {
   if (!userContent) return false;
   return title.trim().toLowerCase() === userContent.trim().toLowerCase();
+}
+
+/**
+ * Full ask box at the top of the feed. Once the user scrolls past it, collapse
+ * to a slim sticky “Ask the Lobster” chip so the composer stops eating mobile
+ * viewport. Tapping the chip expands it again; scrolling back to the top
+ * restores the full composer automatically.
+ */
+function TimelineAskComposer({
+  value,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+}) {
+  const sentinelRef = useRef<HTMLElement>(null);
+  const regionRef = useRef<HTMLElement>(null);
+  const [pastTop, setPastTop] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const hasDraft = Boolean(value.trim());
+  const collapsed = pastTop && !expanded && !hasDraft;
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const root = nearestScrollRoot(sentinel);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const past = !entry.isIntersecting;
+        setPastTop(past);
+        if (!past) setExpanded(false);
+      },
+      { root, threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (collapsed) return;
+    if (!pastTop && !expanded) return;
+    const region = regionRef.current;
+    if (!region) return;
+    const input = region.querySelector<HTMLElement>('textarea, [role="textbox"]');
+    input?.focus();
+  }, [collapsed, pastTop, expanded]);
+
+  return (
+    <>
+      <VStack
+        ref={sentinelRef}
+        className="timeline-composer-sentinel"
+        aria-hidden="true"
+      />
+      <VStack
+        ref={regionRef}
+        as="section"
+        gap={0}
+        className={
+          collapsed
+            ? 'timeline-composer is-collapsed'
+            : pastTop
+              ? 'timeline-composer is-sticky-open'
+              : 'timeline-composer'
+        }
+        aria-label="Ask the Lobster"
+        data-collapsed={collapsed ? 'true' : undefined}
+      >
+        {collapsed ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="timeline-ask-chip"
+            label="Ask the Lobster"
+            icon={<Sparkles size={16} />}
+            onClick={() => setExpanded(true)}
+          />
+        ) : (
+          <ChatComposer
+            value={value}
+            onChange={onChange}
+            onSubmit={(raw) => {
+              setExpanded(false);
+              onSubmit(raw);
+            }}
+            placeholder="Ask about liquidity, volatility, or a ticker…"
+            density={pastTop ? 'compact' : 'balanced'}
+            sendButton={<ChatSendButton />}
+          />
+        )}
+      </VStack>
+    </>
+  );
 }
 
 /** Clamp tall feed previews; expand in place so the first answer stays on the timeline. */
@@ -268,15 +374,11 @@ export default function TimelinePage() {
 
   return (
     <VStack className="timeline" gap={0}>
-      <VStack as="section" gap={0} paddingBlock={4} className="timeline-composer" aria-label="Ask the Lobster">
-        <ChatComposer
-          value={composer}
-          onChange={setComposer}
-          onSubmit={launchChat}
-          placeholder="Ask about liquidity, volatility, or a ticker…"
-          sendButton={<ChatSendButton />}
-        />
-      </VStack>
+      <TimelineAskComposer
+        value={composer}
+        onChange={setComposer}
+        onSubmit={launchChat}
+      />
 
       <VStack gap={5} className="timeline-body" paddingBlock={5}>
         {handle && !loading && !missing && profile && (
