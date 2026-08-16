@@ -12,7 +12,7 @@ import {
   Tooltip,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
 import { AuthControls } from './AuthControls';
@@ -46,6 +46,7 @@ const SECTIONS: Section[] = [
 // Monitor and docs remain secondary destinations in the compact header.
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
+const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
   ({ href = '/', ...props }, ref) => {
@@ -218,7 +219,7 @@ function Layout() {
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const active = isTimeline
     ? SECTIONS[0]
-    : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
+    : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING, BRAND_HEADING].find((s) =>
       s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
     );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
@@ -266,6 +267,15 @@ function Layout() {
             <section className="topbar-tools" aria-label="Workspace controls">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
               <MonitorStatus />
+              <Tooltip content="Brand — logos, voice, assets" hasHoverIndication={false}>
+                <Link
+                  to="/brand"
+                  className={location.pathname.startsWith('/brand') ? 'docs-link active' : 'docs-link'}
+                  aria-label="Brand — logos, voice, assets"
+                >
+                  <Palette size={20} strokeWidth={1.75} aria-hidden="true" />
+                </Link>
+              </Tooltip>
               <Tooltip content="Docs — how this platform works" hasHoverIndication={false}>
                 <Link
                   to="/docs"

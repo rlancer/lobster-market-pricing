@@ -165,6 +165,11 @@ const SURFACES = [
     title: 'Monitor',
     body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The header chip jumps here.',
   },
+  {
+    route: '/brand',
+    title: 'Brand',
+    body: 'Style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Header palette icon.',
+  },
 ];
 
 const DIALECT_NOTES = [
