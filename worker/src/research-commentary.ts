@@ -4,6 +4,9 @@
  * Grounded in the cached research brief. Prefers a short LLM take in brand
  * voice; falls back to a deterministic synthesis from price/technicals so the
  * page always has something numbers-first when OpenRouter is unavailable.
+ *
+ * Every take must include an explicit directional bias and a concrete options
+ * structure — even when the brief is thin or mixed (low-conviction lean).
  */
 
 import { generateText, type LanguageModel } from "ai";
@@ -18,6 +21,18 @@ import {
 
 export type CommentarySource = "llm" | "notes";
 
+export type TradeBias = "bullish" | "bearish" | "neutral";
+
+export interface TradeIdea {
+  bias: TradeBias;
+  /** Low when signals conflict or data is thin; still always picks a lean. */
+  conviction: "high" | "medium" | "low";
+  /** One-line structure suggestion (relative strikes / DTE, no invented premiums). */
+  structure: string;
+  /** Short rationale tying the structure to the brief. */
+  rationale: string;
+}
+
 export interface TickerCommentary {
   ticker: string;
   security_id: string;
@@ -29,12 +44,183 @@ export interface TickerCommentary {
 
 export const COMMENTARY_SYSTEM = [
   "You are Lobster MP — a senior quant Copilot for US equities and ETF options.",
-  "Write a 2–4 sentence ticker takeaway for a detail page.",
+  "Write a 3–5 sentence ticker takeaway for a detail page.",
   "Lead with the spot or the move that matters. Ground every claim in the brief.",
+  "Always end with an explicit bias (bullish / bearish / neutral) AND one concrete options structure:",
+  "name the structure (e.g. bull call debit spread, put debit, iron condor, calendar), rough tenor (e.g. 30–45 DTE), and strike posture relative to spot (ATM / ~5% OTM / wings).",
+  "If the brief is thin, mixed, or does not support a high-conviction trade, still pick a lean, say conviction is low, and suggest a defined-risk structure (or a wait-with-trigger framed as a trade).",
+  "Prefer defined-risk over naked short options. Near earnings, favor defined-risk or calendars and call out event risk.",
+  "Do not invent strike prices, premiums, IV ranks, or news not in the brief — describe strikes relative to spot only.",
   "Sound smug-confident and precise — no fluff, no anthropomorphizing, no emoji.",
-  "Do not invent prices, news, or fundamentals that are not in the brief.",
   "Do not mention being an AI or that this is a summary. No hedging every clause.",
 ].join("\n");
+
+/**
+ * Deterministic directional lean + options structure from the brief.
+ * Always returns an idea — thin/mixed data → low conviction, not silence.
+ */
+export function suggestTradeIdea(r: TickerResearch): TradeIdea {
+  const { trend, consolidation, accumulation } = r.technicals;
+  const chg5 = r.price.change_5d_pct;
+  const chg21 = r.price.change_21d_pct;
+  const volRel = r.price.volume_relative_20d;
+  const earningsSoon = isEarningsSoon(r);
+  const thin =
+    r.price.spot == null ||
+    (trend === "unknown" && accumulation === "unknown" && chg5 == null && chg21 == null);
+
+  let biasScore = 0;
+  if (trend === "up") biasScore += 2;
+  if (trend === "down") biasScore -= 2;
+  if (accumulation === "accumulating") biasScore += 1;
+  if (accumulation === "distributing") biasScore -= 1;
+  if (chg5 != null) {
+    if (chg5 >= 3) biasScore += 1;
+    else if (chg5 <= -3) biasScore -= 1;
+  }
+  if (chg21 != null) {
+    if (chg21 >= 5) biasScore += 1;
+    else if (chg21 <= -5) biasScore -= 1;
+  }
+
+  let bias: TradeBias;
+  if (biasScore >= 2) bias = "bullish";
+  else if (biasScore <= -2) bias = "bearish";
+  else if (consolidation || trend === "sideways") bias = "neutral";
+  else if (biasScore > 0) bias = "bullish";
+  else if (biasScore < 0) bias = "bearish";
+  else bias = "neutral";
+
+  const signalCount =
+    (trend !== "unknown" ? 1 : 0) +
+    (accumulation === "accumulating" || accumulation === "distributing" ? 1 : 0) +
+    (chg5 != null && Math.abs(chg5) >= 3 ? 1 : 0) +
+    (consolidation ? 1 : 0);
+
+  let conviction: TradeIdea["conviction"] = "medium";
+  if (thin || signalCount === 0 || Math.abs(biasScore) <= 1) conviction = "low";
+  else if (Math.abs(biasScore) >= 3 && signalCount >= 2) conviction = "high";
+
+  // Conflicting trend vs flow softens conviction.
+  if (
+    (trend === "up" && accumulation === "distributing") ||
+    (trend === "down" && accumulation === "accumulating")
+  ) {
+    conviction = "low";
+  }
+
+  const hotVol = volRel != null && volRel >= 1.5;
+  const structure = pickStructure(bias, {
+    consolidation,
+    earningsSoon,
+    hotVol,
+    thin,
+  });
+
+  const rationale = buildRationale(r, bias, conviction, {
+    consolidation,
+    earningsSoon,
+    thin,
+  });
+
+  return { bias, conviction, structure, rationale };
+}
+
+function pickStructure(
+  bias: TradeBias,
+  ctx: { consolidation: boolean; earningsSoon: boolean; hotVol: boolean; thin: boolean },
+): string {
+  if (ctx.earningsSoon) {
+    if (bias === "bullish") {
+      return "defined-risk call debit or bull call spread ~30–45 DTE, sized for event gamma (or a post-print calendar if you want to fade the IV crush)";
+    }
+    if (bias === "bearish") {
+      return "defined-risk put debit or bear put spread ~30–45 DTE into the print — avoid naked short gamma into earnings";
+    }
+    return "iron butterfly / tight iron condor ~21–35 DTE centered near spot, or sit cash and buy the post-earnings IV crush with a calendar";
+  }
+
+  if (ctx.thin) {
+    if (bias === "bullish") {
+      return "small ATM–5% OTM call debit ~45 DTE (probe size) until the lake fills in";
+    }
+    if (bias === "bearish") {
+      return "small ATM–5% OTM put debit ~45 DTE (probe size) until the lake fills in";
+    }
+    return "wait for a spot print, or a 1-lot iron condor ~30 DTE as a placeholder range bet";
+  }
+
+  if (bias === "bullish") {
+    if (ctx.consolidation) {
+      return "bull call debit spread ~30–45 DTE (long ATM / short ~5–8% OTM) for a consolidation breakout";
+    }
+    return ctx.hotVol
+      ? "bull call debit spread ~30–45 DTE (long ~ATM / short ~5% OTM) — prefer spread over naked calls with elevated volume"
+      : "call debit ~30–45 DTE ~ATM to 5% OTM, or a bull call spread if you want cheaper carry";
+  }
+
+  if (bias === "bearish") {
+    if (ctx.consolidation) {
+      return "bear put debit spread ~30–45 DTE (long ATM / short ~5–8% OTM) for a downside break";
+    }
+    return ctx.hotVol
+      ? "bear put debit spread ~30–45 DTE — prefer defined risk while volume is elevated"
+      : "put debit ~30–45 DTE ~ATM to 5% OTM, or a bear put spread for cleaner R:R";
+  }
+
+  // Neutral
+  if (ctx.consolidation) {
+    return "short iron condor ~21–45 DTE with wings outside the recent 20d range (or a long straddle if you want the breakout instead)";
+  }
+  return "iron condor ~30–45 DTE centered near spot, or a calendar spread if you expect quiet spot and decaying front IV";
+}
+
+function buildRationale(
+  r: TickerResearch,
+  bias: TradeBias,
+  conviction: TradeIdea["conviction"],
+  ctx: { consolidation: boolean; earningsSoon: boolean; thin: boolean },
+): string {
+  const parts: string[] = [];
+  if (ctx.thin) {
+    parts.push("brief is thin");
+  } else {
+    if (r.technicals.trend !== "unknown") parts.push(`${r.technicals.trend} trend`);
+    if (r.technicals.accumulation === "accumulating" || r.technicals.accumulation === "distributing") {
+      parts.push(r.technicals.accumulation);
+    }
+    if (ctx.consolidation) parts.push("tight range");
+  }
+  if (ctx.earningsSoon && r.earnings[0]) {
+    parts.push(`earnings ${r.earnings[0].earnings_date}`);
+  }
+  const why = parts.length ? parts.join(", ") : "mixed tape";
+  return `${conviction} conviction ${bias} lean (${why})`;
+}
+
+function isEarningsSoon(r: TickerResearch): boolean {
+  const date = r.earnings[0]?.earnings_date;
+  if (!date) return false;
+  const t = Date.parse(`${date}T00:00:00Z`);
+  if (!Number.isFinite(t)) return false;
+  const now = Date.parse(r.computed_at) || Date.now();
+  const days = (t - now) / (24 * 60 * 60 * 1000);
+  // Treat as "soon" if within ~21 days forward or up to 1 day past (just reported window).
+  return days >= -1 && days <= 21;
+}
+
+/** Format the trade idea as the closing Lobster sentence(s). */
+export function formatTradeIdea(idea: TradeIdea): string {
+  const biasLabel =
+    idea.bias === "bullish" ? "Bullish" : idea.bias === "bearish" ? "Bearish" : "Neutral";
+  const conf =
+    idea.conviction === "high"
+      ? "high conviction"
+      : idea.conviction === "medium"
+        ? "medium conviction"
+        : "low conviction — data is soft, but a lean beats a shrug";
+  return `${biasLabel} (${conf}): ${idea.structure}.`;
+}
 
 /** Deterministic Lobster-voice blurb from structured research (always available). */
 export function synthesizeCommentary(r: TickerResearch): string {
@@ -84,7 +270,12 @@ export function synthesizeCommentary(r: TickerResearch): string {
     );
   }
 
-  return bits.slice(0, 4).join(" ");
+  const idea = suggestTradeIdea(r);
+  bits.push(formatTradeIdea(idea));
+
+  // Keep the recap tight; always keep the trade closer as the last sentence.
+  const trade = bits.pop()!;
+  return [...bits.slice(0, 4), trade].join(" ");
 }
 
 export async function generateLobsterCommentary(
@@ -94,18 +285,30 @@ export async function generateLobsterCommentary(
 ): Promise<string | null> {
   try {
     const brief = compactBriefForPrompt(research);
+    const idea = suggestTradeIdea(research);
     const result = await generateText({
       model,
       system: COMMENTARY_SYSTEM,
-      prompt: `Write the Lobster take for this ticker brief:\n\n${brief}`,
-      maxOutputTokens: 220,
-      temperature: 0.3,
+      prompt: [
+        "Write the Lobster take for this ticker brief.",
+        "You must include a directional bias and a concrete options trade suggestion.",
+        `Deterministic lean to honor unless the brief clearly contradicts it: ${idea.bias} (${idea.conviction}) → ${idea.structure}`,
+        "",
+        brief,
+      ].join("\n"),
+      maxOutputTokens: 320,
+      temperature: 0.35,
       abortSignal: opts?.abortSignal,
     });
     const text = result.text.trim();
     if (!text || text.length < 24) return null;
     // Keep the page readable — strip accidental markdown fences.
-    return text.replace(/^```[\s\S]*?```$/g, "").replace(/^["']|["']$/g, "").trim();
+    const cleaned = text.replace(/^```[\s\S]*?```$/g, "").replace(/^["']|["']$/g, "").trim();
+    // If the model skipped the trade ask, append the deterministic closer.
+    if (!looksLikeTradeTake(cleaned)) {
+      return `${cleaned} ${formatTradeIdea(idea)}`.trim();
+    }
+    return cleaned;
   } catch (error) {
     console.warn(JSON.stringify({
       researchCommentary: true,
@@ -113,6 +316,13 @@ export async function generateLobsterCommentary(
     }));
     return null;
   }
+}
+
+/** Heuristic: did the model actually propose a structure / bias? */
+function looksLikeTradeTake(text: string): boolean {
+  return /\b(bullish|bearish|neutral|call|put|spread|condor|straddle|strangle|calendar|debit|credit)\b/i.test(
+    text,
+  );
 }
 
 function compactBriefForPrompt(r: TickerResearch): string {
@@ -157,11 +367,14 @@ export async function getOrComputeCommentary(
   const now = deps.now?.() ?? Date.now();
   const research = await getOrComputeResearch(env, rawTicker, deps, { force: false });
 
-  if (!opts?.force && research.commentary?.trim()) {
+  // Skip stale pre-trade-idea caches: old blurbs that only recap price/fundamentals
+  // lack bias/structure language and should be rewritten once.
+  const cached = research.commentary?.trim() ?? "";
+  if (!opts?.force && cached && looksLikeTradeTake(cached)) {
     return {
       ticker: research.identity.ticker,
       security_id: research.identity.security_id,
-      commentary: research.commentary.trim(),
+      commentary: cached,
       source: research.commentary_source === "llm" ? "llm" : "notes",
       computed_at: research.commentary_computed_at ?? research.computed_at,
       cache_hit: true,
