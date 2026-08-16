@@ -24,7 +24,7 @@ import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
-import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId, takePendingPrompt } from './chatSession';
+import { clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
@@ -706,9 +706,24 @@ function AiChatSession({
   useEffect(() => {
     if (pendingConsumedRef.current) return;
     if (busy || disconnected || accessBlocked || socketState !== 'open') return;
-    const pending = takePendingPrompt();
-    pendingConsumedRef.current = true;
-    if (pending) send(pending);
+    const pending = peekPendingPrompt();
+    if (!pending) {
+      pendingConsumedRef.current = true;
+      return;
+    }
+    // Defer so React Strict Mode's mount→cleanup→remount cycle can cancel the
+    // first attempt without clearing the stash before the lasting mount sends.
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      pendingConsumedRef.current = true;
+      clearPendingPrompt();
+      send(pending);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [accessBlocked, busy, disconnected, send, socketState]);
 
   useEffect(() => {

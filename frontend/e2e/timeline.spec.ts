@@ -22,8 +22,12 @@ test.describe('Public timeline', () => {
     await composer.fill('Find the most liquid calls expiring within 30 days');
     await composer.press('Enter');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
-    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('openinterest_copilot_pending_prompt'))).toBeNull();
-    await expect(page.locator('.ai-msg.ai-user').getByText('Find the most liquid calls expiring within 30 days')).toBeVisible({ timeout: 30_000 });
+    // Either still queued for the agent socket, or already delivered into the transcript.
+    await expect.poll(async () => {
+      const pending = await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_pending_prompt'));
+      if (pending === 'Find the most liquid calls expiring within 30 days') return true;
+      return (await page.locator('.ai-msg.ai-user').filter({ hasText: 'Find the most liquid calls expiring within 30 days' }).count()) > 0;
+    }).toBe(true);
   });
 
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {

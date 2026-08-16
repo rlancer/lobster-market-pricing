@@ -75,16 +75,24 @@ export function stashPendingPrompt(text: string): void {
   sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
 }
 
-/** Read and clear a pending timeline/home prompt, if any. */
-export function takePendingPrompt(): string | null {
+/** Peek at a pending timeline/home prompt without clearing it. */
+export function peekPendingPrompt(): string | null {
   try {
     const raw = sessionStorage.getItem(PENDING_PROMPT_KEY);
     if (raw == null) return null;
-    sessionStorage.removeItem(PENDING_PROMPT_KEY);
     const prompt = raw.trim();
     return prompt || null;
   } catch {
     return null;
+  }
+}
+
+/** Clear a pending timeline/home prompt after it has been handed to the agent. */
+export function clearPendingPrompt(): void {
+  try {
+    sessionStorage.removeItem(PENDING_PROMPT_KEY);
+  } catch {
+    /* ignore */
   }
 }
 
