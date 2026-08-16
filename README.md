@@ -295,6 +295,15 @@ accepted from or returned to browser code. `COPILOT_MAX_OUTPUT_TOKENS` caps
 aggregate model output across one agent turn, while request and history
 byte/character caps reject or trim runaway payloads before they consume model credit.
 
+**Finance-only scope.** Before the agent loop runs, a cheap classifier checks
+whether the latest user message is a US equities / options / macro market-data
+question. Off-topic turns (shopping, lifestyle, jailbreaks, chit-chat) never
+get an assistant reply — the Worker returns a stream error (`No data to answer.`),
+persists a scope lock on that chat's Durable Object, and the UI disables the
+composer so follow-ups cannot retry on the same chat. Start a new chat for a
+real market question. Classifier infrastructure failures fail open so genuine
+market asks still work.
+
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The live conversation is `/chat`
