@@ -471,6 +471,8 @@ export interface TimelinePost {
   model: string | null;
   has_sql: boolean;
   has_chart: boolean;
+  /** Tickers linked to the originating chat via chat_tickers (may be empty). */
+  tickers?: string[];
 }
 
 export interface TimelineFeed {

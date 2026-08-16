@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { groupTickersByChat } from "../src/chat-tickers.ts";
 import {
   excerptFromMessages,
   flagsFromMessages,
@@ -105,4 +106,18 @@ test("parseTimelineQuery defaults, caps limit, and validates handle/before", () 
   assert.equal(badHandle.ok, false);
   const badBefore = parseTimelineQuery(new URLSearchParams("before=nope"));
   assert.equal(badBefore.ok, false);
+});
+
+test("groupTickersByChat keeps first-seen order and uppercases symbols", () => {
+  const grouped = groupTickersByChat([
+    { chat_id: "c1", ticker: "nvda" },
+    { chat_id: "c1", ticker: "AAPL" },
+    { chat_id: "c1", ticker: "NVDA" },
+    { chat_id: "c2", ticker: " MSFT " },
+    { chat_id: "", ticker: "SKIP" },
+    { chat_id: "c2", ticker: "" },
+  ]);
+  assert.deepEqual(grouped.get("c1"), ["NVDA", "AAPL"]);
+  assert.deepEqual(grouped.get("c2"), ["MSFT"]);
+  assert.equal(grouped.has(""), false);
 });

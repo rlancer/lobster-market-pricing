@@ -6,6 +6,7 @@
  * (the home feed). DELETE removes the listing; the share link still works.
  */
 import { getSessionUser, type AuthEnv } from "./auth";
+import { listTickersForChats } from "./chat-tickers";
 import { getHandle, parseHandle } from "./profiles";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
@@ -208,6 +209,7 @@ interface ShareRow {
 
 interface TimelineRow {
   share_id: string;
+  chat_id: string;
   excerpt: string | null;
   has_sql: number;
   has_chart: number;
@@ -219,7 +221,7 @@ interface TimelineRow {
   name: string;
 }
 
-function itemFromRow(row: TimelineRow) {
+function itemFromRow(row: TimelineRow, tickers: string[] = []) {
   // Prefer a live first-message preview from the share so older posts stored
   // under the old 280-char cap still render expanded on the feed.
   let parsed: unknown = [];
@@ -247,6 +249,8 @@ function itemFromRow(row: TimelineRow) {
     model: row.model,
     has_sql: row.has_sql === 1,
     has_chart: row.has_chart === 1,
+    /** OpenFIGI-linked tickers from chat_tickers for the originating chat. */
+    tickers,
   };
 }
 
@@ -277,7 +281,7 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   }
   bindings.push(parsed.limit + 1);
   const sql =
-    `SELECT p.share_id, p.excerpt, p.has_sql, p.has_chart, p.published_at,
+    `SELECT p.share_id, s.chat_id, p.excerpt, p.has_sql, p.has_chart, p.published_at,
             s.title, s.model, s.messages, pr.handle, u.name
      FROM timeline_posts p
      JOIN shared_chats s ON s.share_id = p.share_id
@@ -289,9 +293,14 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   const rows = await env.SCHEMA_DB.prepare(sql).bind(...bindings).all<TimelineRow>();
   const list = rows.results ?? [];
   const extra = list.length > parsed.limit;
-  const items = extra ? list.slice(0, parsed.limit) : list;
-  const next_before = extra ? items[items.length - 1]?.published_at ?? null : null;
-  return json({ items: items.map(itemFromRow), next_before, profile });
+  const page = extra ? list.slice(0, parsed.limit) : list;
+  const next_before = extra ? page[page.length - 1]?.published_at ?? null : null;
+  const tickersByChat = await listTickersForChats(
+    env.SCHEMA_DB,
+    page.map((row) => row.chat_id),
+  );
+  const items = page.map((row) => itemFromRow(row, tickersByChat.get(row.chat_id) ?? []));
+  return json({ items, next_before, profile });
 }
 
 async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response> {
