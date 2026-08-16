@@ -124,6 +124,7 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--color-text-accent);
+  text-decoration: none;
   padding: var(--spacing-0-5) var(--spacing-1-5);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-element);
