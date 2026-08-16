@@ -108,9 +108,34 @@
 
 .timeline-post-byline,
 .timeline-post-meta,
-.timeline-post-flags {
+.timeline-post-flags,
+.timeline-tickers {
   flex-wrap: wrap;
   min-width: 0;
+}
+
+.timeline-tickers {
+  padding-block: var(--spacing-0-5) 0;
+}
+
+.timeline-ticker {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-accent);
+  padding: var(--spacing-0-5) var(--spacing-1-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: var(--panel);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.timeline-ticker:hover {
+  border-color: var(--color-border-emphasized);
+  text-decoration: underline;
 }
 
 .timeline-post-meta {

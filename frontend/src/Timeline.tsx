@@ -196,6 +196,9 @@ function PostRow({ post }: { post: TimelinePost }) {
   const titleText = post.title?.trim() || 'Shared chat';
   const userMessage = messages.find((message) => message.role === 'user');
   const showTitle = !titlesMatch(titleText, userMessage?.content);
+  const tickers = (post.tickers ?? [])
+    .map((ticker) => ticker.trim().toUpperCase())
+    .filter(Boolean);
 
   return (
     <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
@@ -207,6 +210,20 @@ function PostRow({ post }: { post: TimelinePost }) {
           <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
           <Timestamp value={post.published_at / 1000} format="auto" isLive />
         </HStack>
+        {tickers.length > 0 && (
+          <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tickers">
+            {tickers.map((ticker) => (
+              <Link
+                key={ticker}
+                to="/research/$ticker"
+                params={{ ticker }}
+                className="timeline-ticker"
+              >
+                {ticker}
+              </Link>
+            ))}
+          </HStack>
+        )}
         {showTitle && (
           <Link
             to="/share/$shareId"
