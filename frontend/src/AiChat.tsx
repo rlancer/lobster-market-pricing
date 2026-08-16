@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
@@ -22,7 +22,7 @@ import {
 } from '@astryxdesign/core';
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
-import { authClient } from './auth';
+import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
@@ -297,7 +297,26 @@ function TurnProgress({
   );
 }
 
-function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () => void }) {
+function ChatLoadingState() {
+  return (
+    <section className="ai-chat ai-chat-loading" aria-busy="true" aria-label="Loading chat">
+      <div className="ai-chat-loading-body">
+        <Spinner size="md" />
+        <span>Opening chat…</span>
+      </div>
+    </section>
+  );
+}
+
+function AiChatSession({
+  chatId,
+  isSavedChat,
+  onNewChat,
+}: {
+  chatId: string;
+  isSavedChat: boolean;
+  onNewChat: () => void;
+}) {
   const [input, setInput] = useState('');
   const [progressStatus, setProgressStatus] = useState('');
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
@@ -308,6 +327,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const [onTimeline, setOnTimeline] = useState(false);
   const [paused, setPaused] = useState(false);
   const [researchRefreshKey, setResearchRefreshKey] = useState(0);
+  const [chatAccess, setChatAccess] = useState<'unknown' | 'ok' | 'unauthorized' | 'forbidden'>('unknown');
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -328,6 +348,35 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     connectionTimeout: 8_000,
   });
   const { state: socketState, reconnect: reconnectSocket } = useAgentReconnect(agent);
+  const getInitialMessages = useCallback(async ({ url }: { url?: string }) => {
+    if (!url) return [];
+    const getMessagesUrl = new URL(url);
+    getMessagesUrl.pathname += '/get-messages';
+    try {
+      const response = await fetch(getMessagesUrl.toString(), { credentials: 'include' });
+      if (response.status === 401) {
+        setChatAccess('unauthorized');
+        return [];
+      }
+      if (response.status === 403) {
+        setChatAccess('forbidden');
+        return [];
+      }
+      if (!response.ok) {
+        console.warn(`Failed to fetch initial messages: ${response.status} ${response.statusText}`);
+        setChatAccess('ok');
+        return [];
+      }
+      setChatAccess('ok');
+      const text = await response.text();
+      if (!text.trim()) return [];
+      return JSON.parse(text) as CopilotMessage[];
+    } catch (error) {
+      console.warn('Failed to fetch initial messages:', error);
+      setChatAccess('ok');
+      return [];
+    }
+  }, []);
   const {
     messages,
     sendMessage,
@@ -352,6 +401,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     // origins. Default fetch credentials omit the session cookie, so owned
     // history 401s and the UI looks like a blank welcome chat.
     credentials: 'include',
+    getInitialMessages,
     body: () => ({ origin: window.location.origin }),
     onData: (part) => {
       if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
@@ -577,6 +627,21 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     setOnTimeline(false);
   };
 
+  const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
+  const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat;
+  const showSavedLoading = projectedMessages.length === 0 && isSavedChat && chatAccess === 'unknown';
+  const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok';
+
+  useEffect(() => {
+    if (!accessBlocked) return;
+    // Stop PartySocket's reconnect storm once we know this chat is auth-gated.
+    try {
+      agent.close?.(1000, 'chat access denied');
+    } catch {
+      /* ignore */
+    }
+  }, [accessBlocked, agent]);
+
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
@@ -588,7 +653,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
             label="Share chat"
             icon={<Share2 size={16} />}
             tooltip={canShare ? 'Share chat' : 'Share available after the first answer'}
-            isDisabled={!canShare || busy}
+            isDisabled={!canShare || busy || accessBlocked}
             isLoading={shareBusy}
             onClick={shareChat}
           />
@@ -596,7 +661,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         </section>
       </header>
 
-      {disconnected && (
+      {disconnected && !accessBlocked && (
         <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
           <StatusDot
             variant={socketState === 'offline' ? 'warning' : 'accent'}
@@ -607,10 +672,60 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         </div>
       )}
 
-      <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
+      {!accessBlocked && <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />}
 
       <section className="ai-messages" ref={scrollRef}>
-        {projectedMessages.length === 0 && (
+        {showSavedLoading && (
+          <section className="ai-welcome ai-chat-gate" aria-busy="true">
+            <div className="ai-chat-loading-body">
+              <Spinner size="md" />
+              <span>Opening chat…</span>
+            </div>
+          </section>
+        )}
+
+        {chatAccess === 'unauthorized' && (
+          <section className="ai-welcome ai-chat-gate">
+            <header className="ai-welcome-hero">
+              <h1 className="ai-welcome-title">Sign in to view this chat</h1>
+              <p className="ai-welcome-data">
+                This conversation is saved to an account. Sign in with the same Google account to load the transcript.
+              </p>
+              <Button
+                variant="primary"
+                label="Sign in"
+                onClick={() => {
+                  void signInWithGoogle().catch((err) => {
+                    console.error('Google sign-in failed', err);
+                  });
+                }}
+              />
+            </header>
+          </section>
+        )}
+
+        {chatAccess === 'forbidden' && (
+          <section className="ai-welcome ai-chat-gate">
+            <header className="ai-welcome-hero">
+              <h1 className="ai-welcome-title">Chat unavailable</h1>
+              <p className="ai-welcome-data">
+                This saved chat belongs to another account. Start a new chat or open one from your history.
+              </p>
+              <Button variant="secondary" label="New chat" onClick={onNewChat} />
+            </header>
+          </section>
+        )}
+
+        {showSavedEmpty && (
+          <section className="ai-welcome ai-chat-gate">
+            <header className="ai-welcome-hero">
+              <h1 className="ai-welcome-title">Empty chat</h1>
+              <p className="ai-welcome-data">This saved chat has no messages yet. Ask a question below to continue it.</p>
+            </header>
+          </section>
+        )}
+
+        {showWelcome && (
           <section className="ai-welcome">
             <header className="ai-welcome-hero">
               <BlueLobsterLogo className="ai-welcome-mascot" />
@@ -748,15 +863,17 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
           value={input}
           onChange={setInput}
           onSubmit={send}
-          isDisabled={busy || disconnected}
+          isDisabled={busy || disconnected || accessBlocked}
           placeholder={
-            socketState === 'offline'
-              ? 'Waiting for network…'
-              : socketState === 'reconnecting'
-                ? 'Reconnecting…'
-                : paused
-                  ? 'Start to resume, or ask a follow-up…'
-                  : 'Ask about liquidity, volatility, or a ticker…'
+            accessBlocked
+              ? (chatAccess === 'forbidden' ? 'Chat unavailable' : 'Sign in to continue this chat…')
+              : socketState === 'offline'
+                ? 'Waiting for network…'
+                : socketState === 'reconnecting'
+                  ? 'Reconnecting…'
+                  : paused
+                    ? 'Start to resume, or ask a follow-up…'
+                    : 'Ask about liquidity, volatility, or a ticker…'
           }
           sendButton={<ChatSendButton />}
         />
@@ -821,9 +938,13 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
 function AiChat() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { data: session, isPending } = authClient.useSession();
   const routeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
   const [liveId, setLiveId] = useState(ensureLiveChatId);
   const chatId = routeChatId ?? liveId;
+  // Remount when the signed-in user changes so get-messages re-runs with the
+  // session cookie instead of caching an anonymous 401 for an owned chat.
+  const sessionKey = session?.user?.id ?? 'anon';
   useEffect(() => {
     rememberChatId(chatId);
   }, [chatId]);
@@ -832,7 +953,23 @@ function AiChat() {
     setLiveId(created);
     if (routeChatId) void navigate({ to: '/chat' });
   }, [navigate, routeChatId]);
-  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
+
+  // Saved chats may be account-owned — wait for auth before the agent
+  // hydrates so we don't flash the welcome screen on a 401.
+  if (routeChatId && isPending) {
+    return <ChatLoadingState />;
+  }
+
+  return (
+    <Suspense fallback={<ChatLoadingState />}>
+      <AiChatSession
+        key={`${chatId}:${sessionKey}`}
+        chatId={chatId}
+        isSavedChat={Boolean(routeChatId)}
+        onNewChat={newChat}
+      />
+    </Suspense>
+  );
 }
 
 export default AiChat;

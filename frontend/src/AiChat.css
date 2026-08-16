@@ -41,6 +41,26 @@
   color: var(--color-warning);
 }
 
+.ai-chat-loading,
+.ai-chat-gate {
+  justify-content: center;
+}
+
+.ai-chat-loading-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3);
+  margin: auto;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.ai-chat-gate .ai-welcome-hero {
+  gap: var(--spacing-4);
+}
+
 /* ---- session data (per-chat cached frames) ------------------------------- */
 .ai-frames {
   flex-shrink: 0;
