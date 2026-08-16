@@ -145,7 +145,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'research_ticker',
     summary: 'OpenFIGI-normalized ticker research brief',
     description:
-      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker via OpenFIGI (lake/ticker fallback), links the chat to that security_id, and returns a cached brief: recent price/volume moves, consolidation/accumulation, Yahoo fundamentals (market cap, PE, debt), earnings, and news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
+      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker via OpenFIGI (lake/ticker fallback), links the chat to that security_id, and returns a cached brief: recent price/volume moves, consolidation/accumulation, lake fundamentals (market cap, PE, debt from options.fundamentals), earnings, and news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
     endpoint: 'GET /api/research/{ticker}',
     feeds: ['openfigi', 'yahoo', 'nasdaq', 'tavily-news'],
     tables: ['ohlc', 'realized_vol', 'earnings', 'securities'],
@@ -276,6 +276,18 @@ export const FEEDS: CatalogItem[] = [
     tools: ['run_query'],
   },
   {
+    id: 'feed:yahoo-fundamentals',
+    kind: 'feed',
+    title: 'Yahoo equity fundamentals',
+    summary: 'Market cap, P/E, debt, margins for research',
+    description:
+      'Daily quoteSummary fundamentals for the equity sleeve (S&P 500 + Nasdaq-100 delta). Powers the ticker detail strip and research_ticker — market cap, trailing/forward P/E, debt, D/E, profit margins — from options.fundamentals (latest-wins by ticker), not a live Yahoo scrape.',
+    provider: 'Yahoo Finance',
+    cadence: 'Daily (fundamentals-daily job)',
+    tables: ['fundamentals'],
+    tools: ['run_query', 'research_ticker'],
+  },
+  {
     id: 'feed:nasdaq',
     kind: 'feed',
     title: 'Nasdaq earnings calendar',
@@ -371,6 +383,13 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
       'Ranked constituents (holding_symbol, holding_name, weight) for each ETF. Chat joins this to chains when concentration or “what does QQQ hold?” is part of the question.',
     feeds: ['yahoo-etf'],
     tools: ['run_query'],
+  },
+  fundamentals: {
+    summary: 'Equity market cap, P/E, debt, and margins',
+    description:
+      'One row per equity per loader pass: market_cap, enterprise_value, trailing/forward P/E, peg_ratio, price_to_book, total_debt, debt_to_equity, profit_margins, revenue_growth. Newest run wins per ticker. Feeds research_ticker and /research/{ticker}.',
+    feeds: ['yahoo-fundamentals'],
+    tools: ['run_query', 'research_ticker'],
   },
   earnings: {
     summary: 'Nasdaq earnings dates and EPS estimates',

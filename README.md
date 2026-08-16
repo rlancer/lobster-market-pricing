@@ -217,7 +217,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits |
-| `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, Yahoo fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
+| `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, lake fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
 | `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Cached alongside the research payload. |
 | `GET /api/research/{ticker}/chats` | Chats previously linked to this security (cross-ticker graph via `security_id`). |
 | `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
@@ -267,7 +267,7 @@ follow-up → new chat, and an options-chain explorer. Chat ticker chips (from
 
 - Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
-  Tavily news/search, Yahoo OHLC + ETF profiles/holdings + quoteSummary fundamentals,
+  Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)
 - Iceberg lake tables with live row counts, columns, and sample rows
 - A read-only SQL editor (`POST /api/query`) — the same path Chat uses

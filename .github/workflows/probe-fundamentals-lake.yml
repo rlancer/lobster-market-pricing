@@ -1,0 +1,155 @@
+name: Probe fundamentals lake (one-shot)
+
+# Throwaway PR-branch check: provision cboe_fundamentals_* if missing, publish
+# a few probe rows (AAPL/MSFT/GOOGL), wait for the ~300s sink roll, then assert
+# AAPL is queryable via R2 SQL. Uses existing repo secrets — this agent has no
+# local Cloudflare/R2 SQL creds.
+#
+# Delete or comment this workflow out once green on the PR (do not leave a
+# permanent flaky lake probe on every push).
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: probe-fundamentals-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      WRANGLER_R2_SQL_AUTH_TOKEN: ${{ secrets.WRANGLER_R2_SQL_AUTH_TOKEN }}
+      R2_SQL_TOKEN: ${{ secrets.R2_SQL_TOKEN }}
+      BUCKET: cboe-options-data
+      WAREHOUSE: 3315bb3e7d2e3556bfea6fb3947a890e_cboe-options-data
+      STREAM: cboe_fundamentals_v2
+      SINK: cboe_fundamentals_sink
+      PIPELINE: cboe_fundamentals_pipeline
+      NAMESPACE: options
+      TABLE: fundamentals
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ -z "${WRANGLER_R2_SQL_AUTH_TOKEN:-}" ] && [ -z "${R2_SQL_TOKEN:-}" ]; then
+            echo "::error::Need WRANGLER_R2_SQL_AUTH_TOKEN or R2_SQL_TOKEN in GitHub secrets"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          export WRANGLER_R2_SQL_AUTH_TOKEN="${WRANGLER_R2_SQL_AUTH_TOKEN:-$R2_SQL_TOKEN}"
+          echo "WRANGLER_R2_SQL_AUTH_TOKEN=${WRANGLER_R2_SQL_AUTH_TOKEN}" >> "$GITHUB_ENV"
+          echo "Secrets present (values not printed)."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Provision stream + sink + pipeline (idempotent)
+        working-directory: loader
+        run: |
+          set -euo pipefail
+
+          if npx wrangler pipelines streams get "$STREAM" --json >/tmp/fund-stream.json 2>/dev/null; then
+            echo "Stream $STREAM already exists"
+          else
+            echo "Creating stream $STREAM"
+            npx wrangler pipelines streams create "$STREAM" \
+              --schema-file schemas/fundamentals.json \
+              --http-enabled true \
+              --http-auth true
+            npx wrangler pipelines streams get "$STREAM" --json >/tmp/fund-stream.json
+          fi
+
+          ENDPOINT=$(node -e 'const s=require("/tmp/fund-stream.json"); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)')
+          echo "PIPELINE_FUNDAMENTALS_URL set (endpoint not printed)."
+          echo "PIPELINE_FUNDAMENTALS_URL=$ENDPOINT" >> "$GITHUB_ENV"
+
+          if npx wrangler pipelines sinks get "$SINK" --json >/tmp/fund-sink.json 2>/dev/null; then
+            echo "Sink $SINK already exists"
+          else
+            echo "Creating sink $SINK (creates options.fundamentals)"
+            # catalog-token is required by wrangler; value is not echoed.
+            npx wrangler pipelines sinks create "$SINK" \
+              --type r2-data-catalog \
+              --bucket "$BUCKET" \
+              --namespace "$NAMESPACE" \
+              --table "$TABLE" \
+              --catalog-token "$R2_DATA_CATALOG_TOKEN" \
+              --format parquet \
+              --roll-interval 300
+          fi
+
+          if npx wrangler pipelines get "$PIPELINE" --json >/tmp/fund-pipeline.json 2>/dev/null; then
+            echo "Pipeline $PIPELINE already exists"
+          else
+            echo "Creating pipeline $PIPELINE"
+            npx wrangler pipelines create "$PIPELINE" \
+              --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
+          fi
+
+      - name: Publish probe fundamentals rows
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          node tools/fundamentals_probe_publish.ts AAPL MSFT GOOGL
+
+      - name: Set loader Worker secret PIPELINE_FUNDAMENTALS_URL
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          printf '%s' "$PIPELINE_FUNDAMENTALS_URL" | npx wrangler secret put PIPELINE_FUNDAMENTALS_URL
+          echo "Worker secret PIPELINE_FUNDAMENTALS_URL updated."
+
+      - name: Wait for sink roll (~5 min)
+        run: |
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s for probe rows."
+          sleep 360
+
+      - name: Assert AAPL fundamentals via R2 SQL
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          QUERY="SELECT ticker, market_cap, trailing_pe, source FROM options.fundamentals WHERE ticker = 'AAPL' ORDER BY fetched_at DESC LIMIT 5"
+          echo "Running: $QUERY"
+          # Capture output without printing tokens.
+          set +e
+          out=$(npx wrangler r2 sql query "$WAREHOUSE" "$QUERY" 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            echo "::error::R2 SQL query failed"
+            exit 1
+          fi
+          if ! echo "$out" | grep -qi 'AAPL'; then
+            echo "::error::No AAPL row in options.fundamentals — probe did not land"
+            exit 1
+          fi
+          echo "AAPL fundamentals present in lake."
