@@ -30,6 +30,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
       PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
       WRANGLER_R2_SQL_AUTH_TOKEN: ${{ secrets.WRANGLER_R2_SQL_AUTH_TOKEN }}
       R2_SQL_TOKEN: ${{ secrets.R2_SQL_TOKEN }}
       BUCKET: cboe-options-data
@@ -80,27 +81,53 @@ jobs:
         run: |
           set -euo pipefail
 
-          if npx wrangler pipelines streams get "$STREAM" --json >/tmp/fund-stream.json 2>/dev/null; then
+          # Prefer a Pipelines-admin token when present; otherwise try the deploy
+          # token, then the catalog token (some accounts grant Pipelines write there).
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+
+          wrangler_pipelines() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler "$@"
+          }
+
+          try_list() {
+            wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+              && return 0
+            if [ "$PIPELINES_TOKEN" != "$R2_DATA_CATALOG_TOKEN" ]; then
+              echo "Deploy token cannot list pipelines — retrying with R2_DATA_CATALOG_TOKEN"
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+                && return 0
+            fi
+            echo "::error::No available token can manage Pipelines. Need Workers Pipelines Edit on CLOUDFLARE_API_TOKEN (or PIPELINES_ADMIN_TOKEN)."
+            cat /tmp/streams.err >&2 || true
+            return 1
+          }
+          try_list
+
+          if wrangler_pipelines pipelines streams get "$STREAM" --json >/tmp/fund-stream.json 2>/dev/null; then
             echo "Stream $STREAM already exists"
           else
             echo "Creating stream $STREAM"
-            npx wrangler pipelines streams create "$STREAM" \
+            wrangler_pipelines pipelines streams create "$STREAM" \
               --schema-file schemas/fundamentals.json \
               --http-enabled true \
               --http-auth true
-            npx wrangler pipelines streams get "$STREAM" --json >/tmp/fund-stream.json
+            wrangler_pipelines pipelines streams get "$STREAM" --json >/tmp/fund-stream.json
           fi
 
           ENDPOINT=$(node -e 'const s=require("/tmp/fund-stream.json"); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)')
           echo "PIPELINE_FUNDAMENTALS_URL set (endpoint not printed)."
           echo "PIPELINE_FUNDAMENTALS_URL=$ENDPOINT" >> "$GITHUB_ENV"
 
-          if npx wrangler pipelines sinks get "$SINK" --json >/tmp/fund-sink.json 2>/dev/null; then
+          if wrangler_pipelines pipelines sinks get "$SINK" --json >/tmp/fund-sink.json 2>/dev/null; then
             echo "Sink $SINK already exists"
           else
             echo "Creating sink $SINK (creates options.fundamentals)"
             # catalog-token is required by wrangler; value is not echoed.
-            npx wrangler pipelines sinks create "$SINK" \
+            wrangler_pipelines pipelines sinks create "$SINK" \
               --type r2-data-catalog \
               --bucket "$BUCKET" \
               --namespace "$NAMESPACE" \
@@ -110,11 +137,11 @@ jobs:
               --roll-interval 300
           fi
 
-          if npx wrangler pipelines get "$PIPELINE" --json >/tmp/fund-pipeline.json 2>/dev/null; then
+          if wrangler_pipelines pipelines get "$PIPELINE" --json >/tmp/fund-pipeline.json 2>/dev/null; then
             echo "Pipeline $PIPELINE already exists"
           else
             echo "Creating pipeline $PIPELINE"
-            npx wrangler pipelines create "$PIPELINE" \
+            wrangler_pipelines pipelines create "$PIPELINE" \
               --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
           fi
 
