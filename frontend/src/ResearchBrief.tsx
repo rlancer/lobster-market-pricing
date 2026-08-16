@@ -84,7 +84,7 @@ export function ResearchBriefView({
   };
 
   return (
-    <VStack className="research-brief" gap={5}>
+    <VStack className="research-brief" gap={3}>
       <VStack gap={1} className="research-hero">
         <HStack gap={3} vAlign="end" className="research-title-row">
           <Heading level={1}>{identity.ticker}</Heading>
@@ -172,7 +172,7 @@ export function ResearchBriefView({
       </VStack>
 
       {(earnings.length > 0 || news.length > 0 || (relatedChats && relatedChats.length > 0)) && (
-        <VStack gap={4} className="research-section research-secondary">
+        <VStack gap={3} className="research-section research-secondary">
           {earnings.length > 0 && (
             <VStack gap={2}>
               <Heading level={3}>Earnings</Heading>

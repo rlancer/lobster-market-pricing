@@ -5,7 +5,6 @@ import {
   Heading,
   HStack,
   Text,
-  TextInput,
   VStack,
 } from '@astryxdesign/core';
 import {
@@ -16,6 +15,7 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
+import { TickerTypeahead } from './TickerTypeahead';
 import './Research.css';
 
 export default function ResearchPage() {
@@ -130,8 +130,13 @@ export default function ResearchPage() {
     void navigate({ to: '/research/$ticker', params: { ticker: next } });
   };
 
+  const clear = () => {
+    setDraft('');
+    void navigate({ to: '/research' });
+  };
+
   return (
-    <VStack className="research-page" gap={5}>
+    <VStack className="research-page" gap={3}>
       {!tickerParam && (
         <VStack gap={2} className="research-page-head">
           <Heading level={1}>Ticker details</Heading>
@@ -139,33 +144,22 @@ export default function ResearchPage() {
             Spot, chart, Lobster take, and the options chain for one underlying.
             Linked from tickers Copilot extracts in chat.
           </Text>
-          <HStack gap={2} vAlign="end" className="research-lookup">
-            <TextInput
-              label="Ticker"
-              value={draft}
-              onChange={(value) => setDraft(String(value).toUpperCase())}
-              placeholder="NVDA"
-            />
-            <Button label="Open" onClick={() => go(draft)} />
-          </HStack>
         </VStack>
       )}
 
-      {tickerParam && (
-        <HStack gap={2} vAlign="end" className="research-lookup research-lookup-inline">
-          <TextInput
-            label="Ticker"
-            value={draft}
-            onChange={(value) => setDraft(String(value).toUpperCase())}
-            placeholder="NVDA"
-          />
-          <Button label="Open" onClick={() => go(draft)} />
-        </HStack>
-      )}
+      <HStack gap={2} vAlign="end" className="research-lookup">
+        <TickerTypeahead
+          value={tickerParam || null}
+          onSelect={go}
+          onClear={clear}
+          onChangeQuery={(q) => setDraft(q.trim().toUpperCase())}
+        />
+        <Button label="Open" onClick={() => go(draft || tickerParam)} />
+      </HStack>
 
       {!tickerParam && (
         <VStack gap={2} className="research-empty">
-          <Text>Enter a ticker, or open one from a chat ticker chip.</Text>
+          <Text type="supporting">Or jump to a common underlying:</Text>
           <HStack gap={2}>
             {['AAPL', 'NVDA', 'SPY', 'TSLA'].map((sym) => (
               <Link key={sym} to="/research/$ticker" params={{ ticker: sym }} className="research-chip-link">
