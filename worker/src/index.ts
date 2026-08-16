@@ -604,9 +604,11 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
         `AND run_id = ${lit(ud.run_id)} ORDER BY expiration LIMIT 500`,
         "symexp_" + symbol + "_" + ud.run_id, QUERY_TTL_MS);
       const expirations = sortedUnique(expRows.map((x) => String(x.expiration)));
+      const today = new Date().toISOString().slice(0, 10);
+      const frontMonth = expirations.find((e) => e >= today) ?? expirations[expirations.length - 1];
       const activeExp = expiration && expirations.includes(expiration)
         ? expiration
-        : (expirations[0] ?? undefined);
+        : frontMonth;
       if (!activeExp) return { rows: [] as Row[], expirations, n_contracts: 0 };
 
       const expFilter = `AND expiration = ${lit(activeExp)}`;

@@ -79,8 +79,12 @@ export function TickerOptionsChain({
   }, [nearSpotProp]);
 
   const activeExpiration = controlled
-    ? (expiration && expirations.includes(expiration) ? expiration : (expirations[0] ?? ''))
-    : (localExpiration && expirations.includes(localExpiration) ? localExpiration : (expirations[0] ?? ''));
+    ? (expiration && expirations.includes(expiration)
+      ? expiration
+      : (expirations.find((e) => e >= new Date().toISOString().slice(0, 10)) ?? expirations[expirations.length - 1] ?? ''))
+    : (localExpiration && expirations.includes(localExpiration)
+      ? localExpiration
+      : (expirations.find((e) => e >= new Date().toISOString().slice(0, 10)) ?? expirations[0] ?? ''));
 
   const nearSpot = controlled ? String(nearSpotProp ?? 50) : localNearSpot;
 
