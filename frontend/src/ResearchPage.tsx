@@ -8,7 +8,13 @@ import {
   TextInput,
   VStack,
 } from '@astryxdesign/core';
-import { api, type ChatTickerLink, type TickerResearch } from './api';
+import {
+  api,
+  type ChatTickerLink,
+  type ChainContract,
+  type OhlcBar,
+  type TickerResearch,
+} from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
 import './Research.css';
 
@@ -21,6 +27,9 @@ export default function ResearchPage() {
   const [commentary, setCommentary] = useState<string | null>(null);
   const [commentaryLoading, setCommentaryLoading] = useState(false);
   const [related, setRelated] = useState<ChatTickerLink[]>([]);
+  const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
+  const [contracts, setContracts] = useState<ChainContract[]>([]);
+  const [expirations, setExpirations] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +37,7 @@ export default function ResearchPage() {
     setDraft(tickerParam);
   }, [tickerParam]);
 
-  // Price + brief first — paint spot as soon as research returns.
+  // Research brief + related chats first (price paints immediately).
   useEffect(() => {
     if (!tickerParam) {
       setResearch(null);
@@ -42,7 +51,11 @@ export default function ResearchPage() {
     setResearch(null);
     Promise.all([
       api.research(tickerParam),
-      api.researchChats(tickerParam).catch(() => ({ ticker: tickerParam, security_id: '', items: [] as ChatTickerLink[] })),
+      api.researchChats(tickerParam).catch(() => ({
+        ticker: tickerParam,
+        security_id: '',
+        items: [] as ChatTickerLink[],
+      })),
     ])
       .then(([brief, chats]) => {
         if (!active) return;
@@ -61,7 +74,34 @@ export default function ResearchPage() {
     return () => { active = false; };
   }, [tickerParam]);
 
-  // Lobster commentary loads in parallel / after so the price hero is not blocked.
+  // Symbol detail (OHLC + chain) loads in parallel — does not block the price hero.
+  useEffect(() => {
+    if (!tickerParam) {
+      setOhlc([]);
+      setContracts([]);
+      setExpirations([]);
+      return;
+    }
+    let active = true;
+    setOhlc([]);
+    setContracts([]);
+    setExpirations([]);
+    api.symbolDetail(tickerParam)
+      .then((detail) => {
+        if (!active) return;
+        setOhlc(detail.ohlc ?? []);
+        setContracts(detail.contracts ?? []);
+        setExpirations(detail.expirations ?? []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setOhlc([]);
+        setContracts([]);
+        setExpirations([]);
+      });
+    return () => { active = false; };
+  }, [tickerParam]);
+
   useEffect(() => {
     if (!tickerParam) {
       setCommentary(null);
@@ -96,7 +136,7 @@ export default function ResearchPage() {
         <VStack gap={2} className="research-page-head">
           <Heading level={1}>Ticker details</Heading>
           <Text type="supporting">
-            Spot, Lobster commentary, and the research brief for one underlying.
+            Spot, chart, Lobster take, and the options chain for one underlying.
             Linked from tickers Copilot extracts in chat.
           </Text>
           <HStack gap={2} vAlign="end" className="research-lookup">
@@ -144,6 +184,9 @@ export default function ResearchPage() {
           relatedChats={related}
           commentary={commentary}
           commentaryLoading={commentaryLoading}
+          ohlc={ohlc}
+          contracts={contracts}
+          expirations={expirations}
         />
       )}
     </VStack>
