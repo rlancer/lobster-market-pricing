@@ -2,8 +2,9 @@ name: Probe fundamentals lake (one-shot)
 
 # Throwaway PR-branch check: provision cboe_fundamentals_* if missing, publish
 # a few probe rows (AAPL/MSFT/GOOGL), wait for the ~300s sink roll, then assert
-# AAPL is queryable via R2 SQL. Uses existing repo secrets — this agent has no
-# local Cloudflare/R2 SQL creds.
+# AAPL is queryable via the production Worker /api/query (R2 SQL Read tokens are
+# Worker secrets, not always mirrored in GitHub — the public query path uses the
+# Worker's R2_SQL_TOKEN). Uses existing repo secrets for provision + ingest.
 #
 # Delete or comment this workflow out once green on the PR (do not leave a
 # permanent flaky lake probe on every push).
@@ -38,6 +39,7 @@ jobs:
       PIPELINE: cboe_fundamentals_pipeline
       NAMESPACE: options
       TABLE: fundamentals
+      WORKER_QUERY_URL: https://screener-api.robertlancer.workers.dev/api/query
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -52,13 +54,15 @@ jobs:
               missing=1
             fi
           done
-          if [ -z "${WRANGLER_R2_SQL_AUTH_TOKEN:-}" ] && [ -z "${R2_SQL_TOKEN:-}" ]; then
-            echo "::error::Need WRANGLER_R2_SQL_AUTH_TOKEN or R2_SQL_TOKEN in GitHub secrets"
-            missing=1
-          fi
           if [ "$missing" -ne 0 ]; then exit 1; fi
-          export WRANGLER_R2_SQL_AUTH_TOKEN="${WRANGLER_R2_SQL_AUTH_TOKEN:-$R2_SQL_TOKEN}"
-          echo "WRANGLER_R2_SQL_AUTH_TOKEN=${WRANGLER_R2_SQL_AUTH_TOKEN}" >> "$GITHUB_ENV"
+          # Optional: prefer wrangler r2 sql when a read token is present.
+          if [ -n "${WRANGLER_R2_SQL_AUTH_TOKEN:-}" ] || [ -n "${R2_SQL_TOKEN:-}" ]; then
+            echo "WRANGLER_R2_SQL_AUTH_TOKEN=${WRANGLER_R2_SQL_AUTH_TOKEN:-$R2_SQL_TOKEN}" >> "$GITHUB_ENV"
+            echo "HAVE_R2_SQL_TOKEN=1" >> "$GITHUB_ENV"
+          else
+            echo "HAVE_R2_SQL_TOKEN=0" >> "$GITHUB_ENV"
+            echo "No WRANGLER_R2_SQL_AUTH_TOKEN/R2_SQL_TOKEN in GitHub — will assert via Worker /api/query."
+          fi
           echo "Secrets present (values not printed)."
 
       - name: Set up Node.js
@@ -132,24 +136,56 @@ jobs:
           echo "Lake sinks flush on a ~300s roll interval — waiting 360s for probe rows."
           sleep 360
 
-      - name: Assert AAPL fundamentals via R2 SQL
+      - name: Assert AAPL fundamentals via lake query
         working-directory: loader
         run: |
           set -euo pipefail
           QUERY="SELECT ticker, market_cap, trailing_pe, source FROM options.fundamentals WHERE ticker = 'AAPL' ORDER BY fetched_at DESC LIMIT 5"
           echo "Running: $QUERY"
-          # Capture output without printing tokens.
-          set +e
-          out=$(npx wrangler r2 sql query "$WAREHOUSE" "$QUERY" 2>&1)
-          code=$?
-          set -e
-          echo "$out"
-          if [ "$code" -ne 0 ]; then
-            echo "::error::R2 SQL query failed"
-            exit 1
-          fi
-          if ! echo "$out" | grep -qi 'AAPL'; then
-            echo "::error::No AAPL row in options.fundamentals — probe did not land"
-            exit 1
+
+          if [ "${HAVE_R2_SQL_TOKEN:-0}" = "1" ]; then
+            set +e
+            out=$(npx wrangler r2 sql query "$WAREHOUSE" "$QUERY" 2>&1)
+            code=$?
+            set -e
+            echo "$out"
+            if [ "$code" -ne 0 ]; then
+              echo "::error::R2 SQL query failed"
+              exit 1
+            fi
+            if ! echo "$out" | grep -qi 'AAPL'; then
+              echo "::error::No AAPL row in options.fundamentals — probe did not land"
+              exit 1
+            fi
+          else
+            # Worker /api/query uses the deployed R2_SQL_TOKEN (Worker secret).
+            body=$(jq -nc --arg sql "$QUERY" '{sql:$sql, limit:5}')
+            set +e
+            resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+              -H 'content-type: application/json' \
+              -d "$body" \
+              -w '\n__HTTP_%{http_code}')
+            code=$?
+            set -e
+            if [ "$code" -ne 0 ]; then
+              echo "::error::Worker /api/query request failed"
+              exit 1
+            fi
+            http="${resp##*__HTTP_}"
+            json="${resp%__HTTP_*}"
+            echo "$json"
+            if [ "$http" != "200" ]; then
+              echo "::error::Worker /api/query returned HTTP $http"
+              exit 1
+            fi
+            if ! echo "$json" | grep -qi 'AAPL'; then
+              echo "::error::No AAPL row in options.fundamentals — probe did not land"
+              exit 1
+            fi
+            row_count=$(echo "$json" | jq -r '.row_count // 0')
+            if [ "${row_count}" = "0" ]; then
+              echo "::error::options.fundamentals returned 0 rows for AAPL"
+              exit 1
+            fi
           fi
           echo "AAPL fundamentals present in lake."
