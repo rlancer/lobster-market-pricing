@@ -64,6 +64,10 @@ interface Presentation {
 interface CopilotMetadata {
   model: string;
   createdAt: number;
+  /** Restored from D1 history/share when the preview Durable Object is empty. */
+  sql?: string | null;
+  result?: QueryResult | null;
+  chart?: ChartSpec | null;
 }
 
 type CopilotData = Record<string, unknown> & {
@@ -179,20 +183,36 @@ function projectMessage(message: CopilotMessage): Msg | null {
   const content = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
   const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('');
   const presentation = presentationFromMessage(message);
+  const meta = message.metadata;
   return {
     id: message.id,
     role: message.role,
     content,
     ...(reasoning ? { reasoning } : {}),
-    ...(presentation ? {
-      sql: presentation.sql,
-      result: presentation.result,
-      chart: presentation.chart,
-      model: presentation.model,
-    } : {}),
-    ...(message.metadata?.createdAt ? { ts: message.metadata.createdAt } : {}),
-    ...(!presentation && message.metadata?.model ? { model: message.metadata.model } : {}),
+    sql: presentation?.sql ?? meta?.sql ?? null,
+    result: presentation?.result ?? meta?.result ?? null,
+    chart: presentation?.chart ?? meta?.chart ?? null,
+    ...(presentation?.model || meta?.model ? { model: presentation?.model || meta?.model } : {}),
+    ...(meta?.createdAt ? { ts: meta.createdAt } : {}),
   };
+}
+
+function backupToCopilotMessages(rows: ShareChatMessage[]): CopilotMessage[] {
+  return rows.map((row, index) => ({
+    id: `backup-${index}-${row.ts ?? index}`,
+    role: row.role,
+    parts: [
+      ...(row.reasoning ? [{ type: 'reasoning' as const, text: row.reasoning }] : []),
+      { type: 'text' as const, text: row.content },
+    ],
+    metadata: {
+      model: '',
+      createdAt: row.ts ?? Date.now(),
+      ...(row.sql ? { sql: row.sql } : {}),
+      ...(row.result ? { result: row.result } : {}),
+      ...(row.chart ? { chart: row.chart as ChartSpec } : {}),
+    },
+  }));
 }
 
 function projectTools(message: CopilotMessage | undefined): ToolRow[] {
@@ -330,16 +350,20 @@ function AiChatSession({
   const [chatAccess, setChatAccess] = useState<'unknown' | 'ok' | 'unauthorized' | 'forbidden'>(
     isSavedChat ? 'unknown' : 'ok',
   );
+  const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
   const restoredIdsRef = useRef<Set<string> | null>(null);
   const claimedRef = useRef(false);
   const pausedRef = useRef(false);
+  const backupAttemptedRef = useRef(false);
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
   const host = API_BASE ? new URL(API_BASE).host : window.location.host;
+  const isPreviewApi = host === 'api-dev.lobster.mp' || host.startsWith('api-dev.');
+  const prodChatUrl = `https://lobster.mp/chat/${chatId}`;
   const agent = useAgent({
     agent: 'CopilotAgent',
     name: chatId,
@@ -352,6 +376,7 @@ function AiChatSession({
   const { state: socketState, reconnect: reconnectSocket } = useAgentReconnect(agent);
   const {
     messages,
+    setMessages,
     sendMessage,
     resumeStream,
     status: chatStatus,
@@ -425,6 +450,35 @@ function AiChatSession({
       if (timer) clearTimeout(timer);
     };
   }, [isSavedChat, agent, chatId, user?.id]);
+
+  // Preview and production share D1 ownership but not CopilotAgent Durable
+  // Object storage. When this environment's DO is empty for an owned chat,
+  // restore from shared D1 history/share backups when available.
+  useEffect(() => {
+    if (!isSavedChat || !user || chatAccess !== 'ok') return;
+    if (messages.length > 0) {
+      setBackupState((current) => (current === 'restored' ? current : 'missing'));
+      return;
+    }
+    if (backupAttemptedRef.current) return;
+    backupAttemptedRef.current = true;
+    setBackupState('loading');
+    let alive = true;
+    api.chatTranscript(chatId)
+      .then((backup) => {
+        if (!alive) return;
+        if (backup.messages.length === 0) {
+          setBackupState('missing');
+          return;
+        }
+        setMessages(backupToCopilotMessages(backup.messages));
+        setBackupState('restored');
+      })
+      .catch(() => {
+        if (alive) setBackupState('missing');
+      });
+    return () => { alive = false; };
+  }, [isSavedChat, user, chatAccess, messages.length, chatId, setMessages]);
 
   const busy = !paused && (chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation);
   const disconnected = socketState !== 'open';
@@ -645,8 +699,8 @@ function AiChatSession({
 
   const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
   const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat;
-  const showSavedLoading = projectedMessages.length === 0 && isSavedChat && chatAccess === 'unknown';
-  const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok';
+  const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
+  const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing';
 
   useEffect(() => {
     if (!accessBlocked) return;
@@ -735,8 +789,21 @@ function AiChatSession({
         {showSavedEmpty && (
           <section className="ai-welcome ai-chat-gate">
             <header className="ai-welcome-hero">
-              <h1 className="ai-welcome-title">Empty chat</h1>
-              <p className="ai-welcome-data">This saved chat has no messages yet. Ask a question below to continue it.</p>
+              <h1 className="ai-welcome-title">
+                {isPreviewApi ? 'Transcript not in this preview' : 'Empty chat'}
+              </h1>
+              <p className="ai-welcome-data">
+                {isPreviewApi
+                  ? 'Preview and production share account ownership, but each keeps its own live chat storage. Open this chat on production to see the transcript, or ask a follow-up here to continue in preview.'
+                  : 'This saved chat has no messages yet. Ask a question below to continue it.'}
+              </p>
+              {isPreviewApi && (
+                <Button
+                  variant="primary"
+                  label="Open on production"
+                  onClick={() => { window.location.href = prodChatUrl; }}
+                />
+              )}
             </header>
           </section>
         )}
