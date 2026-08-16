@@ -42,6 +42,11 @@ export const lobsterTheme = defineTheme({
     '--color-on-accent': ['#FFFFFF', '#041A18'],
     '--color-text-accent': ['#076F63', '#62E4D1'],
     '--color-icon-accent': ['#087F70', '#35D0BA'],
+    // Lobster stroke blues — match favicon / OG bake (not default Astryx blue).
+    '--color-icon-blue': ['#0064E0', '#9EB7FF'],
+    '--color-border-blue': ['#0064E0', '#6D9CFE'],
+    '--color-text-blue': ['#042F97', '#C5D4FF'],
+    '--color-background-blue': ['#0171E333', '#9EB7FF33'],
     '--color-success': ['#07815B', '#49D89D'],
     '--color-error': ['#C64E43', '#FF806F'],
     '--color-warning': ['#A46A00', '#F4C05D'],

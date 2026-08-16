@@ -13,6 +13,7 @@ import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import ResearchPage from './ResearchPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
+import BrandPage from './Brand';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -135,6 +136,12 @@ const profileRoute = createRoute({
   component: TimelinePage,
 });
 
+const brandRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/brand',
+  component: BrandPage,
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -216,6 +223,7 @@ const routeTree = rootRoute.addChildren([
   monitorRoute,
   symbolRoute,
   shareRoute,
+  brandRoute,
   docsRoute,
 ]);
 
