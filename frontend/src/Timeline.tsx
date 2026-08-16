@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import {
   Button,
+  ChatComposer,
+  ChatSendButton,
   EmptyState,
   Heading,
   HStack,
@@ -14,6 +16,7 @@ import { Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChatMessage, type TimelinePost } from './api';
+import { stashPendingPrompt, startNewChatId } from './chatSession';
 
 function PostRow({ post }: { post: TimelinePost }) {
   const messages: SharedChatMessage[] = post.messages?.length
@@ -78,6 +81,7 @@ export default function TimelinePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [composer, setComposer] = useState('');
   const loadSeqRef = useRef(0);
 
   const load = useCallback(async (before?: number | null) => {
@@ -115,8 +119,27 @@ export default function TimelinePage() {
     void load();
   }, [load]);
 
+  const launchChat = useCallback((raw: string) => {
+    const question = raw.trim();
+    if (!question) return;
+    stashPendingPrompt(question);
+    startNewChatId();
+    setComposer('');
+    void navigate({ to: '/chat' });
+  }, [navigate]);
+
   return (
     <VStack className="timeline" gap={5}>
+      <VStack as="section" gap={0} paddingBlock={4} className="timeline-composer" aria-label="Ask the Lobster">
+        <ChatComposer
+          value={composer}
+          onChange={setComposer}
+          onSubmit={launchChat}
+          placeholder="Ask about liquidity, volatility, or a ticker…"
+          sendButton={<ChatSendButton />}
+        />
+      </VStack>
+
       {loading && (
         <HStack gap={3} vAlign="center" className="timeline-state">
           <Spinner size="md" />

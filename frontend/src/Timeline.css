@@ -7,6 +7,11 @@
   margin-inline: auto;
 }
 
+.timeline-composer {
+  width: 100%;
+  border-bottom: var(--border-width) solid var(--color-border-emphasized);
+}
+
 .timeline-feed {
   width: 100%;
 }
