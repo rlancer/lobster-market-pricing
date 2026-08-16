@@ -7,7 +7,7 @@ import './Docs.css';
 // (no API calls). The portal is split into one page per topic (/docs/<page>);
 // DocsLayout is the shell (left nav + content), and each topic exports its own
 // page component. Wired to the /docs route tree in router.tsx; linked from the
-// header question-mark icon in App.tsx.
+// header help popover in App.tsx.
 // ---------------------------------------------------------------------------
 
 // Left-nav page registry — order matches the section numbers.
@@ -168,7 +168,7 @@ const SURFACES = [
   {
     route: '/brand',
     title: 'Brand',
-    body: 'Style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Header palette icon.',
+    body: 'Style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Opened from the header help popover.',
   },
 ];
 
@@ -455,7 +455,7 @@ export function DocsFrontend() {
   return (
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
-        The React app (Vite + TanStack Router) is a public timeline, Chat, and a Data catalog on one shell — sidebar navigation plus a header with the liquidity gate and dataset status. The question-mark icon in the header brings you here.
+        The React app (Vite + TanStack Router) is a public timeline, Chat, and a Data catalog on one shell — sidebar navigation plus a header with the liquidity gate and dataset status. The header help popover links here and to the brand guide.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>

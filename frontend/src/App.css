@@ -101,6 +101,41 @@ button, select { cursor: pointer; }
   outline: var(--spacing-0-5) solid var(--accent);
   outline-offset: var(--spacing-0-5);
 }
+.help-menu {
+  min-width: 0;
+}
+.help-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-2);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-element);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+.help-menu-item:hover,
+.help-menu-item.active {
+  background: var(--color-accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--color-border));
+  color: var(--accent);
+}
+.help-menu-item:focus-visible {
+  outline: var(--spacing-0-5) solid var(--accent);
+  outline-offset: var(--spacing-0-5);
+}
+.help-menu-item svg {
+  flex-shrink: 0;
+  margin-top: var(--spacing-0-5);
+}
+.help-menu-copy {
+  min-width: 0;
+}
 .topbar-profile-icon {
   display: block;
   width: var(--size-element-lg);
