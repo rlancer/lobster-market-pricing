@@ -26,6 +26,11 @@ import {
   latestUserText,
 } from "./copilot-scope";
 import { insertToolEvent, purgeExpiredToolEvents } from "./copilot-tool-events";
+import {
+  AGENT_ITERATIONS_MAX,
+  QUERY_FORCE_FAILURES_MAX,
+  nextCopilotStepPolicy,
+} from "./copilot-loop";
 import { validateSqlSchema, type LakeTable } from "./copilot-sql";
 
 export interface CopilotEnv extends Cloudflare.Env {
@@ -128,7 +133,6 @@ const HISTORY_MESSAGE_MAX_CHARS = 6_000;
 const HISTORY_CHARS_DEFAULT = 48_000;
 const OUTPUT_TOKENS_DEFAULT = 8_192;
 const OUTPUT_TOKENS_MAX = 16_384;
-const AGENT_ITERATIONS_MAX = 10;
 const TOOL_ROUND_TOKENS_MAX = 2_048;
 const FINAL_TOKEN_RESERVE = 1_024;
 const FRAME_TTL_MS = 15 * 60_000;
@@ -187,9 +191,10 @@ function systemPrompt(schema: string): string {
     "- ALWAYS end the turn with a concise plain-English answer grounded in your results. A query, table, chart, or frame alone is never a complete turn — even for a chart request, close with a 1-3 sentence takeaway.",
     "- Use only table and column names in the schema. Never invent identifiers. check_schema and run_query validate them.",
     "- End the top-level query with LIMIT. Prefer explicit columns. No OFFSET, CROSS JOIN, or named WINDOW clauses. WHERE comes before QUALIFY.",
+    "- Every run_query MUST SELECT FROM at least one options.* lake table (or a CTE that does). Bare probes like SELECT 1 or SELECT 'test' AS t are rejected before they hit the lake.",
     "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",
     "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
-    "- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.",
+    `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a plain-English answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links.",
     "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It OpenFIGI-normalizes the symbol, links this chat to that security, and returns price/volume technicals, fundamentals, earnings, and news. Ground the suggestion in that brief.",
     "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
@@ -285,9 +290,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       used_output_tokens INTEGER NOT NULL,
       total_output_tokens INTEGER NOT NULL,
       successful_query INTEGER NOT NULL,
+      failed_query_count INTEGER NOT NULL DEFAULT 0,
       capture_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )`;
+    // Existing Durable Object SQLite instances created before failed_query_count
+    // shipped need the column added in place.
+    const turnBudgetCols = this.sql<{ name: string }>`PRAGMA table_info(copilot_turn_budget)`.map((row) => row.name);
+    if (!turnBudgetCols.includes("failed_query_count")) {
+      this.sql`ALTER TABLE copilot_turn_budget ADD COLUMN failed_query_count INTEGER NOT NULL DEFAULT 0`;
+    }
     // Once an off-topic turn is rejected, the chat stays locked so follow-up
     // jailbreak retries cannot re-enter the agent loop on this instance.
     this.sql`CREATE TABLE IF NOT EXISTS copilot_scope_lock (
@@ -452,26 +464,46 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const capture: Capture = { sql: null, result: null, chart: null };
     this.sql`
       INSERT OR REPLACE INTO copilot_turn_budget
-        (singleton, turn_id, used_output_tokens, total_output_tokens, successful_query, capture_json, updated_at)
-      VALUES (1, ${turnId}, 0, ${total}, 0, ${JSON.stringify(capture)}, ${Date.now()})
+        (singleton, turn_id, used_output_tokens, total_output_tokens, successful_query, failed_query_count, capture_json, updated_at)
+      VALUES (1, ${turnId}, 0, ${total}, 0, 0, ${JSON.stringify(capture)}, ${Date.now()})
     `;
     return capture;
   }
 
-  private readTurnBudget(): { turn_id: string; used_output_tokens: number; total_output_tokens: number; successful_query: number; capture_json: string } {
-    const row = this.sql<{ turn_id: string; used_output_tokens: number; total_output_tokens: number; successful_query: number; capture_json: string }>`
-      SELECT turn_id, used_output_tokens, total_output_tokens, successful_query, capture_json
+  private readTurnBudget(): {
+    turn_id: string;
+    used_output_tokens: number;
+    total_output_tokens: number;
+    successful_query: number;
+    failed_query_count: number;
+    capture_json: string;
+  } {
+    const row = this.sql<{
+      turn_id: string;
+      used_output_tokens: number;
+      total_output_tokens: number;
+      successful_query: number;
+      failed_query_count: number | null;
+      capture_json: string;
+    }>`
+      SELECT turn_id, used_output_tokens, total_output_tokens, successful_query, failed_query_count, capture_json
       FROM copilot_turn_budget WHERE singleton = 1
     `[0];
     if (!row) throw new Error("Copilot turn budget is unavailable.");
-    return row;
+    return { ...row, failed_query_count: row.failed_query_count ?? 0 };
   }
 
-  private writeTurnState(usedOutputTokens: number, successfulQuery: boolean, capture: Capture): void {
+  private writeTurnState(
+    usedOutputTokens: number,
+    successfulQuery: boolean,
+    failedQueryCount: number,
+    capture: Capture,
+  ): void {
     this.sql`
       UPDATE copilot_turn_budget SET
         used_output_tokens = ${usedOutputTokens},
         successful_query = ${successfulQuery ? 1 : 0},
+        failed_query_count = ${failedQueryCount},
         capture_json = ${JSON.stringify(capture)},
         updated_at = ${Date.now()}
       WHERE singleton = 1
@@ -547,8 +579,17 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     return output;
   }
 
-  private createTools(tables: LakeTable[], capture: Capture, status: (value: string) => void, turn: { used: number; successfulQuery: boolean }) {
-    const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, capture);
+  private createTools(
+    tables: LakeTable[],
+    capture: Capture,
+    status: (value: string) => void,
+    turn: { used: number; successfulQuery: boolean; failedQueryCount: number },
+  ) {
+    const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
+    const noteQueryFailure = () => {
+      turn.failedQueryCount += 1;
+      persist();
+    };
     return {
       run_query: tool({
         description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Every successful result is cached as frame 'last' (up to 5000 rows) for local filter/reduce follow-ups. Pass save_as for a named alias.",
@@ -558,16 +599,18 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           const errors = issues.filter((issue) => issue.severity === "error");
           if (errors.length) {
             const message = errors.map((issue) => issue.message).join(" ");
+            noteQueryFailure();
             return this.output(false, `Schema validation failed: ${message}`, { error: message });
           }
           status("Running query…");
           const result = await this.executeLakeQuery(sql, FRAME_QUERY_LIMIT);
           this.setCapturedResult(capture, result, sql);
           if (result.error) {
-            persist();
+            noteQueryFailure();
             return this.output(false, `Query failed: ${result.error}`, { error: result.error, sql, result });
           }
           turn.successfulQuery = true;
+          turn.failedQueryCount = 0;
           const cached = this.cacheQueryFrame(result, sql, save_as);
           persist();
           const warnings = issues.filter((issue) => issue.severity === "warning").map((issue) => issue.message);
@@ -603,6 +646,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           const sliceSql = `-- ${reducing ? "reduction" : "slice"} of cached frame '${frame.name}'\n-- source: ${frame.sql}`;
           this.setCapturedResult(capture, result, sliceSql);
           turn.successfulQuery = true;
+          turn.failedQueryCount = 0;
           if (args.save_as && result.row_count > 0) this.saveFrame(args.save_as, result.columns, result.rows, frame.sql);
           persist();
           const notes = args.save_as ? [`Saved frame '${args.save_as}'.`] : [];
@@ -619,10 +663,12 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           const result = await this.executeLakeQuery(frame.sql, FRAME_QUERY_LIMIT);
           this.setCapturedResult(capture, result, frame.sql);
           if (result.error) {
+            turn.failedQueryCount += 1;
             persist();
             return this.output(false, `Refresh failed: ${result.error}`, { error: result.error, sql: frame.sql, result });
           }
           turn.successfulQuery = true;
+          turn.failedQueryCount = 0;
           if (result.row_count > 0) this.saveFrame(name, result.columns, result.rows, frame.sql);
           persist();
           return this.output(true, summarizeResult(result, [`Refreshed frame '${name}' (${result.row_count} rows).`]), { error: null, sql: frame.sql, result, frames: this.frameMetadata() });
@@ -732,7 +778,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     if (!options.continuation) this.resetTurnBudget(options.requestId, totalBudget);
     const budget = this.readTurnBudget();
     const capture = JSON.parse(budget.capture_json) as Capture;
-    const turn = { used: budget.used_output_tokens, successfulQuery: budget.successful_query === 1 };
+    const turn = {
+      used: budget.used_output_tokens,
+      successfulQuery: budget.successful_query === 1,
+      failedQueryCount: budget.failed_query_count,
+    };
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
 
     const historyCharsMax = positiveInt(this.env.COPILOT_MAX_HISTORY_CHARS, HISTORY_CHARS_DEFAULT, HISTORY_CHARS_DEFAULT);
@@ -791,18 +841,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             openrouter: { reasoning: { effort: normalizeReasoningEffort(this.env.COPILOT_REASONING_EFFORT) } },
           },
           prepareStep: ({ stepNumber }) => {
-            const remaining = budget.total_output_tokens - turn.used;
-            if (remaining < 256) throw new Error("Copilot output-token budget exhausted before a final answer");
-            if (stepNumber >= AGENT_ITERATIONS_MAX - 1) {
-              return { activeTools: [], toolChoice: "none", maxOutputTokens: remaining };
-            }
-            const toolBudget = Math.max(256, Math.min(TOOL_ROUND_TOKENS_MAX, remaining - FINAL_TOKEN_RESERVE));
-            return {
-              maxOutputTokens: toolBudget,
-              toolChoice: turn.successfulQuery
-                ? "auto"
-                : { type: "tool", toolName: requestedFrame && stepNumber === 0 ? "filter_frame" : "run_query" },
-            };
+            const policy = nextCopilotStepPolicy({
+              stepNumber,
+              remainingTokens: budget.total_output_tokens - turn.used,
+              successfulQuery: turn.successfulQuery,
+              failedQueryCount: turn.failedQueryCount,
+              preferFilterFrame: Boolean(requestedFrame),
+              toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
+              finalTokenReserve: FINAL_TOKEN_RESERVE,
+            });
+            return policy;
           },
           onChunk: ({ chunk }) => {
             if (!wroteAnswerStatus && (chunk.type === "text-start" || chunk.type === "text-delta")) {
@@ -813,13 +861,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           onStepFinish: (step) => {
             const outputTokens = step.usage.outputTokens ?? Math.max(1, Math.ceil(step.text.length / 4));
             turn.used = Math.min(budget.total_output_tokens, turn.used + outputTokens);
-            this.writeTurnState(turn.used, turn.successfulQuery, capture);
+            this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
           },
           onFinish: () => {
             console.log(JSON.stringify({
               copilotChat: true,
               model: this.env.COPILOT_MODEL,
               outputTokens: turn.used,
+              failedQueryCount: turn.failedQueryCount,
               toolsProducedResult: capture.result !== null,
             }));
           },

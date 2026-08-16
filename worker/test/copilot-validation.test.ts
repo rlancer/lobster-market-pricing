@@ -83,3 +83,28 @@ test('unknown real tables are still rejected even inside WITH queries', () => {
   );
   assert.ok(errors.some((m) => m.includes('Unknown table options.not_a_table')));
 });
+
+test('bare SELECT probes without a lake table are rejected', () => {
+  // Regression: chat c7d67546… ("best shorts") forced run_query on SELECT 1 /
+  // SELECT 'test' AS t until the 10-step budget burned; R2 then returned
+  // "query must reference at least one table".
+  for (const sql of ["SELECT 1", "SELECT 'test' AS t", "SELECT 1 AS value"]) {
+    const errors = errorMessages(sql);
+    assert.ok(
+      errors.some((m) => m.includes('bare SELECT probes are not allowed')),
+      `missed bare probe for: ${sql} → ${errors.join('; ')}`,
+    );
+  }
+});
+
+test('CTE-only SQL that never touches a lake table is rejected', () => {
+  const errors = errorMessages(`WITH x AS (SELECT 1 AS n) SELECT n FROM x LIMIT 1`);
+  assert.ok(errors.some((m) => m.includes('CTE-only SQL must still SELECT FROM')));
+});
+
+test('real lake FROM still validates cleanly', () => {
+  const errors = errorMessages(
+    'SELECT symbol FROM options.option_contracts WHERE open_interest > 0 LIMIT 5',
+  );
+  assert.equal(errors.length, 0, errors.join('; '));
+});

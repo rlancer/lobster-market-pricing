@@ -308,6 +308,12 @@ chat's Durable Object, and the UI disables the composer so follow-ups cannot
 retry on the same chat. Start a new chat for a real market question. Classifier
 infrastructure failures fail open so genuine market asks still work.
 
+**Tool-loop guard.** Until a lake query succeeds, the agent forces `run_query`
+(or `filter_frame` when the question names a cached frame). Bare table-less
+SQL (`SELECT 1`, `SELECT 'test' AS t`) is rejected in schema validation before
+it hits R2. After three failed queries in the same turn, the loop stops
+forcing tools and seals a prose close-out so the model cannot burn the full
+10-step budget on the same rejected probe.
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The live conversation is `/chat`
