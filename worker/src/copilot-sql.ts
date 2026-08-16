@@ -76,6 +76,23 @@ export function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIs
   const tableMap = new Map(tables.map((table) => [table.name.toLowerCase(), table]));
   const ctes = declaredCteNames(trimmed);
   const references = [...trimmed.matchAll(/\b(?:from|join)\s+(?:options\.)?([A-Za-z_][A-Za-z0-9_]*)\b/gi)];
+  // R2 SQL rejects table-less probes (`SELECT 1`, `SELECT 'test' AS t`) with
+  // "query must reference at least one table". Catch that before the lake call
+  // so forced run_query loops cannot burn the turn on the same error.
+  const lakeTableReferenced = references.some((match) => tableMap.has(match[1].toLowerCase()));
+  if (!lakeTableReferenced) {
+    if (references.length === 0) {
+      issues.push({
+        severity: "error",
+        message: "SQL must reference at least one lake table via FROM/JOIN (bare SELECT probes are not allowed).",
+      });
+    } else if (references.every((match) => ctes.has(match[1].toLowerCase()))) {
+      issues.push({
+        severity: "error",
+        message: "CTE-only SQL must still SELECT FROM at least one options.* lake table in a CTE body.",
+      });
+    }
+  }
   for (const match of references) {
     const name = match[1].toLowerCase();
     if (ctes.has(name)) continue;
