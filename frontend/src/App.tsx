@@ -5,11 +5,14 @@ import {
   HStack,
   MobileNav,
   MobileNavToggle,
+  Popover,
   SideNav,
   SideNavItem,
   SideNavSection,
   IconButton,
+  Text,
   Tooltip,
+  VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
 import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Sparkles, type LucideIcon } from 'lucide-react';
@@ -43,10 +46,69 @@ const SECTIONS: Section[] = [
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 
-// Monitor and docs remain secondary destinations in the compact header.
+// Monitor / docs / brand remain secondary destinations (header help popover).
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
+
+function HelpMenu() {
+  const location = useLocation();
+  const [open, setOpen] = useState(false);
+  const onDocs = location.pathname.startsWith('/docs');
+  const onBrand = location.pathname.startsWith('/brand');
+  const active = onDocs || onBrand;
+
+  return (
+    <Popover
+      placement="below"
+      alignment="end"
+      label="Help"
+      width="16rem"
+      isOpen={open}
+      onOpenChange={setOpen}
+      content={(
+        <VStack gap={1} className="help-menu">
+          <Link
+            to="/docs"
+            className={onDocs ? 'help-menu-item active' : 'help-menu-item'}
+            aria-current={onDocs ? 'page' : undefined}
+            onClick={() => setOpen(false)}
+          >
+            <BookOpen size={18} strokeWidth={1.75} aria-hidden="true" />
+            <VStack gap={0.5} className="help-menu-copy">
+              <Text type="label" weight="semibold">Docs</Text>
+              <Text type="supporting">How the platform works</Text>
+            </VStack>
+          </Link>
+          <Link
+            to="/brand"
+            className={onBrand ? 'help-menu-item active' : 'help-menu-item'}
+            aria-current={onBrand ? 'page' : undefined}
+            onClick={() => setOpen(false)}
+          >
+            <Palette size={18} strokeWidth={1.75} aria-hidden="true" />
+            <VStack gap={0.5} className="help-menu-copy">
+              <Text type="label" weight="semibold">Brand</Text>
+              <Text type="supporting">Logos, voice, and assets</Text>
+            </VStack>
+          </Link>
+        </VStack>
+      )}
+    >
+      <Tooltip content="Help" hasHoverIndication={false}>
+        <button
+          type="button"
+          className={active || open ? 'docs-link active' : 'docs-link'}
+          aria-label="Help"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      </Tooltip>
+    </Popover>
+  );
+}
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
   ({ href = '/', ...props }, ref) => {
@@ -267,24 +329,7 @@ function Layout() {
             <section className="topbar-tools" aria-label="Workspace controls">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
               <MonitorStatus />
-              <Tooltip content="Brand — logos, voice, assets" hasHoverIndication={false}>
-                <Link
-                  to="/brand"
-                  className={location.pathname.startsWith('/brand') ? 'docs-link active' : 'docs-link'}
-                  aria-label="Brand — logos, voice, assets"
-                >
-                  <Palette size={20} strokeWidth={1.75} aria-hidden="true" />
-                </Link>
-              </Tooltip>
-              <Tooltip content="Docs — how this platform works" hasHoverIndication={false}>
-                <Link
-                  to="/docs"
-                  className={location.pathname.startsWith('/docs') ? 'docs-link active' : 'docs-link'}
-                  aria-label="Docs — how this platform works"
-                >
-                  <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
-                </Link>
-              </Tooltip>
+              <HelpMenu />
             </section>
             <AuthControls />
           </HStack>

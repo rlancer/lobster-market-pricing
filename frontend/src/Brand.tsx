@@ -9,7 +9,7 @@ import './Brand.css';
 // ---------------------------------------------------------------------------
 // Brand style guide — logos, palette, type, voice, and shareable assets.
 // Source of truth for the visual system lives in theme.ts + the SVG marks;
-// this page is the living reference. Linked from the header palette icon.
+// this page is the living reference. Linked from the header help popover.
 // ---------------------------------------------------------------------------
 
 const BRAND_PAGES = [
