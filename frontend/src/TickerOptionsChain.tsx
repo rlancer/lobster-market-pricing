@@ -49,24 +49,47 @@ export function TickerOptionsChain({
   contracts,
   expirations,
   spot,
+  expiration,
+  nearSpot: nearSpotProp,
+  onExpirationChange,
+  onNearSpotChange,
+  loading = false,
 }: {
   contracts: ChainContract[];
   expirations: string[];
   spot: number | null;
+  /** Controlled expiration (server-scoped fetch). */
+  expiration?: string;
+  /** Controlled near-spot window; 0 = all strikes for the active expiry. */
+  nearSpot?: number;
+  onExpirationChange?: (expiration: string) => void;
+  onNearSpotChange?: (nearSpot: number) => void;
+  loading?: boolean;
 }) {
-  const [expiration, setExpiration] = useState(expirations[0] ?? '');
-  const [nearSpot, setNearSpot] = useState('50');
+  const controlled = Boolean(onExpirationChange);
+  const [localExpiration, setLocalExpiration] = useState(expiration ?? expirations[0] ?? '');
+  const [localNearSpot, setLocalNearSpot] = useState(String(nearSpotProp ?? 50));
 
   useEffect(() => {
-    setExpiration(expirations[0] ?? '');
-  }, [expirations]);
+    if (!controlled) setLocalExpiration(expiration ?? expirations[0] ?? '');
+  }, [controlled, expiration, expirations]);
 
-  const activeExpiration = expiration && expirations.includes(expiration)
-    ? expiration
-    : (expirations[0] ?? '');
+  useEffect(() => {
+    if (nearSpotProp != null) setLocalNearSpot(String(nearSpotProp));
+  }, [nearSpotProp]);
+
+  const activeExpiration = controlled
+    ? (expiration && expirations.includes(expiration) ? expiration : (expirations[0] ?? ''))
+    : (localExpiration && expirations.includes(localExpiration) ? localExpiration : (expirations[0] ?? ''));
+
+  const nearSpot = controlled ? String(nearSpotProp ?? 50) : localNearSpot;
+
+  // When the parent scopes the fetch server-side, contracts are already trimmed —
+  // don't re-window client-side (we'd hide strikes the server already selected).
+  const serverScoped = controlled;
 
   const bandStrikes = useMemo(() => {
-    if (!activeExpiration || spot == null) return null;
+    if (serverScoped || !activeExpiration || spot == null) return null;
     const n = Number(nearSpot);
     if (!n || n <= 0) return null;
     const expStrikes = [...new Set(
@@ -75,7 +98,7 @@ export function TickerOptionsChain({
     if (expStrikes.length <= n) return null;
     const sorted = [...expStrikes].sort((a, b) => Math.abs(a - spot) - Math.abs(b - spot));
     return new Set(sorted.slice(0, n));
-  }, [contracts, activeExpiration, spot, nearSpot]);
+  }, [serverScoped, contracts, activeExpiration, spot, nearSpot]);
 
   const chain = useMemo(() => {
     if (!activeExpiration) return [];
@@ -97,17 +120,22 @@ export function TickerOptionsChain({
     return best;
   }, [chain, spot]);
 
-  const totalExpStrikes = useMemo(() => {
-    if (!activeExpiration) return 0;
-    return new Set(
-      contracts.filter((c) => c.expiration === activeExpiration).map((c) => c.strike),
-    ).size;
-  }, [contracts, activeExpiration]);
+  const setExpiration = (value: string) => {
+    if (onExpirationChange) onExpirationChange(value);
+    else setLocalExpiration(value);
+  };
+
+  const setNearSpot = (value: string) => {
+    setLocalNearSpot(value);
+    if (onNearSpotChange) onNearSpotChange(Number(value) || 0);
+  };
 
   if (expirations.length === 0) {
     return (
       <VStack gap={2} className="research-chain">
-        <Text type="supporting">No option contracts for this underlying in the latest run.</Text>
+        <Text type="supporting">
+          {loading ? 'Loading option contracts…' : 'No option contracts for this underlying in the latest run.'}
+        </Text>
       </VStack>
     );
   }
@@ -147,8 +175,8 @@ export function TickerOptionsChain({
           </select>
         </label>
         <Text type="supporting" className="research-chain-meta">
+          {loading ? 'Refreshing… · ' : ''}
           {chain.length} strikes
-          {bandStrikes && totalExpStrikes > chain.length ? ` of ${totalExpStrikes}` : ''}
           {activeExpiration ? ` · ${dteLabel(daysTo(activeExpiration))}` : ''}
         </Text>
       </HStack>
@@ -213,7 +241,9 @@ export function TickerOptionsChain({
             })}
             {chain.length === 0 && (
               <tr>
-                <td colSpan={15} className="empty">No contracts for this expiration.</td>
+                <td colSpan={15} className="empty">
+                  {loading ? 'Loading contracts…' : 'No contracts for this expiration.'}
+                </td>
               </tr>
             )}
           </tbody>

@@ -24,12 +24,31 @@ export default function ResearchPage() {
   const [commentaryLoading, setCommentaryLoading] = useState(false);
   const [related, setRelated] = useState<ChatTickerLink[]>([]);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
+  const [ohlcLoading, setOhlcLoading] = useState(false);
   const [contracts, setContracts] = useState<ChainContract[]>([]);
   const [expirations, setExpirations] = useState<string[]>([]);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [chainActive, setChainActive] = useState(false);
+  const [chainExpiration, setChainExpiration] = useState<string | undefined>(undefined);
+  const [chainNearSpot, setChainNearSpot] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Research brief + related chats first (price paints immediately).
+  // Reset staged payloads when the ticker changes.
+  useEffect(() => {
+    setCommentary(null);
+    setCommentaryLoading(false);
+    setOhlc([]);
+    setOhlcLoading(false);
+    setContracts([]);
+    setExpirations([]);
+    setChainLoading(false);
+    setChainActive(false);
+    setChainExpiration(undefined);
+    setChainNearSpot(50);
+  }, [tickerParam]);
+
+  // 1) Research brief first — price hero paints without waiting on OHLC/chain.
   useEffect(() => {
     if (!tickerParam) {
       setResearch(null);
@@ -53,6 +72,10 @@ export default function ResearchPage() {
         if (!active) return;
         setResearch(brief);
         setRelated(chats.items);
+        // Seed Lobster bubble from the brief when commentary already rode along.
+        if (brief.commentary?.trim()) {
+          setCommentary(brief.commentary.trim());
+        }
       })
       .catch((e) => {
         if (!active) return;
@@ -66,55 +89,66 @@ export default function ResearchPage() {
     return () => { active = false; };
   }, [tickerParam]);
 
-  // Symbol detail (OHLC + chain) loads in parallel — does not block the price hero.
+  // 2) After the brief is up: commentary + OHLC in parallel (no full chain yet).
   useEffect(() => {
-    if (!tickerParam) {
-      setOhlc([]);
-      setContracts([]);
-      setExpirations([]);
-      return;
-    }
+    if (!tickerParam || !research) return;
     let active = true;
-    setOhlc([]);
-    setContracts([]);
-    setExpirations([]);
-    api.symbolDetail(tickerParam)
-      .then((detail) => {
-        if (!active) return;
-        setOhlc(detail.ohlc ?? []);
-        setContracts(detail.contracts ?? []);
-        setExpirations(detail.expirations ?? []);
-      })
-      .catch(() => {
-        if (!active) return;
-        setOhlc([]);
-        setContracts([]);
-        setExpirations([]);
-      });
-    return () => { active = false; };
-  }, [tickerParam]);
 
-  useEffect(() => {
-    if (!tickerParam) {
-      setCommentary(null);
-      setCommentaryLoading(false);
-      return;
-    }
-    let active = true;
-    setCommentary(null);
     setCommentaryLoading(true);
     api.researchCommentary(tickerParam)
       .then((res) => {
         if (active) setCommentary(res.commentary);
       })
       .catch(() => {
-        if (active) setCommentary(null);
+        // Keep any brief-seeded commentary; only clear if we had nothing.
+        if (active && !research.commentary?.trim()) setCommentary(null);
       })
       .finally(() => {
         if (active) setCommentaryLoading(false);
       });
+
+    setOhlcLoading(true);
+    api.symbolDetail(tickerParam, { parts: 'ohlc' })
+      .then((detail) => {
+        if (!active) return;
+        setOhlc(detail.ohlc ?? []);
+      })
+      .catch(() => {
+        if (active) setOhlc([]);
+      })
+      .finally(() => {
+        if (active) setOhlcLoading(false);
+      });
+
     return () => { active = false; };
-  }, [tickerParam]);
+  }, [tickerParam, research]);
+
+  // 3) Options chain — only after the section scrolls near the viewport, and
+  //    only one expiration + near-spot window (not the legacy 1MB dump).
+  useEffect(() => {
+    if (!tickerParam || !chainActive) return;
+    let active = true;
+    setChainLoading(true);
+    api.symbolDetail(tickerParam, {
+      parts: 'chain',
+      expiration: chainExpiration,
+      near_spot: chainNearSpot > 0 ? chainNearSpot : undefined,
+    })
+      .then((detail) => {
+        if (!active) return;
+        setExpirations(detail.expirations ?? []);
+        setContracts(detail.contracts ?? []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setContracts([]);
+        setExpirations([]);
+      })
+      .finally(() => {
+        if (active) setChainLoading(false);
+      });
+    return () => { active = false; };
+  }, [tickerParam, chainActive, chainExpiration, chainNearSpot]);
 
   return (
     <VStack className="research-page" gap={3}>
@@ -150,8 +184,15 @@ export default function ResearchPage() {
           commentary={commentary}
           commentaryLoading={commentaryLoading}
           ohlc={ohlc}
+          ohlcLoading={ohlcLoading}
           contracts={contracts}
           expirations={expirations}
+          chainLoading={chainLoading}
+          onChainVisible={() => setChainActive(true)}
+          chainExpiration={chainExpiration}
+          chainNearSpot={chainNearSpot}
+          onChainExpirationChange={setChainExpiration}
+          onChainNearSpotChange={setChainNearSpot}
         />
       )}
     </VStack>

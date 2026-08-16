@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import {
   ChatComposer,
@@ -54,22 +54,68 @@ export function ResearchBriefView({
   commentary,
   commentaryLoading = false,
   ohlc = [],
+  ohlcLoading = false,
   contracts = [],
   expirations = [],
+  chainLoading = false,
+  onChainVisible,
+  chainExpiration,
+  chainNearSpot = 50,
+  onChainExpirationChange,
+  onChainNearSpotChange,
 }: {
   research: TickerResearch;
   relatedChats?: ChatTickerLink[];
   commentary?: string | null;
   commentaryLoading?: boolean;
   ohlc?: OhlcBar[];
+  ohlcLoading?: boolean;
   contracts?: ChainContract[];
   expirations?: string[];
+  chainLoading?: boolean;
+  /** Fired once when the options-chain section approaches the viewport. */
+  onChainVisible?: () => void;
+  chainExpiration?: string;
+  chainNearSpot?: number;
+  onChainExpirationChange?: (expiration: string) => void;
+  onChainNearSpotChange?: (nearSpot: number) => void;
 }) {
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
+  const chainArmedRef = useRef(false);
   const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const spot = price.spot;
+
+  useEffect(() => {
+    chainArmedRef.current = false;
+  }, [identity.ticker]);
+
+  useEffect(() => {
+    if (!onChainVisible) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      onChainVisible();
+      return;
+    }
+    const node = document.getElementById(`research-chain-${identity.ticker}`);
+    if (!(node instanceof Element)) {
+      onChainVisible();
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (chainArmedRef.current) return;
+        if (entries.some((e) => e.isIntersecting)) {
+          chainArmedRef.current = true;
+          onChainVisible();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '240px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onChainVisible, identity.ticker]);
 
   const askFollowUp = (raw: string) => {
     const question = raw.trim();
@@ -132,7 +178,14 @@ export function ResearchBriefView({
         )}
       </HStack>
 
-      <TickerChart bars={ohlc} spot={spot} />
+      {ohlcLoading && ohlc.length === 0 ? (
+        <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
+          <Spinner size="sm" />
+          <Text type="supporting">Loading chart…</Text>
+        </HStack>
+      ) : (
+        <TickerChart bars={ohlc} spot={spot} />
+      )}
 
       <VStack gap={3} className="research-section research-commentary-chat">
         <Heading level={3}>Lobster</Heading>
@@ -166,9 +219,25 @@ export function ResearchBriefView({
         />
       </VStack>
 
-      <VStack gap={3} className="research-section">
+      <VStack gap={3} className="research-section research-chain-section" id={`research-chain-${identity.ticker}`}>
         <Heading level={3}>Options chain</Heading>
-        <TickerOptionsChain contracts={contracts} expirations={expirations} spot={spot} />
+        {chainLoading && contracts.length === 0 ? (
+          <HStack gap={2} vAlign="center" className="research-chain">
+            <Spinner size="sm" />
+            <Text type="supporting">Loading chain…</Text>
+          </HStack>
+        ) : (
+          <TickerOptionsChain
+            contracts={contracts}
+            expirations={expirations}
+            spot={spot}
+            expiration={chainExpiration}
+            nearSpot={chainNearSpot}
+            onExpirationChange={onChainExpirationChange}
+            onNearSpotChange={onChainNearSpotChange}
+            loading={chainLoading}
+          />
+        )}
       </VStack>
 
       {(earnings.length > 0 || news.length > 0 || (relatedChats && relatedChats.length > 0)) && (
