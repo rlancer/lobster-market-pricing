@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import {
-  Button,
   Heading,
   HStack,
   Text,
@@ -15,14 +14,11 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
-import { TickerTypeahead } from './TickerTypeahead';
 import './Research.css';
 
 export default function ResearchPage() {
   const params = useParams({ strict: false }) as { ticker?: string };
-  const navigate = useNavigate();
   const tickerParam = params.ticker?.trim().toUpperCase() ?? '';
-  const [draft, setDraft] = useState(tickerParam);
   const [research, setResearch] = useState<TickerResearch | null>(null);
   const [commentary, setCommentary] = useState<string | null>(null);
   const [commentaryLoading, setCommentaryLoading] = useState(false);
@@ -32,10 +28,6 @@ export default function ResearchPage() {
   const [expirations, setExpirations] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setDraft(tickerParam);
-  }, [tickerParam]);
 
   // Research brief + related chats first (price paints immediately).
   useEffect(() => {
@@ -124,17 +116,6 @@ export default function ResearchPage() {
     return () => { active = false; };
   }, [tickerParam]);
 
-  const go = (symbol: string) => {
-    const next = symbol.trim().toUpperCase();
-    if (!next) return;
-    void navigate({ to: '/research/$ticker', params: { ticker: next } });
-  };
-
-  const clear = () => {
-    setDraft('');
-    void navigate({ to: '/research' });
-  };
-
   return (
     <VStack className="research-page" gap={3}>
       {!tickerParam && (
@@ -142,24 +123,14 @@ export default function ResearchPage() {
           <Heading level={1}>Ticker details</Heading>
           <Text type="supporting">
             Spot, chart, Lobster take, and the options chain for one underlying.
-            Linked from tickers Copilot extracts in chat.
+            Search any ticker from the header — or jump to a common name below.
           </Text>
         </VStack>
       )}
 
-      <HStack gap={2} vAlign="end" className="research-lookup">
-        <TickerTypeahead
-          value={tickerParam || null}
-          onSelect={go}
-          onClear={clear}
-          onChangeQuery={(q) => setDraft(q.trim().toUpperCase())}
-        />
-        <Button label="Open" onClick={() => go(draft || tickerParam)} />
-      </HStack>
-
       {!tickerParam && (
         <VStack gap={2} className="research-empty">
-          <Text type="supporting">Or jump to a common underlying:</Text>
+          <Text type="supporting">Common underlyings:</Text>
           <HStack gap={2}>
             {['AAPL', 'NVDA', 'SPY', 'TSLA'].map((sym) => (
               <Link key={sym} to="/research/$ticker" params={{ ticker: sym }} className="research-chip-link">

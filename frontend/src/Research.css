@@ -10,17 +10,6 @@
   max-width: 40rem;
 }
 
-.research-lookup {
-  width: 100%;
-  max-width: 28rem;
-  align-items: flex-end;
-}
-
-.research-lookup > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-
 .research-empty {
   padding-block: var(--spacing-2);
 }

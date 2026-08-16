@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
-import { Link, Outlet, useLocation } from '@tanstack/react-router';
+import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
   HStack,
@@ -15,12 +15,13 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { Sunglasses } from './Sunglasses';
 import { AuthControls } from './AuthControls';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
+import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
 import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
@@ -50,6 +51,35 @@ const SECTIONS: Section[] = [
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
+
+/** Global ticker jump — lives in the topbar so Research is one keystroke away from any app. */
+function TopbarResearchSearch() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const tickerMatch = location.pathname.match(/^\/research\/([^/]+)$/);
+  const ticker = tickerMatch?.[1]
+    ? decodeURIComponent(tickerMatch[1]).trim().toUpperCase()
+    : null;
+
+  return (
+    <TickerTypeahead
+      className="topbar-research-search"
+      value={ticker}
+      onSelect={(symbol) => {
+        void navigate({ to: '/research/$ticker', params: { ticker: symbol } });
+      }}
+      onClear={() => {
+        if (location.pathname.startsWith('/research')) {
+          void navigate({ to: '/research' });
+        }
+      }}
+      isLabelHidden
+      size="sm"
+      startIcon={Search}
+      width="100%"
+    />
+  );
+}
 
 function HelpMenu() {
   const location = useLocation();
@@ -326,6 +356,7 @@ function Layout() {
             <Link to="/" className="app-brand-link" aria-label="Lobster MP home">
               <Sunglasses className="brand-sunglasses" />
             </Link>
+            <TopbarResearchSearch />
             <section className="topbar-tools" aria-label="Workspace controls">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
               <MonitorStatus />

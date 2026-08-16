@@ -66,6 +66,11 @@ button, select { cursor: pointer; }
   width: auto;
   flex-shrink: 0;
 }
+.topbar-research-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 20rem;
+}
 .topbar-tools {
   display: flex;
   align-items: center;
@@ -399,6 +404,9 @@ button, select { cursor: pointer; }
   }
   .brand-sunglasses {
     height: var(--size-element-sm);
+  }
+  .topbar-research-search {
+    max-width: none;
   }
   .topbar-tools { gap: var(--spacing-1); }
   .topbar-tools .liq-filter,
