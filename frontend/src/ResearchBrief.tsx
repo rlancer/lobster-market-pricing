@@ -9,7 +9,7 @@ import {
   Text,
   VStack,
 } from '@astryxdesign/core';
-import { BlueLobsterLogo } from './BlueLobsterLogo';
+import { AssistantMark } from './Sunglasses';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
 import type { ChatTickerLink, OhlcBar, ChainContract, TickerResearch } from './api';
 import { TickerChart } from './TickerChart';
@@ -137,7 +137,7 @@ export function ResearchBriefView({
       <VStack gap={3} className="research-section research-commentary-chat">
         <Heading level={3}>Lobster</Heading>
         <HStack gap={3} vAlign="start" className="research-chat-msg">
-          <BlueLobsterLogo className="research-chat-avatar" width={36} height={36} />
+          <AssistantMark className="research-chat-avatar" />
           <VStack gap={2} className="research-chat-bubble-wrap">
             {commentaryLoading && !resolvedCommentary && (
               <HStack gap={2} vAlign="center" className="research-chat-bubble">

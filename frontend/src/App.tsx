@@ -17,7 +17,6 @@ import {
 } from '@astryxdesign/core';
 import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
-import { Sunglasses } from './Sunglasses';
 import { AuthControls } from './AuthControls';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
@@ -353,9 +352,6 @@ function Layout() {
         topNav={(
           <HStack as="header" className="topbar" gap={3} vAlign="center">
             <MobileNavToggle label="Open apps" />
-            <Link to="/" className="app-brand-link" aria-label="Lobster MP home">
-              <Sunglasses className="brand-sunglasses" />
-            </Link>
             <TopbarResearchSearch />
             <section className="topbar-tools" aria-label="Workspace controls">
               <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />

@@ -52,20 +52,6 @@ button, select { cursor: pointer; }
   backdrop-filter: blur(var(--spacing-3));
   -webkit-backdrop-filter: blur(var(--spacing-3));
 }
-.app-brand-link {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
-  min-width: 0;
-  color: var(--text);
-  text-decoration: none;
-}
-.brand-sunglasses {
-  display: block;
-  height: var(--size-element-md);
-  width: auto;
-  flex-shrink: 0;
-}
 .topbar-research-search {
   flex: 1 1 auto;
   min-width: 0;
@@ -398,12 +384,6 @@ button, select { cursor: pointer; }
     min-height: var(--topbar-h);
     gap: var(--spacing-2);
     padding-inline: var(--spacing-3);
-  }
-  .app-brand-link {
-    gap: var(--spacing-2);
-  }
-  .brand-sunglasses {
-    height: var(--size-element-sm);
   }
   .topbar-research-search {
     max-width: none;

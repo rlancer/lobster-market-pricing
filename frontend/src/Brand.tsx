@@ -202,7 +202,7 @@ export default function BrandPage() {
               </div>
               <h3>Mark</h3>
               <code>Sunglasses</code>
-              <p>Header lockup and favicon. The glasses alone carry the brand at small sizes.</p>
+              <p>Chat assistant avatar and favicon. The glasses alone carry the brand at small sizes.</p>
             </article>
             <article className="brand-logo-card">
               <Theme theme={lobsterTheme} mode="light">
