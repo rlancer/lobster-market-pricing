@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import {
   Typeahead,
   TypeaheadItem,
   type SearchableItem,
   type SearchSource,
+  type TypeaheadSize,
 } from '@astryxdesign/core/Typeahead';
+import type { IconType } from '@astryxdesign/core/Icon';
 import { searchSymbols } from './symbolCache';
 
 export type TickerItem = SearchableItem<{
@@ -51,6 +53,10 @@ export function TickerTypeahead({
   onClear,
   onChangeQuery,
   width = '100%',
+  size = 'md',
+  isLabelHidden = false,
+  startIcon,
+  className,
 }: {
   /** Currently open ticker, if any. */
   value: string | null;
@@ -61,6 +67,10 @@ export function TickerTypeahead({
   /** Track free-typed query (for Open / Enter on unknown tickers). */
   onChangeQuery?: (query: string) => void;
   width?: number | string;
+  size?: TypeaheadSize;
+  isLabelHidden?: boolean;
+  startIcon?: ReactNode | IconType;
+  className?: string;
 }) {
   const searchSource = useMemo(() => createSymbolSource(), []);
   const selected = useMemo(
@@ -70,7 +80,11 @@ export function TickerTypeahead({
 
   return (
     <Typeahead
+      className={className}
       label="Ticker"
+      isLabelHidden={isLabelHidden}
+      size={size}
+      startIcon={startIcon}
       searchSource={searchSource}
       value={selected}
       onChange={(item) => {

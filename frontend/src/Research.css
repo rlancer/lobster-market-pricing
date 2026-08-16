@@ -10,17 +10,6 @@
   max-width: 40rem;
 }
 
-.research-lookup {
-  width: 100%;
-  max-width: 28rem;
-  align-items: flex-end;
-}
-
-.research-lookup > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-
 .research-empty {
   padding-block: var(--spacing-2);
 }
@@ -160,8 +149,22 @@
 }
 
 .research-chat-avatar {
+  width: var(--size-element-lg);
+  height: var(--size-element-lg);
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
   margin-block-start: var(--spacing-1);
+  color: var(--accent);
+  border: var(--border-width) solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-element);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.research-chat-avatar .ai-msg-mark-glasses {
+  display: block;
+  width: 1.375rem;
+  height: auto;
 }
 
 .research-chat-bubble-wrap {
