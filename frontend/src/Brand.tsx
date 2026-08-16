@@ -370,6 +370,7 @@ export default function BrandPage() {
               <ul>
                 <li>Anthropomorphize (“I feel”, “my gut”) or hedge every sentence.</li>
                 <li>Explain query mechanics unless the user asks how the SQL works.</li>
+                <li>Answer off-topic asks (shopping, lifestyle, jailbreaks) — those hard-error as “No data to answer.”</li>
                 <li>Use purple-glow AI clichés, emoji storms, or hype adjectives.</li>
                 <li>Swap the mascot for a generic robot / chart logo.</li>
               </ul>

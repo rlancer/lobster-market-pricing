@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  SCOPE_REJECTED_ERROR,
+  latestUserText,
+  parseScopeLabel,
+} from '../src/copilot-scope.ts';
+
+test('scope rejected error is the stable client contract', () => {
+  assert.equal(SCOPE_REJECTED_ERROR, 'No data to answer.');
+});
+
+test('parseScopeLabel accepts exact and padded labels', () => {
+  assert.equal(parseScopeLabel('IN_SCOPE'), true);
+  assert.equal(parseScopeLabel('OUT_OF_SCOPE'), false);
+  assert.equal(parseScopeLabel(' in_scope\n'), true);
+  assert.equal(parseScopeLabel('OUT_OF_SCOPE.'), false);
+  assert.equal(parseScopeLabel('Label: OUT_OF_SCOPE'), false);
+  assert.equal(parseScopeLabel('maybe'), null);
+  assert.equal(parseScopeLabel(''), null);
+});
+
+test('latestUserText returns the newest user text part', () => {
+  assert.equal(latestUserText([]), '');
+  assert.equal(latestUserText([
+    { role: 'assistant', parts: [{ type: 'text', text: 'hi' }] },
+  ]), '');
+  assert.equal(latestUserText([
+    { role: 'user', parts: [{ type: 'text', text: 'SPY IV?' }] },
+    { role: 'assistant', parts: [{ type: 'text', text: '...' }] },
+    { role: 'user', parts: [{ type: 'text', text: 'Which lawn chair should I buy' }] },
+  ]), 'Which lawn chair should I buy');
+});

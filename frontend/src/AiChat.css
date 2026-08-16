@@ -352,6 +352,15 @@
 }
 .ai-tool-row.fail { opacity: 0.72; }
 .ai-err { color: var(--color-error); font-size: 13px; }
+.ai-scope-lock-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
 
 /* ---- SQL block ----------------------------------------------------------- */
 .ai-sql {

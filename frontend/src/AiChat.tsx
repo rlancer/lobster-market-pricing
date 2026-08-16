@@ -39,6 +39,8 @@ const EXAMPLES = [
   'What underlyings have the most open interest?',
 ];
 const CAPTURED_IDS_PREFIX = 'openinterest_copilot_captured_';
+/** Must match worker/src/copilot-scope.ts SCOPE_REJECTED_ERROR. */
+const SCOPE_REJECTED_ERROR = 'No data to answer.';
 
 const TOOL_LABELS: Record<string, string> = {
   run_query: 'SQL query',
@@ -68,10 +70,13 @@ interface CopilotMetadata {
   sql?: string | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
+  /** Set by the Worker when the finance scope gate rejects the turn. */
+  scopeRejected?: boolean;
 }
 
 type CopilotData = Record<string, unknown> & {
   status: { status: string };
+  scope: { locked: boolean };
 };
 
 type CopilotMessage = UIMessage<CopilotMetadata, CopilotData>;
@@ -176,6 +181,16 @@ function formatToolArgs(name: string, input: unknown): string {
     default:
       return JSON.stringify(input).slice(0, 140);
   }
+}
+
+function isScopeRejectedMessage(message: Pick<Msg, 'role' | 'content'> | CopilotMessage): boolean {
+  if ('parts' in message) {
+    if (message.role !== 'assistant') return false;
+    if (message.metadata?.scopeRejected) return true;
+    const text = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('').trim();
+    return text === SCOPE_REJECTED_ERROR;
+  }
+  return message.role === 'assistant' && message.content.trim() === SCOPE_REJECTED_ERROR;
 }
 
 function projectMessage(message: CopilotMessage): Msg | null {
@@ -339,6 +354,7 @@ function AiChatSession({
 }) {
   const [input, setInput] = useState('');
   const [progressStatus, setProgressStatus] = useState('');
+  const [scopeLocked, setScopeLocked] = useState(false);
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -403,6 +419,9 @@ function AiChatSession({
     onData: (part) => {
       if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
         setProgressStatus(part.data.status);
+      }
+      if (part.type === 'data-scope' && typeof part.data === 'object' && part.data !== null && 'locked' in part.data && part.data.locked === true) {
+        setScopeLocked(true);
       }
     },
   });
@@ -500,7 +519,7 @@ function AiChatSession({
   const reasoning = liveAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
   const tools = projectTools(liveAssistant);
   const writing = Boolean(liveAssistant?.parts.some((part) => part.type === 'text' && part.text));
-  const visibleError = !busy && !paused && socketState === 'open'
+  const visibleError = !busy && !paused && socketState === 'open' && !scopeLocked
     ? chatError?.message ?? connectionError?.message
     : undefined;
   const status = paused
@@ -535,6 +554,28 @@ function AiChatSession({
     if (!researchToolSig) return;
     setResearchRefreshKey((n) => n + 1);
   }, [researchToolSig]);
+
+  useEffect(() => {
+    setScopeLocked(false);
+    let active = true;
+    void agent.ready
+      .then(() => agent.call<{ locked: boolean }>('getScopeLock', []))
+      .then((state) => {
+        if (active && state?.locked) setScopeLocked(true);
+      })
+      .catch(() => {
+        // Scope lock is best-effort until the Agent is reachable; send still fails closed server-side.
+      });
+    return () => { active = false; };
+  }, [chatId, agent]);
+
+  useEffect(() => {
+    if (chatError?.message === SCOPE_REJECTED_ERROR) setScopeLocked(true);
+  }, [chatError]);
+
+  useEffect(() => {
+    if (messages.some((message) => isScopeRejectedMessage(message))) setScopeLocked(true);
+  }, [messages]);
 
   useEffect(() => {
     let active = true;
@@ -623,13 +664,13 @@ function AiChatSession({
     const becameLive = !paused && pausedRef.current;
     pausedRef.current = paused;
     if (becamePaused) reconnectSocket({ quiet: true, force: true });
-    if (becameLive) void resumeStream().catch(() => {});
-  }, [paused, reconnectSocket, resumeStream]);
+    if (becameLive && !scopeLocked) void resumeStream().catch(() => {});
+  }, [paused, reconnectSocket, resumeStream, scopeLocked]);
 
   useEffect(() => {
-    if (paused || socketState !== 'open') return;
+    if (paused || socketState !== 'open' || scopeLocked) return;
     void resumeStream().catch(() => {});
-  }, [paused, socketState, resumeStream]);
+  }, [paused, socketState, resumeStream, scopeLocked]);
 
   const pauseTurn = useCallback(() => {
     setPaused(true);
@@ -641,13 +682,13 @@ function AiChatSession({
 
   const send = useCallback((raw: string) => {
     const question = raw.trim();
-    if (!question || busy) return;
+    if (!question || busy || scopeLocked) return;
     if (startedAtRef.current === null) startedAtRef.current = Date.now();
     setInput('');
     setProgressStatus('Starting…');
     if (paused) setPaused(false);
     sendMessage({ text: question });
-  }, [busy, paused, sendMessage]);
+  }, [busy, paused, scopeLocked, sendMessage]);
 
   const canShare = projectedMessages.some((message) => message.role === 'assistant' && message.content);
   const shareChat = async () => {
@@ -698,14 +739,15 @@ function AiChatSession({
   };
 
   const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
-  const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat;
+  const composerBlocked = accessBlocked || scopeLocked;
+  const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat && !scopeLocked;
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
-  const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing';
+  const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing' && !scopeLocked;
 
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
     if (pendingConsumedRef.current) return;
-    if (busy || disconnected || accessBlocked || socketState !== 'open') return;
+    if (busy || disconnected || composerBlocked || socketState !== 'open') return;
     const pending = peekPendingPrompt();
     if (!pending) {
       pendingConsumedRef.current = true;
@@ -724,7 +766,7 @@ function AiChatSession({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [accessBlocked, busy, disconnected, send, socketState]);
+  }, [composerBlocked, busy, disconnected, send, socketState]);
 
   useEffect(() => {
     if (!accessBlocked) return;
@@ -873,7 +915,17 @@ function AiChatSession({
                 )}
                 {message.content && (
                   message.role === 'assistant'
-                    ? <div className="ai-text"><Markdown>{message.content}</Markdown></div>
+                    ? (isScopeRejectedMessage(message)
+                      ? (
+                        <>
+                          <div className="ai-err">{message.content}</div>
+                          <div className="ai-scope-lock-hint">
+                            <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
+                            <Button variant="secondary" label="New chat" onClick={onNewChat} />
+                          </div>
+                        </>
+                      )
+                      : <div className="ai-text"><Markdown>{message.content}</Markdown></div>)
                     : <div className="ai-text">{message.content}</div>
                 )}
                 {message.role === 'assistant' && message.reasoning && !isLive && (
@@ -970,17 +1022,19 @@ function AiChatSession({
           value={input}
           onChange={setInput}
           onSubmit={send}
-          isDisabled={busy || disconnected || accessBlocked}
+          isDisabled={busy || disconnected || composerBlocked}
           placeholder={
-            accessBlocked
-              ? (chatAccess === 'forbidden' ? 'Chat unavailable' : 'Sign in to continue this chat…')
-              : socketState === 'offline'
-                ? 'Waiting for network…'
-                : socketState === 'reconnecting'
-                  ? 'Reconnecting…'
-                  : paused
-                    ? 'Start to resume, or ask a follow-up…'
-                    : 'Ask about liquidity, volatility, or a ticker…'
+            scopeLocked
+              ? 'No data to answer — start a new chat'
+              : accessBlocked
+                ? (chatAccess === 'forbidden' ? 'Chat unavailable' : 'Sign in to continue this chat…')
+                : socketState === 'offline'
+                  ? 'Waiting for network…'
+                  : socketState === 'reconnecting'
+                    ? 'Reconnecting…'
+                    : paused
+                      ? 'Start to resume, or ask a follow-up…'
+                      : 'Ask about liquidity, volatility, or a ticker…'
           }
           sendButton={<ChatSendButton />}
         />
