@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
@@ -22,7 +22,7 @@ import {
 } from '@astryxdesign/core';
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
-import { authClient } from './auth';
+import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { ensureLiveChatId, notifyChatsChanged, parseChatId, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
@@ -30,7 +30,7 @@ import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ChartView, type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
-import { ChatTickerWidget } from './ChatTickerWidget';
+import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -53,14 +53,6 @@ const TOOL_LABELS: Record<string, string> = {
   research_ticker: 'Ticker research',
 };
 
-interface FrameMetadata {
-  name: string;
-  columns: string[];
-  row_count: number;
-  sql: string;
-  fetched_at: number;
-}
-
 interface Presentation {
   sql: string | null;
   result: QueryResult | null;
@@ -72,6 +64,10 @@ interface Presentation {
 interface CopilotMetadata {
   model: string;
   createdAt: number;
+  /** Restored from D1 history/share when the preview Durable Object is empty. */
+  sql?: string | null;
+  result?: QueryResult | null;
+  chart?: ChartSpec | null;
 }
 
 type CopilotData = Record<string, unknown> & {
@@ -187,20 +183,36 @@ function projectMessage(message: CopilotMessage): Msg | null {
   const content = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
   const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('');
   const presentation = presentationFromMessage(message);
+  const meta = message.metadata;
   return {
     id: message.id,
     role: message.role,
     content,
     ...(reasoning ? { reasoning } : {}),
-    ...(presentation ? {
-      sql: presentation.sql,
-      result: presentation.result,
-      chart: presentation.chart,
-      model: presentation.model,
-    } : {}),
-    ...(message.metadata?.createdAt ? { ts: message.metadata.createdAt } : {}),
-    ...(!presentation && message.metadata?.model ? { model: message.metadata.model } : {}),
+    sql: presentation?.sql ?? meta?.sql ?? null,
+    result: presentation?.result ?? meta?.result ?? null,
+    chart: presentation?.chart ?? meta?.chart ?? null,
+    ...(presentation?.model || meta?.model ? { model: presentation?.model || meta?.model } : {}),
+    ...(meta?.createdAt ? { ts: meta.createdAt } : {}),
   };
+}
+
+function backupToCopilotMessages(rows: ShareChatMessage[]): CopilotMessage[] {
+  return rows.map((row, index) => ({
+    id: `backup-${index}-${row.ts ?? index}`,
+    role: row.role,
+    parts: [
+      ...(row.reasoning ? [{ type: 'reasoning' as const, text: row.reasoning }] : []),
+      { type: 'text' as const, text: row.content },
+    ],
+    metadata: {
+      model: '',
+      createdAt: row.ts ?? Date.now(),
+      ...(row.sql ? { sql: row.sql } : {}),
+      ...(row.result ? { result: row.result } : {}),
+      ...(row.chart ? { chart: row.chart as ChartSpec } : {}),
+    },
+  }));
 }
 
 function projectTools(message: CopilotMessage | undefined): ToolRow[] {
@@ -305,7 +317,26 @@ function TurnProgress({
   );
 }
 
-function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () => void }) {
+function ChatLoadingState() {
+  return (
+    <section className="ai-chat ai-chat-loading" aria-busy="true" aria-label="Loading chat">
+      <div className="ai-chat-loading-body">
+        <Spinner size="md" />
+        <span>Opening chat…</span>
+      </div>
+    </section>
+  );
+}
+
+function AiChatSession({
+  chatId,
+  isSavedChat,
+  onNewChat,
+}: {
+  chatId: string;
+  isSavedChat: boolean;
+  onNewChat: () => void;
+}) {
   const [input, setInput] = useState('');
   const [progressStatus, setProgressStatus] = useState('');
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
@@ -316,16 +347,23 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const [onTimeline, setOnTimeline] = useState(false);
   const [paused, setPaused] = useState(false);
   const [researchRefreshKey, setResearchRefreshKey] = useState(0);
+  const [chatAccess, setChatAccess] = useState<'unknown' | 'ok' | 'unauthorized' | 'forbidden'>(
+    isSavedChat ? 'unknown' : 'ok',
+  );
+  const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const startedAtRef = useRef<number | null>(null);
   const restoredIdsRef = useRef<Set<string> | null>(null);
   const claimedRef = useRef(false);
   const pausedRef = useRef(false);
+  const backupAttemptedRef = useRef(false);
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
   const host = API_BASE ? new URL(API_BASE).host : window.location.host;
+  const isPreviewApi = host === 'api-dev.lobster.mp' || host.startsWith('api-dev.');
+  const prodChatUrl = `https://lobster.mp/chat/${chatId}`;
   const agent = useAgent({
     agent: 'CopilotAgent',
     name: chatId,
@@ -338,6 +376,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
   const { state: socketState, reconnect: reconnectSocket } = useAgentReconnect(agent);
   const {
     messages,
+    setMessages,
     sendMessage,
     resumeStream,
     status: chatStatus,
@@ -367,6 +406,79 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
       }
     },
   });
+
+  // Probe access for saved chats. Do not replace useAgentChat's getInitialMessages
+  // — a custom fetcher runs before the agent HTTP URL exists and caches [].
+  useEffect(() => {
+    if (!isSavedChat) {
+      setChatAccess('ok');
+      return;
+    }
+    let alive = true;
+    const probe = async () => {
+      const raw = agent.getHttpUrl?.() ?? '';
+      if (!raw) {
+        // Agent URL appears once PartySocket binds; retry shortly.
+        return false;
+      }
+      const getMessagesUrl = new URL(raw.replace(/^ws/i, 'http'));
+      getMessagesUrl.pathname = getMessagesUrl.pathname.replace(/\/$/, '') + '/get-messages';
+      try {
+        const response = await fetch(getMessagesUrl.toString(), { credentials: 'include' });
+        if (!alive) return true;
+        if (response.status === 401) setChatAccess('unauthorized');
+        else if (response.status === 403) setChatAccess('forbidden');
+        else setChatAccess('ok');
+      } catch {
+        if (alive) setChatAccess('ok');
+      }
+      return true;
+    };
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      void probe().then((done) => {
+        if (!alive || done) return;
+        tries += 1;
+        if (tries < 40) timer = setTimeout(tick, 100);
+        else setChatAccess('ok');
+      });
+    };
+    tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isSavedChat, agent, chatId, user?.id]);
+
+  // Preview and production share D1 ownership but not CopilotAgent Durable
+  // Object storage. When this environment's DO is empty for an owned chat,
+  // restore from shared D1 history/share backups when available.
+  useEffect(() => {
+    if (!isSavedChat || !user || chatAccess !== 'ok') return;
+    if (messages.length > 0) {
+      setBackupState((current) => (current === 'restored' ? current : 'missing'));
+      return;
+    }
+    if (backupAttemptedRef.current) return;
+    backupAttemptedRef.current = true;
+    setBackupState('loading');
+    let alive = true;
+    api.chatTranscript(chatId)
+      .then((backup) => {
+        if (!alive) return;
+        if (backup.messages.length === 0) {
+          setBackupState('missing');
+          return;
+        }
+        setMessages(backupToCopilotMessages(backup.messages));
+        setBackupState('restored');
+      })
+      .catch(() => {
+        if (alive) setBackupState('missing');
+      });
+    return () => { alive = false; };
+  }, [isSavedChat, user, chatAccess, messages.length, chatId, setMessages]);
 
   const busy = !paused && (chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation);
   const disconnected = socketState !== 'open';
@@ -585,6 +697,21 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
     setOnTimeline(false);
   };
 
+  const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
+  const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat;
+  const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
+  const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing';
+
+  useEffect(() => {
+    if (!accessBlocked) return;
+    // Stop PartySocket's reconnect storm once we know this chat is auth-gated.
+    try {
+      agent.close?.(1000, 'chat access denied');
+    } catch {
+      /* ignore */
+    }
+  }, [accessBlocked, agent]);
+
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
@@ -596,7 +723,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
             label="Share chat"
             icon={<Share2 size={16} />}
             tooltip={canShare ? 'Share chat' : 'Share available after the first answer'}
-            isDisabled={!canShare || busy}
+            isDisabled={!canShare || busy || accessBlocked}
             isLoading={shareBusy}
             onClick={shareChat}
           />
@@ -604,7 +731,7 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         </section>
       </header>
 
-      {disconnected && (
+      {disconnected && !accessBlocked && (
         <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
           <StatusDot
             variant={socketState === 'offline' ? 'warning' : 'accent'}
@@ -615,27 +742,73 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
         </div>
       )}
 
-      {frames.length > 0 && (
-        <div className="ai-frames">
-          <span className="ai-frames-label">Session data</span>
-          {frames.map((frame) => {
-            const ageMin = Math.round((Date.now() - frame.fetched_at) / 60000);
-            return (
-              <Tooltip key={frame.name} content={`${frame.row_count.toLocaleString()} rows · ${frame.columns.length} cols · ${frame.sql}`} hasHoverIndication={false}>
-                <span className="ai-frame-chip">
-                  <b>{frame.name}</b>
-                  <span className="ai-frame-meta">{frame.row_count.toLocaleString()}r · {ageMin < 1 ? 'fresh' : `${ageMin}m`}</span>
-                </span>
-              </Tooltip>
-            );
-          })}
-        </div>
-      )}
-
-      <ChatTickerWidget chatId={chatId} refreshKey={researchRefreshKey} />
+      {!accessBlocked && <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />}
 
       <section className="ai-messages" ref={scrollRef}>
-        {projectedMessages.length === 0 && (
+        {showSavedLoading && (
+          <section className="ai-welcome ai-chat-gate" aria-busy="true">
+            <div className="ai-chat-loading-body">
+              <Spinner size="md" />
+              <span>Opening chat…</span>
+            </div>
+          </section>
+        )}
+
+        {chatAccess === 'unauthorized' && (
+          <section className="ai-welcome ai-chat-gate">
+            <header className="ai-welcome-hero">
+              <h1 className="ai-welcome-title">Sign in to view this chat</h1>
+              <p className="ai-welcome-data">
+                This conversation is saved to an account. Sign in with the same Google account to load the transcript.
+              </p>
+              <Button
+                variant="primary"
+                label="Sign in"
+                onClick={() => {
+                  void signInWithGoogle().catch((err) => {
+                    console.error('Google sign-in failed', err);
+                  });
+                }}
+              />
+            </header>
+          </section>
+        )}
+
+        {chatAccess === 'forbidden' && (
+          <section className="ai-welcome ai-chat-gate">
+            <header className="ai-welcome-hero">
+              <h1 className="ai-welcome-title">Chat unavailable</h1>
+              <p className="ai-welcome-data">
+                This saved chat belongs to another account. Start a new chat or open one from your history.
+              </p>
+              <Button variant="secondary" label="New chat" onClick={onNewChat} />
+            </header>
+          </section>
+        )}
+
+        {showSavedEmpty && (
+          <section className="ai-welcome ai-chat-gate">
+            <header className="ai-welcome-hero">
+              <h1 className="ai-welcome-title">
+                {isPreviewApi ? 'Transcript not in this preview' : 'Empty chat'}
+              </h1>
+              <p className="ai-welcome-data">
+                {isPreviewApi
+                  ? 'Preview and production share account ownership, but each keeps its own live chat storage. Open this chat on production to see the transcript, or ask a follow-up here to continue in preview.'
+                  : 'This saved chat has no messages yet. Ask a question below to continue it.'}
+              </p>
+              {isPreviewApi && (
+                <Button
+                  variant="primary"
+                  label="Open on production"
+                  onClick={() => { window.location.href = prodChatUrl; }}
+                />
+              )}
+            </header>
+          </section>
+        )}
+
+        {showWelcome && (
           <section className="ai-welcome">
             <header className="ai-welcome-hero">
               <BlueLobsterLogo className="ai-welcome-mascot" />
@@ -773,15 +946,17 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
           value={input}
           onChange={setInput}
           onSubmit={send}
-          isDisabled={busy || disconnected}
+          isDisabled={busy || disconnected || accessBlocked}
           placeholder={
-            socketState === 'offline'
-              ? 'Waiting for network…'
-              : socketState === 'reconnecting'
-                ? 'Reconnecting…'
-                : paused
-                  ? 'Start to resume, or ask a follow-up…'
-                  : 'Ask about liquidity, volatility, or a ticker…'
+            accessBlocked
+              ? (chatAccess === 'forbidden' ? 'Chat unavailable' : 'Sign in to continue this chat…')
+              : socketState === 'offline'
+                ? 'Waiting for network…'
+                : socketState === 'reconnecting'
+                  ? 'Reconnecting…'
+                  : paused
+                    ? 'Start to resume, or ask a follow-up…'
+                    : 'Ask about liquidity, volatility, or a ticker…'
           }
           sendButton={<ChatSendButton />}
         />
@@ -846,9 +1021,13 @@ function AiChatSession({ chatId, onNewChat }: { chatId: string; onNewChat: () =>
 function AiChat() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { data: session, isPending } = authClient.useSession();
   const routeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
   const [liveId, setLiveId] = useState(ensureLiveChatId);
   const chatId = routeChatId ?? liveId;
+  // Remount when the signed-in user changes so get-messages re-runs with the
+  // session cookie instead of caching an anonymous 401 for an owned chat.
+  const sessionKey = session?.user?.id ?? 'anon';
   useEffect(() => {
     rememberChatId(chatId);
   }, [chatId]);
@@ -857,7 +1036,23 @@ function AiChat() {
     setLiveId(created);
     if (routeChatId) void navigate({ to: '/chat' });
   }, [navigate, routeChatId]);
-  return <AiChatSession key={chatId} chatId={chatId} onNewChat={newChat} />;
+
+  // Saved chats may be account-owned — wait for auth before the agent
+  // hydrates so we don't flash the welcome screen on a 401.
+  if (routeChatId && isPending) {
+    return <ChatLoadingState />;
+  }
+
+  return (
+    <Suspense fallback={<ChatLoadingState />}>
+      <AiChatSession
+        key={`${chatId}:${sessionKey}`}
+        chatId={chatId}
+        isSavedChat={Boolean(routeChatId)}
+        onNewChat={newChat}
+      />
+    </Suspense>
+  );
 }
 
 export default AiChat;

@@ -506,6 +506,15 @@ export interface UserChat {
   updated_at: number;
 }
 
+/** Response of GET /api/chats/:id/transcript — owner-only DO backup from D1. */
+export interface ChatTranscriptBackup {
+  ok: boolean;
+  chat_id: string;
+  source: 'pending_history' | 'share' | null;
+  title: string | null;
+  messages: SharedChatMessage[];
+}
+
 export interface UserChatList {
   ok: boolean;
   items: UserChat[];
@@ -759,6 +768,8 @@ export const api = {
     ),
   chatTickers: (chatId: string) =>
     get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),
+  chatTranscript: (chatId: string) =>
+    get<ChatTranscriptBackup>(`/api/chats/${encodeURIComponent(chatId)}/transcript`),
 };
 
 import { useState, useEffect } from 'react';

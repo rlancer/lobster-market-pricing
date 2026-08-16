@@ -79,6 +79,88 @@ export async function ownerOf(db: D1Database, chatId: string): Promise<OwnerRow 
   ).bind(chatId).first<OwnerRow>();
 }
 
+export type ChatTranscriptBackup = {
+  source: "pending_history" | "share" | null;
+  title: string | null;
+  messages: Record<string, unknown>[];
+};
+
+/**
+ * Best-effort transcript restore for an owned chat whose Durable Object is empty.
+ * Prefers the newest pending history payload (full conversation snapshot per turn),
+ * then falls back to the newest share row for the same chat_id.
+ */
+export async function loadOwnedChatTranscript(
+  db: D1Database,
+  chatId: string,
+): Promise<ChatTranscriptBackup> {
+  const pending = await db.prepare(
+    `SELECT payload FROM pending_chat_history
+     WHERE chat_id = ?1
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+  ).bind(chatId).first<{ payload: string }>();
+  if (pending?.payload) {
+    try {
+      const parsed = JSON.parse(pending.payload) as { messages?: unknown; title?: unknown };
+      const messages = coerceTranscriptMessages(parsed.messages);
+      if (messages.length > 0) {
+        return {
+          source: "pending_history",
+          title: historyTitle(typeof parsed.title === "string" ? parsed.title : null),
+          messages,
+        };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const share = await db.prepare(
+    `SELECT title, messages FROM shared_chats
+     WHERE chat_id = ?1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+  ).bind(chatId).first<{ title: string | null; messages: string }>();
+  if (share?.messages) {
+    try {
+      const messages = coerceTranscriptMessages(JSON.parse(share.messages));
+      if (messages.length > 0) {
+        return {
+          source: "share",
+          title: historyTitle(share.title),
+          messages,
+        };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  return { source: null, title: null, messages: [] };
+}
+
+function coerceTranscriptMessages(value: unknown): Record<string, unknown>[] {
+  if (typeof value === "string") {
+    try {
+      return coerceTranscriptMessages(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  const out: Record<string, unknown>[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    const role = row.role;
+    const content = row.content;
+    if ((role !== "user" && role !== "assistant") || typeof content !== "string") continue;
+    out.push(row);
+  }
+  return out;
+}
+
 /**
  * Gate CopilotAgent HTTP/WebSocket access. Returns a Response to send (401/403)
  * or null to allow the request through. Unowned chats are UUID-capability.

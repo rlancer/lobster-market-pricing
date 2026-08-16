@@ -32,6 +32,8 @@ import {
   claimChat,
   deleteChat,
   listUserChats,
+  loadOwnedChatTranscript,
+  ownerOf,
   parseChatId,
   renameChat,
   titleFromMessages,
@@ -2232,6 +2234,19 @@ async function handleUserChats(env: Env, req: Request, path: string): Promise<Re
     if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
     const items = await listChatTickers(env.SCHEMA_DB, chatId);
     return json(env, { chat_id: chatId, items }, 200, "private");
+  }
+  const transcriptMatch = path.match(/^\/api\/chats\/([^/]+)\/transcript$/);
+  if (transcriptMatch && req.method === "GET") {
+    const chatId = parseChatId(decodeURIComponent(transcriptMatch[1]));
+    if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
+    const user = await requireUser(env, req);
+    if (user instanceof Response) return user;
+    const owner = await ownerOf(env.SCHEMA_DB, chatId);
+    if (!owner || owner.user_id !== user.id) {
+      return json(env, { error: "forbidden" }, 403, "private");
+    }
+    const backup = await loadOwnedChatTranscript(env.SCHEMA_DB, chatId);
+    return json(env, { ok: true, chat_id: chatId, ...backup }, 200, "private");
   }
   const item = path.match(/^\/api\/chats\/([^/]+)$/);
   if (!item) return null;
