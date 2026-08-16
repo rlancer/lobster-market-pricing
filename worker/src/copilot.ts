@@ -110,6 +110,8 @@ interface ToolOutput {
 interface CopilotMetadata {
   model: string;
   createdAt: number;
+  /** True when this assistant turn is the finance-scope gate rejection (not model prose). */
+  scopeRejected?: boolean;
 }
 
 type CopilotData = Record<string, unknown> & {
@@ -312,14 +314,26 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private scopeRejectedResponse(originalMessages: CopilotMessage[]): Response {
-    const errorStream = createUIMessageStream<CopilotMessage>({
+    // MUST complete a normal assistant turn (start → text → finish), never
+    // `{ type: "error" }`. An error chunk leaves the leaf as the user message,
+    // and chatRecovery treats that as a lost-partial turn and retries forever.
+    const messageId = crypto.randomUUID();
+    const textId = crypto.randomUUID();
+    const stream = createUIMessageStream<CopilotMessage>({
       originalMessages,
       execute: ({ writer }) => {
         writer.write({ type: "data-scope", data: { locked: true }, transient: true });
-        writer.write({ type: "error", errorText: SCOPE_REJECTED_ERROR });
+        writer.write({ type: "start", messageId });
+        writer.write({ type: "text-start", id: textId });
+        writer.write({ type: "text-delta", id: textId, delta: SCOPE_REJECTED_ERROR });
+        writer.write({ type: "text-end", id: textId });
+        writer.write({
+          type: "finish",
+          messageMetadata: { model: "", createdAt: Date.now(), scopeRejected: true },
+        });
       },
     });
-    return createUIMessageStreamResponse({ stream: errorStream });
+    return createUIMessageStreamResponse({ stream });
   }
 
   @callable()

@@ -70,6 +70,8 @@ interface CopilotMetadata {
   sql?: string | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
+  /** Set by the Worker when the finance scope gate rejects the turn. */
+  scopeRejected?: boolean;
 }
 
 type CopilotData = Record<string, unknown> & {
@@ -179,6 +181,16 @@ function formatToolArgs(name: string, input: unknown): string {
     default:
       return JSON.stringify(input).slice(0, 140);
   }
+}
+
+function isScopeRejectedMessage(message: Pick<Msg, 'role' | 'content'> | CopilotMessage): boolean {
+  if ('parts' in message) {
+    if (message.role !== 'assistant') return false;
+    if (message.metadata?.scopeRejected) return true;
+    const text = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('').trim();
+    return text === SCOPE_REJECTED_ERROR;
+  }
+  return message.role === 'assistant' && message.content.trim() === SCOPE_REJECTED_ERROR;
 }
 
 function projectMessage(message: CopilotMessage): Msg | null {
@@ -507,8 +519,8 @@ function AiChatSession({
   const reasoning = liveAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
   const tools = projectTools(liveAssistant);
   const writing = Boolean(liveAssistant?.parts.some((part) => part.type === 'text' && part.text));
-  const visibleError = !busy && !paused && socketState === 'open'
-    ? (scopeLocked ? SCOPE_REJECTED_ERROR : (chatError?.message ?? connectionError?.message))
+  const visibleError = !busy && !paused && socketState === 'open' && !scopeLocked
+    ? chatError?.message ?? connectionError?.message
     : undefined;
   const status = paused
     ? 'Paused — start to resume'
@@ -560,6 +572,10 @@ function AiChatSession({
   useEffect(() => {
     if (chatError?.message === SCOPE_REJECTED_ERROR) setScopeLocked(true);
   }, [chatError]);
+
+  useEffect(() => {
+    if (messages.some((message) => isScopeRejectedMessage(message))) setScopeLocked(true);
+  }, [messages]);
 
   useEffect(() => {
     let active = true;
@@ -648,13 +664,13 @@ function AiChatSession({
     const becameLive = !paused && pausedRef.current;
     pausedRef.current = paused;
     if (becamePaused) reconnectSocket({ quiet: true, force: true });
-    if (becameLive) void resumeStream().catch(() => {});
-  }, [paused, reconnectSocket, resumeStream]);
+    if (becameLive && !scopeLocked) void resumeStream().catch(() => {});
+  }, [paused, reconnectSocket, resumeStream, scopeLocked]);
 
   useEffect(() => {
-    if (paused || socketState !== 'open') return;
+    if (paused || socketState !== 'open' || scopeLocked) return;
     void resumeStream().catch(() => {});
-  }, [paused, socketState, resumeStream]);
+  }, [paused, socketState, resumeStream, scopeLocked]);
 
   const pauseTurn = useCallback(() => {
     setPaused(true);
@@ -899,7 +915,17 @@ function AiChatSession({
                 )}
                 {message.content && (
                   message.role === 'assistant'
-                    ? <div className="ai-text"><Markdown>{message.content}</Markdown></div>
+                    ? (isScopeRejectedMessage(message)
+                      ? (
+                        <>
+                          <div className="ai-err">{message.content}</div>
+                          <div className="ai-scope-lock-hint">
+                            <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
+                            <Button variant="secondary" label="New chat" onClick={onNewChat} />
+                          </div>
+                        </>
+                      )
+                      : <div className="ai-text"><Markdown>{message.content}</Markdown></div>)
                     : <div className="ai-text">{message.content}</div>
                 )}
                 {message.role === 'assistant' && message.reasoning && !isLive && (
@@ -969,15 +995,7 @@ function AiChatSession({
         {visibleError && !busy && !paused && (
           <div className="ai-msg ai-assistant">
             <span className="ai-msg-mark" aria-hidden="true">λ</span>
-            <div className="ai-bubble">
-              <div className="ai-err">{visibleError}</div>
-              {scopeLocked && (
-                <div className="ai-scope-lock-hint">
-                  <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
-                  <Button variant="secondary" label="New chat" onClick={onNewChat} />
-                </div>
-              )}
-            </div>
+            <div className="ai-bubble"><div className="ai-err">{visibleError}</div></div>
           </div>
         )}
 

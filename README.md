@@ -298,11 +298,12 @@ byte/character caps reject or trim runaway payloads before they consume model cr
 **Finance-only scope.** Before the agent loop runs, a cheap classifier checks
 whether the latest user message is a US equities / options / macro market-data
 question. Off-topic turns (shopping, lifestyle, jailbreaks, chit-chat) never
-get an assistant reply — the Worker returns a stream error (`No data to answer.`),
-persists a scope lock on that chat's Durable Object, and the UI disables the
-composer so follow-ups cannot retry on the same chat. Start a new chat for a
-real market question. Classifier infrastructure failures fail open so genuine
-market asks still work.
+enter the model loop — the Worker seals a finished assistant turn with
+`No data to answer.` (not a stream `error`, which would leave a lost-partial
+user leaf and make `chatRecovery` retry forever), persists a scope lock on that
+chat's Durable Object, and the UI disables the composer so follow-ups cannot
+retry on the same chat. Start a new chat for a real market question. Classifier
+infrastructure failures fail open so genuine market asks still work.
 
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
