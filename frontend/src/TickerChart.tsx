@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Line,
   LineChart,
@@ -8,11 +8,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { HStack, Text, ToggleButton, ToggleButtonGroup, VStack } from '@astryxdesign/core';
-import type { OhlcBar } from './api';
+import { HStack, Spinner, Text, ToggleButton, ToggleButtonGroup, VStack } from '@astryxdesign/core';
+import { api, type OhlcBar } from './api';
 import {
   CHART_RANGES,
   type ChartRange,
+  chartRangeLabel,
+  formatChartTick,
   rangeMove,
   sliceBars,
 } from './tickerChartRange';
@@ -40,14 +42,45 @@ function changeClass(v: number | null | undefined): string {
 export function TickerChart({
   bars,
   spot,
+  ticker,
 }: {
   bars: OhlcBar[];
   spot: number | null;
+  ticker: string;
 }) {
-  const [range, setRange] = useState<ChartRange>('3M');
-  const data = useMemo(() => sliceBars(bars, range), [bars, range]);
+  const [range, setRange] = useState<ChartRange>('YTD');
+  const [intraday, setIntraday] = useState<OhlcBar[] | null>(null);
+  const [intradayLoading, setIntradayLoading] = useState(false);
+  const [intradayError, setIntradayError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (range !== '1D') return;
+    let active = true;
+    setIntradayLoading(true);
+    setIntradayError(null);
+    api.symbolDetail(ticker, { parts: 'ohlc_intraday' })
+      .then((detail) => {
+        if (!active) return;
+        setIntraday(detail.ohlc ?? []);
+      })
+      .catch((e) => {
+        if (!active) return;
+        setIntraday([]);
+        setIntradayError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (active) setIntradayLoading(false);
+      });
+    return () => { active = false; };
+  }, [range, ticker]);
+
+  const data = useMemo(() => {
+    if (range === '1D') return intraday ?? [];
+    return sliceBars(bars, range);
+  }, [range, bars, intraday]);
   const move = useMemo(() => rangeMove(data), [data]);
-  const rangeLabel = range === 'ALL' ? 'All' : range;
+  const rangeLabel = chartRangeLabel(range);
+  const isIntraday = range === '1D';
 
   if (bars.length === 0) {
     return (
@@ -85,65 +118,80 @@ export function TickerChart({
           }}
         >
           {CHART_RANGES.map((key) => (
-            <ToggleButton key={key} value={key} label={key === 'ALL' ? 'All' : key} />
+            <ToggleButton key={key} value={key} label={chartRangeLabel(key)} />
           ))}
         </ToggleButtonGroup>
       </HStack>
-      <div className="research-chart-plot">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-            <XAxis
-              dataKey="date"
-              axisLine={false}
-              tickLine={false}
-              minTickGap={48}
-              tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-              tickFormatter={(d: string) => (typeof d === 'string' ? d.slice(5) : String(d))}
-            />
-            <YAxis
-              domain={['auto', 'auto']}
-              axisLine={false}
-              tickLine={false}
-              width={48}
-              tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-              tickFormatter={(v: number) => fmtNum(v, 0)}
-            />
-            <Tooltip
-              contentStyle={{
-                background: 'var(--panel)',
-                border: 'var(--border-width) solid var(--color-border)',
-                borderRadius: 'var(--radius-element)',
-                fontSize: 'var(--font-size-xs)',
-                color: 'var(--color-text-primary)',
-              }}
-              labelFormatter={(d) => `Close · ${String(d)}`}
-              formatter={(v) => [fmtNum(v as number, 2), 'close']}
-            />
-            {spot != null && (
-              <ReferenceLine
-                y={spot}
-                stroke="var(--accent)"
-                strokeDasharray="3 3"
-                label={{
-                  value: `spot ${fmtNum(spot)}`,
-                  position: 'insideTopRight',
-                  fontSize: 10,
-                  fill: 'var(--accent)',
-                }}
+      {isIntraday && intradayLoading && data.length === 0 ? (
+        <HStack gap={2} vAlign="center" className="research-chart-empty">
+          <Spinner size="sm" />
+          <Text type="supporting">Loading intraday…</Text>
+        </HStack>
+      ) : isIntraday && !intradayLoading && data.length === 0 ? (
+        <HStack gap={2} vAlign="center" className="research-chart-empty">
+          <Text type="supporting">
+            {intradayError ? 'Intraday bars unavailable right now.' : 'No intraday bars for this session yet.'}
+          </Text>
+        </HStack>
+      ) : (
+        <div className="research-chart-plot">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+              <XAxis
+                dataKey="date"
+                axisLine={false}
+                tickLine={false}
+                minTickGap={isIntraday ? 36 : 48}
+                tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                tickFormatter={formatChartTick}
               />
-            )}
-            <Line
-              type="monotone"
-              dataKey="close"
-              stroke="var(--accent)"
-              dot={false}
-              strokeWidth={1.5}
-              connectNulls
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+              <YAxis
+                domain={['auto', 'auto']}
+                axisLine={false}
+                tickLine={false}
+                width={48}
+                tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                tickFormatter={(v: number) => fmtNum(v, 0)}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--panel)',
+                  border: 'var(--border-width) solid var(--color-border)',
+                  borderRadius: 'var(--radius-element)',
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-primary)',
+                }}
+                labelFormatter={(d) =>
+                  isIntraday ? `Price · ${String(d)}` : `Close · ${String(d)}`
+                }
+                formatter={(v) => [fmtNum(v as number, 2), isIntraday ? 'price' : 'close']}
+              />
+              {spot != null && (
+                <ReferenceLine
+                  y={spot}
+                  stroke="var(--accent)"
+                  strokeDasharray="3 3"
+                  label={{
+                    value: `spot ${fmtNum(spot)}`,
+                    position: 'insideTopRight',
+                    fontSize: 10,
+                    fill: 'var(--accent)',
+                  }}
+                />
+              )}
+              <Line
+                type="monotone"
+                dataKey="close"
+                stroke="var(--accent)"
+                dot={false}
+                strokeWidth={1.5}
+                connectNulls
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </VStack>
   );
 }

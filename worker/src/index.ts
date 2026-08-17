@@ -27,6 +27,7 @@ import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
 import { getHandle, setHandle, suggestHandle } from "./profiles";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
+import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
   authorizeCopilotAgent,
   claimChat,
@@ -469,10 +470,10 @@ async function enrichSymbol(env: Env, symbol: string): Promise<{
   };
 }
 
-type SymbolDetailParts = "full" | "ohlc" | "chain";
+type SymbolDetailParts = "full" | "ohlc" | "ohlc_intraday" | "chain";
 
 interface SymbolDetailOpts {
-  /** `ohlc` skips the chain; `chain` skips enrichment; `full` is the legacy dump. */
+  /** `ohlc` skips the chain; `ohlc_intraday` is Yahoo 5m Day bars; `chain` skips enrichment; `full` is the legacy dump. */
   parts?: SymbolDetailParts;
   /** When set with parts=chain, only this expiration's contracts are returned. */
   expiration?: string;
@@ -486,7 +487,7 @@ interface SymbolDetailOpts {
 
 function parseSymbolDetailParts(raw: string | null): SymbolDetailParts {
   const v = (raw ?? "full").trim().toLowerCase();
-  if (v === "ohlc" || v === "chain") return v;
+  if (v === "ohlc" || v === "ohlc_intraday" || v === "chain") return v;
   return "full";
 }
 
@@ -522,6 +523,23 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
   // the RV/CA/ETF enrichment suite — those made parts=ohlc as slow as parts=full.
   if (parts === "ohlc") {
     return { ...empty, ohlc: await loadSymbolOhlc(env, symbol) };
+  }
+
+  // Day chart: live Yahoo 5m bars for the current (or last) session. Same source
+  // as the loader daily OHLC job; not lake-backed because session bars churn.
+  if (parts === "ohlc_intraday") {
+    const bars = await fetchYahooIntraday(symbol);
+    return {
+      ...empty,
+      ohlc: bars.map((b) => ({
+        date: b.date,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      })),
+    };
   }
 
   const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`, "symu_" + symbol, QUERY_TTL_MS);
@@ -2480,7 +2498,15 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     const expiration = q.get("expiration")?.trim() || undefined;
     const nearRaw = q.get("near_spot");
     const nearSpot = nearRaw != null && nearRaw !== "" ? num(nearRaw) : undefined;
-    return json(env, await symbolDetail(env, sym, { parts, expiration, nearSpot }));
+    try {
+      return json(env, await symbolDetail(env, sym, { parts, expiration, nearSpot }));
+    } catch (e) {
+      if (parts === "ohlc_intraday") {
+        const message = e instanceof Error ? e.message : String(e);
+        return json(env, { error: message, ohlc: [] }, 502, "private");
+      }
+      throw e;
+    }
   }
 
   if (path.startsWith("/api/research/")) {
