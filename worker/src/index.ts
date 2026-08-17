@@ -53,6 +53,7 @@ import {
   parseTickerParam,
   RESEARCH_OHLC_LIMIT,
   summarizeResearch,
+  warmResearchTickers,
   type EarningsBrief,
   type FundamentalsBrief,
   type OhlcBar,
@@ -2294,6 +2295,58 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
   }
 }
 
+/** Cap warm batch size so a single admin/loader call cannot OOM the isolate. */
+const RESEARCH_WARM_MAX_TICKERS = 40;
+
+/**
+ * POST /api/research/warm (Bearer ADMIN_TOKEN) — force-recompute briefs into D1
+ * for a ticker batch. Used by the loader `research-briefs-daily` job so
+ * /research/{ticker} serves from D1 instead of a cold R2 SQL fan-out.
+ */
+async function handleResearchWarm(env: Env, req: Request): Promise<Response> {
+  if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401, "private");
+  let body: { tickers?: unknown; concurrency?: unknown } = {};
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return json(env, { error: "invalid JSON body" }, 400, "private");
+  }
+  if (!Array.isArray(body.tickers) || body.tickers.length === 0) {
+    return json(env, { error: "tickers must be a non-empty string array" }, 400, "private");
+  }
+  if (body.tickers.length > RESEARCH_WARM_MAX_TICKERS) {
+    return json(
+      env,
+      { error: `tickers capped at ${RESEARCH_WARM_MAX_TICKERS} per request` },
+      400,
+      "private",
+    );
+  }
+  const tickers = body.tickers.map((t) => String(t));
+  const concurrency =
+    typeof body.concurrency === "number" && Number.isFinite(body.concurrency)
+      ? Math.floor(body.concurrency)
+      : undefined;
+  const started = Date.now();
+  try {
+    const summary = await warmResearchTickers(env, tickers, researchDepsFor(env), {
+      concurrency,
+      includeNews: false,
+      includeSecondary: true,
+      liveFigi: false,
+    });
+    return json(
+      env,
+      { ...summary, duration_ms: Date.now() - started },
+      200,
+      "private",
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return json(env, { error: message }, 502, "private");
+  }
+}
+
 async function handleResearchCommentaryGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
   const ticker = parseTickerParam(tickerRaw);
   if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
@@ -2534,6 +2587,10 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
       }
       throw e;
     }
+  }
+
+  if (path === "/api/research/warm" && req.method === "POST") {
+    return handleResearchWarm(env, req);
   }
 
   if (path.startsWith("/api/research/")) {

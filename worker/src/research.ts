@@ -571,3 +571,78 @@ export function parseTickerParam(raw: string | null | undefined): string | null 
   if (!/^[A-Z][A-Z0-9.\-]{0,11}$/.test(t)) return null;
   return t;
 }
+
+export interface WarmResearchResult {
+  ticker: string;
+  ok: boolean;
+  cache_hit?: boolean;
+  error?: string;
+}
+
+export interface WarmResearchSummary {
+  attempted: number;
+  warmed: number;
+  failed: number;
+  results: WarmResearchResult[];
+}
+
+/**
+ * Force-recompute research briefs into D1 for a ticker batch. Used by the
+ * loader `research-briefs-daily` job (and admin POST /api/research/warm) so
+ * first visitors on /research/{ticker} hit a warm D1 row instead of the R2 SQL
+ * fan-out. Bounded concurrency keeps R2 SQL from stampeding.
+ */
+export async function warmResearchTickers(
+  env: ResearchEnv,
+  tickers: string[],
+  deps: ResearchDeps,
+  opts?: {
+    concurrency?: number;
+    includeSecondary?: boolean;
+    includeNews?: boolean;
+    liveFigi?: boolean;
+  },
+): Promise<WarmResearchSummary> {
+  const normalized = Array.from(
+    new Set(
+      tickers
+        .map((t) => parseTickerParam(t))
+        .filter((t): t is string => !!t),
+    ),
+  );
+  const concurrency = Math.max(1, Math.min(8, Math.floor(opts?.concurrency ?? 3)));
+  const results: WarmResearchResult[] = new Array(normalized.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= normalized.length) return;
+      const ticker = normalized[index]!;
+      try {
+        const research = await getOrComputeResearch(env, ticker, deps, {
+          force: true,
+          includeNews: opts?.includeNews === true,
+          includeSecondary: opts?.includeSecondary !== false,
+          liveFigi: opts?.liveFigi === true,
+        });
+        results[index] = { ticker, ok: true, cache_hit: research.cache_hit };
+      } catch (e) {
+        results[index] = {
+          ticker,
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, Math.max(normalized.length, 1)) }, () => worker()),
+  );
+  const warmed = results.filter((r) => r?.ok).length;
+  return {
+    attempted: normalized.length,
+    warmed,
+    failed: normalized.length - warmed,
+    results: results.filter(Boolean),
+  };
+}
