@@ -2,12 +2,12 @@ import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentPro
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
+  Center,
   HStack,
   MobileNav,
   MobileNavToggle,
   Popover,
   SideNav,
-  SideNavHeading,
   SideNavItem,
   SideNavSection,
   IconButton,
@@ -86,19 +86,16 @@ function ResearchSearch({ className }: { className: string }) {
 function WorkspaceBrand() {
   const { closeMobileNav } = useAppShellMobile();
   return (
-    <SideNavHeading
-      as={RouterLink}
-      icon={(
-        <BlueLobsterLogo
-          className="nav-mascot"
-          width="var(--size-element-md)"
-          height="var(--size-element-md)"
-        />
-      )}
-      heading="Lobster"
-      headingHref="/"
-      onClick={closeMobileNav}
-    />
+    <Center axis="horizontal" width="100%" className="nav-brand">
+      <RouterLink
+        href="/"
+        className="nav-brand-link"
+        aria-label="Lobster home"
+        onClick={closeMobileNav}
+      >
+        <BlueLobsterLogo className="nav-mascot" />
+      </RouterLink>
+    </Center>
   );
 }
 
@@ -419,7 +416,8 @@ function Layout() {
           hasToggle: false,
           breakpoint: 'md',
           content: (
-            <MobileNav header={<WorkspaceBrand />} side="start" label="Lobster">
+            <MobileNav side="start" label="Lobster">
+              <WorkspaceBrand />
               <WorkspaceNavItems {...navProps} />
             </MobileNav>
           ),

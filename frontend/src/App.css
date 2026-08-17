@@ -43,10 +43,24 @@ button, select { cursor: pointer; }
   background: var(--panel);
   height: 100%;
 }
+.nav-brand {
+  width: 100%;
+  padding-block: var(--spacing-3);
+}
+.nav-brand-link {
+  display: flex;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-element);
+}
+.nav-brand-link:focus-visible {
+  outline: var(--spacing-0-5) solid var(--accent);
+  outline-offset: var(--spacing-0-5);
+}
 .nav-mascot {
   display: block;
-  width: var(--size-element-md);
-  height: var(--size-element-md);
+  width: calc(var(--size-element-lg) * 2);
+  height: calc(var(--size-element-lg) * 2);
   flex-shrink: 0;
 }
 .nav-research-search {
