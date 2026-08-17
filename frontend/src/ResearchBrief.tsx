@@ -24,6 +24,12 @@ function fmtPct(v: number | null | undefined): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
 }
 
+/** Format a 0–1 lake fraction (expense ratio, yield, holding weight). */
+function fmtFracPct(v: number | null | undefined, digits = 2): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  return `${(v * 100).toFixed(digits)}%`;
+}
+
 function fmtNum(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return '—';
   if (Math.abs(v) >= 1e12) return `${(v / 1e12).toFixed(digits)}T`;
@@ -90,6 +96,7 @@ export function ResearchBriefView({
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
   const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
+  const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const spot = price.spot;
   const commentaryId = `research-lobster-${identity.ticker}`;
@@ -137,14 +144,29 @@ export function ResearchBriefView({
       </VStack>
 
       <HStack gap={4} wrap="wrap" className="research-stats">
-        <Stat label="Mkt cap" value={fmtNum(fundamentals.market_cap)} />
-        <Stat label="P/E" value={fmtNum(fundamentals.trailing_pe)} />
-        <Stat label="Fwd P/E" value={fmtNum(fundamentals.forward_pe)} />
-        <Stat label="D/E" value={fmtNum(fundamentals.debt_to_equity)} />
-        <Stat
-          label="Margins"
-          value={fundamentals.profit_margins != null ? fmtPct(fundamentals.profit_margins * 100) : '—'}
-        />
+        {etf ? (
+          <>
+            <Stat label="Expense" value={fmtFracPct(etf.expense_ratio)} />
+            <Stat label="Net expense" value={fmtFracPct(etf.net_expense_ratio)} />
+            <Stat label="Net assets" value={fmtNum(etf.net_assets)} />
+            <Stat label="Yield" value={fmtFracPct(etf.trailing_yield)} />
+            <Stat label="Family" value={etf.family ?? '—'} />
+            <Stat label="Category" value={etf.category ?? '—'} />
+            {etf.asset_class ? <Stat label="Asset class" value={etf.asset_class} /> : null}
+            {etf.inception_date ? <Stat label="Inception" value={etf.inception_date} /> : null}
+          </>
+        ) : (
+          <>
+            <Stat label="Mkt cap" value={fmtNum(fundamentals.market_cap)} />
+            <Stat label="P/E" value={fmtNum(fundamentals.trailing_pe)} />
+            <Stat label="Fwd P/E" value={fmtNum(fundamentals.forward_pe)} />
+            <Stat label="D/E" value={fmtNum(fundamentals.debt_to_equity)} />
+            <Stat
+              label="Margins"
+              value={fundamentals.profit_margins != null ? fmtPct(fundamentals.profit_margins * 100) : '—'}
+            />
+          </>
+        )}
         <Stat
           label="Vol vs 20d"
           value={price.volume_relative_20d != null ? `${(price.volume_relative_20d * 100).toFixed(0)}%` : '—'}
@@ -154,13 +176,54 @@ export function ResearchBriefView({
         {realized_vol?.realized_vol_30d != null && (
           <Stat label="RV30" value={fmtNum(realized_vol.realized_vol_30d, 3)} />
         )}
-        {etf && (
-          <Stat
-            label="ETF AUM"
-            value={etf.net_assets != null ? fmtNum(etf.net_assets) : (etf.family ?? etf.name ?? '—')}
-          />
-        )}
       </HStack>
+
+      {research.computed_at && etf && etfHoldings.length > 0 ? (
+        <VStack gap={2} className="research-section research-etf-holdings">
+          <Heading level={3}>Holdings</Heading>
+          <Text type="supporting">
+            Top {etfHoldings.length} components by weight
+            {etf.name ? ` · ${etf.name}` : ''}.
+          </Text>
+          <div className="research-holdings-wrap">
+            <table className="research-holdings-table">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Symbol</th>
+                  <th scope="col">Name</th>
+                  <th scope="col" className="right">Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {etfHoldings.map((h) => {
+                  const sym = h.holding_symbol?.trim().toUpperCase() || null;
+                  return (
+                    <tr key={`${h.rank ?? ''}-${sym ?? h.holding_name ?? ''}`}>
+                      <td>{h.rank ?? '—'}</td>
+                      <td>
+                        {sym ? (
+                          <Link
+                            to="/research/$ticker"
+                            params={{ ticker: sym }}
+                            className="research-chip-link research-holding-link"
+                          >
+                            {sym}
+                          </Link>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td>{h.holding_name ?? '—'}</td>
+                      <td className="right">{fmtFracPct(h.weight)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </VStack>
+      ) : null}
 
       {research.computed_at ? (
       <VStack gap={2} className="research-section" id={`research-chart-${identity.ticker}`}>

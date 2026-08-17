@@ -300,6 +300,54 @@
   background: var(--panel);
 }
 
+.research-holdings-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--panel);
+}
+
+.research-holdings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.research-holdings-table th,
+.research-holdings-table td {
+  padding: var(--spacing-2) var(--spacing-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.research-holdings-table thead th {
+  background: color-mix(in srgb, var(--panel) 88%, var(--color-text-primary));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.research-holdings-table .right {
+  text-align: right;
+}
+
+.research-holdings-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.research-holding-link {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-family-code);
+  font-weight: 600;
+}
+
 .research-chain-table {
   width: 100%;
   border-collapse: collapse;
