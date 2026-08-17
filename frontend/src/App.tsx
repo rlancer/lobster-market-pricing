@@ -13,6 +13,7 @@ import {
   SideNavItem,
   SideNavSection,
   IconButton,
+  VStack,
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
@@ -259,7 +260,9 @@ function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
 function WorkspaceHelpNav({ activeTo }: { activeTo?: string }) {
   return (
     <>
-      <Divider isFullBleed variant="strong" />
+      <VStack paddingBlock={3} width="100%">
+        <Divider isFullBleed variant="strong" />
+      </VStack>
       <WorkspaceHelpNavItems activeTo={activeTo} />
     </>
   );
