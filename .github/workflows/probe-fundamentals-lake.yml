@@ -7,7 +7,7 @@ name: Probe fundamentals lake (one-shot)
 # Worker's R2_SQL_TOKEN). Uses existing repo secrets for provision + ingest.
 #
 # Delete or comment this workflow out once green on the PR (do not leave a
-# permanent flaky lake probe on every push).
+# permanent flaky lake probe on every push). Re-run after Pipelines Edit grant.
 
 on:
   pull_request:
