@@ -67,7 +67,7 @@ describe("etf-daily job adapter", () => {
     const posts: Array<{ url: string; body: unknown }> = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if ((init && init.method) === "POST") {
+      if (init?.method === "POST") {
         posts.push({ url, body: JSON.parse(String(init.body)) });
         return new Response(JSON.stringify({ success: true }), { status: 200 });
       }

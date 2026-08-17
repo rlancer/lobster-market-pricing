@@ -1,0 +1,23 @@
+{
+  "fields": [
+    {"name":"root","type":"string","required":true},
+    {"name":"contract_symbol","type":"string","required":true},
+    {"name":"security_type","type":"string","required":false},
+    {"name":"expiration_date","type":"string","required":false},
+    {"name":"last","type":"float64","required":false},
+    {"name":"bid","type":"float64","required":false},
+    {"name":"ask","type":"float64","required":false},
+    {"name":"open","type":"float64","required":false},
+    {"name":"high","type":"float64","required":false},
+    {"name":"low","type":"float64","required":false},
+    {"name":"close","type":"float64","required":false},
+    {"name":"prev_close","type":"float64","required":false},
+    {"name":"volume","type":"int64","required":false},
+    {"name":"open_interest","type":"float64","required":false},
+    {"name":"settlement_price","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

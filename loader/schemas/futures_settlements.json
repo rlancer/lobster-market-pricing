@@ -1,0 +1,12 @@
+{
+  "fields": [
+    {"name":"product","type":"string","required":true},
+    {"name":"contract_symbol","type":"string","required":true},
+    {"name":"expiration_date","type":"string","required":true},
+    {"name":"settle_price","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "source": "curated continuous Yahoo futures (=F front month) for CME/CBOT/NYMEX/COMEX — used by futures-ohlc-daily",
+  "updated": "2026-08-17",
+  "note": "Yahoo chart v8 continuous contracts (instrumentType FUTURE). These are NOT CFE products; Cboe Futures Exchange (VX, FBT, …) is ingested separately by cfe-futures-daily via CBOE delayed quotes + settlement CSV. Verified HTTP 200 on query1.finance.yahoo.com/v8/finance/chart/{symbol} 2026-08-17.",
+  "futures": [
+    { "symbol": "ES=F", "name": "E-mini S&P 500", "asset_class": "Equity Index", "exchange": "CME" },
+    { "symbol": "NQ=F", "name": "E-mini Nasdaq-100", "asset_class": "Equity Index", "exchange": "CME" },
+    { "symbol": "YM=F", "name": "E-mini Dow ($5)", "asset_class": "Equity Index", "exchange": "CBOT" },
+    { "symbol": "RTY=F", "name": "E-mini Russell 2000", "asset_class": "Equity Index", "exchange": "CME" },
+    { "symbol": "MES=F", "name": "Micro E-mini S&P 500", "asset_class": "Equity Index", "exchange": "CME" },
+    { "symbol": "MNQ=F", "name": "Micro E-mini Nasdaq-100", "asset_class": "Equity Index", "exchange": "CME" },
+    { "symbol": "CL=F", "name": "Crude Oil WTI", "asset_class": "Energy", "exchange": "NYMEX" },
+    { "symbol": "NG=F", "name": "Henry Hub Natural Gas", "asset_class": "Energy", "exchange": "NYMEX" },
+    { "symbol": "GC=F", "name": "Gold", "asset_class": "Metals", "exchange": "COMEX" },
+    { "symbol": "SI=F", "name": "Silver", "asset_class": "Metals", "exchange": "COMEX" },
+    { "symbol": "HG=F", "name": "Copper", "asset_class": "Metals", "exchange": "COMEX" },
+    { "symbol": "ZB=F", "name": "US Treasury Bond", "asset_class": "Rates", "exchange": "CBOT" },
+    { "symbol": "ZN=F", "name": "10-Year T-Note", "asset_class": "Rates", "exchange": "CBOT" },
+    { "symbol": "ZF=F", "name": "5-Year T-Note", "asset_class": "Rates", "exchange": "CBOT" },
+    { "symbol": "ZT=F", "name": "2-Year T-Note", "asset_class": "Rates", "exchange": "CBOT" },
+    { "symbol": "6E=F", "name": "Euro FX", "asset_class": "FX", "exchange": "CME" },
+    { "symbol": "6J=F", "name": "Japanese Yen", "asset_class": "FX", "exchange": "CME" },
+    { "symbol": "BTC=F", "name": "Bitcoin", "asset_class": "Crypto", "exchange": "CME" },
+    { "symbol": "ETH=F", "name": "Ether", "asset_class": "Crypto", "exchange": "CME" }
+  ]
+}

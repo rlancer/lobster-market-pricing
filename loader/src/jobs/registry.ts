@@ -6,6 +6,8 @@ import { earningsDailyJob } from "./earnings-daily.js";
 import { fredEconDailyJob } from "./fred-econ-daily.js";
 import { etfDailyJob } from "./etf-daily.js";
 import { fundamentalsDailyJob } from "./fundamentals-daily.js";
+import { futuresOhlcDailyJob } from "./futures-ohlc-daily.js";
+import { cfeFuturesDailyJob } from "./cfe-futures-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -24,6 +26,10 @@ import { fundamentalsDailyJob } from "./fundamentals-daily.js";
 //     topHoldings for symbols/etfs.json → options.etf_profiles / etf_holdings.
 //   - fundamentals-daily — batch, ungated, daily cadence; Yahoo quoteSummary
 //     equity fundamentals → options.fundamentals (latest-wins by ticker).
+//   - futures-ohlc-daily — batch, ungated, daily; Yahoo continuous futures
+//     (=F) from symbols/futures.json → options.ohlc / realized_vol.
+//   - cfe-futures-daily — batch, ungated, daily; CBOE CFE settlement CSV +
+//     delayed monthals → options.futures_settlements / futures_quotes.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -33,5 +39,7 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     fredEconDailyJob(env),
     etfDailyJob(env),
     fundamentalsDailyJob(env),
+    futuresOhlcDailyJob(env),
+    cfeFuturesDailyJob(env),
   ];
 }
