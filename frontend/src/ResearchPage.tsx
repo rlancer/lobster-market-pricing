@@ -14,6 +14,7 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
+import { usePageMeta } from './usePageMeta';
 import { whenIdle, isResearchBriefReady, pendingTickerResearch } from './researchLazy';
 import './Research.css';
 
@@ -39,6 +40,14 @@ export default function ResearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const briefReady = isResearchBriefReady(research);
+  const researchName = research?.identity.name?.trim() || '';
+  usePageMeta(
+    tickerParam && researchName
+      ? {
+          description: `${researchName} (${tickerParam}) — spot, options chain, implied vol, greeks, and news.`,
+        }
+      : null,
+  );
 
   // Reset staged payloads when the ticker changes. Paint the ticker shell
   // immediately so first paint does not wait on GET /api/research.

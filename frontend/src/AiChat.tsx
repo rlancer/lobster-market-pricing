@@ -26,6 +26,8 @@ import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
+import { usePageMeta } from './usePageMeta';
+import { SITE_NAME, truncateTitle } from './pageMeta';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { AssistantMark } from './Sunglasses';
 import { ChartView, type ChartSpec } from './Chart';
@@ -602,6 +604,11 @@ function AiChatSession({
   }, [chatId]);
 
   const firstUserTurn = projectedMessages.find((message) => message.role === 'user' && message.content.trim())?.content.trim() ?? null;
+  usePageMeta(
+    firstUserTurn
+      ? { title: `${truncateTitle(firstUserTurn)} · ${SITE_NAME}` }
+      : null,
+  );
   useEffect(() => {
     if (!user || !firstUserTurn || claimedRef.current) return;
     claimedRef.current = true;

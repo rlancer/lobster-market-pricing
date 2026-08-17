@@ -28,6 +28,7 @@ import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
 import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
+import { DocumentMeta } from './DocumentMeta';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -430,5 +431,9 @@ function WorkspaceLayout() {
 }
 
 export default function App() {
-  return <WorkspaceLayout />;
+  return (
+    <DocumentMeta>
+      <WorkspaceLayout />
+    </DocumentMeta>
+  );
 }
