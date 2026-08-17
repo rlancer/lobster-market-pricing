@@ -163,15 +163,46 @@ Dry-run unless `PIPELINE_FUNDAMENTALS_URL` is set. Provisioning recipe matches
 the earnings block with names `cboe_fundamentals_v2` / `cboe_fundamentals_sink` /
 `cboe_fundamentals_pipeline` and `schemas/fundamentals.json`.
 
+### Continuous futures OHLC (`futures-ohlc-daily`)
+
+Yahoo chart v8 continuous front-month contracts (`ES=F`, `NQ=F`, `CL=F`, …)
+from the curated manifest `symbols/futures.json` (CME/CBOT/NYMEX/COMEX equity
+index, energy, metals, rates, FX, crypto). Reuses `publishOhlc` into the
+existing `options.ohlc` + `options.realized_vol` pipelines — no new stream.
+Batch, ungated, daily. Dry-run unless `PIPELINE_OHLC_URL` or
+`PIPELINE_REALIZED_VOL_URL` is set. CFE products (VX, …) are **not** on Yahoo
+as `VX=F`; they land via `cfe-futures-daily`.
+
+### Cboe Futures Exchange settlements + quotes (`cfe-futures-daily`)
+
+CFE term structure for the options lake (VX curve and sibling products):
+
+- `options.futures_settlements` — official daily settlement CSV
+  (`Product`, `Symbol`, `Expiration Date`, `Price`) including weeklies
+- `options.futures_quotes` — delayed monthals from
+  `cdn.cboe.com/.../quotes/{ROOT}{M}{YY}.json` (e.g. `VXU26`), derived from
+  monthly settlement rows (`VX/U6` → `VXU26`). Weeklies that 403 are skipped.
+
+Sources are keyless CBOE public surfaces (same family as equity delayed
+quotes). Batch, ungated, daily; passes are `settlements` + `quotes` so a
+per-pass failure is isolated. Dry-run unless
+`PIPELINE_FUTURES_SETTLEMENTS_URL` or `PIPELINE_FUTURES_QUOTES_URL` is set.
+Provisioning recipe matches the earnings block with names
+`cboe_futures_settlements_v2` / `cboe_futures_settlements_sink` /
+`cboe_futures_settlements_pipeline` (`schemas/futures_settlements.json`) and
+`cboe_futures_quotes_v2` / `cboe_futures_quotes_sink` /
+`cboe_futures_quotes_pipeline` (`schemas/futures_quotes.json`).
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
 - `src/ohlc.ts` — Yahoo OHLC + realized-vol + corporate-actions fetch/normalize/publish (period1/period2 windows, adjclose-based realized vol)
+- `src/futures.ts` — CFE settlement CSV + delayed monthals fetch/normalize/publish
 - `src/symbology.ts` — deterministic ticker-derived `security_id` (shared by securities / symbol_history / corporate_actions / backfill)
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
