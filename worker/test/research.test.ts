@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { analyzePriceAction, parseTickerParam, summarizeResearch, type OhlcBar, type TickerResearch } from "../src/research";
-import { identityFromOpenFigi, identityFromTicker } from "../src/figi";
+import { analyzePriceAction, getOrComputeResearch, parseTickerParam, summarizeResearch, type OhlcBar, type ResearchDeps, type TickerResearch } from "../src/research";
+import { identityFromOpenFigi, identityFromTicker, resolveTickerIdentity } from "../src/figi";
 import { normalizeTicker, securityIdForTicker } from "../src/symbology";
 
 function bar(date: string, close: number, volume: number, high?: number, low?: number): OhlcBar {
@@ -144,5 +144,223 @@ describe("summarizeResearch", () => {
     assert.match(text, /figi=BBG000B9XRY4/);
     assert.match(text, /marketCap=/);
     assert.match(text, /Apple headlines/);
+  });
+});
+
+function memoryDb(): D1Database {
+  const identities = new Map<string, {
+    security_id: string; ticker: string; figi: string | null; composite_figi: string | null;
+    isin: string | null; name: string | null; exchange: string | null; currency: string | null;
+    sector: string | null; source: string; resolved_at: number;
+  }>();
+  const research = new Map<string, { security_id: string; ticker: string; payload: string; computed_at: number; expires_at: number }>();
+
+  return {
+    prepare(sql: string) {
+      let binds: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          binds = args;
+          return stmt;
+        },
+        async first() {
+          if (sql.includes("FROM ticker_identities")) {
+            return identities.get(String(binds[0])) ?? null;
+          }
+          if (sql.includes("FROM ticker_research") && sql.includes("WHERE ticker")) {
+            const ticker = String(binds[0]);
+            const rows = [...research.values()].filter((r) => r.ticker === ticker)
+              .sort((a, b) => b.computed_at - a.computed_at);
+            const row = rows[0];
+            return row ? { payload: row.payload, expires_at: row.expires_at } : null;
+          }
+          if (sql.includes("FROM ticker_research") && sql.includes("security_id")) {
+            const row = research.get(String(binds[0]));
+            return row ? { payload: row.payload, expires_at: row.expires_at } : null;
+          }
+          if (sql.includes("FROM chat_tickers")) return null;
+          return null;
+        },
+        async run() {
+          if (sql.includes("INTO ticker_identities")) {
+            const ticker = String(binds[0]);
+            identities.set(ticker, {
+              ticker,
+              security_id: String(binds[1]),
+              figi: (binds[2] as string | null) ?? null,
+              composite_figi: (binds[3] as string | null) ?? null,
+              isin: (binds[4] as string | null) ?? null,
+              name: (binds[5] as string | null) ?? null,
+              exchange: (binds[6] as string | null) ?? null,
+              currency: (binds[7] as string | null) ?? null,
+              sector: (binds[8] as string | null) ?? null,
+              source: String(binds[9]),
+              resolved_at: Number(binds[10]),
+            });
+          }
+          if (sql.includes("INTO ticker_research")) {
+            const security_id = String(binds[0]);
+            research.set(security_id, {
+              security_id,
+              ticker: String(binds[1]),
+              payload: String(binds[2]),
+              computed_at: Number(binds[3]),
+              expires_at: Number(binds[4]),
+            });
+          }
+          return { success: true };
+        },
+        async all() {
+          return { results: [] };
+        },
+      };
+      return stmt;
+    },
+  } as unknown as D1Database;
+}
+
+function trackingDeps(): ResearchDeps & { calls: Record<string, number> } {
+  const calls = { ohlc: 0, news: 0, fundamentals: 0, earnings: 0, lake: 0, figiFetch: 0, etf: 0, rv: 0 };
+  const bars: OhlcBar[] = [];
+  for (let i = 0; i < 30; i++) {
+    const close = 100 + i;
+    bars.push({
+      date: `2026-01-${String(i + 1).padStart(2, "0")}`,
+      open: close, high: close + 1, low: close - 1, close, volume: 1_000_000,
+    });
+  }
+  return {
+    calls,
+    lakeLookup: async () => {
+      calls.lake++;
+      return { ticker: "AAPL", name: "Apple Inc", figi: "BBG000B9XRY4", sector: "Equity" };
+    },
+    loadOhlc: async () => { calls.ohlc++; return bars; },
+    loadRealizedVol: async () => { calls.rv++; return null; },
+    loadEarnings: async () => { calls.earnings++; return []; },
+    loadNews: async () => {
+      calls.news++;
+      return { items: [{ title: "slow tavily", link: "https://example.com" }] };
+    },
+    loadEtfProfile: async () => { calls.etf++; return null; },
+    loadFundamentals: async () => {
+      calls.fundamentals++;
+      return {
+        market_cap: 3e12, enterprise_value: null, trailing_pe: 30, forward_pe: 28,
+        peg_ratio: null, price_to_book: null, total_debt: null, debt_to_equity: null,
+        profit_margins: null, revenue_growth: null, source: "yahoo",
+      };
+    },
+    now: () => 1_700_000_000_000,
+  };
+}
+
+describe("resolveTickerIdentity", () => {
+  it("does not call OpenFIGI on the default (brief) path", async () => {
+    let figiCalls = 0;
+    const id = await resolveTickerIdentity(
+      { SCHEMA_DB: memoryDb(), OPEN_FIGI: "secret" },
+      "AAPL",
+      {
+        fetchImpl: (async () => {
+          figiCalls++;
+          return new Response("[]");
+        }) as typeof fetch,
+        lakeLookup: async () => ({ ticker: "AAPL", name: "Apple Inc", figi: "BBG000B9XRY4" }),
+      },
+    );
+    assert.equal(figiCalls, 0);
+    assert.equal(id.source, "lake");
+    assert.equal(id.name, "Apple Inc");
+  });
+
+  it("calls OpenFIGI only when liveFigi is set and lake misses", async () => {
+    let figiCalls = 0;
+    const id = await resolveTickerIdentity(
+      { SCHEMA_DB: memoryDb(), OPEN_FIGI: "secret" },
+      "AAPL",
+      {
+        liveFigi: true,
+        lakeLookup: async () => null,
+        fetchImpl: (async () => {
+          figiCalls++;
+          return new Response(JSON.stringify([{ data: [{ ticker: "AAPL", figi: "BBG000B9XRY4", name: "Apple Inc", exchCode: "US" }] }]));
+        }) as typeof fetch,
+      },
+    );
+    assert.equal(figiCalls, 1);
+    assert.equal(id.source, "openfigi");
+    assert.equal(id.figi, "BBG000B9XRY4");
+  });
+});
+
+describe("getOrComputeResearch", () => {
+  it("skips Tavily on the HTTP brief path and still returns lake fundamentals", async () => {
+    const deps = trackingDeps();
+    const research = await getOrComputeResearch(
+      { SCHEMA_DB: memoryDb() },
+      "AAPL",
+      deps,
+      { includeNews: false },
+    );
+    assert.equal(deps.calls.news, 0);
+    assert.equal(deps.calls.ohlc, 1);
+    assert.equal(deps.calls.fundamentals, 1);
+    assert.equal(deps.calls.etf, 0);
+    assert.equal(deps.calls.earnings, 0);
+    assert.equal(research.news.length, 0);
+    assert.equal(research.fundamentals.market_cap, 3e12);
+    assert.equal(research.identity.source, "lake");
+    assert.equal(research.cache_hit, false);
+  });
+
+  it("returns D1 cache by ticker without lake or news round-trips", async () => {
+    const db = memoryDb();
+    const firstDeps = trackingDeps();
+    await getOrComputeResearch({ SCHEMA_DB: db }, "AAPL", firstDeps, { includeNews: false });
+
+    const secondDeps = trackingDeps();
+    const cached = await getOrComputeResearch({ SCHEMA_DB: db }, "AAPL", secondDeps, { includeNews: false });
+    assert.equal(cached.cache_hit, true);
+    assert.equal(secondDeps.calls.ohlc, 0);
+    assert.equal(secondDeps.calls.news, 0);
+    assert.equal(secondDeps.calls.fundamentals, 0);
+    assert.equal(secondDeps.calls.lake, 0);
+  });
+
+  it("serves stale D1 rows immediately and schedules a refresh", async () => {
+    const db = memoryDb();
+    const t0 = 1_700_000_000_000;
+    const firstDeps = trackingDeps();
+    firstDeps.now = () => t0;
+    await getOrComputeResearch({ SCHEMA_DB: db }, "AAPL", firstDeps, { includeNews: false });
+
+    let refreshed = 0;
+    let refreshPromise: Promise<unknown> | null = null;
+    const staleDeps = trackingDeps();
+    staleDeps.now = () => t0 + 2 * 60 * 60 * 1000; // past 1h TTL
+    const served = await getOrComputeResearch({ SCHEMA_DB: db }, "AAPL", staleDeps, {
+      includeNews: false,
+      waitUntil: (p) => {
+        refreshed++;
+        refreshPromise = p;
+      },
+    });
+    assert.equal(served.cache_hit, true);
+    assert.equal(served.computed_at, new Date(t0).toISOString());
+    assert.equal(refreshed, 1);
+    await refreshPromise;
+  });
+
+  it("loads news when includeNews is set (Copilot tool path)", async () => {
+    const deps = trackingDeps();
+    const research = await getOrComputeResearch(
+      { SCHEMA_DB: memoryDb() },
+      "AAPL",
+      deps,
+      { includeNews: true },
+    );
+    assert.equal(deps.calls.news, 1);
+    assert.equal(research.news[0]?.title, "slow tavily");
   });
 });

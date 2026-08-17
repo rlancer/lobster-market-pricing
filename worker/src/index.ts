@@ -50,13 +50,16 @@ import {
   emptyFundamentals,
   getOrComputeResearch,
   parseTickerParam,
+  RESEARCH_OHLC_LIMIT,
   summarizeResearch,
   type EarningsBrief,
   type FundamentalsBrief,
+  type OhlcBar,
   type RealizedVolBrief,
   type ResearchDeps,
   type TickerResearch,
 } from "./research";
+import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary } from "./research-commentary";
 import { createCopilotModel } from "./copilot-contract";
 import type { LakeSecurityRow } from "./figi";
@@ -1997,7 +2000,7 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
 }
 
 // ---------------------------------------------------------------------------
-// Ticker research — OpenFIGI normalize + cached brief for chat widget / route
+// Ticker research — lake + D1 brief for chat widget / route (OpenFIGI/Tavily off the HTTP path)
 // ---------------------------------------------------------------------------
 
 async function lakeSecurityLookup(env: Env, ticker: string): Promise<LakeSecurityRow | null> {
@@ -2048,12 +2051,9 @@ async function loadResearchFundamentals(env: Env, ticker: string): Promise<Funda
     const rows = await r2sql(
       env,
       `SELECT market_cap, enterprise_value, trailing_pe, forward_pe, peg_ratio, price_to_book,` +
-        `  total_debt, debt_to_equity, profit_margins, revenue_growth, source FROM (` +
-        `  SELECT market_cap, enterprise_value, trailing_pe, forward_pe, peg_ratio, price_to_book,` +
-        `    total_debt, debt_to_equity, profit_margins, revenue_growth, source,` +
-        `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) rn` +
-        `  FROM options.fundamentals WHERE ticker = ${lit(ticker)}` +
-        `) WHERE rn = 1`,
+        `  total_debt, debt_to_equity, profit_margins, revenue_growth, source` +
+        ` FROM options.fundamentals WHERE ticker = ${lit(ticker)}` +
+        ` ORDER BY fetched_at DESC LIMIT 1`,
       "fund_" + ticker,
       QUERY_TTL_MS,
     );
@@ -2077,41 +2077,89 @@ async function loadResearchFundamentals(env: Env, ticker: string): Promise<Funda
   }
 }
 
+async function loadResearchOhlc(env: Env, ticker: string): Promise<OhlcBar[]> {
+  try {
+    // Bound the scan: technicals need ~90 sessions (~SMA50). Do not window
+    // the full OHLC history — that is what made a cold brief miss multi-second.
+    const since = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rows = await r2sql(
+      env,
+      `SELECT date, open, high, low, close, volume FROM (` +
+        `  SELECT date, open, high, low, close, volume,` +
+        `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.ohlc WHERE symbol = ${lit(ticker)} AND date >= ${lit(since)}` +
+        `) WHERE rn = 1 ORDER BY date DESC LIMIT ${RESEARCH_OHLC_LIMIT}`,
+      "research_ohlc_v2_" + ticker,
+      QUERY_TTL_MS,
+    );
+    return (rows as Row[]).map((r) => ({
+      date: String(r.date),
+      open: numOrNull(r.open),
+      high: numOrNull(r.high),
+      low: numOrNull(r.low),
+      close: numOrNull(r.close),
+      volume: numOrNull(r.volume),
+    })).reverse();
+  } catch {
+    return [];
+  }
+}
+
+async function loadResearchRealizedVol(env: Env, ticker: string): Promise<RealizedVolBrief | null> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT as_of_date, realized_vol_30d, realized_vol_90d FROM (` +
+        `  SELECT as_of_date, realized_vol_30d, realized_vol_90d,` +
+        `    ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.realized_vol WHERE symbol = ${lit(ticker)}` +
+        `) WHERE rn = 1`,
+      "research_rv_" + ticker,
+      QUERY_TTL_MS,
+    );
+    if (!rows.length) return null;
+    return {
+      as_of_date: String(rows[0].as_of_date),
+      realized_vol_30d: numOrNull(rows[0].realized_vol_30d),
+      realized_vol_90d: numOrNull(rows[0].realized_vol_90d),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadResearchEtfProfile(env: Env, ticker: string): Promise<TickerResearch["etf"]> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT name, family, category, net_assets, expense_ratio FROM (` +
+        `  SELECT name, family, category, net_assets, expense_ratio,` +
+        `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.etf_profiles WHERE ticker = ${lit(ticker)}` +
+        `) WHERE rn = 1`,
+      "research_etf_" + ticker,
+      QUERY_TTL_MS,
+    );
+    if (!rows.length) return null;
+    return {
+      name: strOrNull(rows[0].name),
+      family: strOrNull(rows[0].family),
+      category: strOrNull(rows[0].category),
+      net_assets: numOrNull(rows[0].net_assets),
+      expense_ratio: numOrNull(rows[0].expense_ratio),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function researchDepsFor(env: Env): ResearchDeps {
-  // One enrichSymbol per ticker per deps instance — loadOhlc / loadRealizedVol /
-  // loadEtfProfile used to each fire a full parallel lake round-trip.
-  const enrichByTicker = new Map<string, ReturnType<typeof enrichSymbol>>();
-  const enrichOnce = (ticker: string) => {
-    const key = ticker.toUpperCase();
-    let pending = enrichByTicker.get(key);
-    if (!pending) {
-      pending = enrichSymbol(env, key);
-      enrichByTicker.set(key, pending);
-    }
-    return pending;
-  };
+  // Slim lake reads for the brief — not enrichSymbol (that also pulls
+  // corporate_actions + etf_holdings + 260 OHLC bars for the chart path).
   return {
     lakeLookup: (ticker) => lakeSecurityLookup(env, ticker),
-    loadOhlc: async (ticker) => {
-      const enrich = await enrichOnce(ticker);
-      return enrich.ohlc.map((r) => ({
-        date: String(r.date),
-        open: numOrNull(r.open),
-        high: numOrNull(r.high),
-        low: numOrNull(r.low),
-        close: numOrNull(r.close),
-        volume: numOrNull(r.volume),
-      }));
-    },
-    loadRealizedVol: async (ticker) => {
-      const enrich = await enrichOnce(ticker);
-      if (!enrich.realized_vol) return null;
-      return {
-        as_of_date: String(enrich.realized_vol.as_of_date),
-        realized_vol_30d: numOrNull(enrich.realized_vol.realized_vol_30d),
-        realized_vol_90d: numOrNull(enrich.realized_vol.realized_vol_90d),
-      } satisfies RealizedVolBrief;
-    },
+    loadOhlc: (ticker) => loadResearchOhlc(env, ticker),
+    loadRealizedVol: (ticker) => loadResearchRealizedVol(env, ticker),
     loadEarnings: (ticker) => loadResearchEarnings(env, ticker),
     loadNews: async (ticker, limit) => {
       const result = await news(env, ticker, limit);
@@ -2120,17 +2168,7 @@ function researchDepsFor(env: Env): ResearchDeps {
         error: result.error,
       };
     },
-    loadEtfProfile: async (ticker) => {
-      const enrich = await enrichOnce(ticker);
-      if (!enrich.etf_profile) return null;
-      return {
-        name: strOrNull(enrich.etf_profile.name),
-        family: strOrNull(enrich.etf_profile.family),
-        category: strOrNull(enrich.etf_profile.category),
-        net_assets: numOrNull(enrich.etf_profile.net_assets),
-        expense_ratio: numOrNull(enrich.etf_profile.expense_ratio),
-      };
-    },
+    loadEtfProfile: (ticker) => loadResearchEtfProfile(env, ticker),
     loadFundamentals: (ticker) => loadResearchFundamentals(env, ticker),
   };
 }
@@ -2144,6 +2182,8 @@ async function researchTickerForAgent(
     const research = await getOrComputeResearch(env, symbol, researchDepsFor(env), {
       force: opts?.force,
       chatId: opts?.chatId,
+      includeNews: true,
+      includeSecondary: true,
     });
     return { research, summary: summarizeResearch(research) };
   } catch (e) {
@@ -2152,15 +2192,31 @@ async function researchTickerForAgent(
   }
 }
 
-async function handleResearchGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
+async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx: ExecutionContext): Promise<Response> {
   const ticker = parseTickerParam(tickerRaw);
   if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
   const url = new URL(req.url);
   const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
   const chatId = url.searchParams.get("chat_id")?.trim() || undefined;
+  const started = Date.now();
   try {
-    const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), { force, chatId });
-    return json(env, research, 200, "private");
+    const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), {
+      force,
+      chatId,
+      includeNews: false,
+      includeSecondary: false,
+      liveFigi: false,
+      waitUntil: (p) => ctx.waitUntil(p),
+    });
+    const dur = Date.now() - started;
+    return new Response(JSON.stringify(research), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": force ? "private, no-store" : "private, max-age=30, stale-while-revalidate=300",
+        "Server-Timing": `app;dur=${dur};desc="${research.cache_hit ? "cache" : "compute"}"`,
+      },
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return json(env, { error: message }, 502, "private");
@@ -2407,15 +2463,15 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     if (sub === "chats" && req.method === "GET") {
       const ticker = parseTickerParam(tickerPart);
       if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
-      const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), { force: false });
-      const chats = await listSecurityChats(env.SCHEMA_DB, research.identity.security_id, num(q.get("limit") ?? 20));
-      return json(env, { ticker: research.identity.ticker, security_id: research.identity.security_id, items: chats }, 200, "private");
+      const securityId = securityIdForTicker(ticker);
+      const chats = await listSecurityChats(env.SCHEMA_DB, securityId, num(q.get("limit") ?? 20));
+      return json(env, { ticker, security_id: securityId, items: chats }, 200, "private");
     }
     if (sub === "commentary" && req.method === "GET") {
       return handleResearchCommentaryGet(env, req, tickerPart);
     }
     if (!sub && (req.method === "GET" || req.method === "POST")) {
-      return handleResearchGet(env, req, tickerPart);
+      return handleResearchGet(env, req, tickerPart, ctx);
     }
   }
 

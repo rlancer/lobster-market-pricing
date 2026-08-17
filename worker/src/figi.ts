@@ -1,15 +1,15 @@
 /**
- * Live OpenFIGI resolution for Copilot trade suggestions / research.
+ * Ticker identity for Copilot trade suggestions / research.
  *
- * Resolution order:
- *   1. Fresh D1 `ticker_identities` row (TTL)
- *   2. OpenFIGI Mapping API (`TICKER` + `exchCode: US`) when OPEN_FIGI is set
- *   3. Lake `options.securities` latest-wins row
- *   4. Deterministic ticker-derived identity (always succeeds)
+ * Resolution order (request path — lake first, no live Yahoo):
+ *   1. D1 `ticker_identities` row (served even if TTL-stale)
+ *   2. Lake `options.securities` latest-wins row
+ *   3. Deterministic ticker-derived identity (always succeeds)
  *
- * security_id matches the loader: ticker-seeded UUID so rows join the lake
- * even when OpenFIGI enrichment is missing. figi / composite_figi / isin are
- * stored as enrichment columns (same posture as `loader/tools/figi_map.ts`).
+ * OpenFIGI Mapping API is opt-in (`liveFigi: true`) and must not sit on the
+ * research-brief critical path. security_id is ticker-seeded UUID so rows join
+ * the lake even when FIGI enrichment is missing. figi / composite_figi / isin
+ * are enrichment columns (same posture as `loader/tools/figi_map.ts`).
  */
 
 import { normalizeTicker, securityIdForTicker } from "./symbology";
@@ -102,6 +102,7 @@ export async function readCachedIdentity(
   ticker: string,
   now = Date.now(),
   ttlMs = IDENTITY_TTL_MS,
+  opts?: { allowStale?: boolean },
 ): Promise<TickerIdentity | null> {
   const row = await db.prepare(
     `SELECT security_id, ticker, figi, composite_figi, isin, name, exchange, currency, sector, source, resolved_at
@@ -120,7 +121,8 @@ export async function readCachedIdentity(
     resolved_at: number;
   }>();
   if (!row) return null;
-  if (now - row.resolved_at > ttlMs) return null;
+  const stale = now - row.resolved_at > ttlMs;
+  if (stale && !opts?.allowStale) return null;
   return { ...identityFromRow(row), source: "cache" };
 }
 
@@ -234,40 +236,51 @@ export function identityFromTicker(ticker: string, now = Date.now()): TickerIden
 export type LakeLookup = (ticker: string) => Promise<LakeSecurityRow | null>;
 
 /**
- * Resolve a free-form ticker to a normalized identity. Always returns a row;
- * OpenFIGI / lake enrich when available. Persists successful resolutions to D1.
+ * Resolve a free-form ticker to a normalized identity. Always returns a row.
+ * Default path is D1 (including stale) → lake → ticker. OpenFIGI is opt-in
+ * via `liveFigi` and is skipped on the research brief so first paint is not
+ * gated on a third-party HTTP round-trip.
  */
 export async function resolveTickerIdentity(
   env: FigiEnv,
   rawTicker: string,
-  opts?: { lakeLookup?: LakeLookup; fetchImpl?: typeof fetch; now?: number; persist?: boolean },
+  opts?: {
+    lakeLookup?: LakeLookup;
+    fetchImpl?: typeof fetch;
+    now?: number;
+    persist?: boolean;
+    /** When true, call OpenFIGI if D1+lake did not produce a row. Default false. */
+    liveFigi?: boolean;
+  },
 ): Promise<TickerIdentity> {
   const ticker = normalizeTicker(rawTicker);
   if (!ticker) throw new Error("ticker is required");
   const now = opts?.now ?? Date.now();
   const persist = opts?.persist !== false;
 
-  const cached = await readCachedIdentity(env.SCHEMA_DB, ticker, now).catch(() => null);
+  const cached = await readCachedIdentity(env.SCHEMA_DB, ticker, now, IDENTITY_TTL_MS, { allowStale: true }).catch(() => null);
   if (cached) return cached;
 
   let resolved: TickerIdentity | null = null;
 
-  const key = env.OPEN_FIGI?.trim();
-  if (key) {
-    try {
-      const entry = await mapOpenFigi(ticker, key, opts?.fetchImpl ?? fetch);
-      if (entry) resolved = identityFromOpenFigi(ticker, entry, now);
-    } catch (e) {
-      console.error("OpenFIGI resolve failed", e);
-    }
-  }
-
-  if (!resolved && opts?.lakeLookup) {
+  if (opts?.lakeLookup) {
     try {
       const lake = await opts.lakeLookup(ticker);
       if (lake) resolved = identityFromLake(lake, ticker, now);
     } catch (e) {
       console.error("lake securities lookup failed", e);
+    }
+  }
+
+  if (!resolved && opts?.liveFigi) {
+    const key = env.OPEN_FIGI?.trim();
+    if (key) {
+      try {
+        const entry = await mapOpenFigi(ticker, key, opts?.fetchImpl ?? fetch);
+        if (entry) resolved = identityFromOpenFigi(ticker, entry, now);
+      } catch (e) {
+        console.error("OpenFIGI resolve failed", e);
+      }
     }
   }
 
