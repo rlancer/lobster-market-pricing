@@ -6,6 +6,7 @@ import { ChartView } from './Chart';
 import { ResultTable } from './QueryResultView';
 import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChatMessage } from './api';
+import { AssistantMark } from './Sunglasses';
 
 /**
  * Read-only assistant turn body shared by /share/:id and the public timeline.
@@ -141,7 +142,7 @@ export function TranscriptMessage({
 }) {
   return (
     <div className={`ai-msg ai-${message.role}`}>
-      {message.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
+      {message.role === 'assistant' && <AssistantMark />}
       <div className="ai-bubble">
         {message.role === 'assistant'
           ? (

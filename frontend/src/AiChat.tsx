@@ -27,6 +27,7 @@ import { useAgentReconnect } from './chatConnection';
 import { clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
+import { AssistantMark } from './Sunglasses';
 import { ChartView, type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
@@ -900,7 +901,7 @@ function AiChatSession({
           const isLive = message.role === 'assistant' && message.id === liveAssistantId;
           return (
             <div key={message.id} className={`ai-msg ai-${message.role}`}>
-              {message.role === 'assistant' && <span className="ai-msg-mark" aria-hidden="true">λ</span>}
+              {message.role === 'assistant' && <AssistantMark />}
               <div className="ai-bubble">
                 {isLive && (
                   <TurnProgress
@@ -994,14 +995,14 @@ function AiChatSession({
 
         {visibleError && !busy && !paused && (
           <div className="ai-msg ai-assistant">
-            <span className="ai-msg-mark" aria-hidden="true">λ</span>
+            <AssistantMark />
             <div className="ai-bubble"><div className="ai-err">{visibleError}</div></div>
           </div>
         )}
 
         {(busy || paused) && !liveAssistantId && (
           <div className="ai-msg ai-assistant">
-            <span className="ai-msg-mark" aria-hidden="true">λ</span>
+            <AssistantMark />
             <div className="ai-bubble">
               <TurnProgress
                 status={status}

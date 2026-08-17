@@ -41,6 +41,31 @@ button, select { cursor: pointer; }
 
 .workspace-nav {
   background: var(--panel);
+  height: 100%;
+}
+.nav-brand {
+  width: 100%;
+  padding-block: var(--spacing-3);
+}
+.nav-brand-link {
+  display: flex;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-element);
+}
+.nav-brand-link:focus-visible {
+  outline: var(--spacing-0-5) solid var(--accent);
+  outline-offset: var(--spacing-0-5);
+}
+.nav-mascot {
+  display: block;
+  width: calc(var(--size-element-lg) * 2);
+  height: calc(var(--size-element-lg) * 2);
+  flex-shrink: 0;
+}
+.nav-research-search {
+  width: 100%;
+  min-width: 0;
 }
 
 .topbar {
@@ -52,19 +77,10 @@ button, select { cursor: pointer; }
   backdrop-filter: blur(var(--spacing-3));
   -webkit-backdrop-filter: blur(var(--spacing-3));
 }
-.app-brand-link {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
+.topbar-research-search {
+  flex: 1 1 auto;
   min-width: 0;
-  color: var(--text);
-  text-decoration: none;
-}
-.brand-sunglasses {
-  display: block;
-  height: var(--size-element-md);
-  width: auto;
-  flex-shrink: 0;
+  max-width: 20rem;
 }
 .topbar-tools {
   display: flex;
@@ -394,15 +410,10 @@ button, select { cursor: pointer; }
     gap: var(--spacing-2);
     padding-inline: var(--spacing-3);
   }
-  .app-brand-link {
-    gap: var(--spacing-2);
-  }
-  .brand-sunglasses {
-    height: var(--size-element-sm);
+  .topbar-research-search {
+    max-width: none;
   }
   .topbar-tools { gap: var(--spacing-1); }
-  .topbar-tools .liq-filter,
-  .topbar-tools .monitor-status { display: none; }
   .docs-link,
   .topbar-profile,
   .topbar-profile-icon {

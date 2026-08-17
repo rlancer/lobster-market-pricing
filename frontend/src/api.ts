@@ -471,6 +471,8 @@ export interface TimelinePost {
   model: string | null;
   has_sql: boolean;
   has_chart: boolean;
+  /** Tickers linked to the originating chat via chat_tickers (may be empty). */
+  tickers?: string[];
 }
 
 export interface TimelineFeed {
@@ -709,7 +711,16 @@ export const api = {
   // Upcoming macro/FOMC event dates (Worker → FRED releases/dates, Fed calendar fallback).
   econCalendar: (days?: number) =>
     get<EconCalendarResponse>(`/api/econ_calendar${qs({ days })}`),
-  symbolDetail: (symbol: string) => get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}`),
+  symbolDetail: (symbol: string, opts?: {
+    parts?: 'full' | 'ohlc' | 'chain';
+    expiration?: string;
+    near_spot?: number;
+  }) =>
+    get<SymbolDetail>(`/api/symbol/${encodeURIComponent(symbol.toUpperCase())}${qs({
+      parts: opts?.parts,
+      expiration: opts?.expiration,
+      near_spot: opts?.near_spot,
+    })}`),
   notebookPremium: (params: {
     target_dte?: number;
     tolerance?: number;

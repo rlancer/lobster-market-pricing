@@ -216,9 +216,15 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/symbols?q=&liquid_only=&limit=` | Symbol autocomplete |
 | `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
+<<<<<<< HEAD
 | `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits |
 | `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, lake fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
 | `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Cached alongside the research payload. |
+=======
+| `GET /api/symbol/{symbol}` | Underlying info + option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits. Optional staging params for the research page: `parts=ohlc` (skip chain), `parts=chain` (skip enrichment; one expiration), `expiration=YYYY-MM-DD`, `near_spot=N` (N strikes closest to spot). Default `parts=full` keeps the legacy dump. |
+| `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, Yahoo fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
+| `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Always includes a directional bias and a concrete options structure — even when conviction is low. Cached alongside the research payload. |
+>>>>>>> origin/main
 | `GET /api/research/{ticker}/chats` | Chats previously linked to this security (cross-ticker graph via `security_id`). |
 | `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
 | `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
@@ -238,7 +244,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/tool_calls` | Public Copilot tool-call debug log from D1 (no token). Defaults to failures (`ok=false`); filter with `chat_id`, `share_id`, `tool`, `ok=true\|false\|all`, `limit`, `before` (ISO). Each item has tool name, capped args, error, summary, sql, duration, turn/chat ids. `/api/admin/tool_calls` is an alias. |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name}`. |
-| `GET /api/timeline` | Public feed of opted-in shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile). `{items, next_before, profile}`. 404 if `handle` is set and unknown. |
+| `GET /api/timeline` | Public feed of opted-in shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile). `{items, next_before, profile}` — each item includes `tickers` (from `chat_tickers` on the originating chat). 404 if `handle` is set and unknown. |
 | `POST /api/timeline` | List a share on the public timeline (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. |
 | `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner only. |
 
@@ -260,8 +266,9 @@ in-memory.
 
 The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Research**
 (`/research`, `/research/{ticker}`) is the ticker detail page — spot + compact
-fundamentals, a ranged OHLC chart, Lobster commentary as a chat bubble with
-follow-up → new chat, and an options-chain explorer. Chat ticker chips (from
+fundamentals paint first; chart and Lobster commentary arm when those sections
+near the viewport; the options chain is click-to-load (one expiration +
+near-spot window). Related chats settle on idle. Chat ticker chips (from
 `research_ticker`) link there. **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
@@ -308,6 +315,12 @@ chat's Durable Object, and the UI disables the composer so follow-ups cannot
 retry on the same chat. Start a new chat for a real market question. Classifier
 infrastructure failures fail open so genuine market asks still work.
 
+**Tool-loop guard.** Until a lake query succeeds, the agent forces `run_query`
+(or `filter_frame` when the question names a cached frame). Bare table-less
+SQL (`SELECT 1`, `SELECT 'test' AS t`) is rejected in schema validation before
+it hits R2. After three failed queries in the same turn, the loop stops
+forcing tools and seals a prose close-out so the model cannot burn the full
+10-step budget on the same rejected probe.
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The live conversation is `/chat`

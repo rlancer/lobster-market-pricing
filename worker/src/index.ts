@@ -531,38 +531,129 @@ async function enrichSymbol(env: Env, symbol: string): Promise<{
   };
 }
 
-async function symbolDetail(env: Env, symbol: string): Promise<{
+type SymbolDetailParts = "full" | "ohlc" | "chain";
+
+interface SymbolDetailOpts {
+  /** `ohlc` skips the chain; `chain` skips enrichment; `full` is the legacy dump. */
+  parts?: SymbolDetailParts;
+  /** When set with parts=chain, only this expiration's contracts are returned. */
+  expiration?: string;
+  /**
+   * Keep the N strikes closest to spot (calls+puts for those strikes).
+   * 0 / unset with no expiration → full chain; with expiration → all strikes
+   * for that expiry unless near_spot > 0.
+   */
+  nearSpot?: number;
+}
+
+function parseSymbolDetailParts(raw: string | null): SymbolDetailParts {
+  const v = (raw ?? "full").trim().toLowerCase();
+  if (v === "ohlc" || v === "chain") return v;
+  return "full";
+}
+
+/** Keep contracts whose strike is among the N closest to spot. */
+function filterContractsNearSpot(rows: Row[], spot: number | null, nearSpot: number): Row[] {
+  if (!nearSpot || nearSpot <= 0 || spot == null || !Number.isFinite(spot)) return rows;
+  const strikes = Array.from(new Set(
+    rows.map((r) => Number(r.strike)).filter((n) => Number.isFinite(n)),
+  ));
+  if (strikes.length <= nearSpot) return rows;
+  const keep = new Set(
+    [...strikes]
+      .sort((a, b) => Math.abs(a - spot) - Math.abs(b - spot))
+      .slice(0, nearSpot),
+  );
+  return rows.filter((r) => keep.has(Number(r.strike)));
+}
+
+async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {}): Promise<{
   underlying: { symbol: string; name: string | null; sector: string | null; spot: number | null; fetched_at: string | null } | null;
   contracts: Row[]; expirations: string[]; n_contracts: number; liquid: boolean;
   ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
   etf_profile: Row | null; etf_holdings: Row[];
 }> {
+  const parts = opts.parts ?? "full";
+  const empty = {
+    underlying: null, contracts: [] as Row[], expirations: [] as string[], n_contracts: 0, liquid: false,
+    ohlc: [] as Row[], realized_vol: null as Row | null, corporate_actions: [] as Row[],
+    etf_profile: null as Row | null, etf_holdings: [] as Row[],
+  };
   const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`, "symu_" + symbol, QUERY_TTL_MS);
-  if (!u.length) {
-    return { underlying: null, contracts: [], expirations: [], n_contracts: 0, liquid: false, ohlc: [], realized_vol: null, corporate_actions: [], etf_profile: null, etf_holdings: [] };
-  }
+  if (!u.length) return empty;
   const ud = u[0];
+  const underlying = {
+    symbol: String(ud.symbol), name: strOrNull(ud.name), sector: strOrNull(ud.sector),
+    spot: numOrNull(ud.spot_price), fetched_at: strOrNull(ud.fetched_at),
+  };
+  const spot = underlying.spot;
+  const wantOhlc = parts === "full" || parts === "ohlc";
+  const wantChain = parts === "full" || parts === "chain";
+
   // contracts for the latest run of this symbol + enrichment, in parallel.
   // The chain key embeds run_id, so a new loader run naturally invalidates it.
-  const [{ rows, expirations }, enrich, syms] = await Promise.all([
-    r2sql(env,
-      `SELECT expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, ` +
-      `delta, gamma, theta, vega, rho, in_the_money, theo, bid_size, ask_size, fetched_at ` +
-      `FROM options.option_contracts WHERE symbol = ${lit(symbol)} ` +
-      `AND run_id = ${lit(ud.run_id)} ORDER BY expiration, strike, type LIMIT ${R2SQL_LIMIT_MAX}`,
-      "symc_" + symbol + "_" + ud.run_id, QUERY_TTL_MS)
-      .then((r) => ({ rows: r, expirations: sortedUnique(r.map((x) => String(x.expiration))) })),
-    enrichSymbol(env, symbol),
+  // parts=ohlc / parts=chain let the research page stage payloads instead of
+  // downloading the full ~1MB chain before the Lobster take can paint.
+  const expiration = opts.expiration?.trim() || undefined;
+  const nearSpot = opts.nearSpot != null && Number.isFinite(opts.nearSpot) ? Math.max(0, Math.floor(opts.nearSpot)) : 0;
+
+  const chainPromise = wantChain
+    ? (async () => {
+      // Expirations are cheap and always returned so the UI can populate the picker
+      // without a second round-trip when the client already knows the expiry.
+      const expRows = await r2sql(env,
+        `SELECT DISTINCT expiration FROM options.option_contracts WHERE symbol = ${lit(symbol)} ` +
+        `AND run_id = ${lit(ud.run_id)} ORDER BY expiration LIMIT 500`,
+        "symexp_" + symbol + "_" + ud.run_id, QUERY_TTL_MS);
+      const expirations = sortedUnique(expRows.map((x) => String(x.expiration)));
+      const today = new Date().toISOString().slice(0, 10);
+      const frontMonth = expirations.find((e) => e >= today) ?? expirations[expirations.length - 1];
+      const activeExp = expiration && expirations.includes(expiration)
+        ? expiration
+        : frontMonth;
+      if (!activeExp) return { rows: [] as Row[], expirations, n_contracts: 0 };
+
+      const expFilter = `AND expiration = ${lit(activeExp)}`;
+      // Bound the SQL when near-spot is set: pull a wider strike window then trim.
+      // Without near_spot (or parts=full legacy), keep the historical full dump for
+      // one expiration when expiration is set; full parts still dumps all expiries.
+      const scoped = parts === "chain" || Boolean(expiration);
+      const sql =
+        `SELECT expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, ` +
+        `delta, gamma, theta, vega, rho, in_the_money, theo, bid_size, ask_size, fetched_at ` +
+        `FROM options.option_contracts WHERE symbol = ${lit(symbol)} ` +
+        `AND run_id = ${lit(ud.run_id)} ` +
+        `${scoped ? expFilter + " " : ""}` +
+        `ORDER BY expiration, strike, type LIMIT ${R2SQL_LIMIT_MAX}`;
+      const cacheKey = scoped
+        ? `symc_${symbol}_${ud.run_id}_${activeExp}`
+        : `symc_${symbol}_${ud.run_id}`;
+      const raw = await r2sql(env, sql, cacheKey, QUERY_TTL_MS);
+      const trimmed = scoped && nearSpot > 0
+        ? filterContractsNearSpot(raw as Row[], spot, nearSpot)
+        : (raw as Row[]);
+      return { rows: trimmed, expirations, n_contracts: trimmed.length };
+    })()
+    : Promise.resolve({ rows: [] as Row[], expirations: [] as string[], n_contracts: 0 });
+
+  const enrichPromise = wantOhlc
+    ? enrichSymbol(env, symbol)
+    : Promise.resolve({
+      ohlc: [] as Row[], realized_vol: null as Row | null, corporate_actions: [] as Row[],
+      etf_profile: null as Row | null, etf_holdings: [] as Row[],
+    });
+
+  const [{ rows, expirations, n_contracts }, enrich, syms] = await Promise.all([
+    chainPromise,
+    enrichPromise,
     liquidSymbols(env),
   ]);
+
   return {
-    underlying: {
-      symbol: String(ud.symbol), name: strOrNull(ud.name), sector: strOrNull(ud.sector),
-      spot: numOrNull(ud.spot_price), fetched_at: strOrNull(ud.fetched_at),
-    },
-    contracts: rows as Row[],
+    underlying,
+    contracts: rows,
     expirations,
-    n_contracts: rows.length,
+    n_contracts,
     liquid: syms.includes(symbol),
     ohlc: enrich.ohlc,
     realized_vol: enrich.realized_vol,
@@ -2076,10 +2167,22 @@ async function loadResearchFundamentals(env: Env, ticker: string): Promise<Funda
 }
 
 function researchDepsFor(env: Env): ResearchDeps {
+  // One enrichSymbol per ticker per deps instance — loadOhlc / loadRealizedVol /
+  // loadEtfProfile used to each fire a full parallel lake round-trip.
+  const enrichByTicker = new Map<string, ReturnType<typeof enrichSymbol>>();
+  const enrichOnce = (ticker: string) => {
+    const key = ticker.toUpperCase();
+    let pending = enrichByTicker.get(key);
+    if (!pending) {
+      pending = enrichSymbol(env, key);
+      enrichByTicker.set(key, pending);
+    }
+    return pending;
+  };
   return {
     lakeLookup: (ticker) => lakeSecurityLookup(env, ticker),
     loadOhlc: async (ticker) => {
-      const enrich = await enrichSymbol(env, ticker);
+      const enrich = await enrichOnce(ticker);
       return enrich.ohlc.map((r) => ({
         date: String(r.date),
         open: numOrNull(r.open),
@@ -2090,7 +2193,7 @@ function researchDepsFor(env: Env): ResearchDeps {
       }));
     },
     loadRealizedVol: async (ticker) => {
-      const enrich = await enrichSymbol(env, ticker);
+      const enrich = await enrichOnce(ticker);
       if (!enrich.realized_vol) return null;
       return {
         as_of_date: String(enrich.realized_vol.as_of_date),
@@ -2107,7 +2210,7 @@ function researchDepsFor(env: Env): ResearchDeps {
       };
     },
     loadEtfProfile: async (ticker) => {
-      const enrich = await enrichSymbol(env, ticker);
+      const enrich = await enrichOnce(ticker);
       if (!enrich.etf_profile) return null;
       return {
         name: strOrNull(enrich.etf_profile.name),
@@ -2382,7 +2485,11 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   if (path.startsWith("/api/symbol/")) {
     const sym = decodeURIComponent(path.slice("/api/symbol/".length)).toUpperCase();
-    return json(env, await symbolDetail(env, sym));
+    const parts = parseSymbolDetailParts(q.get("parts"));
+    const expiration = q.get("expiration")?.trim() || undefined;
+    const nearRaw = q.get("near_spot");
+    const nearSpot = nearRaw != null && nearRaw !== "" ? num(nearRaw) : undefined;
+    return json(env, await symbolDetail(env, sym, { parts, expiration, nearSpot }));
   }
 
   if (path.startsWith("/api/research/")) {

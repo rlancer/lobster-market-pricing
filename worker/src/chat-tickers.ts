@@ -124,3 +124,41 @@ export async function listSecurityChats(
   }>();
   return rows.results ?? [];
 }
+
+/**
+ * Collapse chat_tickers rows into ordered unique ticker lists per chat_id.
+ * Rows must already be sorted by last_seen_at DESC (then ticker) so the first
+ * occurrence of each symbol wins.
+ */
+export function groupTickersByChat(
+  rows: { chat_id: string; ticker: string }[],
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const row of rows) {
+    const ticker = row.ticker?.trim().toUpperCase();
+    if (!row.chat_id || !ticker) continue;
+    const list = out.get(row.chat_id) ?? [];
+    if (!list.includes(ticker)) list.push(ticker);
+    out.set(row.chat_id, list);
+  }
+  return out;
+}
+
+/** Batch-load tickers for many chats (timeline feed). Empty input → empty map. */
+export async function listTickersForChats(
+  db: D1Database,
+  chatIds: string[],
+): Promise<Map<string, string[]>> {
+  const unique = [...new Set(chatIds.map((id) => id.trim()).filter(Boolean))];
+  if (!unique.length) return new Map();
+
+  const placeholders = unique.map((_, i) => `?${i + 1}`).join(", ");
+  const rows = await db.prepare(
+    `SELECT chat_id, ticker
+     FROM chat_tickers
+     WHERE chat_id IN (${placeholders})
+     ORDER BY last_seen_at DESC, ticker ASC`,
+  ).bind(...unique).all<{ chat_id: string; ticker: string }>();
+
+  return groupTickersByChat(rows.results ?? []);
+}

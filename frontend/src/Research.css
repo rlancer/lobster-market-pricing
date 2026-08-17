@@ -1,7 +1,8 @@
 .research-page {
   max-width: 72rem;
   margin: 0 auto;
-  padding: var(--spacing-6) var(--spacing-5) var(--spacing-8);
+  /* AppShell `.content` already pads; keep this column flush. */
+  padding: 0;
   min-height: 100%;
 }
 
@@ -9,17 +10,8 @@
   max-width: 40rem;
 }
 
-.research-lookup {
-  width: 100%;
-  max-width: 24rem;
-}
-
-.research-lookup-inline {
-  max-width: 20rem;
-}
-
 .research-empty {
-  padding-block: var(--spacing-6);
+  padding-block: var(--spacing-2);
 }
 
 .research-chip-link,
@@ -157,8 +149,22 @@
 }
 
 .research-chat-avatar {
+  width: var(--size-element-lg);
+  height: var(--size-element-lg);
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
   margin-block-start: var(--spacing-1);
+  color: var(--accent);
+  border: var(--border-width) solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-element);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.research-chat-avatar .ai-msg-mark-glasses {
+  display: block;
+  width: 1.375rem;
+  height: auto;
 }
 
 .research-chat-bubble-wrap {
@@ -208,6 +214,10 @@
 .research-select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.research-chain-deferred {
+  padding-block: var(--spacing-2);
 }
 
 .research-chain-controls {
@@ -345,7 +355,7 @@
 }
 
 .research-state {
-  padding: var(--spacing-4);
+  padding: var(--spacing-2) 0;
 }
 
 .research-err {

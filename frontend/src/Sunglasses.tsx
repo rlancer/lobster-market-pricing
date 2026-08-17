@@ -41,6 +41,15 @@ export function Sunglasses({
   );
 }
 
+/** Assistant message avatar — brand glasses in the chat mark slot. */
+export function AssistantMark({ className = 'ai-msg-mark' }: { className?: string }) {
+  return (
+    <span className={className} aria-hidden="true">
+      <Sunglasses className="ai-msg-mark-glasses" width={20} height={9} />
+    </span>
+  );
+}
+
 /** Round header avatar: brand glasses on a smug little face, no Google photo. */
 export function ProfileSunglasses({ className }: { className?: string }) {
   return (
