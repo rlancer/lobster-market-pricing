@@ -50,7 +50,11 @@ export function AssistantMark({ className = 'ai-msg-mark' }: { className?: strin
   );
 }
 
-/** Round header avatar: brand glasses on a smug little face, no Google photo. */
+/**
+ * Round header avatar: purpose-built brand shades on a soft disc.
+ * Drawn for 32×32 (not a scaled lobster-logo crop) so it stays crisp in the
+ * topbar — no Google photo, no cartoon smile.
+ */
 export function ProfileSunglasses({ className }: { className?: string }) {
   return (
     <svg
@@ -59,24 +63,28 @@ export function ProfileSunglasses({ className }: { className?: string }) {
       aria-hidden="true"
       focusable="false"
     >
-      <circle
-        cx="16"
-        cy="16"
-        r="15"
-        fill="var(--color-accent-muted)"
-        stroke="var(--color-border-emphasized)"
-        strokeWidth="1.25"
-      />
-      <g transform="translate(16 13.2) scale(0.78) translate(-48 -30)">
-        <BrandGlasses />
-      </g>
-      <path
-        d="M12.5 22.5Q16 25 19.5 22.5"
-        fill="none"
+      {/* Card base + accent wash — muted alone disappears into the page. */}
+      <circle cx="16" cy="16" r="16" fill="var(--color-background-card)" />
+      <circle cx="16" cy="16" r="16" fill="var(--color-accent-muted)" />
+      {/*
+        Shades fill most of the badge (~78% wide). Sit a hair below center for a
+        cooler, less “sticker” balance than a dead-center crop.
+      */}
+      <g
+        fill="var(--color-background-body)"
         stroke="var(--color-text-primary)"
+        strokeLinejoin="round"
         strokeLinecap="round"
         strokeWidth="1.35"
-      />
+      >
+        <rect x="3.25" y="12.4" width="11" height="8" rx="3.1" />
+        <rect x="17.75" y="12.4" width="11" height="8" rx="3.1" />
+        <path d="M14.25 16.3H17.75" fill="none" />
+        <path d="M3.25 14.9L1.6 13.75M28.75 14.9L30.4 13.75" fill="none" />
+      </g>
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="1.25">
+        <path d="M6.1 14.55L8.7 13.25M20.8 14.55L23.4 13.25" />
+      </g>
     </svg>
   );
 }
