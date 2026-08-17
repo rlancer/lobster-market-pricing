@@ -1,3 +1,6 @@
+/* Reuse chat markdown text styling (`.ai-text`) from AiChat.css. */
+@import './AiChat.css';
+
 .research-page {
   max-width: 72rem;
   margin: 0 auto;
@@ -180,7 +183,20 @@
   background: var(--panel);
   border: var(--border-width) solid var(--color-border);
   line-height: var(--line-height-relaxed);
-  white-space: pre-wrap;
+  /* Markdown owns paragraph breaks — pre-wrap turns blanks into a wall again. */
+  white-space: normal;
+}
+
+.research-chat-bubble .ai-text {
+  white-space: normal;
+}
+
+.research-chat-bubble .ai-text :is(p, ul, ol) {
+  margin-block: 0;
+}
+
+.research-chat-bubble .ai-text :is(p, ul, ol) + :is(p, ul, ol) {
+  margin-block-start: var(--spacing-2);
 }
 
 .research-field {
