@@ -3,23 +3,20 @@ import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
   Center,
+  Divider,
   HStack,
   Layout,
   LayoutHeader,
   MobileNav,
   MobileNavToggle,
-  Popover,
   SideNav,
   SideNavItem,
   SideNavSection,
   IconButton,
-  Text,
-  Tooltip,
-  VStack,
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -51,10 +48,11 @@ const SECTIONS: Section[] = [
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 
-// Monitor / docs / brand remain secondary destinations (header help popover).
+// Monitor stays in the header chip; Docs / Brand sit under a divider in the left nav.
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
+const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING];
 
 /** Global ticker jump — desktop rail on wide viewports, header on mobile. */
 function ResearchSearch({ className }: { className: string }) {
@@ -98,71 +96,6 @@ function WorkspaceBrand() {
         <BlueLobsterLogo className="nav-mascot" />
       </RouterLink>
     </Center>
-  );
-}
-
-function HelpMenu({
-  placement = 'below',
-  alignment = 'end',
-}: {
-  placement?: 'above' | 'below';
-  alignment?: 'start' | 'end';
-}) {
-  const location = useLocation();
-  const [open, setOpen] = useState(false);
-  const onDocs = location.pathname.startsWith('/docs');
-  const onBrand = location.pathname.startsWith('/brand');
-  const active = onDocs || onBrand;
-
-  return (
-    <Popover
-      placement={placement}
-      alignment={alignment}
-      label="Help"
-      width="16rem"
-      isOpen={open}
-      onOpenChange={setOpen}
-      content={(
-        <VStack gap={1} className="help-menu">
-          <Link
-            to="/docs"
-            className={onDocs ? 'help-menu-item active' : 'help-menu-item'}
-            aria-current={onDocs ? 'page' : undefined}
-            onClick={() => setOpen(false)}
-          >
-            <BookOpen size={18} strokeWidth={1.75} aria-hidden="true" />
-            <VStack gap={0.5} className="help-menu-copy">
-              <Text type="label" weight="semibold">Docs</Text>
-              <Text type="supporting">How the platform works</Text>
-            </VStack>
-          </Link>
-          <Link
-            to="/brand"
-            className={onBrand ? 'help-menu-item active' : 'help-menu-item'}
-            aria-current={onBrand ? 'page' : undefined}
-            onClick={() => setOpen(false)}
-          >
-            <Palette size={18} strokeWidth={1.75} aria-hidden="true" />
-            <VStack gap={0.5} className="help-menu-copy">
-              <Text type="label" weight="semibold">Brand</Text>
-              <Text type="supporting">Logos, voice, and assets</Text>
-            </VStack>
-          </Link>
-        </VStack>
-      )}
-    >
-      <Tooltip content="Help" hasHoverIndication={false}>
-        <button
-          type="button"
-          className={active || open ? 'docs-link active' : 'docs-link'}
-          aria-label="Help"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-        >
-          <CircleHelp size={20} strokeWidth={1.75} aria-hidden="true" />
-        </button>
-      </Tooltip>
-    </Popover>
   );
 }
 
@@ -304,6 +237,34 @@ function WorkspaceNavItems({
   );
 }
 
+function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
+  const { closeMobileNav } = useAppShellMobile();
+  return (
+    <>
+      {HELP_SECTIONS.map((section) => (
+        <SideNavItem
+          key={section.to}
+          as={RouterLink}
+          href={section.to}
+          label={section.label}
+          icon={section.icon}
+          isSelected={Boolean(activeTo?.startsWith(section.to))}
+          onClick={closeMobileNav}
+        />
+      ))}
+    </>
+  );
+}
+
+function WorkspaceHelpNav({ activeTo }: { activeTo?: string }) {
+  return (
+    <>
+      <Divider isFullBleed />
+      <WorkspaceHelpNavItems activeTo={activeTo} />
+    </>
+  );
+}
+
 function WorkspaceNavigation({
   activeTo,
   isChat,
@@ -320,6 +281,7 @@ function WorkspaceNavigation({
       className="workspace-nav"
       header={<WorkspaceBrand />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
+      footer={<WorkspaceHelpNav activeTo={activeTo} />}
     >
       <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
@@ -399,6 +361,7 @@ function WorkspaceLayout() {
             <MobileNav side="start" label="Lobster">
               <WorkspaceBrand />
               <WorkspaceNavItems {...navProps} />
+              <WorkspaceHelpNav activeTo={navProps.activeTo} />
             </MobileNav>
           ),
         }}
@@ -414,7 +377,6 @@ function WorkspaceLayout() {
                 {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
                 <section className="topbar-tools" aria-label="Workspace controls">
                   {isMobile ? null : <MonitorStatus />}
-                  <HelpMenu />
                   <AuthControls />
                 </section>
               </HStack>
