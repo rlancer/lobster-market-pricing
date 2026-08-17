@@ -120,7 +120,7 @@ export default function ResearchPage() {
     if (!tickerParam || !briefReady) return;
     let active = true;
     const cancel = whenIdle(() => {
-      api.news(tickerParam, 8)
+      api.news(tickerParam, 12)
         .then((res) => {
           if (!active || !res.items.length) return;
           setResearch((prev) => {
@@ -159,7 +159,7 @@ export default function ResearchPage() {
     return () => { active = false; };
   }, [tickerParam, briefReady]);
 
-  // 3) Commentary — only when Lobster is near the viewport, and only if the
+  // 3) Commentary — only when The Lobster's Take is near the viewport, and only if the
   //    brief did not already carry a take (avoids a duplicate Worker hit).
   useEffect(() => {
     if (!tickerParam || !briefReady || !commentaryActive || !research) return;
@@ -215,7 +215,7 @@ export default function ResearchPage() {
         <VStack gap={2} className="research-page-head">
           <Heading level={1}>Ticker details</Heading>
           <Text type="supporting">
-            Spot, chart, Lobster take, and the options chain for one underlying.
+            Spot, chart, the Lobster's take, and the options chain for one underlying.
             Search any ticker from the header — or jump to a common name below.
           </Text>
         </VStack>

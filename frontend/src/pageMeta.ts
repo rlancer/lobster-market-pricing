@@ -117,7 +117,7 @@ function researchMeta(ticker: string | null): PageMeta {
     return {
       title: pageTitle('Research'),
       description:
-        'Spot, chart, Lobster take, and the options chain for one underlying. Search any ticker.',
+        "Spot, chart, the Lobster's take, and the options chain for one underlying. Search any ticker.",
       path: '/research',
     };
   }
