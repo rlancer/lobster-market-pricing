@@ -10,7 +10,16 @@
   --call: var(--color-success);
   --put: var(--color-error);
   --topbar-h: var(--size-element-lg);
+  /* Shared reading/working column for chat, research, timeline, share, docs. */
+  --content-max: 72rem;
   font-family: var(--font-family-body);
+}
+
+/* Reusable page column — width + centering only. */
+.content-column {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
 }
 
 * { box-sizing: border-box; }

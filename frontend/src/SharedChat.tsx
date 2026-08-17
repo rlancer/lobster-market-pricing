@@ -86,7 +86,7 @@ function SharedChatRoute() {
         </HStack>
       )}
     >
-      <section className="share-content">
+      <section className="share-content content-column">
         {loading && (
           <div className="share-state">
             <Spinner size="md" />

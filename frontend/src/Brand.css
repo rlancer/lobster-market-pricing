@@ -70,7 +70,7 @@
   flex-direction: column;
   gap: var(--spacing-8);
   min-width: 0;
-  max-width: 920px;
+  max-width: var(--content-max);
 }
 
 /* ===== Hero ===== */
