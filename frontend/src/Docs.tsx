@@ -40,7 +40,7 @@ const FLOW: FlowStep[] = [
     sub: (
       <>
         Self-sustaining alarm loop in a Durable Object: fetch → OCC-normalize →
-        publish. The whole 583-symbol universe refreshes on a ~15 min cadence
+        publish. The whole 591-symbol universe refreshes on a ~15 min cadence
         during market hours.
       </>
     ),
@@ -88,7 +88,7 @@ const FLOW: FlowStep[] = [
 ];
 
 const FACTS = [
-  ['583', 'symbols per refresh (S&P 500 + ETFs)'],
+  ['591', 'symbols per refresh (S&P 500 + ETFs)'],
   ['~1M', 'option contracts per pass'],
   ['~15 min', 'loader cadence + quote delay'],
   ['30 min', 'in-isolate API cache'],
@@ -117,12 +117,15 @@ const JOBS = [
   ['cboe-options', 'Continuous, market-gated', 'The screener\u2019s core feed: CBOE option contracts, underlying snapshots, and refresh runs.'],
   ['ohlc-daily', 'Daily', 'Yahoo daily OHLC (1-year window) + realized volatility computed off split-adjusted closes.'],
   ['ohlc-backfill', 'On demand (POST /jobs/ohlc-backfill/trigger)', 'Item-scoped, resumable historical OHLC backfill; Yahoo dividend/split events land in corporate_actions.'],
-  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 65 optionable ETFs.'],
+  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 73 optionable ETFs (incl. VIX ETPs).'],
   ['fundamentals-daily', 'Daily', 'Yahoo equity fundamentals (market cap, P/E, debt, margins) for the universe equity sleeve.'],
+  ['indices-ohlc-daily', 'Daily', 'Yahoo OHLC for CBOE vol indexes (^VIX, ^VVIX, …) into options.ohlc / realized_vol.'],
+  ['cfe-futures-daily', 'Daily', 'CFE settlements + delayed monthals (VX curve and siblings) into futures_settlements / futures_quotes.'],
+  ['futures-ohlc-daily', 'Daily', 'Yahoo continuous CME/CBOT futures (=F) OHLC into options.ohlc / realized_vol.'],
 ];
 
 const TABLES =
-  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals';
+  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes';
 
 const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },
@@ -321,7 +324,7 @@ export function DocsPipeline() {
         A single <code>EtlScheduler</code> Durable Object runs a self-rescheduling alarm loop. Each pass:
       </p>
       <ol className="docs-ordered">
-        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled manifest (<code>symbols/universe.json</code>, 583 symbols), all enabled and due immediately.</li>
+        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled manifest (<code>symbols/universe.json</code>, 591 symbols), all enabled and due immediately.</li>
         <li><b>Pick the batch</b> — due symbols (<code>enabled = 1 AND next_attempt_after &lt;= now</code>), stalest first, capped at <code>LOADER_BATCH_SIZE</code> (40).</li>
         <li><b>Fetch &amp; normalize</b> — each symbol comes down from CBOE, is normalized to OCC form, and is published to Pipelines in symbol order with retries and idempotency keys (8 symbols fetched in parallel per pass).</li>
         <li><b>Bookkeeping</b> — success resets the failure count and reschedules the reload at the cadence (15 min); failure increments <code>consecutive_failures</code> and doubles the backoff 60&nbsp;s → 5&nbsp;min → 30&nbsp;min (capped). No special-casing, no dead symbols.</li>

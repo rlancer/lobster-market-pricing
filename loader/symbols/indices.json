@@ -1,0 +1,13 @@
+{
+  "source": "curated CBOE volatility indexes for Yahoo chart OHLC (indices-ohlc-daily)",
+  "updated": "2026-08-17",
+  "note": "Yahoo chart v8 INDEX symbols (instrumentType INDEX). Spot history + realized vol land in options.ohlc / options.realized_vol via publishOhlc — same pipelines as equities/ETFs/futures. CBOE delayed quote for the cash VIX is also available at cdn.cboe.com/.../quotes/_VIX.json (symbol ^VIX); daily bars come from Yahoo. VX futures term structure is separate (cfe-futures-daily). Verified HTTP 200 on query1.finance.yahoo.com/v8/finance/chart/{symbol} 2026-08-17.",
+  "indices": [
+    { "symbol": "^VIX", "name": "CBOE Volatility Index", "family": "VIX", "cboe_quote": "_VIX" },
+    { "symbol": "^VVIX", "name": "CBOE VIX Volatility Index", "family": "VIX", "cboe_quote": "_VVIX" },
+    { "symbol": "^VIX9D", "name": "CBOE 9-Day Volatility Index", "family": "VIX", "cboe_quote": "_VIX9D" },
+    { "symbol": "^VIX3M", "name": "CBOE 3-Month Volatility Index", "family": "VIX", "cboe_quote": "_VIX3M" },
+    { "symbol": "^SKEW", "name": "CBOE SKEW Index", "family": "Skew", "cboe_quote": "_SKEW" },
+    { "symbol": "^VXN", "name": "CBOE Nasdaq-100 Volatility Index", "family": "Equity Vol", "cboe_quote": "_VXN" }
+  ]
+}

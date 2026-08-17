@@ -45,8 +45,8 @@ describe("symbols/universe.json (loader universe wiring)", () => {
       expect(symbols).toContain(s);
       expect(cons[s].source).toBe("nasdaq100");
     }
-    // Major ETFs.
-    for (const s of ["SPY", "QQQ", "IWM", "TLT", "GLD", "XLE", "EEM", "TQQQ"]) {
+    // Major ETFs + VIX ETP sleeve.
+    for (const s of ["SPY", "QQQ", "IWM", "TLT", "GLD", "XLE", "EEM", "TQQQ", "VXX", "UVXY", "SVXY"]) {
       expect(symbols).toContain(s);
       expect(cons[s].source).toBe("etf");
     }

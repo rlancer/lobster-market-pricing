@@ -129,8 +129,8 @@ to the earnings block above with names `cboe_econ_v2` / `cboe_econ_sink` /
 ### ETF fund profiles + top holdings (`etf-daily`)
 
 Yahoo chart v8 already stores ETF **distributions** on `options.corporate_actions`
-(same `events=div,split` path as equities — 59 of 65 ETFs have dividend rows;
-commodity trusts like GLD/SLV/USO typically pay none). `etf-daily` adds the
+(same `events=div,split` path as equities — most of the 73 ETFs have dividend rows;
+commodity trusts like GLD/SLV/USO and some VIX ETPs typically pay none). `etf-daily` adds the
 facts that path does not carry:
 
 - `options.etf_profiles` — expense ratio, AUM, issuer/family, category, trailing
@@ -140,7 +140,8 @@ facts that path does not carry:
 
 Source is Yahoo `quoteSummary` modules `fundProfile,topHoldings,summaryDetail,defaultKeyStatistics`,
 which needs a crumb+cookie session (chart v8 does not). The job opens one
-session per pass and reuses it across `symbols/etfs.json` (65 names). Batch,
+session per pass and reuses it across `symbols/etfs.json` (73 names, including
+the VIX ETP sleeve). Batch,
 ungated, daily. Dry-run unless `PIPELINE_ETF_PROFILES_URL` or
 `PIPELINE_ETF_HOLDINGS_URL` is set.
 
@@ -173,6 +174,17 @@ Batch, ungated, daily. Dry-run unless `PIPELINE_OHLC_URL` or
 `PIPELINE_REALIZED_VOL_URL` is set. CFE products (VX, …) are **not** on Yahoo
 as `VX=F`; they land via `cfe-futures-daily`.
 
+### CBOE volatility-index OHLC (`indices-ohlc-daily`)
+
+Yahoo chart v8 INDEX symbols (`^VIX`, `^VVIX`, `^VIX9D`, `^VIX3M`, `^SKEW`,
+`^VXN`) from the curated manifest `symbols/indices.json`. Reuses `publishOhlc`
+into `options.ohlc` + `options.realized_vol` — no new stream. Batch, ungated,
+daily. Dry-run unless `PIPELINE_OHLC_URL` or `PIPELINE_REALIZED_VOL_URL` is set.
+These are **not** part of the equity/ETF option-chain universe (VIX index options
+use a different CBOE root). Cash VIX delayed quotes also exist at
+`cdn.cboe.com/.../quotes/_VIX.json`; daily spot history comes from Yahoo.
+VX futures term structure is `cfe-futures-daily`.
+
 ### Cboe Futures Exchange settlements + quotes (`cfe-futures-daily`)
 
 CFE term structure for the options lake (VX curve and sibling products):
@@ -202,7 +214,7 @@ Provisioning recipe matches the earnings block with names
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
