@@ -193,6 +193,21 @@ Provisioning recipe matches the earnings block with names
 `cboe_futures_quotes_v2` / `cboe_futures_quotes_sink` /
 `cboe_futures_quotes_pipeline` (`schemas/futures_quotes.json`).
 
+### Research brief warm (`research-briefs-daily`)
+
+After lake OHLC / fundamentals / ETF jobs land, this item-scoped daily job
+warms the API Worker's D1 `ticker_research` cache so `/research/{ticker}` is a
+D1 hit for first visitors (no new Iceberg table — the brief is already a D1
+JSON blob). Each due batch POSTs to `POST {RESEARCH_API_BASE}/api/research/warm`
+with `Bearer ADMIN_TOKEN` (same secret as the Worker admin endpoints). Item
+store: `research_brief_state` (migration `0004`). Dry-run unless both
+`RESEARCH_API_BASE` and `ADMIN_TOKEN` are set. Manual kick:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
+  'https://cboe-to-r2.robertlancer.workers.dev/jobs/research-briefs-daily/trigger'
+```
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
@@ -202,7 +217,7 @@ Provisioning recipe matches the earnings block with names
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `research-briefs-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
