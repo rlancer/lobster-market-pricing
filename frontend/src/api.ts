@@ -579,8 +579,14 @@ export interface TickerResearch {
     name: string | null;
     family: string | null;
     category: string | null;
+    asset_class?: string | null;
     net_assets: number | null;
     expense_ratio: number | null;
+    net_expense_ratio?: number | null;
+    trailing_yield?: number | null;
+    inception_date?: string | null;
+    /** Present on fresh briefs; older D1 cache rows may omit it. */
+    holdings?: EtfHolding[];
   } | null;
   commentary?: string | null;
   commentary_source?: 'llm' | 'notes' | null;
