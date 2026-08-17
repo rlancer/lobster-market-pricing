@@ -193,6 +193,12 @@ Provisioning recipe matches the earnings block with names
 `cboe_futures_quotes_v2` / `cboe_futures_quotes_sink` /
 `cboe_futures_quotes_pipeline` (`schemas/futures_quotes.json`).
 
+**Provisioned and live (2026-08-17)** — streams/sinks/pipelines created;
+`PIPELINE_FUTURES_SETTLEMENTS_URL` + `PIPELINE_FUTURES_QUOTES_URL` set as
+Worker secrets; first ingest verified (55 settlement rows + 9 delayed
+quotes → R2 SQL). Re-run `.github/workflows/provision-cfe-futures-pipes.yml`
+(`workflow_dispatch`) only if recreating infrastructure.
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)

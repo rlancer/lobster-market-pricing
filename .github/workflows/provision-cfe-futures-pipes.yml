@@ -11,8 +11,6 @@ name: Provision CFE futures pipes (one-shot)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ['cursor/futures-pipes-provision-e42e']
 
 concurrency:
   group: provision-cfe-futures-${{ github.ref }}
