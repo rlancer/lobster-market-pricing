@@ -7,6 +7,7 @@ import {
   MobileNavToggle,
   Popover,
   SideNav,
+  SideNavHeading,
   SideNavItem,
   SideNavSection,
   IconButton,
@@ -14,17 +15,19 @@ import {
   Tooltip,
   VStack,
   useAppShellMobile,
+  useMediaQuery,
 } from '@astryxdesign/core';
 import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { AuthControls } from './AuthControls';
+import { BlueLobsterLogo } from './BlueLobsterLogo';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
 import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
-import { WorkspaceContext, type WorkspaceValue } from './workspace';
+import { useWorkspace, WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
 // Workspace context — shared by the header (stats counts, liquidity gate) and
@@ -51,8 +54,8 @@ const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'D
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
 
-/** Global ticker jump — lives in the topbar so Research is one keystroke away from any app. */
-function TopbarResearchSearch() {
+/** Global ticker jump — desktop rail on wide viewports, header on mobile. */
+function ResearchSearch({ className }: { className: string }) {
   const navigate = useNavigate();
   const location = useLocation();
   const tickerMatch = location.pathname.match(/^\/research\/([^/]+)$/);
@@ -62,7 +65,7 @@ function TopbarResearchSearch() {
 
   return (
     <TickerTypeahead
-      className="topbar-research-search"
+      className={className}
       value={ticker}
       onSelect={(symbol) => {
         void navigate({ to: '/research/$ticker', params: { ticker: symbol } });
@@ -80,7 +83,32 @@ function TopbarResearchSearch() {
   );
 }
 
-function HelpMenu() {
+function WorkspaceBrand() {
+  const { closeMobileNav } = useAppShellMobile();
+  return (
+    <SideNavHeading
+      as={RouterLink}
+      icon={(
+        <BlueLobsterLogo
+          className="nav-mascot"
+          width="var(--size-element-md)"
+          height="var(--size-element-md)"
+        />
+      )}
+      heading="Lobster"
+      headingHref="/"
+      onClick={closeMobileNav}
+    />
+  );
+}
+
+function HelpMenu({
+  placement = 'below',
+  alignment = 'end',
+}: {
+  placement?: 'above' | 'below';
+  alignment?: 'start' | 'end';
+}) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const onDocs = location.pathname.startsWith('/docs');
@@ -89,8 +117,8 @@ function HelpMenu() {
 
   return (
     <Popover
-      placement="below"
-      alignment="end"
+      placement={placement}
+      alignment={alignment}
       label="Help"
       width="16rem"
       isOpen={open}
@@ -198,7 +226,7 @@ function useSavedChats() {
   return (chats ?? []).filter((chat): chat is UserChat & { title: string } => Boolean(chat.title?.trim()));
 }
 
-function WorkspaceNavigation({
+function WorkspaceNavItems({
   activeTo,
   isChat,
   activeChatId,
@@ -214,7 +242,7 @@ function WorkspaceNavigation({
   const isTimeline = activeTo === '/' || Boolean(activeTo?.startsWith('/u/'));
 
   return (
-    <SideNav className="workspace-nav">
+    <>
       <SideNavItem
         as={RouterLink}
         href="/"
@@ -273,6 +301,44 @@ function WorkspaceNavigation({
           onClick={closeMobileNav}
         />
       ))}
+    </>
+  );
+}
+
+function WorkspaceNavigation({
+  activeTo,
+  isChat,
+  activeChatId,
+  showSearch = false,
+  showTools = false,
+}: {
+  activeTo?: string;
+  isChat: boolean;
+  activeChatId: string | null;
+  showSearch?: boolean;
+  showTools?: boolean;
+}) {
+  const { liquidOnly, setLiquidOnly } = useWorkspace();
+
+  return (
+    <SideNav
+      className="workspace-nav"
+      header={<WorkspaceBrand />}
+      topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
+      footer={showTools ? (
+        <VStack gap={2} className="workspace-nav-tools">
+          <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
+          <MonitorStatus />
+        </VStack>
+      ) : undefined}
+      footerIcons={showTools ? (
+        <>
+          <HelpMenu placement="above" alignment="start" />
+          <AuthControls placement="above" alignment="start" />
+        </>
+      ) : undefined}
+    >
+      <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
   );
 }
@@ -280,6 +346,7 @@ function WorkspaceNavigation({
 function Layout() {
   const db = useDbReady();
   const location = useLocation();
+  const isMobile = useMediaQuery('(max-width: 768px)');
   const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [stats, setStats] = useState<Stats | null>(null);
 
@@ -329,9 +396,11 @@ function Layout() {
   }
 
   const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, updatedAt };
+  const navProps = { activeTo: active?.to, isChat: isCopilot, activeChatId };
 
-  const navigation = <WorkspaceNavigation activeTo={active?.to} isChat={isCopilot} activeChatId={activeChatId} />;
-
+  // Responsive contract:
+  //   > 768px  full-height SideNav (mascot + ticker search + apps + tools)
+  //   <= 768px SideNav collapses to MobileNav; ticker search lives in the header
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
@@ -339,28 +408,32 @@ function Layout() {
         height="fill"
         variant="section"
         contentPadding={0}
-        sideNav={navigation}
+        sideNav={(
+          <WorkspaceNavigation
+            {...navProps}
+            showSearch
+            showTools
+          />
+        )}
         mobileNav={{
           hasToggle: false,
           breakpoint: 'md',
           content: (
-            <MobileNav header="Apps" side="start">
-              {navigation}
+            <MobileNav header={<WorkspaceBrand />} side="start" label="Lobster">
+              <WorkspaceNavItems {...navProps} />
             </MobileNav>
           ),
         }}
-        topNav={(
+        topNav={isMobile ? (
           <HStack as="header" className="topbar" gap={3} vAlign="center">
             <MobileNavToggle label="Open apps" />
-            <TopbarResearchSearch />
+            <ResearchSearch className="topbar-research-search" />
             <section className="topbar-tools" aria-label="Workspace controls">
-              <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-              <MonitorStatus />
               <HelpMenu />
+              <AuthControls />
             </section>
-            <AuthControls />
           </HStack>
-        )}
+        ) : undefined}
       >
         <section className={isCopilot ? 'content content-copilot' : 'content'}>
           <Outlet />
