@@ -3,7 +3,7 @@
 // Workers/vitest resolve .js→.ts; Node 24 strip-types does not.
 //
 //   PIPELINE_FUNDAMENTALS_URL=... PIPELINE_AUTH_TOKEN=... \
-//     node tools/fundamentals_probe_publish.ts AAPL MSFT GOOGL
+//     node tools/fundamentals_probe_publish.mjs AAPL MSFT GOOGL
 
 const FNV1A_OFFSET_HI = 0xcbf29ce484222325n;
 const FNV1A_OFFSET_LO = 0x84222325cbf29ce4n;
