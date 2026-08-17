@@ -12,6 +12,8 @@ name: Probe fundamentals lake (one-shot)
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: ['cursor/yahoo-fundamentals-lake-fb2c']
   workflow_dispatch:
 
 concurrency:
