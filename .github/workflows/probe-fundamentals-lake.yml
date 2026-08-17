@@ -47,10 +47,29 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Diagnose Pipelines token
+      - name: Require secrets + diagnose Pipelines token
         run: |
           set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          if [ -n "${WRANGLER_R2_SQL_AUTH_TOKEN:-}" ] || [ -n "${R2_SQL_TOKEN:-}" ]; then
+            echo "WRANGLER_R2_SQL_AUTH_TOKEN=${WRANGLER_R2_SQL_AUTH_TOKEN:-$R2_SQL_TOKEN}" >> "$GITHUB_ENV"
+            echo "HAVE_R2_SQL_TOKEN=1" >> "$GITHUB_ENV"
+          else
+            echo "HAVE_R2_SQL_TOKEN=0" >> "$GITHUB_ENV"
+            echo "No WRANGLER_R2_SQL_AUTH_TOKEN/R2_SQL_TOKEN in GitHub — will assert via Worker /api/query."
+          fi
+          echo "Secrets present (values not printed)."
+
           # Confirm which token(s) can hit Pipelines (without printing values).
+          # Needed permission: Account → Cloudflare Pipelines → Edit
+          # (Workers Pipelines → Send is only for ingest, not stream create).
           for name in CLOUDFLARE_API_TOKEN R2_DATA_CATALOG_TOKEN PIPELINES_ADMIN_TOKEN PIPELINE_AUTH_TOKEN; do
             tok="${!name:-}"
             if [ -z "$tok" ]; then
@@ -62,7 +81,6 @@ jobs:
               https://api.cloudflare.com/client/v4/user/tokens/verify || true)
             status=$(jq -r '.result.status // .errors[0].message // "unknown"' /tmp/tv.json 2>/dev/null || echo unknown)
             echo "$name: verify_http=$code status=$status"
-            # Probe Pipelines list with this token
             pcode=$(curl -sS -o /tmp/pl.json -w '%{http_code}' \
               -H "Authorization: Bearer $tok" \
               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pipelines/v1/streams?per_page=1" || true)
@@ -153,7 +171,7 @@ jobs:
         working-directory: loader
         run: |
           set -euo pipefail
-          node tools/fundamentals_probe_publish.ts AAPL MSFT GOOGL
+          node tools/fundamentals_probe_publish.mjs AAPL MSFT GOOGL
 
       - name: Set loader Worker secret PIPELINE_FUNDAMENTALS_URL
         working-directory: loader
