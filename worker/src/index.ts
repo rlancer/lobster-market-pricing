@@ -47,10 +47,12 @@ import {
 } from "./copilot-tool-events";
 import { listChatTickers, listSecurityChats } from "./chat-tickers";
 import {
+  emptyFundamentals,
   getOrComputeResearch,
   parseTickerParam,
   summarizeResearch,
   type EarningsBrief,
+  type FundamentalsBrief,
   type RealizedVolBrief,
   type ResearchDeps,
   type TickerResearch,
@@ -2130,6 +2132,40 @@ async function loadResearchEarnings(env: Env, ticker: string): Promise<EarningsB
   }
 }
 
+async function loadResearchFundamentals(env: Env, ticker: string): Promise<FundamentalsBrief> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT market_cap, enterprise_value, trailing_pe, forward_pe, peg_ratio, price_to_book,` +
+        `  total_debt, debt_to_equity, profit_margins, revenue_growth, source FROM (` +
+        `  SELECT market_cap, enterprise_value, trailing_pe, forward_pe, peg_ratio, price_to_book,` +
+        `    total_debt, debt_to_equity, profit_margins, revenue_growth, source,` +
+        `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) rn` +
+        `  FROM options.fundamentals WHERE ticker = ${lit(ticker)}` +
+        `) WHERE rn = 1`,
+      "fund_" + ticker,
+      QUERY_TTL_MS,
+    );
+    if (!rows.length) return emptyFundamentals();
+    const r = rows[0];
+    return {
+      market_cap: numOrNull(r.market_cap),
+      enterprise_value: numOrNull(r.enterprise_value),
+      trailing_pe: numOrNull(r.trailing_pe),
+      forward_pe: numOrNull(r.forward_pe),
+      peg_ratio: numOrNull(r.peg_ratio),
+      price_to_book: numOrNull(r.price_to_book),
+      total_debt: numOrNull(r.total_debt),
+      debt_to_equity: numOrNull(r.debt_to_equity),
+      profit_margins: numOrNull(r.profit_margins),
+      revenue_growth: numOrNull(r.revenue_growth),
+      source: strOrNull(r.source),
+    };
+  } catch {
+    return emptyFundamentals();
+  }
+}
+
 function researchDepsFor(env: Env): ResearchDeps {
   // One enrichSymbol per ticker per deps instance — loadOhlc / loadRealizedVol /
   // loadEtfProfile used to each fire a full parallel lake round-trip.
@@ -2184,6 +2220,7 @@ function researchDepsFor(env: Env): ResearchDeps {
         expense_ratio: numOrNull(enrich.etf_profile.expense_ratio),
       };
     },
+    loadFundamentals: (ticker) => loadResearchFundamentals(env, ticker),
   };
 }
 

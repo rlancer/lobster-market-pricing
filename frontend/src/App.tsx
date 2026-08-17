@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentPro
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
+  Center,
   HStack,
   MobileNav,
   MobileNavToggle,
@@ -14,10 +15,12 @@ import {
   Tooltip,
   VStack,
   useAppShellMobile,
+  useMediaQuery,
 } from '@astryxdesign/core';
 import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { AuthControls } from './AuthControls';
+import { BlueLobsterLogo } from './BlueLobsterLogo';
 import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { TickerTypeahead } from './TickerTypeahead';
@@ -51,8 +54,8 @@ const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'D
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
 
-/** Global ticker jump — lives in the topbar so Research is one keystroke away from any app. */
-function TopbarResearchSearch() {
+/** Global ticker jump — desktop rail on wide viewports, header on mobile. */
+function ResearchSearch({ className }: { className: string }) {
   const navigate = useNavigate();
   const location = useLocation();
   const tickerMatch = location.pathname.match(/^\/research\/([^/]+)$/);
@@ -62,7 +65,7 @@ function TopbarResearchSearch() {
 
   return (
     <TickerTypeahead
-      className="topbar-research-search"
+      className={className}
       value={ticker}
       onSelect={(symbol) => {
         void navigate({ to: '/research/$ticker', params: { ticker: symbol } });
@@ -80,7 +83,29 @@ function TopbarResearchSearch() {
   );
 }
 
-function HelpMenu() {
+function WorkspaceBrand() {
+  const { closeMobileNav } = useAppShellMobile();
+  return (
+    <Center axis="horizontal" width="100%" className="nav-brand">
+      <RouterLink
+        href="/"
+        className="nav-brand-link"
+        aria-label="Lobster home"
+        onClick={closeMobileNav}
+      >
+        <BlueLobsterLogo className="nav-mascot" />
+      </RouterLink>
+    </Center>
+  );
+}
+
+function HelpMenu({
+  placement = 'below',
+  alignment = 'end',
+}: {
+  placement?: 'above' | 'below';
+  alignment?: 'start' | 'end';
+}) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const onDocs = location.pathname.startsWith('/docs');
@@ -89,8 +114,8 @@ function HelpMenu() {
 
   return (
     <Popover
-      placement="below"
-      alignment="end"
+      placement={placement}
+      alignment={alignment}
       label="Help"
       width="16rem"
       isOpen={open}
@@ -198,7 +223,7 @@ function useSavedChats() {
   return (chats ?? []).filter((chat): chat is UserChat & { title: string } => Boolean(chat.title?.trim()));
 }
 
-function WorkspaceNavigation({
+function WorkspaceNavItems({
   activeTo,
   isChat,
   activeChatId,
@@ -214,7 +239,7 @@ function WorkspaceNavigation({
   const isTimeline = activeTo === '/' || Boolean(activeTo?.startsWith('/u/'));
 
   return (
-    <SideNav className="workspace-nav">
+    <>
       <SideNavItem
         as={RouterLink}
         href="/"
@@ -273,6 +298,28 @@ function WorkspaceNavigation({
           onClick={closeMobileNav}
         />
       ))}
+    </>
+  );
+}
+
+function WorkspaceNavigation({
+  activeTo,
+  isChat,
+  activeChatId,
+  showSearch = false,
+}: {
+  activeTo?: string;
+  isChat: boolean;
+  activeChatId: string | null;
+  showSearch?: boolean;
+}) {
+  return (
+    <SideNav
+      className="workspace-nav"
+      header={<WorkspaceBrand />}
+      topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
+    >
+      <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
   );
 }
@@ -280,6 +327,7 @@ function WorkspaceNavigation({
 function Layout() {
   const db = useDbReady();
   const location = useLocation();
+  const isMobile = useMediaQuery('(max-width: 768px)');
   const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [stats, setStats] = useState<Stats | null>(null);
 
@@ -329,9 +377,11 @@ function Layout() {
   }
 
   const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, updatedAt };
+  const navProps = { activeTo: active?.to, isChat: isCopilot, activeChatId };
 
-  const navigation = <WorkspaceNavigation activeTo={active?.to} isChat={isCopilot} activeChatId={activeChatId} />;
-
+  // Responsive contract:
+  //   > 768px  SideNav (mascot + ticker search + apps); header holds account chrome
+  //   <= 768px SideNav collapses to MobileNav; ticker search lives in the header
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
@@ -339,26 +389,31 @@ function Layout() {
         height="fill"
         variant="section"
         contentPadding={0}
-        sideNav={navigation}
+        sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
           hasToggle: false,
           breakpoint: 'md',
           content: (
-            <MobileNav header="Apps" side="start">
-              {navigation}
+            <MobileNav side="start" label="Lobster">
+              <WorkspaceBrand />
+              <WorkspaceNavItems {...navProps} />
             </MobileNav>
           ),
         }}
         topNav={(
           <HStack as="header" className="topbar" gap={3} vAlign="center">
             <MobileNavToggle label="Open apps" />
-            <TopbarResearchSearch />
+            {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
             <section className="topbar-tools" aria-label="Workspace controls">
-              <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-              <MonitorStatus />
+              {isMobile ? null : (
+                <>
+                  <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
+                  <MonitorStatus />
+                </>
+              )}
               <HelpMenu />
+              <AuthControls />
             </section>
-            <AuthControls />
           </HStack>
         )}
       >

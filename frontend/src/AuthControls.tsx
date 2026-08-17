@@ -56,7 +56,13 @@ function HandleField({
  * by default; this only appears when the Worker has Google OAuth configured,
  * or when a session is already present. First sign-in claims a public handle.
  */
-export function AuthControls() {
+export function AuthControls({
+  placement = 'below',
+  alignment = 'end',
+}: {
+  placement?: 'above' | 'below';
+  alignment?: 'start' | 'end';
+}) {
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
   const [googleEnabled, setGoogleEnabled] = useState(false);
@@ -160,8 +166,8 @@ export function AuthControls() {
   return (
     <>
       <Popover
-        placement="below"
-        alignment="end"
+        placement={placement}
+        alignment={alignment}
         label="Account"
         width="20rem"
         content={
