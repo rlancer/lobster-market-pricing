@@ -411,3 +411,9 @@ mise run build    # outputs frontend/dist
 The `deploy.yml` GitHub Action builds and deploys the frontend to Cloudflare
 Pages on push to main (`robs-options-slop` project, `lobster.mp` domain);
 dev/preview deploys for non-main branches.
+
+Each route sets its own `<title>`, description, canonical URL, and Open Graph /
+Twitter tags from the path (e.g. `/research/SPY` → `SPY – Research · Lobster MP`).
+The Vite build also emits a Cloudflare Pages `_worker.js` that rewrites those
+tags in `index.html`, so crawlers and chat unfurlers see the right preview
+without executing JavaScript.
