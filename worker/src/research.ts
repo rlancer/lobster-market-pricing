@@ -519,7 +519,7 @@ export function summarizeResearch(r: TickerResearch): string {
     lines.push(
       `ETF: family=${e.family ?? "n/a"}, category=${e.category ?? "n/a"}, ` +
         `expenseRatio=${fmtPctFrac(e.expense_ratio)}, netAssets=${fmtNum(e.net_assets)}, ` +
-        `yield=${fmtPctFrac(e.trailing_yield)}`,
+        `yield=${fmtPctFrac(e.trailing_yield ?? null)}`,
     );
     if (holdings.length) {
       lines.push("Top holdings:");
