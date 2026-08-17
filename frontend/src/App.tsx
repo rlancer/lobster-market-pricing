@@ -4,6 +4,8 @@ import {
   AppShell,
   Center,
   HStack,
+  Layout,
+  LayoutHeader,
   MobileNav,
   MobileNavToggle,
   Popover,
@@ -324,7 +326,7 @@ function WorkspaceNavigation({
   );
 }
 
-function Layout() {
+function WorkspaceLayout() {
   const db = useDbReady();
   const location = useLocation();
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -380,7 +382,8 @@ function Layout() {
   const navProps = { activeTo: active?.to, isChat: isCopilot, activeChatId };
 
   // Responsive contract:
-  //   > 768px  SideNav (mascot + ticker search + apps); header holds account chrome
+  //   > 768px  SideNav spans the viewport; the header sits in a nested Layout
+  //            to its right (AppShell topNav would stretch over the rail).
   //   <= 768px SideNav collapses to MobileNav; ticker search lives in the header
   return (
     <WorkspaceContext.Provider value={value}>
@@ -400,31 +403,39 @@ function Layout() {
             </MobileNav>
           ),
         }}
-        topNav={(
-          <HStack as="header" className="topbar" gap={3} vAlign="center">
-            <MobileNavToggle label="Open apps" />
-            {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
-            <section className="topbar-tools" aria-label="Workspace controls">
-              {isMobile ? null : (
-                <>
-                  <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-                  <MonitorStatus />
-                </>
-              )}
-              <HelpMenu />
-              <AuthControls />
-            </section>
-          </HStack>
-        )}
       >
-        <section className={isCopilot ? 'content content-copilot' : 'content'}>
-          <Outlet />
-        </section>
+        <Layout
+          className="workspace-main"
+          height="fill"
+          padding={0}
+          header={(
+            <LayoutHeader padding={0} hasDivider={false}>
+              <HStack as="header" className="topbar" gap={3} vAlign="center">
+                <MobileNavToggle label="Open apps" />
+                {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
+                <section className="topbar-tools" aria-label="Workspace controls">
+                  {isMobile ? null : (
+                    <>
+                      <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
+                      <MonitorStatus />
+                    </>
+                  )}
+                  <HelpMenu />
+                  <AuthControls />
+                </section>
+              </HStack>
+            </LayoutHeader>
+          )}
+        >
+          <section className={isCopilot ? 'content content-copilot' : 'content'}>
+            <Outlet />
+          </section>
+        </Layout>
       </AppShell>
     </WorkspaceContext.Provider>
   );
 }
 
 export default function App() {
-  return <Layout />;
+  return <WorkspaceLayout />;
 }
