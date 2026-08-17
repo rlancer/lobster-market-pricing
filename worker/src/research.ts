@@ -93,8 +93,19 @@ export interface TickerResearch {
     name: string | null;
     family: string | null;
     category: string | null;
+    asset_class?: string | null;
     net_assets: number | null;
     expense_ratio: number | null;
+    net_expense_ratio?: number | null;
+    trailing_yield?: number | null;
+    inception_date?: string | null;
+    /** Present on fresh briefs; older D1 cache rows may omit it. */
+    holdings?: Array<{
+      rank: number | null;
+      holding_symbol: string | null;
+      holding_name: string | null;
+      weight: number | null;
+    }>;
   } | null;
   /** Lobster take for the ticker detail page (lazy; may be absent on chat-tool path). */
   commentary?: string | null;
@@ -345,7 +356,7 @@ export interface GetResearchOpts {
   chatId?: string;
   /** Tavily headlines. Off on the HTTP brief path; on for the Copilot tool. */
   includeNews?: boolean;
-  /** Realized vol + ETF profile. Off on the HTTP brief; on for Copilot. */
+  /** Realized vol + earnings + ETF profile/holdings. On for HTTP brief + Copilot. */
   includeSecondary?: boolean;
   /** OpenFIGI on the identity miss path. Off for the HTTP brief. */
   liveFigi?: boolean;
@@ -363,8 +374,8 @@ function isFreshCache(research: TickerResearch, now: number): boolean {
  *
  * Critical path for GET /api/research/{ticker}:
  *   1. D1 `ticker_research` by ticker (fresh or stale) — no OpenFIGI
- *   2. On miss: lake OHLC + fundamentals (+ identity) in parallel
- *   3. Tavily, OpenFIGI, earnings, RV, and ETF profile stay off unless opted in
+ *   2. On miss: lake OHLC + fundamentals + secondary (RV, earnings, ETF) in parallel
+ *   3. Tavily / OpenFIGI stay off unless opted in (news loads via /api/news on the page)
  */
 export async function getOrComputeResearch(
   env: ResearchEnv,
@@ -502,6 +513,23 @@ export function summarizeResearch(r: TickerResearch): string {
         `forwardPE=${fmtNum(f.forward_pe)}, totalDebt=${fmtNum(f.total_debt)}, D/E=${fmtNum(f.debt_to_equity)}`,
     );
   }
+  if (r.etf) {
+    const e = r.etf;
+    const holdings = e.holdings ?? [];
+    lines.push(
+      `ETF: family=${e.family ?? "n/a"}, category=${e.category ?? "n/a"}, ` +
+        `expenseRatio=${fmtPctFrac(e.expense_ratio)}, netAssets=${fmtNum(e.net_assets)}, ` +
+        `yield=${fmtPctFrac(e.trailing_yield ?? null)}`,
+    );
+    if (holdings.length) {
+      lines.push("Top holdings:");
+      for (const h of holdings.slice(0, 10)) {
+        const sym = h.holding_symbol ?? "?";
+        const w = h.weight != null ? ` ${fmtPctFrac(h.weight)}` : "";
+        lines.push(`- ${sym}${h.holding_name ? ` ${h.holding_name}` : ""}${w}`);
+      }
+    }
+  }
   if (r.earnings.length) {
     const next = r.earnings[0];
     lines.push(
@@ -519,6 +547,14 @@ export function summarizeResearch(r: TickerResearch): string {
 
 function fmtPct(v: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+}
+
+/** Format a 0–1 fraction (expense ratio, yield, weight) as a percent string. */
+function fmtPctFrac(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return "n/a";
+  const pct = v * 100;
+  const digits = Math.abs(pct) < 1 ? 2 : 1;
+  return `${pct.toFixed(digits)}%`;
 }
 
 function fmtNum(v: number | null): string {

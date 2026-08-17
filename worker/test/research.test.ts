@@ -145,6 +145,83 @@ describe("summarizeResearch", () => {
     assert.match(text, /marketCap=/);
     assert.match(text, /Apple headlines/);
   });
+
+  it("includes ETF expense ratio, net assets, and top holdings", () => {
+    const research: TickerResearch = {
+      identity: {
+        security_id: securityIdForTicker("SPY"),
+        ticker: "SPY",
+        figi: null,
+        composite_figi: null,
+        isin: null,
+        name: "SPDR S&P 500 ETF Trust",
+        exchange: "US",
+        currency: "USD",
+        sector: null,
+        source: "ticker",
+        resolved_at: 1,
+      },
+      price: {
+        spot: 500,
+        change_1d_pct: 0.5,
+        change_5d_pct: 1,
+        change_21d_pct: 2,
+        change_63d_pct: 5,
+        high_63d: 510,
+        low_63d: 450,
+        volume_latest: 1e7,
+        volume_avg_20d: 1e7,
+        volume_relative_20d: 1,
+      },
+      technicals: {
+        trend: "up",
+        consolidation: false,
+        consolidation_range_pct: null,
+        accumulation: "neutral",
+        notes: [],
+      },
+      realized_vol: null,
+      fundamentals: {
+        market_cap: null,
+        enterprise_value: null,
+        trailing_pe: null,
+        forward_pe: null,
+        peg_ratio: null,
+        price_to_book: null,
+        total_debt: null,
+        debt_to_equity: null,
+        profit_margins: null,
+        revenue_growth: null,
+        source: null,
+      },
+      earnings: [],
+      news: [],
+      etf: {
+        name: "SPDR S&P 500 ETF Trust",
+        family: "State Street",
+        category: "Large Blend",
+        asset_class: "Broad Market",
+        net_assets: 795e9,
+        expense_ratio: 0.000945,
+        net_expense_ratio: 0.000945,
+        trailing_yield: 0.0101,
+        inception_date: "1993-01-22",
+        holdings: [
+          { rank: 1, holding_symbol: "NVDA", holding_name: "NVIDIA Corp", weight: 0.075 },
+          { rank: 2, holding_symbol: "AAPL", holding_name: "Apple Inc", weight: 0.065 },
+        ],
+      },
+      computed_at: "2026-08-15T00:00:00.000Z",
+      expires_at: "2026-08-15T01:00:00.000Z",
+      cache_hit: false,
+    };
+    const text = summarizeResearch(research);
+    assert.match(text, /ETF:/);
+    assert.match(text, /expenseRatio=0\.09%/);
+    assert.match(text, /netAssets=795\.00B/);
+    assert.match(text, /Top holdings/);
+    assert.match(text, /NVDA/);
+  });
 });
 
 function memoryDb(): D1Database {

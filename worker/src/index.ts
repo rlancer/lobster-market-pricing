@@ -2156,23 +2156,48 @@ async function loadResearchRealizedVol(env: Env, ticker: string): Promise<Realiz
 
 async function loadResearchEtfProfile(env: Env, ticker: string): Promise<TickerResearch["etf"]> {
   try {
-    const rows = await r2sql(
-      env,
-      `SELECT name, family, category, net_assets, expense_ratio FROM (` +
-        `  SELECT name, family, category, net_assets, expense_ratio,` +
-        `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.etf_profiles WHERE ticker = ${lit(ticker)}` +
-        `) WHERE rn = 1`,
-      "research_etf_" + ticker,
-      QUERY_TTL_MS,
-    );
-    if (!rows.length) return null;
+    const [profileRows, holdingRows] = await Promise.all([
+      r2sql(
+        env,
+        `SELECT name, family, category, asset_class, net_assets, expense_ratio,` +
+          ` net_expense_ratio, trailing_yield, inception_date FROM (` +
+          `  SELECT name, family, category, asset_class, net_assets, expense_ratio,` +
+          `    net_expense_ratio, trailing_yield, inception_date,` +
+          `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+          `  FROM options.etf_profiles WHERE ticker = ${lit(ticker)}` +
+          `) WHERE rn = 1`,
+        "research_etf_" + ticker,
+        QUERY_TTL_MS,
+      ),
+      r2sql(
+        env,
+        `SELECT rank, holding_symbol, holding_name, weight FROM (` +
+          `  SELECT rank, holding_symbol, holding_name, weight,` +
+          `    ROW_NUMBER() OVER (PARTITION BY ticker, rank ORDER BY fetched_at DESC, run_id DESC) rn` +
+          `  FROM options.etf_holdings WHERE ticker = ${lit(ticker)}` +
+          `) WHERE rn = 1 ORDER BY rank LIMIT 15`,
+        "research_etfh_" + ticker,
+        QUERY_TTL_MS,
+      ),
+    ]);
+    if (!profileRows.length && !holdingRows.length) return null;
+    const p = profileRows[0];
     return {
-      name: strOrNull(rows[0].name),
-      family: strOrNull(rows[0].family),
-      category: strOrNull(rows[0].category),
-      net_assets: numOrNull(rows[0].net_assets),
-      expense_ratio: numOrNull(rows[0].expense_ratio),
+      name: p ? strOrNull(p.name) : null,
+      family: p ? strOrNull(p.family) : null,
+      category: p ? strOrNull(p.category) : null,
+      asset_class: p ? strOrNull(p.asset_class) : null,
+      net_assets: p ? numOrNull(p.net_assets) : null,
+      expense_ratio: p ? numOrNull(p.expense_ratio) : null,
+      net_expense_ratio: p ? numOrNull(p.net_expense_ratio) : null,
+      trailing_yield: p ? numOrNull(p.trailing_yield) : null,
+      inception_date: p ? strOrNull(p.inception_date) : null,
+      holdings: (holdingRows as Row[]).map((r) => ({
+        rank: numOrNull(r.rank),
+        holding_symbol: strOrNull(r.holding_symbol),
+        holding_name: strOrNull(r.holding_name),
+        weight: numOrNull(r.weight),
+      })),
     };
   } catch {
     return null;
@@ -2226,11 +2251,13 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
   const chatId = url.searchParams.get("chat_id")?.trim() || undefined;
   const started = Date.now();
   try {
+    // Secondary lake reads (RV, earnings, ETF profile + holdings) are on for the
+    // ticker detail page — ETF fund stats / components are first-class there.
     const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), {
       force,
       chatId,
       includeNews: false,
-      includeSecondary: false,
+      includeSecondary: true,
       liveFigi: false,
       waitUntil: (p) => ctx.waitUntil(p),
     });

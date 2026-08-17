@@ -145,7 +145,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'research_ticker',
     summary: 'Lake + D1 ticker research brief',
     description:
-      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker from D1/lake (ticker-seeded security_id), links the chat to that security, and returns a cached brief: recent price/volume moves, consolidation/accumulation, lake fundamentals (market cap, PE, debt from options.fundamentals, latest-wins), and earnings. GET /api/research/{ticker} does not call OpenFIGI, Tavily, or live Yahoo — headlines load separately via get_news / /api/news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
+      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker from D1/lake (ticker-seeded security_id), links the chat to that security, and returns a cached brief: recent price/volume moves, consolidation/accumulation, lake fundamentals (market cap, PE, debt from options.fundamentals, latest-wins), earnings, and (for ETFs) fund profile + top holdings from options.etf_profiles / etf_holdings. GET /api/research/{ticker} does not call OpenFIGI, Tavily, or live Yahoo — headlines load separately via get_news / /api/news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
     endpoint: 'GET /api/research/{ticker}',
     feeds: ['yahoo'],
     tables: ['ohlc', 'realized_vol', 'earnings', 'securities', 'fundamentals'],
