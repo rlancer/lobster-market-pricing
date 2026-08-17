@@ -27,6 +27,8 @@ on:
           - fred-econ-daily
           - etf-daily
           - fundamentals-daily
+          - futures-ohlc-daily
+          - cfe-futures-daily
         default: cboe-options
       passes:
         description: 'Number of forced passes to run (each handles up to 40 due items)'
