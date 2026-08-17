@@ -2112,15 +2112,14 @@ async function lakeSecurityLookup(env: Env, ticker: string): Promise<LakeSecurit
 
 async function loadResearchEarnings(env: Env, ticker: string): Promise<EarningsBrief[]> {
   try {
-    const since = new Date(Date.now() - 800 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rows = await r2sql(
       env,
       `SELECT earnings_date, time, fiscal_q, eps_forecast, last_year_eps, name FROM (` +
         `  SELECT earnings_date, time, fiscal_q, eps_forecast, last_year_eps, name,` +
         `    ROW_NUMBER() OVER (PARTITION BY symbol, earnings_date ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.earnings WHERE symbol = ${lit(ticker)} AND earnings_date >= ${lit(since)}` +
+        `  FROM options.earnings WHERE symbol = ${lit(ticker)}` +
         `) WHERE rn = 1 ORDER BY earnings_date DESC LIMIT 6`,
-      "research_earn_" + ticker,
+      "earn_" + ticker,
       QUERY_TTL_MS,
     );
     return rows.map((r) => ({
