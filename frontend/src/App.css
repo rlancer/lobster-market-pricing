@@ -111,6 +111,9 @@ button, select { cursor: pointer; }
   cursor: pointer;
   transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
+.topbar-profile {
+  overflow: hidden;
+}
 .docs-link:hover,
 .docs-link.active,
 .topbar-profile:hover {
@@ -161,6 +164,14 @@ button, select { cursor: pointer; }
   display: block;
   width: var(--size-element-lg);
   height: var(--size-element-lg);
+  border-radius: var(--radius-full);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.topbar-profile:hover .topbar-profile-icon {
+  transform: scale(1.06);
+}
+.topbar-profile:active .topbar-profile-icon {
+  transform: scale(0.96);
 }
 .topbar-handle-link {
   color: inherit;

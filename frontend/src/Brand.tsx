@@ -228,7 +228,7 @@ export default function BrandPage() {
 
         <Section id="avatar" num="03" title="Avatar">
           <p className="brand-lede">
-            Signed-in users get the brand glasses on a round face — not a Google profile photo.
+            Signed-in users get brand shades on a soft disc — not a Google profile photo.
             That keeps the product looking like Lobster even after login.
           </p>
           <div className="brand-size-row" aria-label="Avatar sizes">

@@ -50,7 +50,11 @@ export function AssistantMark({ className = 'ai-msg-mark' }: { className?: strin
   );
 }
 
-/** Round header avatar: brand glasses on a smug little face, no Google photo. */
+/**
+ * Round header avatar: purpose-built brand shades on a soft disc.
+ * Drawn for 32×32 (not a scaled lobster-logo crop) so it stays crisp in the
+ * topbar — no Google photo, no cartoon smile.
+ */
 export function ProfileSunglasses({ className }: { className?: string }) {
   return (
     <svg
@@ -59,24 +63,23 @@ export function ProfileSunglasses({ className }: { className?: string }) {
       aria-hidden="true"
       focusable="false"
     >
-      <circle
-        cx="16"
-        cy="16"
-        r="15"
-        fill="var(--color-accent-muted)"
-        stroke="var(--color-border-emphasized)"
-        strokeWidth="1.25"
-      />
-      <g transform="translate(16 13.2) scale(0.78) translate(-48 -30)">
-        <BrandGlasses />
-      </g>
-      <path
-        d="M12.5 22.5Q16 25 19.5 22.5"
-        fill="none"
+      <circle cx="16" cy="16" r="16" fill="var(--color-accent-muted)" />
+      {/* Optical center sits slightly above mid so the mark reads balanced. */}
+      <g
+        fill="var(--color-background-body)"
         stroke="var(--color-text-primary)"
+        strokeLinejoin="round"
         strokeLinecap="round"
-        strokeWidth="1.35"
-      />
+        strokeWidth="1.2"
+      >
+        <rect x="4.5" y="11.5" width="9.75" height="7.25" rx="3.4" />
+        <rect x="17.75" y="11.5" width="9.75" height="7.25" rx="3.4" />
+        <path d="M14.25 15.1H17.75" fill="none" />
+        <path d="M4.5 14.15L2.6 13M27.5 14.15L29.4 13" fill="none" />
+      </g>
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="1.15">
+        <path d="M7 13.85L9.4 12.7M20.25 13.85L22.65 12.7" />
+      </g>
     </svg>
   );
 }
