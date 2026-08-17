@@ -34,13 +34,15 @@ function env(overrides: Record<string, unknown> = {}): SchedulerEnv {
 }
 
 describe("etfUniverse", () => {
-  it("is the curated ETF manifest (optionable names, not the full 583)", () => {
+  it("is the curated ETF manifest (optionable names, not the full 591)", () => {
     const symbols = etfUniverse();
     expect(symbols).toContain("SPY");
     expect(symbols).toContain("QQQ");
     expect(symbols).toContain("TQQQ");
+    expect(symbols).toContain("VXX");
+    expect(symbols).toContain("UVXY");
     expect(symbols).not.toContain("AAPL");
-    expect(symbols.length).toBeGreaterThanOrEqual(60);
+    expect(symbols.length).toBeGreaterThanOrEqual(70);
   });
 });
 

@@ -1,7 +1,7 @@
 {
   "source": "curated by maintainer: major, liquid US-listed ETFs with active CBOE option chains",
-  "updated": "2026-08-09",
-  "note": "Every symbol here was verified against https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json (HTTP 200 with a non-empty options array) on 2026-08-09. IYM/XRT/IBB/QQQE were tried and dropped: CBOE's free delayed-quotes feed does not serve their option chains.",
+  "updated": "2026-08-17",
+  "note": "Every symbol here was verified against https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json (HTTP 200 with a non-empty options array). Broad/sector sleeve verified 2026-08-09; VIX ETP sleeve (VXX/UVXY/SVXY/VIXY/VIXM/SVIX/UVIX/VXZ) verified 2026-08-17. IYM/XRT/IBB/QQQE were tried and dropped: CBOE's free delayed-quotes feed does not serve their option chains.",
   "etfs": [
     { "symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "asset_class": "Broad Market" },
     { "symbol": "IVV", "name": "iShares Core S&P 500 ETF", "asset_class": "Broad Market" },
@@ -67,6 +67,14 @@
     { "symbol": "TQQQ", "name": "ProShares UltraPro QQQ (3x)", "asset_class": "Leveraged" },
     { "symbol": "UPRO", "name": "ProShares UltraPro S&P 500 (3x)", "asset_class": "Leveraged" },
     { "symbol": "SOXL", "name": "Direxion Daily Semiconductor Bull 3X Shares", "asset_class": "Leveraged" },
-    { "symbol": "SQQQ", "name": "ProShares UltraPro Short QQQ (-3x)", "asset_class": "Leveraged" }
+    { "symbol": "SQQQ", "name": "ProShares UltraPro Short QQQ (-3x)", "asset_class": "Leveraged" },
+    { "symbol": "VXX", "name": "iPath Series B S&P 500 VIX Short-Term Futures ETN", "asset_class": "Volatility" },
+    { "symbol": "UVXY", "name": "ProShares Ultra VIX Short-Term Futures ETF", "asset_class": "Volatility" },
+    { "symbol": "SVXY", "name": "ProShares Short VIX Short-Term Futures ETF", "asset_class": "Volatility" },
+    { "symbol": "VIXY", "name": "ProShares VIX Short-Term Futures ETF", "asset_class": "Volatility" },
+    { "symbol": "VIXM", "name": "ProShares VIX Mid-Term Futures ETF", "asset_class": "Volatility" },
+    { "symbol": "SVIX", "name": "-1x Short VIX Futures ETF", "asset_class": "Volatility" },
+    { "symbol": "UVIX", "name": "2x Long VIX Futures ETF", "asset_class": "Volatility" },
+    { "symbol": "VXZ", "name": "iPath Series B S&P 500 VIX Mid-Term Futures ETN", "asset_class": "Volatility" }
   ]
 }

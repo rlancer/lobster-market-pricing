@@ -257,7 +257,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Yahoo Finance OHLC',
     summary: 'Daily bars, realized vol, dividends and splits',
     description:
-      'Daily OHLC (~1 year) plus dividend/split events. Realized volatility is computed off split-adjusted closes (30d / 90d, annualized). Chat compares implied vol from CBOE chains against this realized series on why-is-it-moving questions.',
+      'Daily OHLC (~1 year) plus dividend/split events for equities and ETFs. Realized volatility is computed off split-adjusted closes (30d / 90d, annualized). Chat compares implied vol from CBOE chains against this realized series on why-is-it-moving questions. Continuous futures (=F) and CBOE vol indexes (^VIX, …) reuse the same options.ohlc / realized_vol tables via futures-ohlc-daily and indices-ohlc-daily.',
     provider: 'Yahoo Finance',
     cadence: 'Daily (ungated) + on-demand backfill',
     tables: ['ohlc', 'realized_vol', 'corporate_actions'],
@@ -269,10 +269,34 @@ export const FEEDS: CatalogItem[] = [
     title: 'Yahoo ETF profiles',
     summary: 'Expense ratio, AUM, yield, and top-10 holdings',
     description:
-      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe. Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
+      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe (including VIX ETPs such as VXX, UVXY, SVXY). Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
     provider: 'Yahoo Finance',
     cadence: 'Daily (etf-daily job)',
     tables: ['etf_profiles', 'etf_holdings'],
+    tools: ['run_query'],
+  },
+  {
+    id: 'feed:yahoo-indices',
+    kind: 'feed',
+    title: 'Yahoo CBOE vol indexes',
+    summary: '^VIX spot history and sibling vol indexes',
+    description:
+      'Daily OHLC for CBOE volatility indexes (^VIX, ^VVIX, ^VIX9D, ^VIX3M, ^SKEW, ^VXN) from symbols/indices.json via indices-ohlc-daily. Lands in options.ohlc / options.realized_vol alongside equities. VX futures term structure is separate (cfe-futures-daily).',
+    provider: 'Yahoo Finance',
+    cadence: 'Daily (indices-ohlc-daily job)',
+    tables: ['ohlc', 'realized_vol'],
+    tools: ['run_query'],
+  },
+  {
+    id: 'feed:cfe-futures',
+    kind: 'feed',
+    title: 'Cboe Futures Exchange (CFE)',
+    summary: 'VX settlements and delayed monthals',
+    description:
+      'Official daily settlement CSV plus delayed monthals for CFE products (VX curve and siblings). Lands in options.futures_settlements and options.futures_quotes. Complements ^VIX spot (indices-ohlc-daily) and VIX ETPs in the equity/ETF universe.',
+    provider: 'CBOE',
+    cadence: 'Daily (cfe-futures-daily job)',
+    tables: ['futures_settlements', 'futures_quotes'],
     tools: ['run_query'],
   },
   {
@@ -338,15 +362,15 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   ohlc: {
     summary: 'Yahoo daily OHLC bars (~1 year)',
     description:
-      'Daily open/high/low/close/volume per symbol. Newest run wins per date. Used for spot history and as the input to realized vol.',
-    feeds: ['yahoo'],
+      'Daily open/high/low/close/volume per symbol — equities, ETFs, continuous futures (=F), and CBOE vol indexes (^VIX, …). Newest run wins per date. Used for spot history and as the input to realized vol.',
+    feeds: ['yahoo', 'yahoo-indices'],
     tools: ['run_query', 'render_chart'],
   },
   realized_vol: {
     summary: '30-day and 90-day annualized realized vol',
     description:
       'Computed from split-adjusted Yahoo closes. Chat compares this to implied_vol on option_contracts for rich/cheap vol questions.',
-    feeds: ['yahoo'],
+    feeds: ['yahoo', 'yahoo-indices'],
     tools: ['run_query'],
   },
   corporate_actions: {
@@ -404,6 +428,20 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
       'event_date, title, kind (macro|fed), source (fred|federalreserve), optional event_time ET. The eco_calendar tool prefers this table and falls back to a live FRED/Fed fetch.',
     feeds: ['fred', 'federalreserve'],
     tools: ['eco_calendar', 'run_query'],
+  },
+  futures_settlements: {
+    summary: 'CFE daily settlement prices (VX curve)',
+    description:
+      'Official Cboe Futures Exchange settlement CSV rows: product, contract_symbol, expiration_date, settle_price. Includes VX monthals and weeklies. Join to futures_quotes on contract_symbol for the live delayed book.',
+    feeds: ['cfe-futures'],
+    tools: ['run_query'],
+  },
+  futures_quotes: {
+    summary: 'CFE delayed monthals (bid/ask/OI)',
+    description:
+      'Delayed quotes for CFE monthals (e.g. VXU26): last, bid/ask, OHLC, volume, open interest, settlement_price. Derived from monthly settlement symbols; weeklies that 403 are skipped.',
+    feeds: ['cfe-futures'],
+    tools: ['run_query'],
   },
 };
 
