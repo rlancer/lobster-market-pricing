@@ -8,7 +8,15 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { HStack, Spinner, Text, ToggleButton, ToggleButtonGroup, VStack } from '@astryxdesign/core';
+import {
+  DropdownMenu,
+  HStack,
+  Spinner,
+  Text,
+  ToggleButton,
+  ToggleButtonGroup,
+  VStack,
+} from '@astryxdesign/core';
 import { api, type OhlcBar } from './api';
 import {
   CHART_RANGES,
@@ -19,6 +27,9 @@ import {
   sliceBars,
 } from './tickerChartRange';
 import './Research.css';
+
+const PRIMARY_CHART_RANGES: ChartRange[] = ['1D', 'MTD', 'YTD'];
+const OVERFLOW_CHART_RANGES: ChartRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
 
 function fmtNum(v: number | null | undefined, d = 2): string {
   if (v == null || !Number.isFinite(v)) return '—';
@@ -81,6 +92,11 @@ export function TickerChart({
   const move = useMemo(() => rangeMove(data), [data]);
   const rangeLabel = chartRangeLabel(range);
   const isIntraday = range === '1D';
+  const overflowRangeSelected = OVERFLOW_CHART_RANGES.includes(range);
+
+  const rangeButtons = (ranges: ChartRange[]) => ranges.map((key) => (
+    <ToggleButton key={key} value={key} label={chartRangeLabel(key)} />
+  ));
 
   if (bars.length === 0) {
     return (
@@ -108,19 +124,44 @@ export function TickerChart({
             <Text className="research-chart-pct">—</Text>
           )}
         </VStack>
-        <ToggleButtonGroup
-          label="Chart range"
-          type="single"
-          size="sm"
-          value={range}
-          onChange={(value) => {
-            if (typeof value === 'string') setRange(value as ChartRange);
-          }}
-        >
-          {CHART_RANGES.map((key) => (
-            <ToggleButton key={key} value={key} label={chartRangeLabel(key)} />
-          ))}
-        </ToggleButtonGroup>
+        <HStack className="research-chart-ranges-full">
+          <ToggleButtonGroup
+            label="Chart range"
+            type="single"
+            size="sm"
+            value={range}
+            onChange={(value) => {
+              if (typeof value === 'string') setRange(value as ChartRange);
+            }}
+          >
+            {rangeButtons(CHART_RANGES)}
+          </ToggleButtonGroup>
+        </HStack>
+        <HStack gap={1} className="research-chart-ranges-compact">
+          <ToggleButtonGroup
+            label="Primary chart ranges"
+            type="single"
+            size="sm"
+            value={range}
+            onChange={(value) => {
+              if (typeof value === 'string') setRange(value as ChartRange);
+            }}
+          >
+            {rangeButtons(PRIMARY_CHART_RANGES)}
+          </ToggleButtonGroup>
+          <DropdownMenu
+            button={{
+              label: overflowRangeSelected ? chartRangeLabel(range) : 'More',
+              variant: overflowRangeSelected ? 'secondary' : 'ghost',
+              size: 'sm',
+            }}
+            menuWidth="8rem"
+            items={OVERFLOW_CHART_RANGES.map((key) => ({
+              label: chartRangeLabel(key),
+              onClick: () => setRange(key),
+            }))}
+          />
+        </HStack>
       </HStack>
       {isIntraday && intradayLoading && data.length === 0 ? (
         <HStack gap={2} vAlign="center" className="research-chart-empty">
