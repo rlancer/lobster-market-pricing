@@ -216,6 +216,10 @@
   border-color: var(--accent);
 }
 
+.research-chain-deferred {
+  padding-block: var(--spacing-2);
+}
+
 .research-chain-controls {
   width: 100%;
 }

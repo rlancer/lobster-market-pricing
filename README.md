@@ -216,9 +216,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/symbols?q=&liquid_only=&limit=` | Symbol autocomplete |
 | `GET /api/liquidity` | Liquidity filter defaults + counts |
 | `GET /api/screen` | The screener — see below |
-| `GET /api/symbol/{symbol}` | Underlying info + all its option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits |
+| `GET /api/symbol/{symbol}` | Underlying info + option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits. Optional staging params for the research page: `parts=ohlc` (skip chain), `parts=chain` (skip enrichment; one expiration), `expiration=YYYY-MM-DD`, `near_spot=N` (N strikes closest to spot). Default `parts=full` keeps the legacy dump. |
 | `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, Yahoo fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
-| `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Cached alongside the research payload. |
+| `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Always includes a directional bias and a concrete options structure — even when conviction is low. Cached alongside the research payload. |
 | `GET /api/research/{ticker}/chats` | Chats previously linked to this security (cross-ticker graph via `security_id`). |
 | `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
 | `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
@@ -260,8 +260,9 @@ in-memory.
 
 The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Research**
 (`/research`, `/research/{ticker}`) is the ticker detail page — spot + compact
-fundamentals, a ranged OHLC chart, Lobster commentary as a chat bubble with
-follow-up → new chat, and an options-chain explorer. Chat ticker chips (from
+fundamentals paint first; chart and Lobster commentary arm when those sections
+near the viewport; the options chain is click-to-load (one expiration +
+near-spot window). Related chats settle on idle. Chat ticker chips (from
 `research_ticker`) link there. **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 

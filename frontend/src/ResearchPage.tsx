@@ -14,6 +14,7 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
+import { whenIdle } from './researchLazy';
 import './Research.css';
 
 export default function ResearchPage() {
@@ -22,18 +23,41 @@ export default function ResearchPage() {
   const [research, setResearch] = useState<TickerResearch | null>(null);
   const [commentary, setCommentary] = useState<string | null>(null);
   const [commentaryLoading, setCommentaryLoading] = useState(false);
+  const [commentaryActive, setCommentaryActive] = useState(false);
   const [related, setRelated] = useState<ChatTickerLink[]>([]);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
+  const [ohlcLoading, setOhlcLoading] = useState(false);
+  const [ohlcActive, setOhlcActive] = useState(false);
   const [contracts, setContracts] = useState<ChainContract[]>([]);
   const [expirations, setExpirations] = useState<string[]>([]);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [chainActive, setChainActive] = useState(false);
+  const [chainExpiration, setChainExpiration] = useState<string | undefined>(undefined);
+  const [chainNearSpot, setChainNearSpot] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Research brief + related chats first (price paints immediately).
+  // Reset staged payloads when the ticker changes.
+  useEffect(() => {
+    setCommentary(null);
+    setCommentaryLoading(false);
+    setCommentaryActive(false);
+    setRelated([]);
+    setOhlc([]);
+    setOhlcLoading(false);
+    setOhlcActive(false);
+    setContracts([]);
+    setExpirations([]);
+    setChainLoading(false);
+    setChainActive(false);
+    setChainExpiration(undefined);
+    setChainNearSpot(50);
+  }, [tickerParam]);
+
+  // 1) Research brief only — never wait on chats / chart / chain / commentary.
   useEffect(() => {
     if (!tickerParam) {
       setResearch(null);
-      setRelated([]);
       setError(null);
       return;
     }
@@ -41,23 +65,17 @@ export default function ResearchPage() {
     setLoading(true);
     setError(null);
     setResearch(null);
-    Promise.all([
-      api.research(tickerParam),
-      api.researchChats(tickerParam).catch(() => ({
-        ticker: tickerParam,
-        security_id: '',
-        items: [] as ChatTickerLink[],
-      })),
-    ])
-      .then(([brief, chats]) => {
+    api.research(tickerParam)
+      .then((brief) => {
         if (!active) return;
         setResearch(brief);
-        setRelated(chats.items);
+        if (brief.commentary?.trim()) {
+          setCommentary(brief.commentary.trim());
+        }
       })
       .catch((e) => {
         if (!active) return;
         setResearch(null);
-        setRelated([]);
         setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
@@ -66,42 +84,54 @@ export default function ResearchPage() {
     return () => { active = false; };
   }, [tickerParam]);
 
-  // Symbol detail (OHLC + chain) loads in parallel — does not block the price hero.
+  // Related chats — idle after the brief paints (footer chrome, not critical path).
   useEffect(() => {
-    if (!tickerParam) {
-      setOhlc([]);
-      setContracts([]);
-      setExpirations([]);
-      return;
-    }
+    if (!tickerParam || !research) return;
     let active = true;
-    setOhlc([]);
-    setContracts([]);
-    setExpirations([]);
-    api.symbolDetail(tickerParam)
+    const cancel = whenIdle(() => {
+      api.researchChats(tickerParam)
+        .then((chats) => {
+          if (active) setRelated(chats.items);
+        })
+        .catch(() => {
+          if (active) setRelated([]);
+        });
+    });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [tickerParam, research]);
+
+  // 2) OHLC — only once the chart section nears the viewport.
+  useEffect(() => {
+    if (!tickerParam || !research || !ohlcActive) return;
+    let active = true;
+    setOhlcLoading(true);
+    api.symbolDetail(tickerParam, { parts: 'ohlc' })
       .then((detail) => {
         if (!active) return;
         setOhlc(detail.ohlc ?? []);
-        setContracts(detail.contracts ?? []);
-        setExpirations(detail.expirations ?? []);
       })
       .catch(() => {
-        if (!active) return;
-        setOhlc([]);
-        setContracts([]);
-        setExpirations([]);
+        if (active) setOhlc([]);
+      })
+      .finally(() => {
+        if (active) setOhlcLoading(false);
       });
     return () => { active = false; };
-  }, [tickerParam]);
+  }, [tickerParam, research, ohlcActive]);
 
+  // 3) Commentary — only when Lobster is near the viewport, and only if the
+  //    brief did not already carry a take (avoids a duplicate Worker hit).
   useEffect(() => {
-    if (!tickerParam) {
-      setCommentary(null);
+    if (!tickerParam || !research || !commentaryActive) return;
+    if (research.commentary?.trim()) {
+      setCommentary(research.commentary.trim());
       setCommentaryLoading(false);
       return;
     }
     let active = true;
-    setCommentary(null);
     setCommentaryLoading(true);
     api.researchCommentary(tickerParam)
       .then((res) => {
@@ -114,7 +144,33 @@ export default function ResearchPage() {
         if (active) setCommentaryLoading(false);
       });
     return () => { active = false; };
-  }, [tickerParam]);
+  }, [tickerParam, research, commentaryActive]);
+
+  // 4) Options chain — explicit user action only (click-to-load), one expiry.
+  useEffect(() => {
+    if (!tickerParam || !chainActive) return;
+    let active = true;
+    setChainLoading(true);
+    api.symbolDetail(tickerParam, {
+      parts: 'chain',
+      expiration: chainExpiration,
+      near_spot: chainNearSpot > 0 ? chainNearSpot : undefined,
+    })
+      .then((detail) => {
+        if (!active) return;
+        setExpirations(detail.expirations ?? []);
+        setContracts(detail.contracts ?? []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setContracts([]);
+        setExpirations([]);
+      })
+      .finally(() => {
+        if (active) setChainLoading(false);
+      });
+    return () => { active = false; };
+  }, [tickerParam, chainActive, chainExpiration, chainNearSpot]);
 
   return (
     <VStack className="research-page" gap={3}>
@@ -150,8 +206,18 @@ export default function ResearchPage() {
           commentary={commentary}
           commentaryLoading={commentaryLoading}
           ohlc={ohlc}
+          ohlcLoading={ohlcLoading}
           contracts={contracts}
           expirations={expirations}
+          chainLoading={chainLoading}
+          chainArmed={chainActive}
+          onChartVisible={() => setOhlcActive(true)}
+          onCommentaryVisible={() => setCommentaryActive(true)}
+          onChainRequest={() => setChainActive(true)}
+          chainExpiration={chainExpiration}
+          chainNearSpot={chainNearSpot}
+          onChainExpirationChange={setChainExpiration}
+          onChainNearSpotChange={setChainNearSpot}
         />
       )}
     </VStack>
