@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   COMMENTARY_SYSTEM,
   formatTradeIdea,
+  looksLikeStructuredCommentary,
   suggestTradeIdea,
   synthesizeCommentary,
 } from "../src/research-commentary";
@@ -68,10 +69,13 @@ function sampleResearch(over: Partial<TickerResearch> = {}): TickerResearch {
 }
 
 describe("COMMENTARY_SYSTEM", () => {
-  it("requires directional bias and options structure", () => {
-    assert.match(COMMENTARY_SYSTEM, /bullish \/ bearish \/ neutral/i);
-    assert.match(COMMENTARY_SYSTEM, /options structure/i);
+  it("requires directional bias, options structure, and Markdown paragraphs", () => {
+    assert.match(COMMENTARY_SYSTEM, /bullish|bearish|neutral/i);
+    assert.match(COMMENTARY_SYSTEM, /options structure|Trade section/i);
     assert.match(COMMENTARY_SYSTEM, /conviction is low/i);
+    assert.match(COMMENTARY_SYSTEM, /Markdown/i);
+    assert.match(COMMENTARY_SYSTEM, /blank lines|short paragraphs/i);
+    assert.match(COMMENTARY_SYSTEM, /\*\*Trade/);
   });
 });
 
@@ -195,15 +199,17 @@ describe("suggestTradeIdea", () => {
 });
 
 describe("synthesizeCommentary", () => {
-  it("leads with spot and closes with a directional trade idea", () => {
+  it("leads with spot and closes with a Markdown Trade section", () => {
     const text = synthesizeCommentary(sampleResearch());
     assert.match(text, /AAPL marks 190\.25/);
     assert.match(text, /\+1\.2% 1d/);
     assert.match(text, /up trend/);
     assert.match(text, /consolidating/);
     assert.match(text, /trailing P\/E/);
-    assert.match(text, /Bullish/);
+    assert.match(text, /\*\*Trade — Bullish/);
     assert.match(text, /call/i);
+    assert.ok(looksLikeStructuredCommentary(text));
+    assert.ok(text.includes("\n\n"));
   });
 
   it("handles missing spot without throwing and still suggests a trade", () => {
@@ -245,5 +251,22 @@ describe("synthesizeCommentary", () => {
     assert.match(text, /no lake spot yet/i);
     assert.match(text, /low conviction/i);
     assert.match(text, /\b(call|put|condor)\b/i);
+    assert.ok(looksLikeStructuredCommentary(text));
+  });
+});
+
+describe("looksLikeStructuredCommentary", () => {
+  it("rejects legacy single-line trade blurbs", () => {
+    assert.equal(
+      looksLikeStructuredCommentary("AAPL marks 190. Bullish (medium conviction): call debit ~30 DTE."),
+      false,
+    );
+  });
+
+  it("accepts multi-line Markdown with a Trade header", () => {
+    assert.equal(
+      looksLikeStructuredCommentary("AAPL marks 190.\n\n**Trade — Bullish (medium conviction)**\nCall debit ~30 DTE."),
+      true,
+    );
   });
 });

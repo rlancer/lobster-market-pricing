@@ -44,14 +44,17 @@ export interface TickerCommentary {
 
 export const COMMENTARY_SYSTEM = [
   "You are Lobster MP — a senior quant Copilot for US equities and ETF options.",
-  "Write a 3–5 sentence ticker takeaway for a detail page.",
+  "Write a short ticker takeaway for a detail page in Markdown.",
+  "Use short paragraphs (1–2 sentences each) separated by blank lines — never one long wall of text.",
   "Lead with the spot or the move that matters. Ground every claim in the brief.",
-  "Always end with an explicit bias (bullish / bearish / neutral) AND one concrete options structure:",
-  "name the structure (e.g. bull call debit spread, put debit, iron condor, calendar), rough tenor (e.g. 30–45 DTE), and strike posture relative to spot (ATM / ~5% OTM / wings).",
+  "Close with a Trade section exactly in this shape:",
+  "**Trade — {Bullish|Bearish|Neutral} ({high|medium|low} conviction)**",
+  "Then one short line naming the structure (e.g. bull call debit spread, put debit, iron condor, calendar), rough tenor (e.g. 30–45 DTE), and strike posture relative to spot (ATM / ~5% OTM / wings).",
   "If the brief is thin, mixed, or does not support a high-conviction trade, still pick a lean, say conviction is low, and suggest a defined-risk structure (or a wait-with-trigger framed as a trade).",
   "Prefer defined-risk over naked short options. Near earnings, favor defined-risk or calendars and call out event risk.",
   "Do not invent strike prices, premiums, IV ranks, or news not in the brief — describe strikes relative to spot only.",
-  "Sound smug-confident and precise — no fluff, no anthropomorphizing, no emoji.",
+  "Markdown only: blank-line paragraphs, **bold** for the Trade header, optional bullets. No code fences, no tables, no headings (#), no emoji.",
+  "Sound smug-confident and precise — no fluff, no anthropomorphizing.",
   "Do not mention being an AI or that this is a summary. No hedging every clause.",
 ].join("\n");
 
@@ -209,7 +212,7 @@ function isEarningsSoon(r: TickerResearch): boolean {
   return days >= -1 && days <= 21;
 }
 
-/** Format the trade idea as the closing Lobster sentence(s). */
+/** Format the trade idea as the closing Markdown Trade section. */
 export function formatTradeIdea(idea: TradeIdea): string {
   const biasLabel =
     idea.bias === "bullish" ? "Bullish" : idea.bias === "bearish" ? "Bearish" : "Neutral";
@@ -219,63 +222,63 @@ export function formatTradeIdea(idea: TradeIdea): string {
       : idea.conviction === "medium"
         ? "medium conviction"
         : "low conviction — data is soft, but a lean beats a shrug";
-  return `${biasLabel} (${conf}): ${idea.structure}.`;
+  const structure = idea.structure.endsWith(".") ? idea.structure : `${idea.structure}.`;
+  return `**Trade — ${biasLabel} (${conf})**\n${structure}`;
 }
 
 /** Deterministic Lobster-voice blurb from structured research (always available). */
 export function synthesizeCommentary(r: TickerResearch): string {
   const ticker = r.identity.ticker;
-  const bits: string[] = [];
+  const paragraphs: string[] = [];
 
   if (r.price.spot != null) {
     const chg =
       r.price.change_1d_pct != null
         ? ` (${r.price.change_1d_pct >= 0 ? "+" : ""}${r.price.change_1d_pct.toFixed(1)}% 1d)`
         : "";
-    bits.push(`${ticker} marks ${fmtSpot(r.price.spot)}${chg}.`);
-  } else {
-    bits.push(`${ticker}: no lake spot yet.`);
-  }
-
-  const posture: string[] = [];
-  if (r.technicals.trend !== "unknown") posture.push(`${r.technicals.trend} trend`);
-  if (r.technicals.consolidation) {
-    posture.push(
-      r.technicals.consolidation_range_pct != null
-        ? `consolidating (${r.technicals.consolidation_range_pct.toFixed(1)}% 20d range)`
-        : "consolidating",
+    const posture: string[] = [];
+    if (r.technicals.trend !== "unknown") posture.push(`${r.technicals.trend} trend`);
+    if (r.technicals.consolidation) {
+      posture.push(
+        r.technicals.consolidation_range_pct != null
+          ? `consolidating (${r.technicals.consolidation_range_pct.toFixed(1)}% 20d range)`
+          : "consolidating",
+      );
+    }
+    if (r.technicals.accumulation === "accumulating" || r.technicals.accumulation === "distributing") {
+      posture.push(r.technicals.accumulation);
+    }
+    paragraphs.push(
+      posture.length
+        ? `${ticker} marks ${fmtSpot(r.price.spot)}${chg} — ${posture.join(", ")}.`
+        : `${ticker} marks ${fmtSpot(r.price.spot)}${chg}.`,
     );
+  } else {
+    paragraphs.push(`${ticker}: no lake spot yet.`);
   }
-  if (r.technicals.accumulation === "accumulating" || r.technicals.accumulation === "distributing") {
-    posture.push(r.technicals.accumulation);
-  }
-  if (posture.length) bits.push(`Price action: ${posture.join(", ")}.`);
 
   const note = r.technicals.notes[0];
-  if (note && !bits.some((b) => b.includes(note.slice(0, 24)))) {
-    bits.push(note.endsWith(".") ? note : `${note}.`);
+  if (note) {
+    const noteText = note.endsWith(".") ? note : `${note}.`;
+    if (!paragraphs.some((p) => p.includes(note.slice(0, 24)))) {
+      paragraphs.push(noteText);
+    }
   }
 
-  if (r.fundamentals.trailing_pe != null || r.fundamentals.market_cap != null) {
-    const fund: string[] = [];
-    if (r.fundamentals.market_cap != null) fund.push(`mkt cap ${fmtNum(r.fundamentals.market_cap)}`);
-    if (r.fundamentals.trailing_pe != null) fund.push(`trailing P/E ${r.fundamentals.trailing_pe.toFixed(1)}`);
-    bits.push(`Fundamentals: ${fund.join(", ")}.`);
-  }
-
+  const fundBits: string[] = [];
+  if (r.fundamentals.market_cap != null) fundBits.push(`mkt cap ${fmtNum(r.fundamentals.market_cap)}`);
+  if (r.fundamentals.trailing_pe != null) fundBits.push(`trailing P/E ${r.fundamentals.trailing_pe.toFixed(1)}`);
   if (r.earnings[0]) {
     const e = r.earnings[0];
-    bits.push(
-      `Next/recent earnings ${e.earnings_date}${e.eps_forecast != null ? ` (EPS est ${e.eps_forecast})` : ""}.`,
+    fundBits.push(
+      `earnings ${e.earnings_date}${e.eps_forecast != null ? ` (EPS est ${e.eps_forecast})` : ""}`,
     );
   }
+  if (fundBits.length) paragraphs.push(`${fundBits.join(" · ")}.`);
 
+  // Keep the recap tight; always keep the trade closer last.
   const idea = suggestTradeIdea(r);
-  bits.push(formatTradeIdea(idea));
-
-  // Keep the recap tight; always keep the trade closer as the last sentence.
-  const trade = bits.pop()!;
-  return [...bits.slice(0, 4), trade].join(" ");
+  return [...paragraphs.slice(0, 3), formatTradeIdea(idea)].join("\n\n");
 }
 
 export async function generateLobsterCommentary(
@@ -290,23 +293,27 @@ export async function generateLobsterCommentary(
       model,
       system: COMMENTARY_SYSTEM,
       prompt: [
-        "Write the Lobster take for this ticker brief.",
+        "Write the Lobster take for this ticker brief in Markdown (short paragraphs + Trade section).",
         "You must include a directional bias and a concrete options trade suggestion.",
         `Deterministic lean to honor unless the brief clearly contradicts it: ${idea.bias} (${idea.conviction}) → ${idea.structure}`,
         "",
         brief,
       ].join("\n"),
-      maxOutputTokens: 320,
+      maxOutputTokens: 480,
       temperature: 0.35,
       abortSignal: opts?.abortSignal,
     });
     const text = result.text.trim();
     if (!text || text.length < 24) return null;
-    // Keep the page readable — strip accidental markdown fences.
-    const cleaned = text.replace(/^```[\s\S]*?```$/g, "").replace(/^["']|["']$/g, "").trim();
+    // Keep the page readable — strip accidental markdown fences / quotes.
+    const cleaned = text
+      .replace(/^```(?:markdown|md)?\s*/i, "")
+      .replace(/```$/g, "")
+      .replace(/^["']|["']$/g, "")
+      .trim();
     // If the model skipped the trade ask, append the deterministic closer.
     if (!looksLikeTradeTake(cleaned)) {
-      return `${cleaned} ${formatTradeIdea(idea)}`.trim();
+      return `${cleaned}\n\n${formatTradeIdea(idea)}`.trim();
     }
     return cleaned;
   } catch (error) {
@@ -323,6 +330,14 @@ function looksLikeTradeTake(text: string): boolean {
   return /\b(bullish|bearish|neutral|call|put|spread|condor|straddle|strangle|calendar|debit|credit)\b/i.test(
     text,
   );
+}
+
+/**
+ * Format v2 commentary: multi-paragraph Markdown with an explicit Trade section.
+ * Single-line legacy blurbs miss this and get regenerated.
+ */
+export function looksLikeStructuredCommentary(text: string): boolean {
+  return /\*\*Trade\b/i.test(text) && /\n/.test(text);
 }
 
 function compactBriefForPrompt(r: TickerResearch): string {
@@ -367,10 +382,14 @@ export async function getOrComputeCommentary(
   const now = deps.now?.() ?? Date.now();
   const research = await getOrComputeResearch(env, rawTicker, deps, { force: false });
 
-  // Skip stale pre-trade-idea caches: old blurbs that only recap price/fundamentals
-  // lack bias/structure language and should be rewritten once.
+  // Skip stale caches: pre-trade blurbs, and pre-markdown single walls of text.
   const cached = research.commentary?.trim() ?? "";
-  if (!opts?.force && cached && looksLikeTradeTake(cached)) {
+  if (
+    !opts?.force
+    && cached
+    && looksLikeTradeTake(cached)
+    && looksLikeStructuredCommentary(cached)
+  ) {
     return {
       ticker: research.identity.ticker,
       security_id: research.identity.security_id,
