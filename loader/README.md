@@ -144,6 +144,25 @@ session per pass and reuses it across `symbols/etfs.json` (65 names). Batch,
 ungated, daily. Dry-run unless `PIPELINE_ETF_PROFILES_URL` or
 `PIPELINE_ETF_HOLDINGS_URL` is set.
 
+### Equity fundamentals (`fundamentals-daily`)
+
+Research detail strips (market cap, trailing/forward P/E, debt, D/E, margins)
+used to live-scrape Yahoo `quoteSummary` from the Worker on cache miss.
+`fundamentals-daily` lands the same fields in the lake:
+
+- `options.fundamentals` — one row per equity per run (latest-wins on `ticker`):
+  `market_cap`, `enterprise_value`, `trailing_pe`, `forward_pe`, `peg_ratio`,
+  `price_to_book`, `total_debt`, `debt_to_equity`, `profit_margins`,
+  `revenue_growth`, plus `security_id`, `source`, `fetched_at`.
+
+Universe is the equity sleeve of `symbols/universe.json` (S&P 500 + Nasdaq-100
+delta — ETFs are excluded; they have no meaningful PE/debt strip). Source is
+Yahoo `quoteSummary` modules `summaryDetail,defaultKeyStatistics,financialData`
+via the same crumb session helpers as `etf-daily`. Batch, ungated, daily.
+Dry-run unless `PIPELINE_FUNDAMENTALS_URL` is set. Provisioning recipe matches
+the earnings block with names `cboe_fundamentals_v2` / `cboe_fundamentals_sink` /
+`cboe_fundamentals_pipeline` and `schemas/fundamentals.json`.
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
@@ -152,13 +171,14 @@ ungated, daily. Dry-run unless `PIPELINE_ETF_PROFILES_URL` or
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
+- `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, …)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure

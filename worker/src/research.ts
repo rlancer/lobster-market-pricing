@@ -1,7 +1,7 @@
 /**
  * Per-ticker research brief: recent price/volume moves, technical posture
- * (consolidation / accumulation), earnings, news, and best-effort fundamentals
- * (market cap, PE, debt) from Yahoo quoteSummary. Cached in D1 so the chat
+ * (consolidation / accumulation), earnings, news, and lake fundamentals
+ * (market cap, PE, debt from options.fundamentals). Cached in D1 so the chat
  * widget and /research/:ticker route share one compute path.
  */
 
@@ -253,29 +253,8 @@ export function analyzePriceAction(barsAsc: OhlcBar[]): { price: PriceMoveBrief;
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function yahooRaw(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  const rec = asRecord(value);
-  if (!rec) return null;
-  const raw = rec.raw;
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-}
-
-const YAHOO_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
-
-/** Best-effort Yahoo quoteSummary fundamentals (market cap, PE, debt). */
-export async function fetchYahooFundamentals(
-  ticker: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<FundamentalsBrief> {
-  const empty: FundamentalsBrief = {
+export function emptyFundamentals(): FundamentalsBrief {
+  return {
     market_cap: null,
     enterprise_value: null,
     trailing_pe: null,
@@ -288,56 +267,6 @@ export async function fetchYahooFundamentals(
     revenue_growth: null,
     source: null,
   };
-  try {
-    // Crumb handshake (same pattern as loader ETF path).
-    const cookieRes = await fetchImpl("https://fc.yahoo.com", {
-      headers: { "user-agent": YAHOO_UA },
-      redirect: "manual",
-    });
-    const headers = cookieRes.headers as Headers & { getSetCookie?: () => string[] };
-    const cookie = typeof headers.getSetCookie === "function"
-      ? headers.getSetCookie().map((c) => c.split(";")[0]).filter(Boolean).join("; ")
-      : (cookieRes.headers.get("set-cookie")?.split(";")[0] ?? "");
-    const crumbRes = await fetchImpl("https://query1.finance.yahoo.com/v1/test/getcrumb", {
-      headers: { "user-agent": YAHOO_UA, ...(cookie ? { cookie } : {}) },
-    });
-    if (!crumbRes.ok) return empty;
-    const crumb = (await crumbRes.text()).trim();
-    if (!crumb || crumb.includes("<")) return empty;
-
-    const yahooTicker = ticker.replace(/\./g, "-");
-    const url =
-      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooTicker)}` +
-      `?modules=summaryDetail,defaultKeyStatistics,financialData&crumb=${encodeURIComponent(crumb)}`;
-    const res = await fetchImpl(url, {
-      headers: { "user-agent": YAHOO_UA, ...(cookie ? { cookie } : {}) },
-    });
-    if (!res.ok) return empty;
-    const payload = await res.json();
-    const qs = asRecord(asRecord(payload)?.quoteSummary);
-    const results = qs?.result;
-    const first = Array.isArray(results) ? asRecord(results[0]) : null;
-    if (!first) return empty;
-    const summary = asRecord(first.summaryDetail);
-    const stats = asRecord(first.defaultKeyStatistics);
-    const financial = asRecord(first.financialData);
-    return {
-      market_cap: yahooRaw(summary?.marketCap),
-      enterprise_value: yahooRaw(stats?.enterpriseValue),
-      trailing_pe: yahooRaw(summary?.trailingPE) ?? yahooRaw(stats?.trailingPE),
-      forward_pe: yahooRaw(summary?.forwardPE) ?? yahooRaw(stats?.forwardPE),
-      peg_ratio: yahooRaw(stats?.pegRatio),
-      price_to_book: yahooRaw(stats?.priceToBook),
-      total_debt: yahooRaw(financial?.totalDebt),
-      debt_to_equity: yahooRaw(financial?.debtToEquity),
-      profit_margins: yahooRaw(financial?.profitMargins),
-      revenue_growth: yahooRaw(financial?.revenueGrowth),
-      source: "yahoo",
-    };
-  } catch (e) {
-    console.error("yahoo fundamentals failed", e);
-    return empty;
-  }
 }
 
 export async function readResearchCache(
@@ -426,7 +355,7 @@ export async function getOrComputeResearch(
     deps.loadEtfProfile ? deps.loadEtfProfile(ticker).catch(() => null) : Promise.resolve(null),
     deps.loadFundamentals
       ? deps.loadFundamentals(ticker).catch(() => emptyFundamentals())
-      : fetchYahooFundamentals(ticker, deps.fetchImpl).catch(() => emptyFundamentals()),
+      : Promise.resolve(emptyFundamentals()),
   ]);
 
   const { price, technicals } = analyzePriceAction(ohlc);
@@ -453,22 +382,6 @@ export async function getOrComputeResearch(
   }
 
   return research;
-}
-
-function emptyFundamentals(): FundamentalsBrief {
-  return {
-    market_cap: null,
-    enterprise_value: null,
-    trailing_pe: null,
-    forward_pe: null,
-    peg_ratio: null,
-    price_to_book: null,
-    total_debt: null,
-    debt_to_equity: null,
-    profit_margins: null,
-    revenue_growth: null,
-    source: null,
-  };
 }
 
 /** Compact text summary for the Copilot tool / model context. */

@@ -1,0 +1,18 @@
+{
+  "fields": [
+    {"name":"ticker","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"market_cap","type":"float64","required":false},
+    {"name":"enterprise_value","type":"float64","required":false},
+    {"name":"trailing_pe","type":"float64","required":false},
+    {"name":"forward_pe","type":"float64","required":false},
+    {"name":"peg_ratio","type":"float64","required":false},
+    {"name":"price_to_book","type":"float64","required":false},
+    {"name":"total_debt","type":"float64","required":false},
+    {"name":"debt_to_equity","type":"float64","required":false},
+    {"name":"profit_margins","type":"float64","required":false},
+    {"name":"revenue_growth","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

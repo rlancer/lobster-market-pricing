@@ -10,9 +10,10 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   registry (`src/jobs/registry.ts`) — `cboe-options` (item-scoped, market-gated,
   item store `symbol_state`), `ohlc-daily` (batch, daily, ungated),
   `ohlc-backfill` (item-scoped, resumable, manual), `earnings-daily` (batch,
-  daily), `fred-econ-daily` (batch, daily), and `etf-daily` (batch, daily;
+  daily), `fred-econ-daily` (batch, daily), `etf-daily` (batch, daily;
   Yahoo fund profile + top holdings → `options.etf_profiles` /
-  `options.etf_holdings`).
+  `options.etf_holdings`), and `fundamentals-daily` (batch, daily; Yahoo
+  equity quoteSummary → `options.fundamentals`).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`
@@ -163,18 +164,19 @@ UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_u
 Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # provisioned 2026-08-09
 EtfProfiles:       <PIPELINE_ETF_PROFILES_URL secret — stream cboe_etf_profiles_v2>
 EtfHoldings:       <PIPELINE_ETF_HOLDINGS_URL secret — stream cboe_etf_holdings_v2>
+Fundamentals:      <PIPELINE_FUNDAMENTALS_URL secret — stream cboe_fundamentals_v2>
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
-         cboe_etf_profiles_v2, cboe_etf_holdings_v2
+         cboe_etf_profiles_v2, cboe_etf_holdings_v2, cboe_fundamentals_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
-         cboe_etf_profiles_sink, cboe_etf_holdings_sink
+         cboe_etf_profiles_sink, cboe_etf_holdings_sink, cboe_fundamentals_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots,
-        options.etf_profiles, options.etf_holdings
+        options.etf_profiles, options.etf_holdings, options.fundamentals
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline
