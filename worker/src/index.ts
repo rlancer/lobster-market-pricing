@@ -2112,14 +2112,15 @@ async function lakeSecurityLookup(env: Env, ticker: string): Promise<LakeSecurit
 
 async function loadResearchEarnings(env: Env, ticker: string): Promise<EarningsBrief[]> {
   try {
+    const since = new Date(Date.now() - 800 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rows = await r2sql(
       env,
       `SELECT earnings_date, time, fiscal_q, eps_forecast, last_year_eps, name FROM (` +
         `  SELECT earnings_date, time, fiscal_q, eps_forecast, last_year_eps, name,` +
         `    ROW_NUMBER() OVER (PARTITION BY symbol, earnings_date ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.earnings WHERE symbol = ${lit(ticker)}` +
+        `  FROM options.earnings WHERE symbol = ${lit(ticker)} AND earnings_date >= ${lit(since)}` +
         `) WHERE rn = 1 ORDER BY earnings_date DESC LIMIT 6`,
-      "earn_" + ticker,
+      "research_earn_" + ticker,
       QUERY_TTL_MS,
     );
     return rows.map((r) => ({
@@ -2171,14 +2172,17 @@ async function loadResearchFundamentals(env: Env, ticker: string): Promise<Funda
 
 async function loadResearchOhlc(env: Env, ticker: string): Promise<OhlcBar[]> {
   try {
+    // Bound the scan: technicals need ~90 sessions (~SMA50). Do not window
+    // the full OHLC history — that is what made a cold brief miss multi-second.
+    const since = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rows = await r2sql(
       env,
       `SELECT date, open, high, low, close, volume FROM (` +
         `  SELECT date, open, high, low, close, volume,` +
         `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.ohlc WHERE symbol = ${lit(ticker)}` +
+        `  FROM options.ohlc WHERE symbol = ${lit(ticker)} AND date >= ${lit(since)}` +
         `) WHERE rn = 1 ORDER BY date DESC LIMIT ${RESEARCH_OHLC_LIMIT}`,
-      "research_ohlc_" + ticker,
+      "research_ohlc_v2_" + ticker,
       QUERY_TTL_MS,
     );
     return (rows as Row[]).map((r) => ({
@@ -2272,6 +2276,7 @@ async function researchTickerForAgent(
       force: opts?.force,
       chatId: opts?.chatId,
       includeNews: true,
+      includeSecondary: true,
     });
     return { research, summary: summarizeResearch(research) };
   } catch (e) {
@@ -2292,6 +2297,7 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
       force,
       chatId,
       includeNews: false,
+      includeSecondary: false,
       liveFigi: false,
       waitUntil: (p) => ctx.waitUntil(p),
     });

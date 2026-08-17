@@ -220,7 +220,7 @@ function memoryDb(): D1Database {
 }
 
 function trackingDeps(): ResearchDeps & { calls: Record<string, number> } {
-  const calls = { ohlc: 0, news: 0, fundamentals: 0, earnings: 0, lake: 0, figiFetch: 0 };
+  const calls = { ohlc: 0, news: 0, fundamentals: 0, earnings: 0, lake: 0, figiFetch: 0, etf: 0, rv: 0 };
   const bars: OhlcBar[] = [];
   for (let i = 0; i < 30; i++) {
     const close = 100 + i;
@@ -236,12 +236,13 @@ function trackingDeps(): ResearchDeps & { calls: Record<string, number> } {
       return { ticker: "AAPL", name: "Apple Inc", figi: "BBG000B9XRY4", sector: "Equity" };
     },
     loadOhlc: async () => { calls.ohlc++; return bars; },
-    loadRealizedVol: async () => null,
+    loadRealizedVol: async () => { calls.rv++; return null; },
     loadEarnings: async () => { calls.earnings++; return []; },
     loadNews: async () => {
       calls.news++;
       return { items: [{ title: "slow tavily", link: "https://example.com" }] };
     },
+    loadEtfProfile: async () => { calls.etf++; return null; },
     loadFundamentals: async () => {
       calls.fundamentals++;
       return {
@@ -305,6 +306,7 @@ describe("getOrComputeResearch", () => {
     assert.equal(deps.calls.news, 0);
     assert.equal(deps.calls.ohlc, 1);
     assert.equal(deps.calls.fundamentals, 1);
+    assert.equal(deps.calls.etf, 0);
     assert.equal(research.news.length, 0);
     assert.equal(research.fundamentals.market_cap, 3e12);
     assert.equal(research.identity.source, "lake");

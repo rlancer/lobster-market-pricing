@@ -345,6 +345,8 @@ export interface GetResearchOpts {
   chatId?: string;
   /** Tavily headlines. Off on the HTTP brief path; on for the Copilot tool. */
   includeNews?: boolean;
+  /** Realized vol + ETF profile. Off on the HTTP brief; on for Copilot. */
+  includeSecondary?: boolean;
   /** OpenFIGI on the identity miss path. Off for the HTTP brief. */
   liveFigi?: boolean;
   /** Background recompute when a stale D1 row is served. */
@@ -417,6 +419,7 @@ async function computeAndStoreResearch(
   // Identity + lake payloads in parallel. Identity is D1/lake/ticker — no
   // OpenFIGI unless liveFigi. Lake loaders use the URL ticker (canonical for
   // this product); identity.ticker is the same except on rare alias remap.
+  const secondary = opts?.includeSecondary === true;
   const [identity, ohlc, realizedVol, earnings, newsResult, etf, fundamentals] = await Promise.all([
     resolveTickerIdentity(env, ticker, {
       lakeLookup: deps.lakeLookup,
@@ -425,12 +428,12 @@ async function computeAndStoreResearch(
       liveFigi: opts?.liveFigi === true,
     }),
     deps.loadOhlc(ticker).catch(() => [] as OhlcBar[]),
-    deps.loadRealizedVol(ticker).catch(() => null),
+    secondary ? deps.loadRealizedVol(ticker).catch(() => null) : Promise.resolve(null),
     deps.loadEarnings(ticker).catch(() => [] as EarningsBrief[]),
     opts?.includeNews
       ? deps.loadNews(ticker, RESEARCH_NEWS_LIMIT).catch(() => ({ items: [] as NewsBrief[], error: "news failed" }))
       : Promise.resolve({ items: [] as NewsBrief[] }),
-    deps.loadEtfProfile ? deps.loadEtfProfile(ticker).catch(() => null) : Promise.resolve(null),
+    secondary && deps.loadEtfProfile ? deps.loadEtfProfile(ticker).catch(() => null) : Promise.resolve(null),
     deps.loadFundamentals
       ? deps.loadFundamentals(ticker).catch(() => emptyFundamentals())
       : Promise.resolve(emptyFundamentals()),
