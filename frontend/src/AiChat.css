@@ -1,7 +1,5 @@
 /* Chat is the working surface, not a card inside the app. */
 .ai-chat {
-  /* Readable conversation column — keeps user/assistant turns close on wide desktops. */
-  --ai-column-max: 45rem;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -110,7 +108,7 @@
 }
 .ai-welcome {
   margin: auto;
-  width: min(100%, var(--ai-column-max, 45rem));
+  width: min(100%, var(--content-max));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-6);
@@ -190,7 +188,7 @@
 .ai-msg {
   display: flex;
   gap: 10px;
-  width: min(100%, var(--ai-column-max, 45rem));
+  width: min(100%, var(--content-max));
   margin-inline: auto;
 }
 .ai-msg.ai-user { justify-content: flex-end; }
@@ -531,7 +529,7 @@
   background: var(--panel);
 }
 .ai-composer-wrap > * {
-  width: min(100%, var(--ai-column-max, 45rem));
+  width: min(100%, var(--content-max));
 }
 
 /* ---- responsive ---------------------------------------------------------- */

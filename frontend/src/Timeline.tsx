@@ -367,7 +367,7 @@ export default function TimelinePage() {
   }, [navigate]);
 
   return (
-    <VStack className="timeline" gap={0}>
+    <VStack className="timeline content-column" gap={0}>
       <TimelineAskComposer
         value={composer}
         onChange={setComposer}

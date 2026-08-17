@@ -3,8 +3,6 @@
 
 .timeline {
   width: 100%;
-  max-width: 52rem;
-  margin-inline: auto;
 }
 
 .timeline-composer-sentinel {
@@ -196,13 +194,13 @@
   margin-block-start: calc(var(--spacing-1) * -1);
 }
 
-/* Feed bubbles sit edge-to-edge in the post — full width like the share page. */
+/* Feed bubbles sit edge-to-edge in the post — full width of the content column. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
 
 .timeline-msgs .ai-bubble {
-  max-width: min(720px, 100%);
+  max-width: 92%;
 }
 
 .timeline-author-link:hover {

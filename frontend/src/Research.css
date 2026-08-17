@@ -2,8 +2,6 @@
 @import './AiChat.css';
 
 .research-page {
-  max-width: 72rem;
-  margin: 0 auto;
   /* AppShell `.content` already pads; keep this column flush. */
   padding: 0;
   min-height: 100%;

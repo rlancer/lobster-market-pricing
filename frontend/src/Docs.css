@@ -64,7 +64,7 @@
   flex-direction: column;
   gap: var(--spacing-8);
   min-width: 0;
-  max-width: 880px;
+  max-width: var(--content-max);
 }
 
 .docs-hero p {

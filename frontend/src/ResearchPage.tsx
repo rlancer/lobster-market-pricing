@@ -210,7 +210,7 @@ export default function ResearchPage() {
   }, [tickerParam, chainActive, chainExpiration, chainNearSpot]);
 
   return (
-    <VStack className="research-page" gap={3}>
+    <VStack className="research-page content-column" gap={3}>
       {!tickerParam && (
         <VStack gap={2} className="research-page-head">
           <Heading level={1}>Ticker details</Heading>
