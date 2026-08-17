@@ -30,7 +30,6 @@ export default function ResearchPage() {
   const [related, setRelated] = useState<ChatTickerLink[]>([]);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
   const [ohlcLoading, setOhlcLoading] = useState(false);
-  const [ohlcActive, setOhlcActive] = useState(false);
   const [contracts, setContracts] = useState<ChainContract[]>([]);
   const [expirations, setExpirations] = useState<string[]>([]);
   const [chainLoading, setChainLoading] = useState(false);
@@ -58,7 +57,6 @@ export default function ResearchPage() {
     setRelated([]);
     setOhlc([]);
     setOhlcLoading(false);
-    setOhlcActive(false);
     setContracts([]);
     setExpirations([]);
     setChainLoading(false);
@@ -141,9 +139,10 @@ export default function ResearchPage() {
     };
   }, [tickerParam, briefReady]);
 
-  // 2) OHLC — only once the chart section nears the viewport.
+  // 2) OHLC — start with the brief (chart sits above the fold; parts=ohlc is
+  //    a single date-bounded lake query, not the full enrichment suite).
   useEffect(() => {
-    if (!tickerParam || !briefReady || !ohlcActive) return;
+    if (!tickerParam || !briefReady) return;
     let active = true;
     setOhlcLoading(true);
     api.symbolDetail(tickerParam, { parts: 'ohlc' })
@@ -158,7 +157,7 @@ export default function ResearchPage() {
         if (active) setOhlcLoading(false);
       });
     return () => { active = false; };
-  }, [tickerParam, briefReady, ohlcActive]);
+  }, [tickerParam, briefReady]);
 
   // 3) Commentary — only when Lobster is near the viewport, and only if the
   //    brief did not already carry a take (avoids a duplicate Worker hit).
@@ -249,7 +248,6 @@ export default function ResearchPage() {
           expirations={expirations}
           chainLoading={chainLoading}
           chainArmed={chainActive}
-          onChartVisible={() => setOhlcActive(true)}
           onCommentaryVisible={() => setCommentaryActive(true)}
           onChainRequest={() => setChainActive(true)}
           chainExpiration={chainExpiration}

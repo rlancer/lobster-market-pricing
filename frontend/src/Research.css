@@ -130,12 +130,42 @@
 .research-chart-toolbar {
   flex-wrap: wrap;
   justify-content: space-between;
+  align-items: flex-end;
+}
+
+.research-chart-move {
+  min-width: 7rem;
 }
 
 .research-chart-label {
   font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.research-chart-move-row {
+  flex-wrap: wrap;
+}
+
+.research-chart-pct {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-tight);
+}
+
+.research-chart-pct.up {
+  color: var(--color-success);
+}
+
+.research-chart-pct.down {
+  color: var(--color-error);
+}
+
+.research-chart-abs {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
 }
 
 .research-chart-plot {

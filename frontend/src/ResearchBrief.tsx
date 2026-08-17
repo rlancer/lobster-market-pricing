@@ -62,7 +62,6 @@ export function ResearchBriefView({
   expirations = [],
   chainLoading = false,
   chainArmed = false,
-  onChartVisible,
   onCommentaryVisible,
   onChainRequest,
   chainExpiration,
@@ -81,7 +80,6 @@ export function ResearchBriefView({
   chainLoading?: boolean;
   /** True after the user asked to load the chain. */
   chainArmed?: boolean;
-  onChartVisible?: () => void;
   onCommentaryVisible?: () => void;
   onChainRequest?: () => void;
   chainExpiration?: string;
@@ -94,14 +92,8 @@ export function ResearchBriefView({
   const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const spot = price.spot;
-  const chartId = `research-chart-${identity.ticker}`;
   const commentaryId = `research-lobster-${identity.ticker}`;
   const chainId = `research-chain-${identity.ticker}`;
-
-  useEffect(() => {
-    if (!onChartVisible || !research.computed_at) return;
-    return observeOnce(chartId, onChartVisible);
-  }, [onChartVisible, chartId, research.computed_at]);
 
   useEffect(() => {
     if (!onCommentaryVisible || !research.computed_at) return;
@@ -171,7 +163,7 @@ export function ResearchBriefView({
       </HStack>
 
       {research.computed_at ? (
-      <VStack gap={2} className="research-section" id={chartId}>
+      <VStack gap={2} className="research-section" id={`research-chart-${identity.ticker}`}>
         {ohlcLoading && ohlc.length === 0 ? (
           <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
             <Spinner size="sm" />
@@ -179,7 +171,7 @@ export function ResearchBriefView({
           </HStack>
         ) : ohlc.length === 0 && !ohlcLoading ? (
           <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
-            <Text type="supporting">Chart loads when you scroll here.</Text>
+            <Text type="supporting">No daily bars in the lake for this ticker yet.</Text>
           </HStack>
         ) : (
           <TickerChart bars={ohlc} spot={spot} />

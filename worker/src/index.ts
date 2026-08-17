@@ -357,6 +357,8 @@ function row(r: R2Row): { symbol: string; name: string | null; sector: string | 
 // ascending for the chart.
 // ---------------------------------------------------------------------------
 const OHLC_BARS_LIMIT = 260; // ~1y of trading days → 52w high/low + sparkline
+/** Calendar-day window wide enough for ~260 sessions without scanning full history. */
+const OHLC_LOOKBACK_CALENDAR_DAYS = 420;
 
 function enrichQuery(env: Env, symbol: string, kind: string, sql: string, key: string) {
   return r2sql(env, sql, key).catch((e) => {
@@ -365,19 +367,40 @@ function enrichQuery(env: Env, symbol: string, kind: string, sql: string, key: s
   });
 }
 
+/** Chart / sparkline OHLC only — date-bounded, no RV / CA / ETF side queries. */
+async function loadSymbolOhlc(env: Env, symbol: string): Promise<Row[]> {
+  const since = new Date(Date.now() - OHLC_LOOKBACK_CALENDAR_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const ohlcRows = await enrichQuery(
+    env,
+    symbol,
+    "ohlc",
+    `SELECT date, open, high, low, close, volume FROM (` +
+      `  SELECT date, open, high, low, close, volume,` +
+      `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
+      `  FROM options.ohlc WHERE symbol = ${lit(symbol)} AND date >= ${lit(since)}` +
+      `) WHERE rn = 1 ORDER BY date DESC LIMIT ${OHLC_BARS_LIMIT}`,
+    // v2: date-bounded scan (unbounded window made parts=ohlc multi-second).
+    `sym_ohlc_v2_${symbol}`,
+  );
+  return (ohlcRows as Row[]).map((r) => ({
+    date: String(r.date),
+    open: numOrNull(r.open),
+    high: numOrNull(r.high),
+    low: numOrNull(r.low),
+    close: numOrNull(r.close),
+    volume: numOrNull(r.volume),
+  })).reverse();
+}
+
 async function enrichSymbol(env: Env, symbol: string): Promise<{
   ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
   etf_profile: Row | null; etf_holdings: Row[];
 }> {
   const sym = lit(symbol);
-  const [ohlcRows, rvRows, caRows, etfProfileRows, etfHoldingRows] = await Promise.all([
-    enrichQuery(env, symbol, "ohlc",
-      `SELECT date, open, high, low, close, volume FROM (` +
-      `  SELECT date, open, high, low, close, volume,` +
-      `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
-      `  FROM options.ohlc WHERE symbol = ${sym}` +
-      `) WHERE rn = 1 ORDER BY date DESC LIMIT ${OHLC_BARS_LIMIT}`,
-      `sym_ohlc_${symbol}`),
+  const [ohlc, rvRows, caRows, etfProfileRows, etfHoldingRows] = await Promise.all([
+    loadSymbolOhlc(env, symbol),
     enrichQuery(env, symbol, "realized_vol",
       `SELECT as_of_date, realized_vol_30d, realized_vol_90d, n_returns_30, n_returns_90 FROM (` +
       `  SELECT as_of_date, realized_vol_30d, realized_vol_90d, n_returns_30, n_returns_90,` +
@@ -410,11 +433,7 @@ async function enrichSymbol(env: Env, symbol: string): Promise<{
       `sym_etfh_${symbol}`),
   ]);
   return {
-    ohlc: (ohlcRows as Row[]).map((r) => ({
-      date: String(r.date),
-      open: numOrNull(r.open), high: numOrNull(r.high), low: numOrNull(r.low),
-      close: numOrNull(r.close), volume: numOrNull(r.volume),
-    })).reverse(),
+    ohlc,
     realized_vol: rvRows.length ? {
       as_of_date: String(rvRows[0].as_of_date),
       realized_vol_30d: numOrNull(rvRows[0].realized_vol_30d),
@@ -498,6 +517,13 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
     ohlc: [] as Row[], realized_vol: null as Row | null, corporate_actions: [] as Row[],
     etf_profile: null as Row | null, etf_holdings: [] as Row[],
   };
+
+  // Chart path: one date-bounded OHLC query. Skip underlying lookup, chain, and
+  // the RV/CA/ETF enrichment suite — those made parts=ohlc as slow as parts=full.
+  if (parts === "ohlc") {
+    return { ...empty, ohlc: await loadSymbolOhlc(env, symbol) };
+  }
+
   const u = await r2sql(env, `SELECT symbol, name, sector, spot_price, run_id, fetched_at FROM (${LATEST_UNDERLYING}) WHERE symbol = ${lit(symbol)}`, "symu_" + symbol, QUERY_TTL_MS);
   if (!u.length) return empty;
   const ud = u[0];
@@ -506,8 +532,8 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
     spot: numOrNull(ud.spot_price), fetched_at: strOrNull(ud.fetched_at),
   };
   const spot = underlying.spot;
-  const wantOhlc = parts === "full" || parts === "ohlc";
   const wantChain = parts === "full" || parts === "chain";
+  const wantEnrich = parts === "full";
 
   // contracts for the latest run of this symbol + enrichment, in parallel.
   // The chain key embeds run_id, so a new loader run naturally invalidates it.
@@ -555,7 +581,7 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
     })()
     : Promise.resolve({ rows: [] as Row[], expirations: [] as string[], n_contracts: 0 });
 
-  const enrichPromise = wantOhlc
+  const enrichPromise = wantEnrich
     ? enrichSymbol(env, symbol)
     : Promise.resolve({
       ohlc: [] as Row[], realized_vol: null as Row | null, corporate_actions: [] as Row[],

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test:unit": "node --experimental-strip-types --test src/pageMeta.test.ts",
+    "test:unit": "node --experimental-strip-types --test src/pageMeta.test.ts src/tickerChartRange.test.ts",
     "og:render": "node scripts/render-og.mjs",
     "test:e2e": "node node_modules/@playwright/test/cli.js test",
     "preview": "vite preview"
