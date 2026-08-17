@@ -196,7 +196,7 @@ function systemPrompt(schema: string): string {
     "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
     `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a plain-English answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links.",
-    "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It OpenFIGI-normalizes the symbol, links this chat to that security, and returns price/volume technicals, fundamentals, earnings, and news. Ground the suggestion in that brief.",
+    "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It lake-normalizes the symbol, links this chat to that security, and returns price/volume technicals, lake fundamentals, earnings, and news. Ground the suggestion in that brief.",
     "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
     "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
     "",
@@ -741,8 +741,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       }),
       research_ticker: tool({
         description:
-          "Normalize a ticker via OpenFIGI, link it to this chat, and return a cached research brief " +
-          "(recent price/volume moves, consolidation/accumulation, fundamentals, earnings, news). " +
+          "Link a ticker to this chat and return a cached research brief " +
+          "(recent price/volume moves, consolidation/accumulation, lake fundamentals, earnings, news). " +
           "Call whenever you suggest a trade or deep-dive a specific underlying.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker,
         execute: async ({ symbol, force }) => this.safeTool("research_ticker", TOOL_LABELS.research_ticker, { symbol, force }, capture, async () => {

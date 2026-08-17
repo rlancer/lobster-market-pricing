@@ -99,14 +99,14 @@ export function ResearchBriefView({
   const chainId = `research-chain-${identity.ticker}`;
 
   useEffect(() => {
-    if (!onChartVisible) return;
+    if (!onChartVisible || !research.computed_at) return;
     return observeOnce(chartId, onChartVisible);
-  }, [onChartVisible, chartId]);
+  }, [onChartVisible, chartId, research.computed_at]);
 
   useEffect(() => {
-    if (!onCommentaryVisible) return;
+    if (!onCommentaryVisible || !research.computed_at) return;
     return observeOnce(commentaryId, onCommentaryVisible);
-  }, [onCommentaryVisible, commentaryId]);
+  }, [onCommentaryVisible, commentaryId, research.computed_at]);
 
   const askFollowUp = (raw: string) => {
     const question = raw.trim();
@@ -126,6 +126,7 @@ export function ResearchBriefView({
         <HStack gap={3} vAlign="end" className="research-title-row">
           <Heading level={1}>{identity.ticker}</Heading>
           {identity.name ? <Text type="supporting">{identity.name}</Text> : null}
+          {!research.computed_at ? <Spinner size="sm" /> : null}
         </HStack>
         <HStack gap={3} vAlign="end" className="research-price-row">
           <Text className="research-spot">{fmtSpot(spot)}</Text>
@@ -138,7 +139,7 @@ export function ResearchBriefView({
         </HStack>
         <Text type="supporting" className="research-id-line">
           {identity.sector ? `${identity.sector} · ` : ''}
-          {identity.figi ? `FIGI ${identity.figi}` : 'FIGI pending'}
+          {identity.figi ? `FIGI ${identity.figi}` : (research.computed_at ? 'FIGI pending' : 'Loading brief…')}
           {` · via ${identity.source}`}
         </Text>
       </VStack>
@@ -169,6 +170,7 @@ export function ResearchBriefView({
         )}
       </HStack>
 
+      {research.computed_at ? (
       <VStack gap={2} className="research-section" id={chartId}>
         {ohlcLoading && ohlc.length === 0 ? (
           <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
@@ -183,7 +185,9 @@ export function ResearchBriefView({
           <TickerChart bars={ohlc} spot={spot} />
         )}
       </VStack>
+      ) : null}
 
+      {research.computed_at ? (
       <VStack gap={3} className="research-section research-commentary-chat" id={commentaryId}>
         <Heading level={3}>Lobster</Heading>
         <HStack gap={3} vAlign="start" className="research-chat-msg">
@@ -217,7 +221,9 @@ export function ResearchBriefView({
           sendButton={<ChatSendButton />}
         />
       </VStack>
+      ) : null}
 
+      {research.computed_at ? (
       <VStack gap={3} className="research-section research-chain-section" id={chainId}>
         <Heading level={3}>Options chain</Heading>
         {!chainArmed ? (
@@ -250,6 +256,7 @@ export function ResearchBriefView({
           />
         )}
       </VStack>
+      ) : null}
 
       {(earnings.length > 0 || news.length > 0 || (relatedChats && relatedChats.length > 0)) && (
         <VStack gap={3} className="research-section research-secondary">
@@ -289,7 +296,9 @@ export function ResearchBriefView({
       )}
 
       <Text type="supporting" className="research-foot">
-        {research.cache_hit ? 'Cached' : 'Fresh'} · {new Date(research.computed_at).toLocaleString()}
+        {research.computed_at
+          ? `${research.cache_hit ? 'Cached' : 'Fresh'} · ${new Date(research.computed_at).toLocaleString()}`
+          : 'Loading brief…'}
       </Text>
     </VStack>
   );

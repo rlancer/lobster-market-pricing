@@ -14,13 +14,15 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
-import { whenIdle } from './researchLazy';
+import { whenIdle, isResearchBriefReady, pendingTickerResearch } from './researchLazy';
 import './Research.css';
 
 export default function ResearchPage() {
   const params = useParams({ strict: false }) as { ticker?: string };
   const tickerParam = params.ticker?.trim().toUpperCase() ?? '';
-  const [research, setResearch] = useState<TickerResearch | null>(null);
+  const [research, setResearch] = useState<TickerResearch | null>(
+    () => tickerParam ? pendingTickerResearch(tickerParam) : null,
+  );
   const [commentary, setCommentary] = useState<string | null>(null);
   const [commentaryLoading, setCommentaryLoading] = useState(false);
   const [commentaryActive, setCommentaryActive] = useState(false);
@@ -36,8 +38,10 @@ export default function ResearchPage() {
   const [chainNearSpot, setChainNearSpot] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const briefReady = isResearchBriefReady(research);
 
-  // Reset staged payloads when the ticker changes.
+  // Reset staged payloads when the ticker changes. Paint the ticker shell
+  // immediately so first paint does not wait on GET /api/research.
   useEffect(() => {
     setCommentary(null);
     setCommentaryLoading(false);
@@ -52,6 +56,8 @@ export default function ResearchPage() {
     setChainActive(false);
     setChainExpiration(undefined);
     setChainNearSpot(50);
+    setResearch(tickerParam ? pendingTickerResearch(tickerParam) : null);
+    setError(null);
   }, [tickerParam]);
 
   // 1) Research brief only — never wait on chats / chart / chain / commentary.
@@ -64,7 +70,6 @@ export default function ResearchPage() {
     let active = true;
     setLoading(true);
     setError(null);
-    setResearch(null);
     api.research(tickerParam)
       .then((brief) => {
         if (!active) return;
@@ -86,7 +91,7 @@ export default function ResearchPage() {
 
   // Related chats — idle after the brief paints (footer chrome, not critical path).
   useEffect(() => {
-    if (!tickerParam || !research) return;
+    if (!tickerParam || !briefReady) return;
     let active = true;
     const cancel = whenIdle(() => {
       api.researchChats(tickerParam)
@@ -101,11 +106,35 @@ export default function ResearchPage() {
       active = false;
       cancel();
     };
-  }, [tickerParam, research]);
+  }, [tickerParam, briefReady]);
+
+  // Headlines — Tavily stays off the brief API; fill in on idle from /api/news.
+  useEffect(() => {
+    if (!tickerParam || !briefReady) return;
+    let active = true;
+    const cancel = whenIdle(() => {
+      api.news(tickerParam, 8)
+        .then((res) => {
+          if (!active || !res.items.length) return;
+          setResearch((prev) => {
+            if (!prev || prev.identity.ticker !== tickerParam) return prev;
+            return {
+              ...prev,
+              news: res.items.map((item) => ({ title: item.title, link: item.link })),
+            };
+          });
+        })
+        .catch(() => { /* news is optional chrome */ });
+    });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [tickerParam, briefReady]);
 
   // 2) OHLC — only once the chart section nears the viewport.
   useEffect(() => {
-    if (!tickerParam || !research || !ohlcActive) return;
+    if (!tickerParam || !briefReady || !ohlcActive) return;
     let active = true;
     setOhlcLoading(true);
     api.symbolDetail(tickerParam, { parts: 'ohlc' })
@@ -120,12 +149,12 @@ export default function ResearchPage() {
         if (active) setOhlcLoading(false);
       });
     return () => { active = false; };
-  }, [tickerParam, research, ohlcActive]);
+  }, [tickerParam, briefReady, ohlcActive]);
 
   // 3) Commentary — only when Lobster is near the viewport, and only if the
   //    brief did not already carry a take (avoids a duplicate Worker hit).
   useEffect(() => {
-    if (!tickerParam || !research || !commentaryActive) return;
+    if (!tickerParam || !briefReady || !commentaryActive || !research) return;
     if (research.commentary?.trim()) {
       setCommentary(research.commentary.trim());
       setCommentaryLoading(false);
@@ -144,7 +173,7 @@ export default function ResearchPage() {
         if (active) setCommentaryLoading(false);
       });
     return () => { active = false; };
-  }, [tickerParam, research, commentaryActive]);
+  }, [tickerParam, research, briefReady, commentaryActive]);
 
   // 4) Options chain — explicit user action only (click-to-load), one expiry.
   useEffect(() => {

@@ -1,8 +1,10 @@
 /**
  * Per-ticker research brief: recent price/volume moves, technical posture
- * (consolidation / accumulation), earnings, news, and lake fundamentals
- * (market cap, PE, debt from options.fundamentals). Cached in D1 so the chat
- * widget and /research/:ticker route share one compute path.
+ * (consolidation / accumulation), earnings, optional news, and lake
+ * fundamentals (market cap, PE, debt from options.fundamentals, latest-wins).
+ * Cached in D1 so the chat widget and /research/:ticker route share one path.
+ * GET /api/research/{ticker} stays on lake + D1: no live Yahoo, no OpenFIGI,
+ * no Tavily on the first-paint critical path.
  */
 
 import type { TickerIdentity } from "./figi";
@@ -273,11 +275,35 @@ export async function readResearchCache(
   db: D1Database,
   securityId: string,
   now = Date.now(),
+  opts?: { allowStale?: boolean },
 ): Promise<TickerResearch | null> {
   const row = await db.prepare(
     `SELECT payload, expires_at FROM ticker_research WHERE security_id = ?1`,
   ).bind(securityId).first<{ payload: string; expires_at: number }>();
-  if (!row || row.expires_at <= now) return null;
+  return parseResearchCacheRow(row, now, opts);
+}
+
+/** D1 lookup by ticker so the brief path does not wait on OpenFIGI / identity. */
+export async function readResearchCacheByTicker(
+  db: D1Database,
+  ticker: string,
+  now = Date.now(),
+  opts?: { allowStale?: boolean },
+): Promise<TickerResearch | null> {
+  const row = await db.prepare(
+    `SELECT payload, expires_at FROM ticker_research WHERE ticker = ?1 ORDER BY computed_at DESC LIMIT 1`,
+  ).bind(ticker).first<{ payload: string; expires_at: number }>();
+  return parseResearchCacheRow(row, now, opts);
+}
+
+function parseResearchCacheRow(
+  row: { payload: string; expires_at: number } | null | undefined,
+  now: number,
+  opts?: { allowStale?: boolean },
+): TickerResearch | null {
+  if (!row) return null;
+  const stale = row.expires_at <= now;
+  if (stale && !opts?.allowStale) return null;
   try {
     const parsed = JSON.parse(row.payload) as TickerResearch;
     return { ...parsed, cache_hit: true };
@@ -314,21 +340,101 @@ export interface ResearchEnv {
   OPEN_FIGI?: string;
 }
 
+export interface GetResearchOpts {
+  force?: boolean;
+  chatId?: string;
+  /** Tavily headlines. Off on the HTTP brief path; on for the Copilot tool. */
+  includeNews?: boolean;
+  /** OpenFIGI on the identity miss path. Off for the HTTP brief. */
+  liveFigi?: boolean;
+  /** Background recompute when a stale D1 row is served. */
+  waitUntil?: (promise: Promise<unknown>) => void;
+}
+
+function isFreshCache(research: TickerResearch, now: number): boolean {
+  const expires = Date.parse(research.expires_at);
+  return Number.isFinite(expires) && expires > now;
+}
+
 /**
- * Resolve identity (OpenFIGI), compose research, cache in D1, optionally link chat.
+ * Compose research, cache in D1, optionally link chat.
+ *
+ * Critical path for GET /api/research/{ticker}:
+ *   1. D1 `ticker_research` by ticker (fresh or stale) — no OpenFIGI
+ *   2. On miss: lake OHLC / fundamentals / earnings / identity in parallel
+ *   3. Tavily news and OpenFIGI stay off unless explicitly opted in
  */
 export async function getOrComputeResearch(
   env: ResearchEnv,
   rawTicker: string,
   deps: ResearchDeps,
-  opts?: { force?: boolean; chatId?: string },
+  opts?: GetResearchOpts,
 ): Promise<TickerResearch> {
   const now = deps.now?.() ?? Date.now();
-  const identity = await resolveTickerIdentity(env, rawTicker, {
-    lakeLookup: deps.lakeLookup,
-    fetchImpl: deps.fetchImpl,
-    now,
-  });
+  const ticker = normalizeTicker(rawTicker);
+  if (!ticker) throw new Error("ticker is required");
+
+  if (!opts?.force) {
+    const cached = await readResearchCacheByTicker(env.SCHEMA_DB, ticker, now, { allowStale: true }).catch(() => null);
+    if (cached) {
+      if (opts?.chatId) {
+        try {
+          await linkChatTicker(env.SCHEMA_DB, opts.chatId, cached.identity, now);
+        } catch (e) {
+          console.error("chat ticker link failed", e);
+        }
+      }
+      if (opts?.includeNews && cached.news.length === 0) {
+        try {
+          const newsResult = await deps.loadNews(cached.identity.ticker, RESEARCH_NEWS_LIMIT);
+          cached.news = newsResult.items.slice(0, RESEARCH_NEWS_LIMIT);
+        } catch {
+          // keep empty news
+        }
+      }
+      if (!isFreshCache(cached, now) && opts?.waitUntil) {
+        opts.waitUntil(
+          computeAndStoreResearch(env, ticker, deps, { ...opts, force: true }).catch((e) => {
+            console.error("research stale refresh failed", e);
+          }),
+        );
+      }
+      return { ...cached, cache_hit: true };
+    }
+  }
+
+  return computeAndStoreResearch(env, ticker, deps, opts);
+}
+
+async function computeAndStoreResearch(
+  env: ResearchEnv,
+  ticker: string,
+  deps: ResearchDeps,
+  opts?: GetResearchOpts,
+): Promise<TickerResearch> {
+  const now = deps.now?.() ?? Date.now();
+
+  // Identity + lake payloads in parallel. Identity is D1/lake/ticker — no
+  // OpenFIGI unless liveFigi. Lake loaders use the URL ticker (canonical for
+  // this product); identity.ticker is the same except on rare alias remap.
+  const [identity, ohlc, realizedVol, earnings, newsResult, etf, fundamentals] = await Promise.all([
+    resolveTickerIdentity(env, ticker, {
+      lakeLookup: deps.lakeLookup,
+      fetchImpl: deps.fetchImpl,
+      now,
+      liveFigi: opts?.liveFigi === true,
+    }),
+    deps.loadOhlc(ticker).catch(() => [] as OhlcBar[]),
+    deps.loadRealizedVol(ticker).catch(() => null),
+    deps.loadEarnings(ticker).catch(() => [] as EarningsBrief[]),
+    opts?.includeNews
+      ? deps.loadNews(ticker, RESEARCH_NEWS_LIMIT).catch(() => ({ items: [] as NewsBrief[], error: "news failed" }))
+      : Promise.resolve({ items: [] as NewsBrief[] }),
+    deps.loadEtfProfile ? deps.loadEtfProfile(ticker).catch(() => null) : Promise.resolve(null),
+    deps.loadFundamentals
+      ? deps.loadFundamentals(ticker).catch(() => emptyFundamentals())
+      : Promise.resolve(emptyFundamentals()),
+  ]);
 
   if (opts?.chatId) {
     try {
@@ -337,26 +443,6 @@ export async function getOrComputeResearch(
       console.error("chat ticker link failed", e);
     }
   }
-
-  if (!opts?.force) {
-    const cached = await readResearchCache(env.SCHEMA_DB, identity.security_id, now).catch(() => null);
-    if (cached) {
-      // Refresh identity fields from latest resolve while keeping cached analysis.
-      return { ...cached, identity, cache_hit: true };
-    }
-  }
-
-  const ticker = identity.ticker;
-  const [ohlc, realizedVol, earnings, newsResult, etf, fundamentals] = await Promise.all([
-    deps.loadOhlc(ticker).catch(() => [] as OhlcBar[]),
-    deps.loadRealizedVol(ticker).catch(() => null),
-    deps.loadEarnings(ticker).catch(() => [] as EarningsBrief[]),
-    deps.loadNews(ticker, RESEARCH_NEWS_LIMIT).catch(() => ({ items: [] as NewsBrief[], error: "news failed" })),
-    deps.loadEtfProfile ? deps.loadEtfProfile(ticker).catch(() => null) : Promise.resolve(null),
-    deps.loadFundamentals
-      ? deps.loadFundamentals(ticker).catch(() => emptyFundamentals())
-      : Promise.resolve(emptyFundamentals()),
-  ]);
 
   const { price, technicals } = analyzePriceAction(ohlc);
   const computedAt = new Date(now).toISOString();

@@ -143,12 +143,12 @@ export const TOOLS: CatalogItem[] = [
     id: 'tool:research_ticker',
     kind: 'tool',
     title: 'research_ticker',
-    summary: 'OpenFIGI-normalized ticker research brief',
+    summary: 'Lake + D1 ticker research brief',
     description:
-      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker via OpenFIGI (lake/ticker fallback), links the chat to that security_id, and returns a cached brief: recent price/volume moves, consolidation/accumulation, lake fundamentals (market cap, PE, debt from options.fundamentals), earnings, and news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
+      'Required when suggesting a trade or deep-diving one underlying. Resolves the ticker from D1/lake (ticker-seeded security_id), links the chat to that security, and returns a cached brief: recent price/volume moves, consolidation/accumulation, lake fundamentals (market cap, PE, debt from options.fundamentals, latest-wins), and earnings. GET /api/research/{ticker} does not call OpenFIGI, Tavily, or live Yahoo — headlines load separately via get_news / /api/news. Powers chat ticker chips (→ /research/{ticker}) and the ticker detail page.',
     endpoint: 'GET /api/research/{ticker}',
-    feeds: ['openfigi', 'yahoo', 'nasdaq', 'tavily-news'],
-    tables: ['ohlc', 'realized_vol', 'earnings', 'securities'],
+    feeds: ['yahoo'],
+    tables: ['ohlc', 'realized_vol', 'earnings', 'securities', 'fundamentals'],
     params: [
       { name: 'symbol', type: 'string', note: 'Ticker to normalize and research' },
       { name: 'force', type: 'boolean?', note: 'Bypass the 1h D1 research cache' },
