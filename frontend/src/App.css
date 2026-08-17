@@ -41,6 +41,31 @@ button, select { cursor: pointer; }
 
 .workspace-nav {
   background: var(--panel);
+  height: 100%;
+}
+.nav-brand {
+  width: 100%;
+  padding-block: var(--spacing-3);
+}
+.nav-brand-link {
+  display: flex;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-element);
+}
+.nav-brand-link:focus-visible {
+  outline: var(--spacing-0-5) solid var(--accent);
+  outline-offset: var(--spacing-0-5);
+}
+.nav-mascot {
+  display: block;
+  width: calc(var(--size-element-lg) * 2);
+  height: calc(var(--size-element-lg) * 2);
+  flex-shrink: 0;
+}
+.nav-research-search {
+  width: 100%;
+  min-width: 0;
 }
 
 .topbar {
@@ -389,8 +414,6 @@ button, select { cursor: pointer; }
     max-width: none;
   }
   .topbar-tools { gap: var(--spacing-1); }
-  .topbar-tools .liq-filter,
-  .topbar-tools .monitor-status { display: none; }
   .docs-link,
   .topbar-profile,
   .topbar-profile-icon {
