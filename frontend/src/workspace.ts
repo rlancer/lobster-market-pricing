@@ -6,8 +6,6 @@ import { createContext, useContext } from 'react';
 import type { Stats } from './api';
 
 export interface WorkspaceValue {
-  liquidOnly: boolean;
-  setLiquidOnly: (v: boolean) => void;
   stats: Stats | null;
   updatedAt: string;
 }

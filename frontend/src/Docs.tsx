@@ -91,7 +91,7 @@ const FACTS = [
   ['583', 'symbols per refresh (S&P 500 + ETFs)'],
   ['~1M', 'option contracts per pass'],
   ['~15 min', 'loader cadence + quote delay'],
-  ['5 min', 'API cache (10 min liquidity)'],
+  ['30 min', 'in-isolate API cache'],
   ['24/7', 'market-gated loader loop'],
 ];
 
@@ -128,9 +128,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
-  { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, liquid_only, limit, offset)' },
+  { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
   { method: 'GET', path: '/api/symbols', desc: 'Symbol autocomplete for typeaheads' },
-  { method: 'GET', path: '/api/liquidity', desc: 'Liquidity-gate defaults + counts (what “liquid” means)' },
   { method: 'GET', path: '/api/screen', desc: 'The screener — filters, sort, pagination (see below)' },
   { method: 'GET', path: '/api/symbol/{symbol}', desc: 'Underlying info + its full option chain from the latest run' },
   { method: 'GET', path: '/api/tables', desc: 'Lake tables with columns/types, row counts, and sample rows (D1-cached; ?force=1 recomputes live)' },
@@ -187,7 +186,6 @@ const DIALECT_NOTES = [
 // in memory); "R2 SQL" = server-side query (re-scans each time).
 const DUCKDB_RESULTS: [string, string, string, string][] = [
   ['stats (counts / last)', '0.6', '0.2', '0.8–2.9'],
-  ['liquid_symbols (join + HAVING)', '5.6', '0.5', '1.2–1.6'],
   ['screen_top (near-spot 50, top vol)', '14.9', '1.9', '3.4–3.8'],
   ['symbol_detail AAPL (latest run)', '0.9', '0.7', '0.8'],
   ['sectors (GROUP BY)', '0.26', '0.26', '0.6–1.7'],
@@ -372,8 +370,7 @@ export function DocsBackend() {
     <Section id="backend" num="03" title="Backend & API">
       <p className="docs-lede">
         The Worker (<code>worker/</code>) turns the lake into JSON. Every endpoint is read-only and cached
-        in-isolate: 5 minutes for data, 10 for the liquidity snapshot — data only changes when the loader
-        runs, so staleness is bounded.
+        in-isolate — data only changes when the loader runs, so staleness is bounded.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">
@@ -456,7 +453,7 @@ export function DocsFrontend() {
   return (
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
-        The React app (Vite + TanStack Router) is a public timeline, Chat, and a Data catalog on one shell — sidebar navigation plus a header with the liquidity gate and dataset status. The header help popover links here and to the brand guide.
+        The React app (Vite + TanStack Router) is a public timeline, Chat, and a Data catalog on one shell — sidebar navigation plus a header with dataset status. The header help popover links here and to the brand guide.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>
