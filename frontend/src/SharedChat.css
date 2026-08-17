@@ -53,8 +53,10 @@
 .share-author:hover { text-decoration: underline; }
 
 .share-content {
+  /* Match live chat --ai-column-max (45rem) so shared transcripts read the same. */
+  --ai-column-max: 45rem;
   width: 100%;
-  max-width: 860px;
+  max-width: var(--ai-column-max);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
