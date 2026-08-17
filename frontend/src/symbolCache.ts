@@ -9,7 +9,7 @@
 
 import { api, type SymbolSuggestion } from './api';
 
-const STORAGE_PREFIX = 'symbol_cache_v1';
+const STORAGE_KEY = 'symbol_cache_v1';
 /** Universe refreshes nightly; 24h bounds staleness to at most one day. */
 const SYMBOL_TTL_MS = 24 * 60 * 60 * 1000;
 const SEARCH_LIMIT = 50;
@@ -19,34 +19,30 @@ interface SymbolCacheEntry {
   items: SymbolSuggestion[];
 }
 
-function cacheKey(liquidOnly: boolean): string {
-  return STORAGE_PREFIX + (liquidOnly ? '_liq' : '');
-}
-
-function readCache(liquidOnly: boolean): SymbolCacheEntry | null {
-  const raw = localStorage.getItem(cacheKey(liquidOnly));
+function readCache(): SymbolCacheEntry | null {
+  const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   const parsed = JSON.parse(raw) as SymbolCacheEntry;
   if (!Array.isArray(parsed.items)) return null;
   return parsed;
 }
 
-function writeCache(liquidOnly: boolean, items: SymbolSuggestion[]): void {
+function writeCache(items: SymbolSuggestion[]): void {
   const entry: SymbolCacheEntry = { ts: Date.now(), items };
-  localStorage.setItem(cacheKey(liquidOnly), JSON.stringify(entry));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entry));
 }
 
 /** The full symbol universe from localStorage when fresh, else a server fetch. */
-export async function cachedSymbols(liquidOnly = false): Promise<SymbolSuggestion[]> {
+export async function cachedSymbols(): Promise<SymbolSuggestion[]> {
   try {
-    const cached = readCache(liquidOnly);
+    const cached = readCache();
     if (cached && Date.now() - cached.ts < SYMBOL_TTL_MS) return cached.items;
   } catch {
     // Blocked/corrupt storage — nothing cached; fall through to the server.
   }
-  const items = await api.symbolsAll(liquidOnly);
+  const items = await api.symbolsAll();
   try {
-    writeCache(liquidOnly, items);
+    writeCache(items);
   } catch {
     // Quota/private mode — serve this session without persisting.
   }
@@ -84,15 +80,12 @@ export function rankSymbols(
  * Search the cached universe client-side; falls back to the server-side
  * /api/symbols search when the universe is unavailable.
  */
-export async function searchSymbols(
-  q: string,
-  liquidOnly = false,
-): Promise<SymbolSuggestion[]> {
+export async function searchSymbols(q: string): Promise<SymbolSuggestion[]> {
   const needle = q.trim();
   try {
-    const universe = await cachedSymbols(liquidOnly);
+    const universe = await cachedSymbols();
     return rankSymbols(universe, needle);
   } catch {
-    return api.symbols(needle, liquidOnly);
+    return api.symbols(needle);
   }
 }

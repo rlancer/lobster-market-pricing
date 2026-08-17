@@ -76,6 +76,7 @@ describe("COMMENTARY_SYSTEM", () => {
     assert.match(COMMENTARY_SYSTEM, /Markdown/i);
     assert.match(COMMENTARY_SYSTEM, /blank lines|short paragraphs/i);
     assert.match(COMMENTARY_SYSTEM, /\*\*Trade/);
+    assert.match(COMMENTARY_SYSTEM, /tradable|liquidity|volume looks weak/i);
   });
 });
 

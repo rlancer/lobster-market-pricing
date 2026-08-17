@@ -210,11 +210,10 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | Endpoint | Description |
 | --- | --- |
 | `GET /api/health` | `{ok:true}` |
-| `GET /api/stats` | Counts of underlyings / contracts / calls / puts, last-updated timestamp (`?liquid_only=true`) |
-| `GET /api/sectors` | Per-sector symbol count & avg spot price (`?liquid_only=true`) |
-| `GET /api/underlyings?sector=&q=&liquid_only=&limit=&offset=` | Paginated underlyings |
-| `GET /api/symbols?q=&liquid_only=&limit=` | Symbol autocomplete |
-| `GET /api/liquidity` | Liquidity filter defaults + counts |
+| `GET /api/stats` | Counts of underlyings / contracts / calls / puts, last-updated timestamp |
+| `GET /api/sectors` | Per-sector symbol count & avg spot price |
+| `GET /api/underlyings?sector=&q=&limit=&offset=` | Paginated underlyings |
+| `GET /api/symbols?q=&limit=` | Symbol autocomplete |
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits. Optional staging params for the research page: `parts=ohlc` (skip chain), `parts=chain` (skip enrichment; one expiration), `expiration=YYYY-MM-DD`, `near_spot=N` (N strikes closest to spot). Default `parts=full` keeps the legacy dump. |
 | `GET /api/research/{ticker}` | OpenFIGI-normalized ticker research brief (price/volume technicals, consolidation/accumulation, lake fundamentals when available, earnings, news). Cached in D1 (~1h). Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. |
@@ -248,7 +247,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 `min_strike`, `max_strike`, `min_volume`, `min_open_interest`,
 `min_iv`, `max_iv`, `min_delta`, `max_delta`, `in_the_money`,
 `expiration_before` (`YYYY-MM-DD`), `expiration_after`,
-`liquid_only` (default `true`), `near_spot_strikes` (default `50`),
+`near_spot_strikes` (default `50`),
 `sort` (`volume` | `open_interest` | `strike` | `implied_vol` | `delta` | `gamma` | `theta` | `vega` | `bid` | `ask` | `last` | `expiration`),
 `order` (`asc` | `desc`), `limit`, `offset`.
 
@@ -315,6 +314,13 @@ SQL (`SELECT 1`, `SELECT 'test' AS t`) is rejected in schema validation before
 it hits R2. After three failed queries in the same turn, the loop stops
 forcing tools and seals a prose close-out so the model cannot burn the full
 10-step budget on the same rejected probe.
+
+**Trade liquidity.** There is no global "tradable names" filter. When the
+Copilot suggests a trade it must query `options.option_contracts` for the
+candidate strikes and only recommend contracts with a two-sided quote, a
+tight-enough relative bid/ask, and demonstrated volume or open interest. Thin
+books get a "too illiquid" close-out, not an invented fill.
+
 **Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The live conversation is `/chat`
@@ -393,8 +399,8 @@ escaping; sort columns are whitelisted). Key dialect constraints:
 - Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per
   calendar day, `vega`/`rho` per 1.00 of vol/rate).
 - The Worker cache is in-isolate and tiered by how quickly the underlying data
-  changes (all bounded by the nightly refresh): screener endpoints 30 min, the
-  liquid-underlyings set 60 min, `/api/query` + symbol chains 60 min
+  changes (all bounded by the nightly refresh): screener endpoints 30 min,
+  `/api/query` + symbol chains 60 min
   (hash-keyed by SQL, so the chat's frame pulls and Data catalog reruns share one
   lake fetch), and the symbol typeahead reference rows 12 h. The frontend keeps
   the full symbol universe in localStorage for 24 h and searches it
