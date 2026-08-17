@@ -79,15 +79,6 @@ export interface Env extends Cloudflare.Env {
   OPEN_FIGI?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Liquidity filter thresholds (mirror the original Python server)
-// ---------------------------------------------------------------------------
-const LIQ_MIN_VOLUME = 10;
-const LIQ_MIN_OI = 100;
-const LIQ_MAX_SPREAD = 0.15;
-const LIQ_ATM_BAND = 0.1;
-const LIQ_MIN_ATM_CONTRACTS = 5;
-
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs
 // accumulate). Pick each symbol's newest underlying run from the decoupled
 // options.underlying_snapshots table (security master facts live in
@@ -106,7 +97,6 @@ const LATEST_UNDERLYING =
 // is bounded by the loader cadence, not by these values. Endpoints quote
 // different data at different rates:
 //   RESULT_TTL_MS — screener endpoints (stats, screen, underlyings…)
-//   LIQ_TTL_MS    — the liquid-underlyings set (recomputed from nightly data)
 //   QUERY_TTL_MS  — /api/query (arbitrary SQL) + symbol detail chains: the
 //                   heaviest lake compute; a 60-min memo bounds cross-user
 //                   repeat cost. The in-isolate Map dies with the isolate
@@ -114,7 +104,6 @@ const LATEST_UNDERLYING =
 //   REF_TTL_MS    — near-static reference rows (symbol/name/sector for the
 //                   typeahead); refreshed effectively only when names/constituents change.
 const RESULT_TTL_MS = 30 * 60 * 1000;
-const LIQ_TTL_MS = 60 * 60 * 1000;
 const QUERY_TTL_MS = 60 * 60 * 1000;
 const REF_TTL_MS = 12 * 60 * 60 * 1000;
 const R2SQL_LIMIT_MAX = 10000;
@@ -179,51 +168,12 @@ function lit(v: unknown): string {
   return "'" + String(v).replace(/'/g, "''") + "'";
 }
 
-function inList(syms: string[]): string {
-  if (!syms.length) return "(NULL)";
-  return "(" + syms.map((s) => lit(s)).join(",") + ")";
-}
-
-// ---------------------------------------------------------------------------
-// Liquid underlying symbols (cached, shared across endpoints)
-// ---------------------------------------------------------------------------
-async function liquidSymbols(env: Env): Promise<string[]> {
-  return cached<string[]>("__liq__", LIQ_TTL_MS, async () => {
-    const sql =
-      "SELECT c.symbol AS symbol FROM options.option_contracts c " +
-      "JOIN (" + LATEST_UNDERLYING + ") u ON u.symbol = c.symbol " +
-      "WHERE u.spot_price > 0 AND c.bid > 0 AND c.ask > 0 AND c.ask >= c.bid " +
-      "AND (c.ask - c.bid) / ((c.bid + c.ask) / 2.0) <= " + lit(LIQ_MAX_SPREAD) + " " +
-      "AND (COALESCE(c.volume, 0) >= " + lit(LIQ_MIN_VOLUME) + " OR COALESCE(c.open_interest, 0) >= " + lit(LIQ_MIN_OI) + ") " +
-      "AND ABS((c.strike - u.spot_price) / u.spot_price) <= " + lit(LIQ_ATM_BAND) + " " +
-      "GROUP BY c.symbol HAVING COUNT(*) >= " + lit(LIQ_MIN_ATM_CONTRACTS) + " " +
-      "ORDER BY c.symbol";
-    const rows = await r2sql(env, sql);
-    return rows.map((r) => String(r.symbol)).sort();
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Endpoint handlers — return shapes match frontend/src/api.ts interfaces exactly
 // ---------------------------------------------------------------------------
-async function stats(env: Env, liquidOnly: boolean): Promise<{
+async function stats(env: Env): Promise<{
   underlyings: number; contracts: number; calls: number; puts: number; last_updated: string;
 }> {
-  if (liquidOnly) {
-    const syms = await liquidSymbols(env);
-    const il = inList(syms);
-    const [cc, cp, pp, last] = await Promise.all([
-      r2sql(env, `SELECT COUNT(*) n FROM options.option_contracts WHERE symbol IN ${il}`, "stats_c_liq"),
-      r2sql(env, `SELECT COUNT(*) n FROM options.option_contracts WHERE type='call' AND symbol IN ${il}`, "stats_call_liq"),
-      r2sql(env, `SELECT COUNT(*) n FROM options.option_contracts WHERE type='put' AND symbol IN ${il}`, "stats_put_liq"),
-      r2sql(env, `SELECT COALESCE(MAX(fetched_at), '') AS last FROM options.option_contracts WHERE symbol IN ${il} AND fetched_at LIKE '2%'`, "stats_last_liq"),
-    ]);
-    return {
-      underlyings: syms.length,
-      contracts: num(cc[0]?.n), calls: num(cp[0]?.n), puts: num(pp[0]?.n),
-      last_updated: String(last[0]?.last ?? ""),
-    };
-  }
   const [u, c, calls] = await Promise.all([
     r2sql(env, `SELECT COUNT(*) n FROM (${LATEST_UNDERLYING}) u`, "stats_u"),
     r2sql(env, `SELECT COUNT(*) n FROM options.option_contracts`, "stats_c"),
@@ -263,48 +213,18 @@ async function runs(env: Env, limit = 5): Promise<{
   }));
 }
 
-async function liquidity(env: Env): Promise<{
-  enabled_defaults: typeof LIQ_DEFAULTS; total_underlyings: number; liquid_underlyings: number; description: string;
-}> {
-  const [syms, u] = await Promise.all([
-    liquidSymbols(env),
-    r2sql(env, `SELECT COUNT(*) n FROM (${LATEST_UNDERLYING})`, "liq_total"),
-  ]);
-  return {
-    enabled_defaults: LIQ_DEFAULTS,
-    total_underlyings: num(u[0]?.n),
-    liquid_underlyings: syms.length,
-    description: LIQ_DESC,
-  };
-}
-const LIQ_DEFAULTS = {
-  min_volume: LIQ_MIN_VOLUME, min_open_interest: LIQ_MIN_OI, max_spread: LIQ_MAX_SPREAD,
-  atm_band: LIQ_ATM_BAND, min_atm_contracts: LIQ_MIN_ATM_CONTRACTS,
-};
-const LIQ_DESC =
-  `An underlying is tradable iff it has >= ${LIQ_MIN_ATM_CONTRACTS} contracts within +/-` +
-  `${Math.round(LIQ_ATM_BAND * 100)}% of spot that each have a two-sided quote (bid>0, ask>=bid), ` +
-  `a relative bid-ask spread <= ${Math.round(LIQ_MAX_SPREAD * 100)}%, and demonstrated interest ` +
-  `(volume >= ${LIQ_MIN_VOLUME} OR open interest >= ${LIQ_MIN_OI}).`;
-
-async function sectors(env: Env, liquidOnly: boolean): Promise<{ sector: string; symbols: number; avg_spot: number | null }[]> {
-  let filter = "";
-  if (liquidOnly) {
-    const syms = await liquidSymbols(env);
-    filter = `WHERE u.symbol IN ${inList(syms)}`;
-  }
+async function sectors(env: Env): Promise<{ sector: string; symbols: number; avg_spot: number | null }[]> {
   const rows = await r2sql(env,
     `SELECT sector, COUNT(*) AS symbols, AVG(spot_price) AS avg_spot ` +
-    `FROM (${LATEST_UNDERLYING}) u ${filter} GROUP BY sector ORDER BY sector`,
-    "sectors_" + liquidOnly);
+    `FROM (${LATEST_UNDERLYING}) u GROUP BY sector ORDER BY sector`,
+    "sectors");
   return rows.map((r) => ({ sector: String(r.sector), symbols: num(r.symbols), avg_spot: numOrNull(r.avg_spot) }));
 }
 
 async function underlyings(env: Env, p: {
-  sector?: string; q?: string; liquid_only?: boolean; limit?: number; offset?: number;
+  sector?: string; q?: string; limit?: number; offset?: number;
 }): Promise<{ total: number; items: { symbol: string; name: string | null; sector: string | null; spot: number | null; contracts: number }[] }> {
   const where: string[] = [];
-  if (p.liquid_only) { const syms = await liquidSymbols(env); where.push(`u.symbol IN ${inList(syms)}`); }
   if (p.sector) where.push(`u.sector = ${lit(p.sector)}`);
   if (p.q) { const s = `%${p.q.toUpperCase()}%`; where.push(`(UPPER(u.symbol) LIKE ${lit(s)} OR UPPER(COALESCE(u.name,'')) LIKE ${lit(s)})`); }
   const clause = where.length ? "WHERE " + where.join(" AND ") : "";
@@ -333,8 +253,8 @@ async function screen(env: Env, p: {
   symbol?: string; type?: string; sector?: string;
   min_strike?: number; max_strike?: number; min_volume?: number; min_open_interest?: number;
   min_iv?: number; max_iv?: number; min_delta?: number; max_delta?: number;
-  in_the_money?: boolean; expiration_before?: string; expiration_after?: string;
-  liquid_only?: boolean; near_spot_strikes?: number;
+  in_the_money?: boolean;   expiration_before?: string; expiration_after?: string;
+  near_spot_strikes?: number;
   sort?: string; order?: string; limit?: number; offset?: number;
 }): Promise<{ total: number; items: Row[]; truncated?: boolean }> {
   const where: string[] = ["c.symbol IS NOT NULL"];
@@ -352,7 +272,6 @@ async function screen(env: Env, p: {
   if (p.in_the_money != null) where.push(`c.in_the_money = ${lit(p.in_the_money)}`);
   if (p.expiration_before) where.push(`c.expiration <= ${lit(p.expiration_before)}`);
   if (p.expiration_after) where.push(`c.expiration >= ${lit(p.expiration_after)}`);
-  if (p.liquid_only) { const syms = await liquidSymbols(env); where.push(`c.symbol IN ${inList(syms)}`); }
 
   const sortCol = SORT_WHITELIST.has(p.sort ?? "") ? (p.sort as string) : "volume";
   const order = p.order === "asc" ? "ASC" : "DESC";
@@ -407,25 +326,22 @@ async function screen(env: Env, p: {
   return { total: fetched.total, items, truncated: fetched.truncated && (offset + limit) >= R2SQL_LIMIT_MAX };
 }
 
-async function symbols(env: Env, q?: string, liquidOnly?: boolean, limit = 50): Promise<{ symbol: string; name: string | null; sector: string | null }[]> {
-  let filter = "";
-  if (liquidOnly) { const syms = await liquidSymbols(env); filter = `AND symbol IN ${inList(syms)}`; }
+async function symbols(env: Env, q?: string, limit = 50): Promise<{ symbol: string; name: string | null; sector: string | null }[]> {
   const lim = clamp(limit, 1, 1000);
-  const liqTag = liquidOnly ? "L" : "A";
   if (!q) {
     // Full universe pull (limit 1000 covers all ~500 symbols) — the reference
     // tier: the browser caches this across sessions and filters client-side.
     const rows = await r2sql(env,
-      `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) WHERE true ${filter} ORDER BY symbol LIMIT ${lim}`,
-      "syms_all_" + liqTag + "_" + lim, REF_TTL_MS);
+      `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ORDER BY symbol LIMIT ${lim}`,
+      "syms_all_" + lim, REF_TTL_MS);
     return rows.map(row);
   }
   const u = `%${q.toUpperCase()}%`;
   const rows = await r2sql(env,
     `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ` +
-    `WHERE (UPPER(symbol) LIKE ${lit(u)} OR UPPER(COALESCE(name,'')) LIKE ${lit(u)}) ${filter} ` +
+    `WHERE (UPPER(symbol) LIKE ${lit(u)} OR UPPER(COALESCE(name,'')) LIKE ${lit(u)}) ` +
     `ORDER BY CASE WHEN UPPER(symbol) = ${lit(q.toUpperCase())} THEN 0 WHEN UPPER(symbol) LIKE ${lit(q.toUpperCase() + "%")} THEN 1 ELSE 2 END, symbol LIMIT ${lim}`,
-    "syms_q_" + liqTag + "_" + q.toUpperCase() + "_" + lim, REF_TTL_MS);
+    "syms_q_" + q.toUpperCase() + "_" + lim, REF_TTL_MS);
   return rows.map(row);
 }
 function row(r: R2Row): { symbol: string; name: string | null; sector: string | null } {
@@ -572,13 +488,13 @@ function filterContractsNearSpot(rows: Row[], spot: number | null, nearSpot: num
 
 async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {}): Promise<{
   underlying: { symbol: string; name: string | null; sector: string | null; spot: number | null; fetched_at: string | null } | null;
-  contracts: Row[]; expirations: string[]; n_contracts: number; liquid: boolean;
+  contracts: Row[]; expirations: string[]; n_contracts: number;
   ohlc: Row[]; realized_vol: Row | null; corporate_actions: Row[];
   etf_profile: Row | null; etf_holdings: Row[];
 }> {
   const parts = opts.parts ?? "full";
   const empty = {
-    underlying: null, contracts: [] as Row[], expirations: [] as string[], n_contracts: 0, liquid: false,
+    underlying: null, contracts: [] as Row[], expirations: [] as string[], n_contracts: 0,
     ohlc: [] as Row[], realized_vol: null as Row | null, corporate_actions: [] as Row[],
     etf_profile: null as Row | null, etf_holdings: [] as Row[],
   };
@@ -646,10 +562,9 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
       etf_profile: null as Row | null, etf_holdings: [] as Row[],
     });
 
-  const [{ rows, expirations, n_contracts }, enrich, syms] = await Promise.all([
+  const [{ rows, expirations, n_contracts }, enrich] = await Promise.all([
     chainPromise,
     enrichPromise,
-    liquidSymbols(env),
   ]);
 
   return {
@@ -657,7 +572,6 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
     contracts: rows,
     expirations,
     n_contracts,
-    liquid: syms.includes(symbol),
     ohlc: enrich.ohlc,
     realized_vol: enrich.realized_vol,
     corporate_actions: enrich.corporate_actions,
@@ -898,15 +812,13 @@ async function runQuery(env: Env, sqlIn: string, limit = 1000): Promise<{ column
 // Notebook: 45-day premium leaders
 // ---------------------------------------------------------------------------
 async function notebookPremium(env: Env, p: {
-  target_dte?: number; tolerance?: number; moneyness_band?: number; min_volume?: number; liquid_only?: boolean; limit?: number;
+  target_dte?: number; tolerance?: number; moneyness_band?: number; min_volume?: number; limit?: number;
 }): Promise<{ notebook: string; target_dte: number; tolerance: number; moneyness_band: number; min_volume: number; calls: Row[]; puts: Row[] }> {
   const targetDte = p.target_dte ?? 45;
   const tol = p.tolerance ?? 7;
   const band = p.moneyness_band ?? 0.15;
   const minVol = p.min_volume ?? 0;
   const limit = clamp(p.limit ?? 25, 1, 200);
-  let liqClause = "";
-  if (p.liquid_only) { const syms = await liquidSymbols(env); liqClause = `AND c.symbol IN ${inList(syms)}`; }
   const lo = Math.max(targetDte - tol, 0);
   const hi = targetDte + tol;
   const sql =
@@ -932,13 +844,12 @@ async function notebookPremium(env: Env, p: {
     "    AND COALESCE(c.last, (c.bid + c.ask) / 2.0) > 0\n" +
     "    AND COALESCE(c.volume, 0) >= " + lit(minVol) + "\n" +
     "    AND ABS((c.strike - u.spot_price) / u.spot_price) <= " + lit(band) + "\n" +
-    "    " + liqClause + "\n" +
     "),\n" +
     "calls_ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY type ORDER BY premium_ratio DESC NULLS LAST) AS trn FROM ranked WHERE prn = 1)\n" +
     "SELECT symbol, name, sector, spot, expiration, type, strike, last, bid, ask, volume, open_interest, implied_vol, delta, in_the_money, premium, moneyness, premium_ratio\n" +
     "FROM calls_ranked WHERE trn <= " + lit(limit) + " ORDER BY type, premium_ratio DESC NULLS LAST";
   const rows = (await r2sql(env, sql,
-    "nb_" + `${targetDte}_${tol}_${band}_${minVol}_${p.liquid_only ? "L" : "A"}_${limit}`, QUERY_TTL_MS)) as Row[];
+    "nb_" + `${targetDte}_${tol}_${band}_${minVol}_${limit}`, QUERY_TTL_MS)) as Row[];
   return {
     notebook: "45-day-premium-leaders", target_dte: targetDte, tolerance: tol,
     moneyness_band: band, min_volume: minVol,
@@ -2504,7 +2415,6 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   // latest-underlying subquery is reused; precompute nothing here (cached on demand).
 
   if (path === "/api/health") return json(env, { ok: true, auth: { google: googleConfigured(env) } });
-  if (path === "/api/liquidity") return json(env, await liquidity(env));
 
   // Read-only pass-through to the continuous loader's live /loop state.
   if (path === "/loader/status")
@@ -2512,11 +2422,11 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/loader/symbols")
     return json(env, await loaderGet(env, "/loop/symbols" + url.search, "loader:symbols:" + url.search));
 
-  if (path === "/api/stats") return json(env, await stats(env, q.get("liquid_only") === "true"));
+  if (path === "/api/stats") return json(env, await stats(env));
   if (path === "/api/runs") return json(env, await runs(env, num(q.get("limit") ?? 5)));
-  if (path === "/api/sectors") return json(env, await sectors(env, q.get("liquid_only") === "true"));
+  if (path === "/api/sectors") return json(env, await sectors(env));
   if (path === "/api/symbols")
-    return json(env, await symbols(env, q.get("q") ?? undefined, q.get("liquid_only") === "true", num(q.get("limit") ?? 50)));
+    return json(env, await symbols(env, q.get("q") ?? undefined, num(q.get("limit") ?? 50)));
   if (path === "/api/news")
     return json(env, await news(env, q.get("symbol"), q.get("limit") ? num(q.get("limit")) : NEWS_DEFAULT_LIMIT));
   if (path === "/api/web_search")
@@ -2535,7 +2445,6 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
       tolerance: q.get("tolerance") ? num(q.get("tolerance")) : undefined,
       moneyness_band: q.get("moneyness_band") ? num(q.get("moneyness_band")) : undefined,
       min_volume: q.get("min_volume") ? num(q.get("min_volume")) : undefined,
-      liquid_only: q.get("liquid_only") === "true",
       limit: q.get("limit") ? num(q.get("limit")) : undefined,
     }));
 
@@ -2569,7 +2478,6 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/underlyings")
     return json(env, await underlyings(env, {
       sector: q.get("sector") ?? undefined, q: q.get("q") ?? undefined,
-      liquid_only: q.get("liquid_only") === "true",
       limit: num(q.get("limit") ?? 50), offset: num(q.get("offset") ?? 0),
     }));
 
@@ -2587,7 +2495,6 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
       in_the_money: q.has("in_the_money") ? q.get("in_the_money") === "true" : undefined,
       expiration_before: q.get("expiration_before") ?? undefined,
       expiration_after: q.get("expiration_after") ?? undefined,
-      liquid_only: q.get("liquid_only") !== "false", // default true
       near_spot_strikes: q.has("near_spot_strikes") ? num(q.get("near_spot_strikes")) : 50,
       sort: q.get("sort") ?? undefined, order: q.get("order") ?? undefined,
       limit: num(q.get("limit") ?? 100), offset: num(q.get("offset") ?? 0),

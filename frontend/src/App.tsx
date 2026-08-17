@@ -4,6 +4,8 @@ import {
   AppShell,
   Center,
   HStack,
+  Layout,
+  LayoutHeader,
   MobileNav,
   MobileNavToggle,
   Popover,
@@ -21,7 +23,6 @@ import { BookOpen, ChevronDown, ChevronRight, CircleHelp, Database, LineChart, N
 import './App.css';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
-import LiquidityFilter from './LiquidityFilter';
 import MonitorStatus from './MonitorStatus';
 import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
@@ -30,7 +31,7 @@ import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './cha
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
-// Workspace context — shared by the header (stats counts, liquidity gate) and
+// Workspace context — shared by the header (stats counts, dataset chip) and
 // the route views. The context, value type, and useWorkspace hook live in
 // ./workspace so this file only exports components (React Fast Refresh).
 // ---------------------------------------------------------------------------
@@ -324,20 +325,19 @@ function WorkspaceNavigation({
   );
 }
 
-function Layout() {
+function WorkspaceLayout() {
   const db = useDbReady();
   const location = useLocation();
   const isMobile = useMediaQuery('(max-width: 768px)');
-  const [liquidOnly, setLiquidOnly] = useState(true); // global liquidity gate
   const [stats, setStats] = useState<Stats | null>(null);
 
   const loadStats = useCallback(async () => {
     try {
-      setStats(await api.stats(liquidOnly));
+      setStats(await api.stats());
     } catch {
       /* header stats are best-effort */
     }
-  }, [liquidOnly]);
+  }, []);
   useEffect(() => { loadStats(); }, [loadStats]);
 
 
@@ -376,11 +376,12 @@ function Layout() {
     );
   }
 
-  const value: WorkspaceValue = { liquidOnly, setLiquidOnly, stats, updatedAt };
+  const value: WorkspaceValue = { stats, updatedAt };
   const navProps = { activeTo: active?.to, isChat: isCopilot, activeChatId };
 
   // Responsive contract:
-  //   > 768px  SideNav (mascot + ticker search + apps); header holds account chrome
+  //   > 768px  SideNav spans the viewport; the header sits in a nested Layout
+  //            to its right (AppShell topNav would stretch over the rail).
   //   <= 768px SideNav collapses to MobileNav; ticker search lives in the header
   return (
     <WorkspaceContext.Provider value={value}>
@@ -400,31 +401,34 @@ function Layout() {
             </MobileNav>
           ),
         }}
-        topNav={(
-          <HStack as="header" className="topbar" gap={3} vAlign="center">
-            <MobileNavToggle label="Open apps" />
-            {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
-            <section className="topbar-tools" aria-label="Workspace controls">
-              {isMobile ? null : (
-                <>
-                  <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-                  <MonitorStatus />
-                </>
-              )}
-              <HelpMenu />
-              <AuthControls />
-            </section>
-          </HStack>
-        )}
       >
-        <section className={isCopilot ? 'content content-copilot' : 'content'}>
-          <Outlet />
-        </section>
+        <Layout
+          className="workspace-main"
+          height="fill"
+          padding={0}
+          header={(
+            <LayoutHeader padding={0} hasDivider={false}>
+              <HStack as="header" className="topbar" gap={3} vAlign="center">
+                <MobileNavToggle label="Open apps" />
+                {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
+                <section className="topbar-tools" aria-label="Workspace controls">
+                  {isMobile ? null : <MonitorStatus />}
+                  <HelpMenu />
+                  <AuthControls />
+                </section>
+              </HStack>
+            </LayoutHeader>
+          )}
+        >
+          <section className={isCopilot ? 'content content-copilot' : 'content'}>
+            <Outlet />
+          </section>
+        </Layout>
       </AppShell>
     </WorkspaceContext.Provider>
   );
 }
 
 export default function App() {
-  return <Layout />;
+  return <WorkspaceLayout />;
 }

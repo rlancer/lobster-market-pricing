@@ -60,21 +60,6 @@ export interface RefreshRun {
   error_summary: string | null;
 }
 
-export interface LiquidityCriteria {
-  min_volume: number;
-  min_open_interest: number;
-  max_spread: number;
-  atm_band: number;
-  min_atm_contracts: number;
-}
-
-export interface LiquidityInfo {
-  enabled_defaults: LiquidityCriteria;
-  total_underlyings: number;
-  liquid_underlyings: number;
-  description: string;
-}
-
 export interface SymbolSuggestion {
   symbol: string;
   name: string | null;
@@ -262,7 +247,6 @@ export interface SymbolDetail {
   contracts: ChainContract[];
   expirations: string[];
   n_contracts: number;
-  liquid: boolean;
   // Enrichment from the OHLC pipeline (~1y of daily bars, latest realized-vol
   // snapshot, recent dividends/splits). Optional: older worker deploys omit
   // them; empty arrays when the tables have no rows for this symbol.
@@ -681,16 +665,15 @@ export const api = {
   /** No-op readiness: the Worker is always ready (was the DuckDB-WASM load gate). */
   ready: () => Promise.resolve(),
   health: () => get<Health>('/api/health'),
-  stats: (liquid_only?: boolean) => get<Stats>(`/api/stats${qs({ liquid_only })}`),
+  stats: () => get<Stats>('/api/stats'),
   runs: (limit?: number) => get<RefreshRun[]>(`/api/runs${qs({ limit })}`),
-  sectors: (liquid_only?: boolean) => get<SectorRow[]>(`/api/sectors${qs({ liquid_only })}`),
-  symbols: (q: string, liquid_only?: boolean) =>
-    get<SymbolSuggestion[]>(`/api/symbols${qs({ q: q || undefined, liquid_only })}`),
+  sectors: () => get<SectorRow[]>('/api/sectors'),
+  symbols: (q: string) =>
+    get<SymbolSuggestion[]>(`/api/symbols${qs({ q: q || undefined })}`),
   // Full symbol universe (names/sectors) for the cross-session typeahead cache;
   // the server caps at 1000 and the lake holds ~500 underlyings.
-  symbolsAll: (liquid_only?: boolean) =>
-    get<SymbolSuggestion[]>(`/api/symbols${qs({ liquid_only, limit: 1000 })}`),
-  liquidity: () => get<LiquidityInfo>('/api/liquidity'),
+  symbolsAll: () =>
+    get<SymbolSuggestion[]>(`/api/symbols${qs({ limit: 1000 })}`),
   screen: (params: Record<string, string | number | boolean | undefined>) =>
     get<ScreenResponse>(`/api/screen${qs(params)}`),
   // Lake schema, served from the Worker's D1 cache (recomputed when stale).
@@ -726,7 +709,6 @@ export const api = {
     tolerance?: number;
     moneyness_band?: number;
     min_volume?: number;
-    liquid_only?: boolean;
     limit?: number;
   }) => get<PremiumNotebook>(`/api/notebook/premium${qs(params)}`),
   loaderStatus: () => get<LoaderStatus>('/loader/status'),
