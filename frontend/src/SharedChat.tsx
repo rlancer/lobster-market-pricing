@@ -5,6 +5,8 @@ import './SharedChat.css';
 import { Sunglasses } from './Sunglasses';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
+import { usePageMeta } from './usePageMeta';
+import { SITE_NAME } from './pageMeta';
 
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
@@ -19,6 +21,23 @@ function SharedChatRoute() {
   const [share, setShare] = useState<SharedChat | null>(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+
+  const shareTitle = share?.title?.trim() || '';
+  usePageMeta(
+    share
+      ? {
+          title: `${shareTitle || 'Shared chat'} · ${SITE_NAME}`,
+          description: share.author
+            ? `A Copilot chat shared by @${share.author.handle} on Lobster MP.`
+            : 'A shared Copilot transcript on Lobster MP.',
+        }
+      : missing
+        ? {
+            title: `Share not found · ${SITE_NAME}`,
+            description: 'This share link is missing or expired.',
+          }
+        : null,
+  );
 
   useEffect(() => {
     if (!shareId) {

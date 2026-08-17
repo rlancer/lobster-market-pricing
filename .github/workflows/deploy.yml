@@ -43,6 +43,12 @@ jobs:
           VITE_API_BASE: ${{ github.ref == 'refs/heads/main' && 'https://api.lobster.mp' || 'https://api-dev.lobster.mp' }}
         run: cd frontend && npm run build
 
+      - name: Test route page meta
+        run: cd frontend && npm run test:unit
+
+      - name: Check Pages meta worker
+        run: test -s frontend/dist/_worker.js
+
       - name: Install Worker dependencies
         run: cd worker && npm ci
 
