@@ -356,7 +356,7 @@ export interface GetResearchOpts {
   chatId?: string;
   /** Tavily headlines. Off on the HTTP brief path; on for the Copilot tool. */
   includeNews?: boolean;
-  /** Realized vol + ETF profile. Off on the HTTP brief; on for Copilot. */
+  /** Realized vol + earnings + ETF profile/holdings. On for HTTP brief + Copilot. */
   includeSecondary?: boolean;
   /** OpenFIGI on the identity miss path. Off for the HTTP brief. */
   liveFigi?: boolean;
@@ -374,8 +374,8 @@ function isFreshCache(research: TickerResearch, now: number): boolean {
  *
  * Critical path for GET /api/research/{ticker}:
  *   1. D1 `ticker_research` by ticker (fresh or stale) — no OpenFIGI
- *   2. On miss: lake OHLC + fundamentals (+ identity) in parallel
- *   3. Tavily, OpenFIGI, earnings, RV, and ETF profile stay off unless opted in
+ *   2. On miss: lake OHLC + fundamentals + secondary (RV, earnings, ETF) in parallel
+ *   3. Tavily / OpenFIGI stay off unless opted in (news loads via /api/news on the page)
  */
 export async function getOrComputeResearch(
   env: ResearchEnv,

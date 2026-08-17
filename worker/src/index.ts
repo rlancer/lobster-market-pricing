@@ -2225,11 +2225,13 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
   const chatId = url.searchParams.get("chat_id")?.trim() || undefined;
   const started = Date.now();
   try {
+    // Secondary lake reads (RV, earnings, ETF profile + holdings) are on for the
+    // ticker detail page — ETF fund stats / components are first-class there.
     const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), {
       force,
       chatId,
       includeNews: false,
-      includeSecondary: false,
+      includeSecondary: true,
       liveFigi: false,
       waitUntil: (p) => ctx.waitUntil(p),
     });
