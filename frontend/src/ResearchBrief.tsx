@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import {
   ChatComposer,
@@ -9,11 +9,13 @@ import {
   Text,
   VStack,
 } from '@astryxdesign/core';
+import { Button } from '@astryxdesign/core/Button';
 import { AssistantMark } from './Sunglasses';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
 import type { ChatTickerLink, OhlcBar, ChainContract, TickerResearch } from './api';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
+import { observeOnce } from './researchLazy';
 import './Research.css';
 
 function fmtPct(v: number | null | undefined): string {
@@ -58,7 +60,10 @@ export function ResearchBriefView({
   contracts = [],
   expirations = [],
   chainLoading = false,
-  onChainVisible,
+  chainArmed = false,
+  onChartVisible,
+  onCommentaryVisible,
+  onChainRequest,
   chainExpiration,
   chainNearSpot = 50,
   onChainExpirationChange,
@@ -73,8 +78,11 @@ export function ResearchBriefView({
   contracts?: ChainContract[];
   expirations?: string[];
   chainLoading?: boolean;
-  /** Fired once when the options-chain section approaches the viewport. */
-  onChainVisible?: () => void;
+  /** True after the user asked to load the chain. */
+  chainArmed?: boolean;
+  onChartVisible?: () => void;
+  onCommentaryVisible?: () => void;
+  onChainRequest?: () => void;
   chainExpiration?: string;
   chainNearSpot?: number;
   onChainExpirationChange?: (expiration: string) => void;
@@ -82,40 +90,22 @@ export function ResearchBriefView({
 }) {
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
-  const chainArmedRef = useRef(false);
   const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const spot = price.spot;
+  const chartId = `research-chart-${identity.ticker}`;
+  const commentaryId = `research-lobster-${identity.ticker}`;
+  const chainId = `research-chain-${identity.ticker}`;
 
   useEffect(() => {
-    chainArmedRef.current = false;
-  }, [identity.ticker]);
+    if (!onChartVisible) return;
+    return observeOnce(chartId, onChartVisible);
+  }, [onChartVisible, chartId]);
 
   useEffect(() => {
-    if (!onChainVisible) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      onChainVisible();
-      return;
-    }
-    const node = document.getElementById(`research-chain-${identity.ticker}`);
-    if (!(node instanceof Element)) {
-      onChainVisible();
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (chainArmedRef.current) return;
-        if (entries.some((e) => e.isIntersecting)) {
-          chainArmedRef.current = true;
-          onChainVisible();
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '240px 0px' },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [onChainVisible, identity.ticker]);
+    if (!onCommentaryVisible) return;
+    return observeOnce(commentaryId, onCommentaryVisible);
+  }, [onCommentaryVisible, commentaryId]);
 
   const askFollowUp = (raw: string) => {
     const question = raw.trim();
@@ -178,16 +168,22 @@ export function ResearchBriefView({
         )}
       </HStack>
 
-      {ohlcLoading && ohlc.length === 0 ? (
-        <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
-          <Spinner size="sm" />
-          <Text type="supporting">Loading chart…</Text>
-        </HStack>
-      ) : (
-        <TickerChart bars={ohlc} spot={spot} />
-      )}
+      <VStack gap={2} className="research-section" id={chartId}>
+        {ohlcLoading && ohlc.length === 0 ? (
+          <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
+            <Spinner size="sm" />
+            <Text type="supporting">Loading chart…</Text>
+          </HStack>
+        ) : ohlc.length === 0 && !ohlcLoading ? (
+          <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
+            <Text type="supporting">Chart loads when you scroll here.</Text>
+          </HStack>
+        ) : (
+          <TickerChart bars={ohlc} spot={spot} />
+        )}
+      </VStack>
 
-      <VStack gap={3} className="research-section research-commentary-chat">
+      <VStack gap={3} className="research-section research-commentary-chat" id={commentaryId}>
         <Heading level={3}>Lobster</Heading>
         <HStack gap={3} vAlign="start" className="research-chat-msg">
           <AssistantMark className="research-chat-avatar" />
@@ -203,7 +199,7 @@ export function ResearchBriefView({
             )}
             {!commentaryLoading && !resolvedCommentary && (
               <Text type="supporting" className="research-chat-bubble">
-                No commentary yet for {identity.ticker}.
+                Scroll to load the Lobster take for {identity.ticker}.
               </Text>
             )}
           </VStack>
@@ -219,9 +215,21 @@ export function ResearchBriefView({
         />
       </VStack>
 
-      <VStack gap={3} className="research-section research-chain-section" id={`research-chain-${identity.ticker}`}>
+      <VStack gap={3} className="research-section research-chain-section" id={chainId}>
         <Heading level={3}>Options chain</Heading>
-        {chainLoading && contracts.length === 0 ? (
+        {!chainArmed ? (
+          <VStack gap={2} className="research-chain research-chain-deferred">
+            <Text type="supporting">
+              Chain is deferred — load one expiration near spot when you need it.
+            </Text>
+            <Button
+              label="Load options chain"
+              variant="secondary"
+              size="sm"
+              onClick={() => onChainRequest?.()}
+            />
+          </VStack>
+        ) : chainLoading && contracts.length === 0 ? (
           <HStack gap={2} vAlign="center" className="research-chain">
             <Spinner size="sm" />
             <Text type="supporting">Loading chain…</Text>

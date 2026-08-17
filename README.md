@@ -260,10 +260,10 @@ in-memory.
 
 The **timeline** is the home surface (`/`). Chat lives at `/chat`. **Research**
 (`/research`, `/research/{ticker}`) is the ticker detail page — spot + compact
-fundamentals paint first, then Lobster commentary + OHLC chart load in parallel;
-the options chain is deferred until near the viewport and fetched one expiration
-(+ near-spot window) at a time. Chat ticker chips (from `research_ticker`) link
-there. **Data**
+fundamentals paint first; chart and Lobster commentary arm when those sections
+near the viewport; the options chain is click-to-load (one expiration +
+near-spot window). Related chats settle on idle. Chat ticker chips (from
+`research_ticker`) link there. **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
 - Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
