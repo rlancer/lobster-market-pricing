@@ -10,29 +10,31 @@ import {
 } from 'recharts';
 import { HStack, Text, ToggleButton, ToggleButtonGroup, VStack } from '@astryxdesign/core';
 import type { OhlcBar } from './api';
+import {
+  CHART_RANGES,
+  type ChartRange,
+  rangeMove,
+  sliceBars,
+} from './tickerChartRange';
 import './Research.css';
-
-export type ChartRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
-
-const RANGE_BARS: Record<ChartRange, number | null> = {
-  '1M': 22,
-  '3M': 66,
-  '6M': 132,
-  '1Y': 252,
-  ALL: null,
-};
-
-const RANGES: ChartRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
 
 function fmtNum(v: number | null | undefined, d = 2): string {
   if (v == null || !Number.isFinite(v)) return '—';
   return v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-function sliceBars(bars: OhlcBar[], range: ChartRange): OhlcBar[] {
-  const n = RANGE_BARS[range];
-  if (n == null || bars.length <= n) return bars;
-  return bars.slice(-n);
+function fmtPct(v: number): string {
+  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+}
+
+function fmtAbsChange(v: number): string {
+  const sign = v >= 0 ? '+' : '−';
+  return `${sign}${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function changeClass(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v) || v === 0) return '';
+  return v > 0 ? 'up' : 'down';
 }
 
 export function TickerChart({
@@ -44,6 +46,8 @@ export function TickerChart({
 }) {
   const [range, setRange] = useState<ChartRange>('3M');
   const data = useMemo(() => sliceBars(bars, range), [bars, range]);
+  const move = useMemo(() => rangeMove(data), [data]);
+  const rangeLabel = range === 'ALL' ? 'All' : range;
 
   if (bars.length === 0) {
     return (
@@ -56,7 +60,21 @@ export function TickerChart({
   return (
     <VStack gap={3} className="research-chart">
       <HStack gap={3} vAlign="center" className="research-chart-toolbar">
-        <Text type="supporting" className="research-chart-label">Close</Text>
+        <VStack gap={0} className="research-chart-move">
+          <Text type="supporting" className="research-chart-label">{rangeLabel} move</Text>
+          {move ? (
+            <HStack gap={2} vAlign="end" className="research-chart-move-row">
+              <Text className={`research-chart-pct ${changeClass(move.pct)}`}>
+                {fmtPct(move.pct)}
+              </Text>
+              <Text type="supporting" className="research-chart-abs">
+                {fmtAbsChange(move.abs)}
+              </Text>
+            </HStack>
+          ) : (
+            <Text className="research-chart-pct">—</Text>
+          )}
+        </VStack>
         <ToggleButtonGroup
           label="Chart range"
           type="single"
@@ -66,7 +84,7 @@ export function TickerChart({
             if (typeof value === 'string') setRange(value as ChartRange);
           }}
         >
-          {RANGES.map((key) => (
+          {CHART_RANGES.map((key) => (
             <ToggleButton key={key} value={key} label={key === 'ALL' ? 'All' : key} />
           ))}
         </ToggleButtonGroup>
