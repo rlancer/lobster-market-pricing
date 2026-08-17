@@ -117,9 +117,9 @@ export interface ChainContract {
   ask_size?: number | null;
 }
 
-/** One daily spot OHLC bar for an underlying (options.ohlc, newest run per date). */
+/** One spot OHLC bar (daily lake bar, or intraday Yahoo 5m with date as YYYY-MM-DDTHH:MM). */
 export interface OhlcBar {
-  date: string; // YYYY-MM-DD
+  date: string;
   open: number | null;
   high: number | null;
   low: number | null;
@@ -701,7 +701,7 @@ export const api = {
   econCalendar: (days?: number) =>
     get<EconCalendarResponse>(`/api/econ_calendar${qs({ days })}`),
   symbolDetail: (symbol: string, opts?: {
-    parts?: 'full' | 'ohlc' | 'chain';
+    parts?: 'full' | 'ohlc' | 'ohlc_intraday' | 'chain';
     expiration?: string;
     near_spot?: number;
   }) =>

@@ -237,7 +237,7 @@ export function ResearchBriefView({
             <Text type="supporting">No daily bars in the lake for this ticker yet.</Text>
           </HStack>
         ) : (
-          <TickerChart bars={ohlc} spot={spot} />
+          <TickerChart bars={ohlc} spot={spot} ticker={identity.ticker} />
         )}
       </VStack>
       ) : null}

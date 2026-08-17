@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types worker-configuration.d.ts --env-interface WorkerBindings",
     "typecheck": "tsc --noEmit",
-    "test:copilot": "node --import tsx --test test/copilot-provider.test.ts test/copilot-validation.test.ts test/copilot-frames.test.ts test/chart-spec.test.ts test/auth-chats.test.ts test/profiles.test.ts test/timeline.test.ts test/copilot-tool-events.test.ts test/research.test.ts test/research-commentary.test.ts test/copilot-scope.test.ts test/copilot-loop.test.ts"
+    "test:copilot": "node --import tsx --test test/copilot-provider.test.ts test/copilot-validation.test.ts test/copilot-frames.test.ts test/chart-spec.test.ts test/auth-chats.test.ts test/profiles.test.ts test/timeline.test.ts test/copilot-tool-events.test.ts test/research.test.ts test/research-commentary.test.ts test/copilot-scope.test.ts test/copilot-loop.test.ts test/yahoo-intraday.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
