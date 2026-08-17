@@ -259,7 +259,7 @@ function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
 function WorkspaceHelpNav({ activeTo }: { activeTo?: string }) {
   return (
     <>
-      <Divider isFullBleed />
+      <Divider isFullBleed variant="strong" />
       <WorkspaceHelpNavItems activeTo={activeTo} />
     </>
   );
