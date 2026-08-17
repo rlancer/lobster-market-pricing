@@ -17,9 +17,11 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   daily; Yahoo continuous futures `=F` from `symbols/futures.json` →
   `options.ohlc` / `options.realized_vol`), `cfe-futures-daily` (batch,
   daily; CBOE CFE settlement CSV + delayed monthals →
-  `options.futures_settlements` / `options.futures_quotes`), and
+  `options.futures_settlements` / `options.futures_quotes`),
   `indices-ohlc-daily` (batch, daily; Yahoo CBOE vol indexes `^VIX` …
-  from `symbols/indices.json` → `options.ohlc` / `options.realized_vol`).
+  from `symbols/indices.json` → `options.ohlc` / `options.realized_vol`), and
+  `research-briefs-daily` (item-scoped, daily; warms the API Worker D1
+  `ticker_research` cache via `POST /api/research/warm` — no new lake table).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

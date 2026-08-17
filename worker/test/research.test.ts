@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { analyzePriceAction, getOrComputeResearch, parseTickerParam, summarizeResearch, type OhlcBar, type ResearchDeps, type TickerResearch } from "../src/research";
+import { analyzePriceAction, getOrComputeResearch, parseTickerParam, summarizeResearch, warmResearchTickers, type OhlcBar, type ResearchDeps, type TickerResearch } from "../src/research";
 import { identityFromOpenFigi, identityFromTicker, resolveTickerIdentity } from "../src/figi";
 import { normalizeTicker, securityIdForTicker } from "../src/symbology";
 
@@ -439,5 +439,39 @@ describe("getOrComputeResearch", () => {
     );
     assert.equal(deps.calls.news, 1);
     assert.equal(research.news[0]?.title, "slow tavily");
+  });
+});
+
+describe("warmResearchTickers", () => {
+  it("force-warms a batch into D1 and reports per-ticker results", async () => {
+    const db = memoryDb();
+    const deps = trackingDeps();
+    const summary = await warmResearchTickers({ SCHEMA_DB: db }, ["aapl", "MSFT", "aapl"], deps, {
+      concurrency: 2,
+      includeSecondary: true,
+    });
+    assert.equal(summary.attempted, 2);
+    assert.equal(summary.warmed, 2);
+    assert.equal(summary.failed, 0);
+    assert.equal(deps.calls.ohlc, 2);
+    assert.equal(deps.calls.earnings, 2);
+
+    const cached = await getOrComputeResearch({ SCHEMA_DB: db }, "AAPL", trackingDeps(), {
+      includeNews: false,
+    });
+    assert.equal(cached.cache_hit, true);
+  });
+
+  it("skips invalid tickers and keeps valid ones", async () => {
+    const summary = await warmResearchTickers(
+      { SCHEMA_DB: memoryDb() },
+      ["AAPL", "!!!", ""],
+      trackingDeps(),
+      { concurrency: 1 },
+    );
+    assert.equal(summary.attempted, 1);
+    assert.equal(summary.warmed, 1);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.results[0]?.ticker, "AAPL");
   });
 });

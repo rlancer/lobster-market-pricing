@@ -9,6 +9,7 @@ import { fundamentalsDailyJob } from "./fundamentals-daily.js";
 import { futuresOhlcDailyJob } from "./futures-ohlc-daily.js";
 import { cfeFuturesDailyJob } from "./cfe-futures-daily.js";
 import { indicesOhlcDailyJob } from "./indices-ohlc-daily.js";
+import { researchBriefsDailyJob } from "./research-briefs-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -33,6 +34,8 @@ import { indicesOhlcDailyJob } from "./indices-ohlc-daily.js";
 //     delayed monthals → options.futures_settlements / futures_quotes.
 //   - indices-ohlc-daily — batch, ungated, daily; Yahoo CBOE vol indexes
 //     (^VIX, …) from symbols/indices.json → options.ohlc / realized_vol.
+//   - research-briefs-daily — item-scoped, ungated, daily; warms API Worker
+//     D1 `ticker_research` via POST /api/research/warm (no new lake table).
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -45,5 +48,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     futuresOhlcDailyJob(env),
     cfeFuturesDailyJob(env),
     indicesOhlcDailyJob(env),
+    researchBriefsDailyJob(env),
   ];
 }

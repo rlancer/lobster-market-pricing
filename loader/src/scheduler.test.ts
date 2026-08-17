@@ -291,6 +291,7 @@ describe("EtlScheduler — due-scan", () => {
     expect(due.map((r) => r.job_id)).toEqual([
       "cboe-options", "ohlc-daily", "ohlc-backfill", "earnings-daily", "fred-econ-daily", "etf-daily",
       "fundamentals-daily", "futures-ohlc-daily", "cfe-futures-daily", "indices-ohlc-daily",
+      "research-briefs-daily",
     ]);
   });
 });
@@ -355,7 +356,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(10);
+    expect(list.jobs).toHaveLength(11);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -406,6 +407,11 @@ describe("EtlScheduler — job observability routes", () => {
     expect(indices.enabled).toBe(1);
     expect(indices.market_gated).toBe(0);
     expect(indices.cadence_seconds).toBe(86400);
+    const research = byId.get("research-briefs-daily")!;
+    expect(research.scope).toBe("items");
+    expect(research.enabled).toBe(1);
+    expect(research.market_gated).toBe(0);
+    expect(research.cadence_seconds).toBe(86400);
   });
 
   it("unknown job returns an error; trigger returns 404", async () => {
