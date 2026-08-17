@@ -1,3 +1,6 @@
+/* Reuse chat markdown text styling (`.ai-text`) from AiChat.css. */
+@import './AiChat.css';
+
 .research-page {
   max-width: 72rem;
   margin: 0 auto;
