@@ -2140,12 +2140,9 @@ async function loadResearchFundamentals(env: Env, ticker: string): Promise<Funda
     const rows = await r2sql(
       env,
       `SELECT market_cap, enterprise_value, trailing_pe, forward_pe, peg_ratio, price_to_book,` +
-        `  total_debt, debt_to_equity, profit_margins, revenue_growth, source FROM (` +
-        `  SELECT market_cap, enterprise_value, trailing_pe, forward_pe, peg_ratio, price_to_book,` +
-        `    total_debt, debt_to_equity, profit_margins, revenue_growth, source,` +
-        `    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) rn` +
-        `  FROM options.fundamentals WHERE ticker = ${lit(ticker)}` +
-        `) WHERE rn = 1`,
+        `  total_debt, debt_to_equity, profit_margins, revenue_growth, source` +
+        ` FROM options.fundamentals WHERE ticker = ${lit(ticker)}` +
+        ` ORDER BY fetched_at DESC LIMIT 1`,
       "fund_" + ticker,
       QUERY_TTL_MS,
     );

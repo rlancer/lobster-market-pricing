@@ -307,6 +307,7 @@ describe("getOrComputeResearch", () => {
     assert.equal(deps.calls.ohlc, 1);
     assert.equal(deps.calls.fundamentals, 1);
     assert.equal(deps.calls.etf, 0);
+    assert.equal(deps.calls.earnings, 0);
     assert.equal(research.news.length, 0);
     assert.equal(research.fundamentals.market_cap, 3e12);
     assert.equal(research.identity.source, "lake");

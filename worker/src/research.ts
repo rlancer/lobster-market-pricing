@@ -363,8 +363,8 @@ function isFreshCache(research: TickerResearch, now: number): boolean {
  *
  * Critical path for GET /api/research/{ticker}:
  *   1. D1 `ticker_research` by ticker (fresh or stale) — no OpenFIGI
- *   2. On miss: lake OHLC / fundamentals / earnings / identity in parallel
- *   3. Tavily news and OpenFIGI stay off unless explicitly opted in
+ *   2. On miss: lake OHLC + fundamentals (+ identity) in parallel
+ *   3. Tavily, OpenFIGI, earnings, RV, and ETF profile stay off unless opted in
  */
 export async function getOrComputeResearch(
   env: ResearchEnv,
@@ -429,7 +429,7 @@ async function computeAndStoreResearch(
     }),
     deps.loadOhlc(ticker).catch(() => [] as OhlcBar[]),
     secondary ? deps.loadRealizedVol(ticker).catch(() => null) : Promise.resolve(null),
-    deps.loadEarnings(ticker).catch(() => [] as EarningsBrief[]),
+    secondary ? deps.loadEarnings(ticker).catch(() => [] as EarningsBrief[]) : Promise.resolve([] as EarningsBrief[]),
     opts?.includeNews
       ? deps.loadNews(ticker, RESEARCH_NEWS_LIMIT).catch(() => ({ items: [] as NewsBrief[], error: "news failed" }))
       : Promise.resolve({ items: [] as NewsBrief[] }),
