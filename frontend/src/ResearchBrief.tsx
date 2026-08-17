@@ -5,6 +5,7 @@ import {
   ChatSendButton,
   Heading,
   HStack,
+  Markdown,
   Spinner,
   Text,
   VStack,
@@ -195,7 +196,9 @@ export function ResearchBriefView({
               </HStack>
             )}
             {resolvedCommentary && (
-              <Text className="research-chat-bubble">{resolvedCommentary}</Text>
+              <div className="research-chat-bubble">
+                <div className="ai-text"><Markdown>{resolvedCommentary}</Markdown></div>
+              </div>
             )}
             {!commentaryLoading && !resolvedCommentary && (
               <Text type="supporting" className="research-chat-bubble">
