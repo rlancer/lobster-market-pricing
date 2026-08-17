@@ -63,22 +63,27 @@ export function ProfileSunglasses({ className }: { className?: string }) {
       aria-hidden="true"
       focusable="false"
     >
+      {/* Card base + accent wash — muted alone disappears into the page. */}
+      <circle cx="16" cy="16" r="16" fill="var(--color-background-card)" />
       <circle cx="16" cy="16" r="16" fill="var(--color-accent-muted)" />
-      {/* Optical center sits slightly above mid so the mark reads balanced. */}
+      {/*
+        Shades fill most of the badge (~78% wide). Sit a hair below center for a
+        cooler, less “sticker” balance than a dead-center crop.
+      */}
       <g
         fill="var(--color-background-body)"
         stroke="var(--color-text-primary)"
         strokeLinejoin="round"
         strokeLinecap="round"
-        strokeWidth="1.2"
+        strokeWidth="1.35"
       >
-        <rect x="4.5" y="11.5" width="9.75" height="7.25" rx="3.4" />
-        <rect x="17.75" y="11.5" width="9.75" height="7.25" rx="3.4" />
-        <path d="M14.25 15.1H17.75" fill="none" />
-        <path d="M4.5 14.15L2.6 13M27.5 14.15L29.4 13" fill="none" />
+        <rect x="3.25" y="12.4" width="11" height="8" rx="3.1" />
+        <rect x="17.75" y="12.4" width="11" height="8" rx="3.1" />
+        <path d="M14.25 16.3H17.75" fill="none" />
+        <path d="M3.25 14.9L1.6 13.75M28.75 14.9L30.4 13.75" fill="none" />
       </g>
-      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="1.15">
-        <path d="M7 13.85L9.4 12.7M20.25 13.85L22.65 12.7" />
+      <g fill="none" stroke="var(--color-icon-blue)" strokeLinecap="round" strokeWidth="1.25">
+        <path d="M6.1 14.55L8.7 13.25M20.8 14.55L23.4 13.25" />
       </g>
     </svg>
   );
