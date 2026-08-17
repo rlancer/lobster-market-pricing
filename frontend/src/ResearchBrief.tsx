@@ -5,6 +5,8 @@ import {
   ChatSendButton,
   Heading,
   HStack,
+  List,
+  ListItem,
   Markdown,
   Spinner,
   Text,
@@ -119,6 +121,8 @@ export function ResearchBriefView({
     void navigate({ to: '/chat' });
   };
 
+  const hasRailMeta = earnings.length > 0 || news.length > 0 || Boolean(relatedChats && relatedChats.length > 0);
+
   return (
     <VStack className="research-brief" gap={3}>
       <VStack gap={1} className="research-hero">
@@ -178,177 +182,192 @@ export function ResearchBriefView({
         )}
       </HStack>
 
-      {research.computed_at && etf && etfHoldings.length > 0 ? (
-        <VStack gap={2} className="research-section research-etf-holdings">
-          <Heading level={3}>Holdings</Heading>
-          <Text type="supporting">
-            Top {etfHoldings.length} components by weight
-            {etf.name ? ` · ${etf.name}` : ''}.
-          </Text>
-          <div className="research-holdings-wrap">
-            <table className="research-holdings-table">
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">Symbol</th>
-                  <th scope="col">Name</th>
-                  <th scope="col" className="right">Weight</th>
-                </tr>
-              </thead>
-              <tbody>
-                {etfHoldings.map((h) => {
-                  const sym = h.holding_symbol?.trim().toUpperCase() || null;
-                  return (
-                    <tr key={`${h.rank ?? ''}-${sym ?? h.holding_name ?? ''}`}>
-                      <td>{h.rank ?? '—'}</td>
-                      <td>
-                        {sym ? (
-                          <Link
-                            to="/research/$ticker"
-                            params={{ ticker: sym }}
-                            className="research-chip-link research-holding-link"
-                          >
-                            {sym}
-                          </Link>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td>{h.holding_name ?? '—'}</td>
-                      <td className="right">{fmtFracPct(h.weight)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </VStack>
-      ) : null}
-
       {research.computed_at ? (
-      <VStack gap={2} className="research-section" id={`research-chart-${identity.ticker}`}>
-        {ohlcLoading && ohlc.length === 0 ? (
-          <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
-            <Spinner size="sm" />
-            <Text type="supporting">Loading chart…</Text>
-          </HStack>
-        ) : ohlc.length === 0 && !ohlcLoading ? (
-          <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
-            <Text type="supporting">No daily bars in the lake for this ticker yet.</Text>
-          </HStack>
-        ) : (
-          <TickerChart bars={ohlc} spot={spot} ticker={identity.ticker} />
-        )}
-      </VStack>
-      ) : null}
-
-      {research.computed_at ? (
-      <VStack gap={3} className="research-section research-commentary-chat" id={commentaryId}>
-        <Heading level={3}>Lobster</Heading>
-        <HStack gap={3} vAlign="start" className="research-chat-msg">
-          <AssistantMark className="research-chat-avatar" />
-          <VStack gap={2} className="research-chat-bubble-wrap">
-            {commentaryLoading && !resolvedCommentary && (
-              <HStack gap={2} vAlign="center" className="research-chat-bubble">
-                <Spinner size="sm" />
-                <Text type="supporting">Writing the take…</Text>
-              </HStack>
-            )}
-            {resolvedCommentary && (
-              <div className="research-chat-bubble">
-                <div className="ai-text"><Markdown>{resolvedCommentary}</Markdown></div>
-              </div>
-            )}
-            {!commentaryLoading && !resolvedCommentary && (
-              <Text type="supporting" className="research-chat-bubble">
-                Scroll to load the Lobster take for {identity.ticker}.
-              </Text>
-            )}
-          </VStack>
-        </HStack>
-        <ChatComposer
-          value={followUp}
-          onChange={setFollowUp}
-          onSubmit={askFollowUp}
-          placeholder={`Ask a follow-up about ${identity.ticker}…`}
-          density="compact"
-          elevation="none"
-          sendButton={<ChatSendButton />}
-        />
-      </VStack>
-      ) : null}
-
-      {research.computed_at ? (
-      <VStack gap={3} className="research-section research-chain-section" id={chainId}>
-        <Heading level={3}>Options chain</Heading>
-        {!chainArmed ? (
-          <VStack gap={2} className="research-chain research-chain-deferred">
-            <Text type="supporting">
-              Chain is deferred — load one expiration near spot when you need it.
-            </Text>
-            <Button
-              label="Load options chain"
-              variant="secondary"
-              size="sm"
-              onClick={() => onChainRequest?.()}
-            />
-          </VStack>
-        ) : chainLoading && contracts.length === 0 ? (
-          <HStack gap={2} vAlign="center" className="research-chain">
-            <Spinner size="sm" />
-            <Text type="supporting">Loading chain…</Text>
-          </HStack>
-        ) : (
-          <TickerOptionsChain
-            contracts={contracts}
-            expirations={expirations}
-            spot={spot}
-            expiration={chainExpiration}
-            nearSpot={chainNearSpot}
-            onExpirationChange={onChainExpirationChange}
-            onNearSpotChange={onChainNearSpotChange}
-            loading={chainLoading}
-          />
-        )}
-      </VStack>
-      ) : null}
-
-      {(earnings.length > 0 || news.length > 0 || (relatedChats && relatedChats.length > 0)) && (
-        <VStack gap={3} className="research-section research-secondary">
-          {earnings.length > 0 && (
-            <VStack gap={2}>
-              <Heading level={3}>Earnings</Heading>
-              {earnings.slice(0, 3).map((row) => (
-                <Text key={`${row.earnings_date}-${row.fiscal_q ?? ''}`} type="supporting">
-                  {row.earnings_date}{row.time ? ` ${row.time}` : ''}
-                  {row.fiscal_q ? ` · ${row.fiscal_q}` : ''}
-                  {row.eps_forecast != null ? ` · EPS est ${row.eps_forecast}` : ''}
+        // Responsive contract:
+        //   > 56rem  main (chart / holdings) | rail 22rem (The Lobster's Take + news)
+        //   <= 56rem stack: main, then take and headlines; chain stays full width below
+        <section className="research-columns">
+          <VStack gap={3} className="research-main">
+            {etf && etfHoldings.length > 0 ? (
+              <VStack gap={2} className="research-section research-etf-holdings">
+                <Heading level={3}>Holdings</Heading>
+                <Text type="supporting">
+                  Top {etfHoldings.length} components by weight
+                  {etf.name ? ` · ${etf.name}` : ''}.
                 </Text>
-              ))}
+                <div className="research-holdings-wrap">
+                  <table className="research-holdings-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Symbol</th>
+                        <th scope="col">Name</th>
+                        <th scope="col" className="right">Weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {etfHoldings.map((h) => {
+                        const sym = h.holding_symbol?.trim().toUpperCase() || null;
+                        return (
+                          <tr key={`${h.rank ?? ''}-${sym ?? h.holding_name ?? ''}`}>
+                            <td>{h.rank ?? '—'}</td>
+                            <td>
+                              {sym ? (
+                                <Link
+                                  to="/research/$ticker"
+                                  params={{ ticker: sym }}
+                                  className="research-chip-link research-holding-link"
+                                >
+                                  {sym}
+                                </Link>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td>{h.holding_name ?? '—'}</td>
+                            <td className="right">{fmtFracPct(h.weight)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </VStack>
+            ) : null}
+
+            <VStack gap={2} className="research-section" id={`research-chart-${identity.ticker}`}>
+              {ohlcLoading && ohlc.length === 0 ? (
+                <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
+                  <Spinner size="sm" />
+                  <Text type="supporting">Loading chart…</Text>
+                </HStack>
+              ) : ohlc.length === 0 && !ohlcLoading ? (
+                <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
+                  <Text type="supporting">No daily bars in the lake for this ticker yet.</Text>
+                </HStack>
+              ) : (
+                <TickerChart bars={ohlc} spot={spot} ticker={identity.ticker} />
+              )}
             </VStack>
-          )}
-          {news.length > 0 && (
-            <VStack gap={2}>
-              <Heading level={3}>News</Heading>
-              {news.slice(0, 5).map((item) => (
-                <a key={item.link} className="research-news-link" href={item.link} target="_blank" rel="noreferrer">
-                  {item.title}
-                </a>
-              ))}
+          </VStack>
+
+          <aside className="research-rail" aria-label="The Lobster's Take and headlines">
+            <VStack gap={4} className="research-section">
+              <VStack gap={3} className="research-commentary-chat" id={commentaryId}>
+                <Heading level={3}>The Lobster's Take</Heading>
+                <HStack gap={3} vAlign="start" className="research-chat-msg">
+                  <AssistantMark className="research-chat-avatar" />
+                  <VStack gap={2} className="research-chat-bubble-wrap">
+                    {commentaryLoading && !resolvedCommentary && (
+                      <HStack gap={2} vAlign="center" className="research-chat-bubble">
+                        <Spinner size="sm" />
+                        <Text type="supporting">Writing the take…</Text>
+                      </HStack>
+                    )}
+                    {resolvedCommentary && (
+                      <div className="research-chat-bubble">
+                        <div className="ai-text"><Markdown>{resolvedCommentary}</Markdown></div>
+                      </div>
+                    )}
+                    {!commentaryLoading && !resolvedCommentary && (
+                      <Text type="supporting" className="research-chat-bubble">
+                        The take for {identity.ticker} loads when this column is in view.
+                      </Text>
+                    )}
+                  </VStack>
+                </HStack>
+                <ChatComposer
+                  value={followUp}
+                  onChange={setFollowUp}
+                  onSubmit={askFollowUp}
+                  placeholder={`Ask a follow-up about ${identity.ticker}…`}
+                  density="compact"
+                  elevation="none"
+                  sendButton={<ChatSendButton />}
+                />
+              </VStack>
+
+              {hasRailMeta ? (
+                <VStack gap={3} className="research-secondary">
+                  {news.length > 0 && (
+                    <VStack gap={2}>
+                      <Heading level={3}>News</Heading>
+                      <List density="compact" hasDividers className="research-news-list">
+                        {news.map((item) => (
+                          <ListItem
+                            key={item.link}
+                            label={item.title}
+                            href={item.link}
+                            target="_blank"
+                            rel="noreferrer"
+                          />
+                        ))}
+                      </List>
+                    </VStack>
+                  )}
+                  {earnings.length > 0 && (
+                    <VStack gap={2}>
+                      <Heading level={3}>Earnings</Heading>
+                      {earnings.slice(0, 3).map((row) => (
+                        <Text key={`${row.earnings_date}-${row.fiscal_q ?? ''}`} type="supporting">
+                          {row.earnings_date}{row.time ? ` ${row.time}` : ''}
+                          {row.fiscal_q ? ` · ${row.fiscal_q}` : ''}
+                          {row.eps_forecast != null ? ` · EPS est ${row.eps_forecast}` : ''}
+                        </Text>
+                      ))}
+                    </VStack>
+                  )}
+                  {relatedChats && relatedChats.length > 0 && (
+                    <VStack gap={2}>
+                      <Heading level={3}>Related chats</Heading>
+                      {relatedChats.map((chat) => (
+                        <Link key={chat.chat_id} to="/chat/$chatId" params={{ chatId: chat.chat_id }} className="research-chat-link">
+                          {chat.ticker} · {chat.mention_count} mention{chat.mention_count === 1 ? '' : 's'}
+                        </Link>
+                      ))}
+                    </VStack>
+                  )}
+                </VStack>
+              ) : null}
             </VStack>
-          )}
-          {relatedChats && relatedChats.length > 0 && (
-            <VStack gap={2}>
-              <Heading level={3}>Related chats</Heading>
-              {relatedChats.map((chat) => (
-                <Link key={chat.chat_id} to="/chat/$chatId" params={{ chatId: chat.chat_id }} className="research-chat-link">
-                  {chat.ticker} · {chat.mention_count} mention{chat.mention_count === 1 ? '' : 's'}
-                </Link>
-              ))}
+          </aside>
+        </section>
+      ) : null}
+
+      {research.computed_at ? (
+        <VStack gap={3} className="research-section research-chain-section" id={chainId}>
+          <Heading level={3}>Options chain</Heading>
+          {!chainArmed ? (
+            <VStack gap={2} className="research-chain research-chain-deferred">
+              <Text type="supporting">
+                Chain is deferred — load one expiration near spot when you need it.
+              </Text>
+              <Button
+                label="Load options chain"
+                variant="secondary"
+                size="sm"
+                onClick={() => onChainRequest?.()}
+              />
             </VStack>
+          ) : chainLoading && contracts.length === 0 ? (
+            <HStack gap={2} vAlign="center" className="research-chain">
+              <Spinner size="sm" />
+              <Text type="supporting">Loading chain…</Text>
+            </HStack>
+          ) : (
+            <TickerOptionsChain
+              contracts={contracts}
+              expirations={expirations}
+              spot={spot}
+              expiration={chainExpiration}
+              nearSpot={chainNearSpot}
+              onExpirationChange={onChainExpirationChange}
+              onNearSpotChange={onChainNearSpotChange}
+              loading={chainLoading}
+            />
           )}
         </VStack>
-      )}
+      ) : null}
 
       <Text type="supporting" className="research-foot">
         {research.computed_at
