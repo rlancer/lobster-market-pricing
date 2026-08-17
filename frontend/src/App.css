@@ -9,7 +9,7 @@
   --accent-2: var(--color-text-cyan);
   --call: var(--color-success);
   --put: var(--color-error);
-  --topbar-h: var(--spacing-0);
+  --topbar-h: var(--size-element-lg);
   font-family: var(--font-family-body);
 }
 
@@ -66,17 +66,6 @@ button, select { cursor: pointer; }
 .nav-research-search {
   width: 100%;
   min-width: 0;
-}
-.workspace-nav-tools {
-  min-width: 0;
-}
-.workspace-nav-tools .liq-filter,
-.workspace-nav-tools .monitor-status {
-  max-width: 100%;
-}
-.workspace-nav-tools .monitor-status {
-  width: 100%;
-  justify-content: flex-start;
 }
 
 .topbar {
@@ -416,9 +405,6 @@ button, select { cursor: pointer; }
   .actions { grid-column: 1 / -1; justify-content: flex-end; margin-left: var(--spacing-0); }
 }
 @media (max-width: 768px) {
-  :root {
-    --topbar-h: var(--size-element-lg);
-  }
   .topbar {
     min-height: var(--topbar-h);
     gap: var(--spacing-2);

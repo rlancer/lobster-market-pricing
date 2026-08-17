@@ -27,7 +27,7 @@ import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
 import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
-import { useWorkspace, WorkspaceContext, type WorkspaceValue } from './workspace';
+import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
 // Workspace context — shared by the header (stats counts, liquidity gate) and
@@ -307,33 +307,17 @@ function WorkspaceNavigation({
   isChat,
   activeChatId,
   showSearch = false,
-  showTools = false,
 }: {
   activeTo?: string;
   isChat: boolean;
   activeChatId: string | null;
   showSearch?: boolean;
-  showTools?: boolean;
 }) {
-  const { liquidOnly, setLiquidOnly } = useWorkspace();
-
   return (
     <SideNav
       className="workspace-nav"
       header={<WorkspaceBrand />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
-      footer={showTools ? (
-        <VStack gap={2} className="workspace-nav-tools">
-          <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
-          <MonitorStatus />
-        </VStack>
-      ) : undefined}
-      footerIcons={showTools ? (
-        <>
-          <HelpMenu placement="above" alignment="start" />
-          <AuthControls placement="above" alignment="start" />
-        </>
-      ) : undefined}
     >
       <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
@@ -396,7 +380,7 @@ function Layout() {
   const navProps = { activeTo: active?.to, isChat: isCopilot, activeChatId };
 
   // Responsive contract:
-  //   > 768px  full-height SideNav (mascot + ticker search + apps + tools)
+  //   > 768px  SideNav (mascot + ticker search + apps); header holds account chrome
   //   <= 768px SideNav collapses to MobileNav; ticker search lives in the header
   return (
     <WorkspaceContext.Provider value={value}>
@@ -405,13 +389,7 @@ function Layout() {
         height="fill"
         variant="section"
         contentPadding={0}
-        sideNav={(
-          <WorkspaceNavigation
-            {...navProps}
-            showSearch
-            showTools
-          />
-        )}
+        sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
           hasToggle: false,
           breakpoint: 'md',
@@ -422,16 +400,22 @@ function Layout() {
             </MobileNav>
           ),
         }}
-        topNav={isMobile ? (
+        topNav={(
           <HStack as="header" className="topbar" gap={3} vAlign="center">
             <MobileNavToggle label="Open apps" />
-            <ResearchSearch className="topbar-research-search" />
+            {isMobile ? <ResearchSearch className="topbar-research-search" /> : null}
             <section className="topbar-tools" aria-label="Workspace controls">
+              {isMobile ? null : (
+                <>
+                  <LiquidityFilter checked={liquidOnly} onChange={setLiquidOnly} />
+                  <MonitorStatus />
+                </>
+              )}
               <HelpMenu />
               <AuthControls />
             </section>
           </HStack>
-        ) : undefined}
+        )}
       >
         <section className={isCopilot ? 'content content-copilot' : 'content'}>
           <Outlet />
