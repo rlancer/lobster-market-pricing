@@ -76,7 +76,7 @@ import {
   type TickerResearch,
 } from "./research";
 import { securityIdForTicker } from "./symbology";
-import { getOrComputeCommentary } from "./research-commentary";
+import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import { createCopilotModel } from "./copilot-contract";
 import type { LakeSecurityRow } from "./figi";
 
@@ -2348,12 +2348,14 @@ async function researchTickerForAgent(
   opts?: { force?: boolean; chatId?: string },
 ): Promise<{ research?: TickerResearch; summary: string; error?: string }> {
   try {
-    const research = await getOrComputeResearch(env, symbol, researchDepsFor(env), {
-      force: opts?.force,
-      chatId: opts?.chatId,
-      includeNews: true,
-      includeSecondary: true,
-    });
+    const research = sanitizeResearchCommentary(
+      await getOrComputeResearch(env, symbol, researchDepsFor(env), {
+        force: opts?.force,
+        chatId: opts?.chatId,
+        includeNews: true,
+        includeSecondary: true,
+      }),
+    );
     return { research, summary: summarizeResearch(research) };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -2371,14 +2373,16 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
   try {
     // Secondary lake reads (RV, earnings, ETF profile + holdings) are on for the
     // ticker detail page — ETF fund stats / components are first-class there.
-    const research = await getOrComputeResearch(env, ticker, researchDepsFor(env), {
-      force,
-      chatId,
-      includeNews: false,
-      includeSecondary: true,
-      liveFigi: false,
-      waitUntil: (p) => ctx.waitUntil(p),
-    });
+    const research = sanitizeResearchCommentary(
+      await getOrComputeResearch(env, ticker, researchDepsFor(env), {
+        force,
+        chatId,
+        includeNews: false,
+        includeSecondary: true,
+        liveFigi: false,
+        waitUntil: (p) => ctx.waitUntil(p),
+      }),
+    );
     const dur = Date.now() - started;
     return new Response(JSON.stringify(research), {
       status: 200,

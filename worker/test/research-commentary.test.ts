@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   COMMENTARY_SYSTEM,
+  formatInsufficientDataCommentary,
   formatTradeIdea,
+  hasEnoughDataForCommentary,
+  looksLikeInsufficientDataCommentary,
   looksLikeStructuredCommentary,
+  sanitizeResearchCommentary,
   suggestTradeIdea,
   synthesizeCommentary,
 } from "../src/research-commentary";
@@ -68,6 +72,45 @@ function sampleResearch(over: Partial<TickerResearch> = {}): TickerResearch {
   };
 }
 
+function thinResearch(over: Partial<TickerResearch> = {}): TickerResearch {
+  return sampleResearch({
+    price: {
+      spot: null,
+      change_1d_pct: null,
+      change_5d_pct: null,
+      change_21d_pct: null,
+      change_63d_pct: null,
+      high_63d: null,
+      low_63d: null,
+      volume_latest: null,
+      volume_avg_20d: null,
+      volume_relative_20d: null,
+    },
+    technicals: {
+      trend: "unknown",
+      consolidation: false,
+      consolidation_range_pct: null,
+      accumulation: "unknown",
+      notes: ["No strong consolidation or volume skew in the recent window."],
+    },
+    fundamentals: {
+      market_cap: null,
+      enterprise_value: null,
+      trailing_pe: null,
+      forward_pe: null,
+      peg_ratio: null,
+      price_to_book: null,
+      total_debt: null,
+      debt_to_equity: null,
+      profit_margins: null,
+      revenue_growth: null,
+      source: null,
+    },
+    earnings: [],
+    ...over,
+  });
+}
+
 describe("COMMENTARY_SYSTEM", () => {
   it("requires directional bias, options structure, and Markdown paragraphs", () => {
     assert.match(COMMENTARY_SYSTEM, /bullish|bearish|neutral/i);
@@ -77,6 +120,16 @@ describe("COMMENTARY_SYSTEM", () => {
     assert.match(COMMENTARY_SYSTEM, /blank lines|short paragraphs/i);
     assert.match(COMMENTARY_SYSTEM, /\*\*Trade/);
     assert.match(COMMENTARY_SYSTEM, /tradable|liquidity|volume looks weak/i);
+  });
+});
+
+describe("hasEnoughDataForCommentary", () => {
+  it("is true for a full brief", () => {
+    assert.equal(hasEnoughDataForCommentary(sampleResearch()), true);
+  });
+
+  it("is false when spot and signals are missing", () => {
+    assert.equal(hasEnoughDataForCommentary(thinResearch()), false);
   });
 });
 
@@ -142,47 +195,6 @@ describe("suggestTradeIdea", () => {
     assert.match(idea.structure, /condor|straddle|calendar/i);
   });
 
-  it("still suggests a trade when the brief is thin", () => {
-    const idea = suggestTradeIdea(sampleResearch({
-      price: {
-        spot: null,
-        change_1d_pct: null,
-        change_5d_pct: null,
-        change_21d_pct: null,
-        change_63d_pct: null,
-        high_63d: null,
-        low_63d: null,
-        volume_latest: null,
-        volume_avg_20d: null,
-        volume_relative_20d: null,
-      },
-      technicals: {
-        trend: "unknown",
-        consolidation: false,
-        consolidation_range_pct: null,
-        accumulation: "unknown",
-        notes: ["No strong consolidation or volume skew in the recent window."],
-      },
-      fundamentals: {
-        market_cap: null,
-        enterprise_value: null,
-        trailing_pe: null,
-        forward_pe: null,
-        peg_ratio: null,
-        price_to_book: null,
-        total_debt: null,
-        debt_to_equity: null,
-        profit_margins: null,
-        revenue_growth: null,
-        source: null,
-      },
-      earnings: [],
-    }));
-    assert.equal(idea.conviction, "low");
-    assert.ok(idea.structure.length > 10);
-    assert.match(formatTradeIdea(idea), /low conviction/i);
-  });
-
   it("flags defined-risk structures near earnings", () => {
     const idea = suggestTradeIdea(sampleResearch({
       computed_at: "2026-08-10T00:00:00.000Z",
@@ -213,46 +225,35 @@ describe("synthesizeCommentary", () => {
     assert.ok(text.includes("\n\n"));
   });
 
-  it("handles missing spot without throwing and still suggests a trade", () => {
-    const text = synthesizeCommentary(sampleResearch({
-      price: {
-        spot: null,
-        change_1d_pct: null,
-        change_5d_pct: null,
-        change_21d_pct: null,
-        change_63d_pct: null,
-        high_63d: null,
-        low_63d: null,
-        volume_latest: null,
-        volume_avg_20d: null,
-        volume_relative_20d: null,
-      },
-      technicals: {
-        trend: "unknown",
-        consolidation: false,
-        consolidation_range_pct: null,
-        accumulation: "unknown",
-        notes: ["No strong consolidation or volume skew in the recent window."],
-      },
-      fundamentals: {
-        market_cap: null,
-        enterprise_value: null,
-        trailing_pe: null,
-        forward_pe: null,
-        peg_ratio: null,
-        price_to_book: null,
-        total_debt: null,
-        debt_to_equity: null,
-        profit_margins: null,
-        revenue_growth: null,
-        source: null,
-      },
-      earnings: [],
-    }));
-    assert.match(text, /no lake spot yet/i);
-    assert.match(text, /low conviction/i);
-    assert.match(text, /\b(call|put|condor)\b/i);
-    assert.ok(looksLikeStructuredCommentary(text));
+  it("returns a not-enough-data message instead of inventing a trade when the brief is thin", () => {
+    const text = synthesizeCommentary(thinResearch());
+    assert.equal(text, formatInsufficientDataCommentary(thinResearch()));
+    assert.match(text, /not enough data/i);
+    assert.doesNotMatch(text, /\*\*Trade/);
+    assert.doesNotMatch(text, /\b(call|put|condor)\b/i);
+    assert.ok(looksLikeInsufficientDataCommentary(text));
+  });
+});
+
+describe("sanitizeResearchCommentary", () => {
+  it("replaces force-fed trade takes on thin briefs", () => {
+    const bad = thinResearch({
+      commentary: "AAPL: no lake spot yet.\n\n**Trade — Neutral (low conviction)**\nWait.",
+      commentary_source: "notes",
+    });
+    const cleaned = sanitizeResearchCommentary(bad);
+    assert.equal(cleaned.commentary, formatInsufficientDataCommentary(bad));
+    assert.equal(cleaned.commentary_source, "insufficient");
+  });
+
+  it("clears stale insufficient placeholders once data exists", () => {
+    const rich = sampleResearch({
+      commentary: formatInsufficientDataCommentary(sampleResearch()),
+      commentary_source: "insufficient",
+    });
+    const cleaned = sanitizeResearchCommentary(rich);
+    assert.equal(cleaned.commentary, null);
+    assert.equal(cleaned.commentary_source, null);
   });
 });
 

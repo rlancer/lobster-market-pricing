@@ -109,7 +109,7 @@ export interface TickerResearch {
   } | null;
   /** Lobster take for the ticker detail page (lazy; may be absent on chat-tool path). */
   commentary?: string | null;
-  commentary_source?: "llm" | "notes" | null;
+  commentary_source?: "llm" | "notes" | "insufficient" | null;
   commentary_computed_at?: string | null;
   computed_at: string;
   expires_at: string;

@@ -100,6 +100,9 @@ export function ResearchBriefView({
   const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
   const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
+  const insufficientCommentary =
+    research.commentary_source === 'insufficient'
+    || Boolean(resolvedCommentary && /^not enough data\b/i.test(resolvedCommentary));
   const spot = price.spot;
   const commentaryId = `research-lobster-${identity.ticker}`;
   const chainId = `research-chain-${identity.ticker}`;
@@ -264,7 +267,12 @@ export function ResearchBriefView({
                         <Text type="supporting">Writing the take…</Text>
                       </HStack>
                     )}
-                    {resolvedCommentary && (
+                    {resolvedCommentary && insufficientCommentary && (
+                      <Text type="supporting" className="research-chat-bubble">
+                        {resolvedCommentary}
+                      </Text>
+                    )}
+                    {resolvedCommentary && !insufficientCommentary && (
                       <div className="research-chat-bubble">
                         <div className="ai-text"><Markdown>{resolvedCommentary}</Markdown></div>
                       </div>
