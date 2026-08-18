@@ -68,6 +68,8 @@ test.describe('Public timeline', () => {
     // Title matches the user bubble — don't duplicate it as a heading.
     await expect(post.getByRole('heading', { name: 'Should I buy SPY calls' })).toHaveCount(0);
     await expect(post.getByRole('link', { name: 'View full chat' })).toBeVisible();
+    // Admin-only moderation control — anonymous visitors must not see it.
+    await expect(post.getByRole('button', { name: 'Unpublish' })).toHaveCount(0);
   });
 
   test('ask composer collapses to a chip after scrolling the feed', async ({ page }) => {
@@ -126,6 +128,7 @@ test.describe('Public timeline', () => {
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline`);
     expect(res.status()).toBe(200);
+    expect(res.headers()['cache-control'] ?? '').toMatch(/no-store|private/i);
     const body = (await res.json()) as {
       items: unknown[];
       next_before: number | null;
@@ -140,6 +143,11 @@ test.describe('Public timeline', () => {
     const res = await request.post(`${LOCAL_WORKER}/api/timeline`, {
       data: { share_id: 'notarealshare' },
     });
+    expect(res.status()).toBe(401);
+  });
+
+  test('unpublishing from the timeline requires a session', async ({ request }) => {
+    const res = await request.delete(`${LOCAL_WORKER}/api/timeline/notarealshare`);
     expect(res.status()).toBe(401);
   });
 });

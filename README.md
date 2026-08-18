@@ -240,7 +240,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name}`. Bot shares also include `bot_handle` / `bot: {handle, display_name, persona}`. |
 | `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `tickers` and optional `is_bot`. 404 if `handle` is set and unknown. |
 | `POST /api/timeline` | List a share on the public timeline (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. |
-| `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner only. |
+| `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
@@ -372,7 +372,9 @@ login. From the share dialog, a signed-in author with a handle can opt the
 share onto the **public timeline** (`POST /api/timeline`) — the home feed at
 `/` and that author's `/u/{handle}`. Unlisted stays the default; turning the
 switch off removes the listing (`DELETE /api/timeline/{id}`) without revoking
-the link. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
+the link. Admins can unpublish any feed post from the timeline UI (same
+DELETE): human listings drop out of `timeline_posts`, bot shares clear
+`bot_handle` and leave the feed while the share URL stays live. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
 10,000 chars), a byte budget on the serialized transcript (≤ 1.2 MB of UTF-8
 bytes, oldest turns dropped first — never JS string length, which miscounts
 CJK/emoji), a whole-row check against D1's 2 MB ceiling, oversized-body 413

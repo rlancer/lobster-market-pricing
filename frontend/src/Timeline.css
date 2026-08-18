@@ -141,6 +141,11 @@
   justify-content: space-between;
 }
 
+.timeline-post-actions {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
 .timeline-post-flags {
   color: var(--color-text-secondary, var(--muted));
 }
@@ -215,7 +220,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-1);
-  margin-inline-start: auto;
   color: var(--color-text-accent);
   transition: gap var(--duration-fast) var(--ease-standard);
 }

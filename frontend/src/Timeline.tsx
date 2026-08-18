@@ -18,6 +18,7 @@ import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChatMessage, type TimelineAuthor, type TimelinePost } from './api';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
+import { useIsAdmin } from './useAdmin';
 
 /** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
 function nearestScrollRoot(node: HTMLElement | null): Element | null {
@@ -188,7 +189,16 @@ function FeedPreview({ children }: { children: ReactNode }) {
   );
 }
 
-function PostRow({ post }: { post: TimelinePost }) {
+function PostRow({
+  post,
+  isAdmin,
+  onUnpublish,
+}: {
+  post: TimelinePost;
+  isAdmin: boolean;
+  onUnpublish: (post: TimelinePost) => Promise<void>;
+}) {
+  const [unpublishing, setUnpublishing] = useState(false);
   const messages: SharedChatMessage[] = post.messages?.length
     ? post.messages
     : post.excerpt
@@ -200,6 +210,19 @@ function PostRow({ post }: { post: TimelinePost }) {
   const tickers = (post.tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
+
+  const unpublish = async () => {
+    const who = post.is_bot ? `bot @${post.handle}` : `@${post.handle}`;
+    if (!window.confirm(`Unpublish this chat by ${who} from the timeline? The share link will still work.`)) {
+      return;
+    }
+    setUnpublishing(true);
+    try {
+      await onUnpublish(post);
+    } finally {
+      setUnpublishing(false);
+    }
+  };
 
   return (
     <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
@@ -282,14 +305,25 @@ function PostRow({ post }: { post: TimelinePost }) {
             )}
           </HStack>
         )}
-        <Link
-          to="/share/$shareId"
-          params={{ shareId: post.share_id }}
-          className="timeline-post-open"
-        >
-          <Text weight="semibold">View full chat</Text>
-          <ArrowRight size={14} aria-hidden="true" />
-        </Link>
+        <HStack gap={2} vAlign="center" className="timeline-post-actions">
+          {isAdmin && (
+            <Button
+              variant="destructive"
+              size="sm"
+              label="Unpublish"
+              isLoading={unpublishing}
+              onClick={() => { void unpublish(); }}
+            />
+          )}
+          <Link
+            to="/share/$shareId"
+            params={{ shareId: post.share_id }}
+            className="timeline-post-open"
+          >
+            <Text weight="semibold">View full chat</Text>
+            <ArrowRight size={14} aria-hidden="true" />
+          </Link>
+        </HStack>
       </HStack>
     </VStack>
   );
@@ -311,6 +345,7 @@ function FeedSkeleton() {
 
 export default function TimelinePage() {
   const navigate = useNavigate();
+  const { isAdmin } = useIsAdmin();
   const { handle: handleParam } = useParams({ strict: false }) as { handle?: string };
   const handle = handleParam?.trim().toLowerCase() || undefined;
   const [items, setItems] = useState<TimelinePost[]>([]);
@@ -321,6 +356,7 @@ export default function TimelinePage() {
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
   const loadSeqRef = useRef(0);
 
   const load = useCallback(async (before?: number | null) => {
@@ -331,6 +367,7 @@ export default function TimelinePage() {
       setLoading(true);
       setMissing(false);
       setError(null);
+      setActionError(null);
       setProfile(null);
     }
     try {
@@ -370,6 +407,24 @@ export default function TimelinePage() {
     void navigate({ to: '/chat' });
   }, [navigate]);
 
+  const unpublishPost = useCallback(async (post: TimelinePost) => {
+    setActionError(null);
+    // Drop from the feed immediately; restore if the Worker rejects.
+    setItems((prev) => prev.filter((row) => row.share_id !== post.share_id));
+    try {
+      await api.unpublishTimeline(post.share_id);
+    } catch (err) {
+      setItems((prev) => {
+        if (prev.some((row) => row.share_id === post.share_id)) return prev;
+        return [...prev, post].sort(
+          (a, b) => b.published_at - a.published_at || (a.share_id < b.share_id ? 1 : -1),
+        );
+      });
+      setActionError(err instanceof Error ? err.message : 'Could not unpublish.');
+      throw err;
+    }
+  }, []);
+
   return (
     <VStack className="timeline content-column" gap={0}>
       <TimelineAskComposer
@@ -404,10 +459,12 @@ export default function TimelinePage() {
 
         {loading && <FeedSkeleton />}
 
-        {error && (
+        {(error || actionError) && (
           <VStack gap={3} className="timeline-state">
-            <Text className="timeline-err">{error}</Text>
-            <Button variant="secondary" size="sm" label="Try again" onClick={() => { void load(); }} />
+            <Text className="timeline-err">{error ?? actionError}</Text>
+            {error && (
+              <Button variant="secondary" size="sm" label="Try again" onClick={() => { void load(); }} />
+            )}
           </VStack>
         )}
 
@@ -434,7 +491,14 @@ export default function TimelinePage() {
 
         {!loading && items.length > 0 && (
           <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
-            {items.map((post) => <PostRow key={post.share_id} post={post} />)}
+            {items.map((post) => (
+              <PostRow
+                key={post.share_id}
+                post={post}
+                isAdmin={isAdmin}
+                onUnpublish={unpublishPost}
+              />
+            ))}
           </VStack>
         )}
 

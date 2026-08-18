@@ -6,6 +6,7 @@ import {
   flagsFromMessages,
   parseTimelineQuery,
   previewMessagesFromShare,
+  resolveUnpublishAccess,
 } from "../src/timeline.ts";
 
 test("excerptFromMessages prefers the first assistant answer", () => {
@@ -120,4 +121,35 @@ test("groupTickersByChat keeps first-seen order and uppercases symbols", () => {
   assert.deepEqual(grouped.get("c1"), ["NVDA", "AAPL"]);
   assert.deepEqual(grouped.get("c2"), ["MSFT"]);
   assert.equal(grouped.has(""), false);
+});
+
+test("resolveUnpublishAccess allows owners and admins; bots are admin-only", () => {
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: false, userId: "u1", postUserId: "u1", hasBotHandle: false }),
+    { unpublishHuman: true, unpublishBot: false, forbidden: false },
+  );
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: false, userId: "u1", postUserId: "u2", hasBotHandle: false }),
+    { unpublishHuman: false, unpublishBot: false, forbidden: true },
+  );
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: true, userId: "admin", postUserId: "u2", hasBotHandle: false }),
+    { unpublishHuman: true, unpublishBot: false, forbidden: false },
+  );
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: false, userId: "u1", postUserId: null, hasBotHandle: true }),
+    { unpublishHuman: false, unpublishBot: false, forbidden: true },
+  );
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: true, userId: "admin", postUserId: null, hasBotHandle: true }),
+    { unpublishHuman: false, unpublishBot: true, forbidden: false },
+  );
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: true, userId: "admin", postUserId: "u2", hasBotHandle: true }),
+    { unpublishHuman: true, unpublishBot: true, forbidden: false },
+  );
+  assert.deepEqual(
+    resolveUnpublishAccess({ admin: false, userId: "u1", postUserId: null, hasBotHandle: false }),
+    { unpublishHuman: false, unpublishBot: false, forbidden: false },
+  );
 });
