@@ -193,7 +193,7 @@ export default function BotsPage() {
         <Text type="supporting">
           Admin-only personas that chat with Copilot and publish under a public handle
           (e.g. @yololobster for high risk / high reward). Generate opens Chat with the
-          persona loaded — Share stamps the timeline as that bot.
+          persona loaded — successful answers auto-share to the timeline as that bot.
         </Text>
       </header>
 
@@ -307,8 +307,7 @@ export default function BotsPage() {
                 <section className="bots-generate" aria-label="Generate chat">
                   <Heading level={3}>Generate chat</Heading>
                   <Text type="supporting">
-                    Opens Copilot as @{selected}. When the answer lands, click Share — the post
-                    is attributed to this bot on the timeline.
+                    Opens Copilot as @{selected}. Successful answers auto-share to the timeline as this bot.
                   </Text>
                   <TextArea
                     label="Prompt"

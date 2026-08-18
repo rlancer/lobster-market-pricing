@@ -377,6 +377,9 @@ function AiChatSession({
   const claimedRef = useRef(false);
   const pausedRef = useRef(false);
   const backupAttemptedRef = useRef(false);
+  /** Prevents double auto-share for the same bot run (keyed by run_id or chat_id). */
+  const autoSharedKeyRef = useRef<string | null>(null);
+  const wasBusyRef = useRef(false);
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -706,53 +709,82 @@ function AiChatSession({
 
   const canShare = projectedMessages.some((message) => message.role === 'assistant' && message.content);
   const botHandle = peekBotHandle();
-  const shareChat = async () => {
+
+  const buildSharePayload = useCallback((handle: string | null, runId: string | null) => {
+    const turns: ShareChatMessage[] = projectedMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+      ...(message.sql ? { sql: message.sql } : {}),
+      ...(message.ts ? { ts: message.ts } : {}),
+      ...(message.result && !message.result.error ? {
+        result: {
+          columns: message.result.columns,
+          rows: message.result.rows.slice(0, MAX_RENDER_ROWS),
+          row_count: message.result.row_count,
+          ...(message.result.truncated ? { truncated: true, limit: message.result.limit } : {}),
+        },
+      } : {}),
+      ...(message.chart ? { chart: message.chart } : {}),
+    })).slice(-100);
+    const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
+    return {
+      chat_id: chatId,
+      mode: 'funded' as const,
+      model: latestModel,
+      started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
+      ended_at: new Date().toISOString(),
+      messages: turns,
+      ...(handle ? { bot_handle: handle } : {}),
+      ...(runId ? { run_id: runId } : {}),
+    };
+  }, [projectedMessages, chatId]);
+
+  const shareChat = useCallback(async () => {
     setShareBusy(true);
     setShareError(null);
     try {
-      const turns: ShareChatMessage[] = projectedMessages.map((message) => ({
-        role: message.role,
-        content: message.content,
-        ...(message.reasoning ? { reasoning: message.reasoning } : {}),
-        ...(message.sql ? { sql: message.sql } : {}),
-        ...(message.ts ? { ts: message.ts } : {}),
-        ...(message.result && !message.result.error ? {
-          result: {
-            columns: message.result.columns,
-            rows: message.result.rows.slice(0, MAX_RENDER_ROWS),
-            row_count: message.result.row_count,
-            ...(message.result.truncated ? { truncated: true, limit: message.result.limit } : {}),
-          },
-        } : {}),
-        ...(message.chart ? { chart: message.chart } : {}),
-      })).slice(-100);
-      const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
+      const handle = peekBotHandle();
       const runId = peekBotRunId();
-      const response = await api.shareChat({
-        chat_id: chatId,
-        mode: 'funded',
-        model: latestModel,
-        started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
-        ended_at: new Date().toISOString(),
-        messages: turns,
-        ...(botHandle ? { bot_handle: botHandle } : {}),
-        ...(runId ? { run_id: runId } : {}),
-      });
+      const response = await api.shareChat(buildSharePayload(handle, runId));
       setShareResult(response);
       setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
+      // Server marks bot_runs shared when run_id is present; PATCH remains best-effort fallback.
       if (runId && response.share_id) {
         void api.updateBotRun(runId, { status: 'shared', share_id: response.share_id }).catch(() => {
           /* run bookkeeping is best-effort; server also links on share */
         });
       }
     } catch (error) {
+      // Transient share failures must not mark the bot run failed — leave it running
+      // so the admin can retry Share manually.
       setShareError(String((error as Error)?.message ?? error));
       setShareOpen(true);
     } finally {
       setShareBusy(false);
     }
-  };
+  }, [buildSharePayload]);
+
+  // Bot generate flow: when Copilot finishes a successful answer, auto-share to
+  // the public timeline as the bot (same payload as the Share button). Full
+  // server-side agent execution is out of scope — this is client-side only.
+  useEffect(() => {
+    const wasBusy = wasBusyRef.current;
+    wasBusyRef.current = busy;
+    if (!wasBusy || busy) return;
+
+    const handle = peekBotHandle();
+    if (!handle) return;
+    if (!projectedMessages.some((message) => message.role === 'assistant' && message.content)) return;
+
+    const runId = peekBotRunId();
+    const shareKey = runId ?? chatId;
+    if (autoSharedKeyRef.current === shareKey) return;
+    autoSharedKeyRef.current = shareKey;
+
+    void shareChat();
+  }, [busy, projectedMessages, chatId, shareChat]);
 
   const closeShareDialog = () => {
     setShareOpen(false);
@@ -806,7 +838,7 @@ function AiChatSession({
       <header className="ai-head" aria-label="Chat controls">
         {botHandle && (
           <p className="ai-bot-banner" role="status">
-            Generating as <b>@{botHandle}</b> — Share posts this chat to the public timeline as that bot.
+            Generating as <b>@{botHandle}</b> — when the answer completes it auto-shares to the public timeline as that bot.
           </p>
         )}
         <section className="ai-head-actions">
@@ -1076,8 +1108,14 @@ function AiChatSession({
 
       <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={480}>
         <DialogHeader
-          title={shareError ? 'Share failed' : shareResult ? 'Chat shared' : 'Share chat'}
-          subtitle={shareResult ? 'Anyone with this link can view the transcript — no account needed.' : undefined}
+          title={shareError ? 'Share failed' : shareResult ? (shareResult.bot_handle ? 'Auto-shared to timeline' : 'Chat shared') : 'Share chat'}
+          subtitle={
+            shareResult
+              ? shareResult.bot_handle
+                ? `Posted publicly as @${shareResult.bot_handle}. Anyone with this link can view the transcript.`
+                : 'Anyone with this link can view the transcript — no account needed.'
+              : undefined
+          }
           onOpenChange={closeShareDialog}
         />
         {shareBusy && <div className="ai-share-body ai-share-busy"><Spinner size="md" /><span>Creating share…</span></div>}
