@@ -171,7 +171,7 @@ const SURFACES = [
   {
     route: '/brand',
     title: 'Brand',
-    body: 'Style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Opened from the workspace left nav.',
+    body: 'Admin-only style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Marked with a lock in the left nav.',
   },
 ];
 

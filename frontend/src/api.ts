@@ -478,6 +478,8 @@ export interface ProfileMe {
   image: string | null;
   handle: string | null;
   suggested_handle: string | null;
+  /** True when the signed-in email is on the product admin allowlist. */
+  is_admin: boolean;
 }
 
 export interface ProfileHandle {

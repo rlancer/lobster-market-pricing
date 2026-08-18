@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Button, HStack, Theme, Token } from '@astryxdesign/core';
+import { useIsAdmin } from './useAdmin';
 import { lobsterTheme } from './theme';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { ProfileSunglasses, Sunglasses } from './Sunglasses';
@@ -9,7 +10,8 @@ import './Brand.css';
 // ---------------------------------------------------------------------------
 // Brand style guide — logos, palette, type, voice, and shareable assets.
 // Source of truth for the visual system lives in theme.ts + the SVG marks;
-// this page is the living reference. Linked from the workspace left nav.
+// this page is the living reference. Admin-only — gated in the workspace
+// left nav (lock icon) and redirected for non-admin sessions.
 // ---------------------------------------------------------------------------
 
 const BRAND_PAGES = [
@@ -106,9 +108,18 @@ function Section({
 }
 
 export default function BrandPage() {
+  const navigate = useNavigate();
+  const { isAdmin, isPending } = useIsAdmin();
   const [active, setActive] = useState<string>(BRAND_PAGES[0].id);
 
   useEffect(() => {
+    if (!isPending && !isAdmin) {
+      void navigate({ to: '/' });
+    }
+  }, [isAdmin, isPending, navigate]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
     const nodes = BRAND_PAGES
       .map((page) => document.getElementById(page.id))
       .filter((node): node is HTMLElement => Boolean(node));
@@ -130,7 +141,9 @@ export default function BrandPage() {
     );
     for (const node of nodes) observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [isAdmin]);
+
+  if (isPending || !isAdmin) return null;
 
   return (
     <div className="brand">
