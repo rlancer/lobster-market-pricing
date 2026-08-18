@@ -645,7 +645,7 @@ export interface TickerResearch {
     holdings?: EtfHolding[];
   } | null;
   commentary?: string | null;
-  commentary_source?: 'llm' | 'notes' | null;
+  commentary_source?: 'llm' | 'notes' | 'insufficient' | null;
   commentary_computed_at?: string | null;
   computed_at: string;
   expires_at: string;
@@ -656,7 +656,7 @@ export interface TickerCommentary {
   ticker: string;
   security_id: string;
   commentary: string;
-  source: 'llm' | 'notes';
+  source: 'llm' | 'notes' | 'insufficient';
   computed_at: string;
   cache_hit: boolean;
 }

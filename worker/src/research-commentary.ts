@@ -2,11 +2,12 @@
  * Lobster commentary for a ticker detail page.
  *
  * Grounded in the cached research brief. Prefers a short LLM take in brand
- * voice; falls back to a deterministic synthesis from price/technicals so the
- * page always has something numbers-first when OpenRouter is unavailable.
+ * voice; falls back to a deterministic synthesis from price/technicals when
+ * OpenRouter is unavailable. When the brief has no usable price/signal data,
+ * return an explicit "not enough data" message instead of inventing a take.
  *
- * Every take must include an explicit directional bias and a concrete options
- * structure — even when the brief is thin or mixed (low-conviction lean).
+ * Takes with enough data include an explicit directional bias and a concrete
+ * options structure (low conviction is fine when signals are mixed).
  */
 
 import { generateText, type LanguageModel } from "ai";
@@ -19,13 +20,13 @@ import {
   type TickerResearch,
 } from "./research";
 
-export type CommentarySource = "llm" | "notes";
+export type CommentarySource = "llm" | "notes" | "insufficient";
 
 export type TradeBias = "bullish" | "bearish" | "neutral";
 
 export interface TradeIdea {
   bias: TradeBias;
-  /** Low when signals conflict or data is thin; still always picks a lean. */
+  /** Low when signals conflict or data is soft; still picks a lean when data exists. */
   conviction: "high" | "medium" | "low";
   /** One-line structure suggestion (relative strikes / DTE, no invented premiums). */
   structure: string;
@@ -50,7 +51,7 @@ export const COMMENTARY_SYSTEM = [
   "Close with a Trade section exactly in this shape:",
   "**Trade — {Bullish|Bearish|Neutral} ({high|medium|low} conviction)**",
   "Then one short line naming the structure (e.g. bull call debit spread, put debit, iron condor, calendar), rough tenor (e.g. 30–45 DTE), and strike posture relative to spot (ATM / ~5% OTM / wings).",
-  "If the brief is thin, mixed, or does not support a high-conviction trade, still pick a lean, say conviction is low, and suggest a defined-risk structure (or a wait-with-trigger framed as a trade).",
+  "If signals are mixed or do not support a high-conviction trade, pick a lean, say conviction is low, and suggest a defined-risk structure.",
   "Prefer defined-risk over naked short options. Near earnings, favor defined-risk or calendars and call out event risk.",
   "Suggested structures must be tradable: prefer near-spot strikes and standard 21–45 DTE tenors on names with real volume in the brief. Do not recommend far-OTM or exotic wings on thin names. If volume looks weak, say so and keep conviction low.",
   "Do not invent strike prices, premiums, IV ranks, or news not in the brief — describe strikes relative to spot only.",
@@ -59,9 +60,62 @@ export const COMMENTARY_SYSTEM = [
   "Do not mention being an AI or that this is a summary. No hedging every clause.",
 ].join("\n");
 
+/** True when the brief has enough price/signal grounding for a take or trade lean. */
+export function hasEnoughDataForCommentary(r: TickerResearch): boolean {
+  return !isThinBrief(r);
+}
+
+/** Spot missing, or no trend/flow/horizon move to lean on. */
+export function isThinBrief(r: TickerResearch): boolean {
+  const { trend, accumulation } = r.technicals;
+  const chg5 = r.price.change_5d_pct;
+  const chg21 = r.price.change_21d_pct;
+  return (
+    r.price.spot == null
+    || (trend === "unknown" && accumulation === "unknown" && chg5 == null && chg21 == null)
+  );
+}
+
+export function formatInsufficientDataCommentary(r: TickerResearch): string {
+  return `Not enough data yet to form a take on ${r.identity.ticker}.`;
+}
+
+export function looksLikeInsufficientDataCommentary(text: string): boolean {
+  return /^not enough data\b/i.test(text.trim());
+}
+
+/**
+ * Drop force-fed trade takes from thin briefs (and clear stale insufficient
+ * messages once the lake has filled in) so the research payload never ships a
+ * fake lean.
+ */
+export function sanitizeResearchCommentary(r: TickerResearch): TickerResearch {
+  const cached = r.commentary?.trim() ?? "";
+  if (!cached) return r;
+
+  if (!hasEnoughDataForCommentary(r)) {
+    if (looksLikeInsufficientDataCommentary(cached)) return r;
+    return {
+      ...r,
+      commentary: formatInsufficientDataCommentary(r),
+      commentary_source: "insufficient",
+    };
+  }
+
+  if (looksLikeInsufficientDataCommentary(cached)) {
+    return {
+      ...r,
+      commentary: null,
+      commentary_source: null,
+      commentary_computed_at: null,
+    };
+  }
+  return r;
+}
+
 /**
  * Deterministic directional lean + options structure from the brief.
- * Always returns an idea — thin/mixed data → low conviction, not silence.
+ * Caller should only use this when hasEnoughDataForCommentary is true.
  */
 export function suggestTradeIdea(r: TickerResearch): TradeIdea {
   const { trend, consolidation, accumulation } = r.technicals;
@@ -69,9 +123,7 @@ export function suggestTradeIdea(r: TickerResearch): TradeIdea {
   const chg21 = r.price.change_21d_pct;
   const volRel = r.price.volume_relative_20d;
   const earningsSoon = isEarningsSoon(r);
-  const thin =
-    r.price.spot == null ||
-    (trend === "unknown" && accumulation === "unknown" && chg5 == null && chg21 == null);
+  const thin = isThinBrief(r);
 
   let biasScore = 0;
   if (trend === "up") biasScore += 2;
@@ -227,8 +279,15 @@ export function formatTradeIdea(idea: TradeIdea): string {
   return `**Trade — ${biasLabel} (${conf})**\n${structure}`;
 }
 
-/** Deterministic Lobster-voice blurb from structured research (always available). */
+/**
+ * Deterministic Lobster-voice blurb from structured research.
+ * Thin briefs return the insufficient-data message — no invented lean.
+ */
 export function synthesizeCommentary(r: TickerResearch): string {
+  if (!hasEnoughDataForCommentary(r)) {
+    return formatInsufficientDataCommentary(r);
+  }
+
   const ticker = r.identity.ticker;
   const paragraphs: string[] = [];
 
@@ -254,8 +313,6 @@ export function synthesizeCommentary(r: TickerResearch): string {
         ? `${ticker} marks ${fmtSpot(r.price.spot)}${chg} — ${posture.join(", ")}.`
         : `${ticker} marks ${fmtSpot(r.price.spot)}${chg}.`,
     );
-  } else {
-    paragraphs.push(`${ticker}: no lake spot yet.`);
   }
 
   const note = r.technicals.notes[0];
@@ -372,7 +429,8 @@ export interface CommentaryDeps extends ResearchDeps {
 
 /**
  * Return cached Lobster commentary for a ticker, generating and writing it
- * through when absent. Always succeeds with at least notes synthesis.
+ * through when absent. Thin briefs get an explicit insufficient-data message
+ * (never an invented trade lean). Otherwise LLM → notes synthesis.
  */
 export async function getOrComputeCommentary(
   env: ResearchEnv,
@@ -383,11 +441,36 @@ export async function getOrComputeCommentary(
   const now = deps.now?.() ?? Date.now();
   const research = await getOrComputeResearch(env, rawTicker, deps, { force: false });
 
-  // Skip stale caches: pre-trade blurbs, and pre-markdown single walls of text.
   const cached = research.commentary?.trim() ?? "";
+  const enough = hasEnoughDataForCommentary(research);
+
+  // Thin brief: never serve a force-fed trade take. Cache-hit only when the
+  // stored message is already the insufficient-data copy.
+  if (!enough) {
+    const commentary = formatInsufficientDataCommentary(research);
+    if (
+      !opts?.force
+      && cached
+      && looksLikeInsufficientDataCommentary(cached)
+    ) {
+      return {
+        ticker: research.identity.ticker,
+        security_id: research.identity.security_id,
+        commentary: cached,
+        source: "insufficient",
+        computed_at: research.commentary_computed_at ?? research.computed_at,
+        cache_hit: true,
+      };
+    }
+    return persistCommentary(env, research, commentary, "insufficient", now);
+  }
+
+  // Skip stale caches: pre-trade blurbs, insufficient placeholders, and
+  // pre-markdown single walls of text.
   if (
     !opts?.force
     && cached
+    && !looksLikeInsufficientDataCommentary(cached)
     && looksLikeTradeTake(cached)
     && looksLikeStructuredCommentary(cached)
   ) {
@@ -413,6 +496,16 @@ export async function getOrComputeCommentary(
     source = "notes";
   }
 
+  return persistCommentary(env, research, commentary, source, now);
+}
+
+async function persistCommentary(
+  env: ResearchEnv,
+  research: TickerResearch,
+  commentary: string,
+  source: CommentarySource,
+  now: number,
+): Promise<TickerCommentary> {
   const computedAt = new Date(now).toISOString();
   const enriched: TickerResearch = {
     ...research,
