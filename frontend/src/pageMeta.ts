@@ -225,8 +225,8 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     const handle = handleFromSegment(segments[1]);
     if (handle) {
       return {
-        title: pageTitle(`@${handle} – Timeline`),
-        description: `Public chats shared by @${handle} on Lobster MP.`,
+        title: pageTitle(`@${handle} – Profile`),
+        description: `Profile and public chats shared by @${handle} on Lobster MP.`,
         path: `/u/${encodeURIComponent(handle)}`,
       };
     }

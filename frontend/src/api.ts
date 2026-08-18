@@ -447,6 +447,8 @@ export interface TimelineAuthor {
   is_bot?: boolean;
   persona?: string | null;
   bio?: string | null;
+  /** Epoch ms when the public handle (or bot profile) was created. */
+  created_at?: number | null;
 }
 
 export interface TimelinePost {

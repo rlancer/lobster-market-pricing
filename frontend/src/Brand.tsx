@@ -191,7 +191,8 @@ export default function BrandPage() {
           <p className="brand-lede">
             <b>Lobster MP</b> is the product. <b>Ask the Lobster</b> is the invitation on Chat.
             In lockups, <b>Lobster</b> is the solid word and a secondary italic (e.g. <em>share</em>)
-            can ride beside it. Handles live at <code>lobster.mp/u/&lt;handle&gt;</code>.
+            can ride beside it. Handles live at <code>lobster.mp/u/&lt;handle&gt;</code> — that
+            profile page lists the person&apos;s opted-in public chats.
           </p>
         </Section>
 

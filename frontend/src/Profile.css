@@ -1,0 +1,67 @@
+/* Public profile details at /u/$handle — identity header + public chat feed. */
+
+.profile {
+  width: 100%;
+}
+
+.profile-body {
+  width: 100%;
+}
+
+.profile-header {
+  width: 100%;
+  padding-block: var(--spacing-2) var(--spacing-5);
+  border-bottom: var(--border-width) solid var(--color-border);
+  animation: timeline-in var(--duration-medium) var(--ease-standard) both;
+}
+
+.profile-avatar {
+  width: var(--size-element-xl);
+  height: var(--size-element-xl);
+  flex-shrink: 0;
+  border-radius: var(--radius-full, 999px);
+}
+
+.profile-header-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-header-copy :is(h1, h2) {
+  margin-block-end: 0;
+}
+
+.profile-handle-row,
+.profile-joined {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.profile-back {
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.profile-chats {
+  width: 100%;
+}
+
+.profile-chats > :is(h1, h2) {
+  margin-block-end: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-header {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .profile-header {
+    flex-wrap: wrap;
+  }
+
+  .profile-back {
+    width: 100%;
+  }
+}

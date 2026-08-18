@@ -276,21 +276,29 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
     is_bot?: boolean;
     persona?: string | null;
     bio?: string | null;
+    /** Epoch ms when the public handle (or bot profile) was created. */
+    created_at?: number | null;
   } | null = null;
   if (parsed.handle) {
     const human = await env.SCHEMA_DB.prepare(
-      `SELECT pr.handle AS handle, u.name AS name
+      `SELECT pr.handle AS handle, u.name AS name, pr.created_at AS created_at
        FROM user_profiles pr
        JOIN "user" u ON u.id = pr.user_id
        WHERE pr.handle = ?1`,
-    ).bind(parsed.handle).first<{ handle: string; name: string }>();
+    ).bind(parsed.handle).first<{ handle: string; name: string; created_at: number }>();
     if (human) {
       profile = { ...human, is_bot: false };
     } else {
       const bot = await env.SCHEMA_DB.prepare(
-        `SELECT handle, display_name AS name, persona, bio
+        `SELECT handle, display_name AS name, persona, bio, created_at
          FROM bot_profiles WHERE handle = ?1 AND enabled = 1`,
-      ).bind(parsed.handle).first<{ handle: string; name: string; persona: string; bio: string | null }>();
+      ).bind(parsed.handle).first<{
+        handle: string;
+        name: string;
+        persona: string;
+        bio: string | null;
+        created_at: number;
+      }>();
       if (!bot) return json({ error: "not found" }, 404);
       profile = {
         handle: bot.handle,
@@ -298,6 +306,7 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
         is_bot: true,
         persona: bot.persona,
         bio: bot.bio,
+        created_at: bot.created_at,
       };
     }
   }
