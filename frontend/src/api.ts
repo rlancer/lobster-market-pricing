@@ -802,6 +802,7 @@ export const api = {
   publishTimeline: (share_id: string) =>
     post<{ ok: boolean; share_id: string; published_at: number }>('/api/timeline', { share_id }),
   unpublishTimeline: (shareId: string) =>
+    // Owner of a human listing, or any admin (admins can also unlist bot shares).
     del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
   adminBot: (handle: string) =>

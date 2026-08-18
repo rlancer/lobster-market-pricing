@@ -4,7 +4,10 @@
  * Unlisted shares (shared_chats) stay a capability URL. A signed-in author
  * with a handle can POST /api/timeline to list that share on GET /api/timeline
  * (the home feed). DELETE removes the listing; the share link still works.
+ * Admins may unpublish any human listing or any bot share (clears bot_handle
+ * so the share leaves the feed without revoking the link).
  */
+import { isAdminEmail } from "./admin";
 import { getSessionUser, type AuthEnv } from "./auth";
 import { listTickersForChats } from "./chat-tickers";
 import { getHandle, parseHandle } from "./profiles";
@@ -447,6 +450,25 @@ async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response
   return json({ ok: true, share_id: shareId, published_at: now }, 200, "private");
 }
 
+/**
+ * Who may unlist a share: the human author of a timeline_posts row, or an
+ * admin (who can also clear bot_handle so bot shares leave the feed).
+ */
+export function resolveUnpublishAccess(input: {
+  admin: boolean;
+  userId: string;
+  postUserId: string | null;
+  hasBotHandle: boolean;
+}): { unpublishHuman: boolean; unpublishBot: boolean; forbidden: boolean } {
+  const hasHuman = input.postUserId != null;
+  const unpublishHuman = hasHuman && (input.admin || input.postUserId === input.userId);
+  const unpublishBot = input.hasBotHandle && input.admin;
+  const forbidden =
+    (hasHuman && !unpublishHuman)
+    || (!hasHuman && input.hasBotHandle && !unpublishBot);
+  return { unpublishHuman, unpublishBot, forbidden };
+}
+
 async function unpublishTimeline(env: TimelineEnv, req: Request, shareId: string): Promise<Response> {
   const user = await getSessionUser(env, req);
   if (!user) return json({ error: "unauthorized" }, 401, "private");
@@ -455,11 +477,29 @@ async function unpublishTimeline(env: TimelineEnv, req: Request, shareId: string
   const post = await env.SCHEMA_DB.prepare(
     "SELECT user_id FROM timeline_posts WHERE share_id = ?1",
   ).bind(shareId).first<{ user_id: string }>();
-  if (post && post.user_id !== user.id) return json({ error: "forbidden" }, 403, "private");
-  if (post) {
+  const botShare = await env.SCHEMA_DB.prepare(
+    "SELECT bot_handle FROM shared_chats WHERE share_id = ?1 AND bot_handle IS NOT NULL",
+  ).bind(shareId).first<{ bot_handle: string }>();
+
+  const access = resolveUnpublishAccess({
+    admin: isAdminEmail(user.email),
+    userId: user.id,
+    postUserId: post?.user_id ?? null,
+    hasBotHandle: Boolean(botShare),
+  });
+  if (access.forbidden) return json({ error: "forbidden" }, 403, "private");
+
+  if (access.unpublishHuman) {
     await env.SCHEMA_DB.prepare(
-      "DELETE FROM timeline_posts WHERE share_id = ?1 AND user_id = ?2",
-    ).bind(shareId, user.id).run();
+      "DELETE FROM timeline_posts WHERE share_id = ?1",
+    ).bind(shareId).run();
+  }
+  if (access.unpublishBot) {
+    // Bot shares appear on the feed via bot_handle (no timeline_posts row).
+    // Clearing attribution unlists them; the unlisted /share/{id} link remains.
+    await env.SCHEMA_DB.prepare(
+      "UPDATE shared_chats SET bot_handle = NULL, updated_at = ?2 WHERE share_id = ?1",
+    ).bind(shareId, Date.now()).run();
   }
   return json({ ok: true, share_id: shareId }, 200, "private");
 }

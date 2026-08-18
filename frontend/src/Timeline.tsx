@@ -18,6 +18,7 @@ import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChatMessage, type TimelineAuthor, type TimelinePost } from './api';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
+import { useIsAdmin } from './useAdmin';
 
 /** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
 function nearestScrollRoot(node: HTMLElement | null): Element | null {
@@ -188,7 +189,17 @@ function FeedPreview({ children }: { children: ReactNode }) {
   );
 }
 
-function PostRow({ post }: { post: TimelinePost }) {
+function PostRow({
+  post,
+  isAdmin,
+  onUnpublished,
+}: {
+  post: TimelinePost;
+  isAdmin: boolean;
+  onUnpublished: (shareId: string) => void;
+}) {
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [unpublishError, setUnpublishError] = useState<string | null>(null);
   const messages: SharedChatMessage[] = post.messages?.length
     ? post.messages
     : post.excerpt
@@ -200,6 +211,23 @@ function PostRow({ post }: { post: TimelinePost }) {
   const tickers = (post.tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
+
+  const unpublish = async () => {
+    const who = post.is_bot ? `bot @${post.handle}` : `@${post.handle}`;
+    if (!window.confirm(`Unpublish this chat by ${who} from the timeline? The share link will still work.`)) {
+      return;
+    }
+    setUnpublishing(true);
+    setUnpublishError(null);
+    try {
+      await api.unpublishTimeline(post.share_id);
+      onUnpublished(post.share_id);
+    } catch (err) {
+      setUnpublishError(err instanceof Error ? err.message : 'Could not unpublish.');
+    } finally {
+      setUnpublishing(false);
+    }
+  };
 
   return (
     <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
@@ -282,15 +310,29 @@ function PostRow({ post }: { post: TimelinePost }) {
             )}
           </HStack>
         )}
-        <Link
-          to="/share/$shareId"
-          params={{ shareId: post.share_id }}
-          className="timeline-post-open"
-        >
-          <Text weight="semibold">View full chat</Text>
-          <ArrowRight size={14} aria-hidden="true" />
-        </Link>
+        <HStack gap={2} vAlign="center" className="timeline-post-actions">
+          {isAdmin && (
+            <Button
+              variant="destructive"
+              size="sm"
+              label="Unpublish"
+              isLoading={unpublishing}
+              onClick={() => { void unpublish(); }}
+            />
+          )}
+          <Link
+            to="/share/$shareId"
+            params={{ shareId: post.share_id }}
+            className="timeline-post-open"
+          >
+            <Text weight="semibold">View full chat</Text>
+            <ArrowRight size={14} aria-hidden="true" />
+          </Link>
+        </HStack>
       </HStack>
+      {unpublishError && (
+        <Text type="supporting" className="timeline-err">{unpublishError}</Text>
+      )}
     </VStack>
   );
 }
@@ -311,6 +353,7 @@ function FeedSkeleton() {
 
 export default function TimelinePage() {
   const navigate = useNavigate();
+  const { isAdmin } = useIsAdmin();
   const { handle: handleParam } = useParams({ strict: false }) as { handle?: string };
   const handle = handleParam?.trim().toLowerCase() || undefined;
   const [items, setItems] = useState<TimelinePost[]>([]);
@@ -369,6 +412,10 @@ export default function TimelinePage() {
     setComposer('');
     void navigate({ to: '/chat' });
   }, [navigate]);
+
+  const onUnpublished = useCallback((shareId: string) => {
+    setItems((prev) => prev.filter((post) => post.share_id !== shareId));
+  }, []);
 
   return (
     <VStack className="timeline content-column" gap={0}>
@@ -434,7 +481,14 @@ export default function TimelinePage() {
 
         {!loading && items.length > 0 && (
           <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
-            {items.map((post) => <PostRow key={post.share_id} post={post} />)}
+            {items.map((post) => (
+              <PostRow
+                key={post.share_id}
+                post={post}
+                isAdmin={isAdmin}
+                onUnpublished={onUnpublished}
+              />
+            ))}
           </VStack>
         )}
 
