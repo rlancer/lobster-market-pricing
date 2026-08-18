@@ -727,6 +727,7 @@ function AiChatSession({
         ...(message.chart ? { chart: message.chart } : {}),
       })).slice(-100);
       const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
+      const runId = peekBotRunId();
       const response = await api.shareChat({
         chat_id: chatId,
         mode: 'funded',
@@ -735,14 +736,14 @@ function AiChatSession({
         ended_at: new Date().toISOString(),
         messages: turns,
         ...(botHandle ? { bot_handle: botHandle } : {}),
+        ...(runId ? { run_id: runId } : {}),
       });
       setShareResult(response);
       setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
-      const runId = peekBotRunId();
       if (runId && response.share_id) {
         void api.updateBotRun(runId, { status: 'shared', share_id: response.share_id }).catch(() => {
-          /* run bookkeeping is best-effort */
+          /* run bookkeeping is best-effort; server also links on share */
         });
       }
     } catch (error) {

@@ -4,10 +4,12 @@ import {
   BOT_RUN_TIMEOUT_ERROR,
   BOT_RUN_TIMEOUT_MS,
   botRunExpiryCutoff,
+  botShareReuseDecision,
   botSystemAddon,
   expireStuckBotRuns,
   isBotRunTimedOut,
   validateBotInput,
+  type BotRun,
 } from "../src/bots.ts";
 
 test("validateBotInput accepts yololobster-style profiles", () => {
@@ -180,4 +182,44 @@ test("expireStuckBotRuns marks stale queued/running runs failed", async () => {
   assert.equal(runs[2].status, "running");
   assert.equal(runs[2].error, null);
   assert.equal(runs[3].status, "shared");
+});
+
+function sampleRun(patch: Partial<BotRun> = {}): BotRun {
+  return {
+    run_id: "run-1",
+    handle: "yololobster",
+    chat_id: "chat-1",
+    share_id: null,
+    prompt: "Find lottery tickets",
+    status: "running",
+    error: null,
+    created_at: 1,
+    updated_at: 1,
+    ...patch,
+  };
+}
+
+test("botShareReuseDecision creates when the run has no share yet", () => {
+  assert.deepEqual(botShareReuseDecision(sampleRun()), {
+    action: "create",
+    run_id: "run-1",
+    handle: "yololobster",
+  });
+});
+
+test("botShareReuseDecision reuses an existing share_id (idempotent)", () => {
+  assert.deepEqual(botShareReuseDecision(sampleRun({ share_id: "AbcShare123", status: "shared" })), {
+    action: "reuse",
+    share_id: "AbcShare123",
+    handle: "yololobster",
+  });
+});
+
+test("botShareReuseDecision rejects a missing run", () => {
+  assert.deepEqual(botShareReuseDecision(null), { action: "not_found" });
+  assert.deepEqual(botShareReuseDecision(sampleRun({ share_id: "   " })), {
+    action: "create",
+    run_id: "run-1",
+    handle: "yololobster",
+  });
 });
