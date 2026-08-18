@@ -452,6 +452,23 @@ export async function getBotRun(db: D1Database, runId: string): Promise<BotRun |
   return row ? rowToRun(row) : null;
 }
 
+/**
+ * Pure decision for POST /api/share/chat when `run_id` is present.
+ * Reuse an existing share_id so the same bot run cannot mint duplicate
+ * timeline posts; otherwise create and link a new shared_chats row.
+ */
+export function botShareReuseDecision(
+  run: BotRun | null,
+):
+  | { action: "not_found" }
+  | { action: "reuse"; share_id: string; handle: string }
+  | { action: "create"; run_id: string; handle: string } {
+  if (!run) return { action: "not_found" };
+  const shareId = typeof run.share_id === "string" ? run.share_id.trim() : "";
+  if (shareId) return { action: "reuse", share_id: shareId, handle: run.handle };
+  return { action: "create", run_id: run.run_id, handle: run.handle };
+}
+
 export async function listBotRuns(db: D1Database, handle: string, limit = 20): Promise<BotRun[]> {
   await expireStuckBotRuns(db);
   const parsed = parseHandle(handle);

@@ -25,6 +25,7 @@ import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import {
+  botShareReuseDecision,
   createBotProfile,
   createBotRun,
   deleteBotProfile,
@@ -1920,6 +1921,37 @@ async function createShare(env: Env, req: Request): Promise<Response> {
     return json(env, { error: "invalid JSON body" }, 400);
   }
 
+  // Optional bot run link — admin only. Checked before rate-limit / mint so a
+  // retry of an already-shared run returns the existing share (idempotent) and
+  // does not consume the per-IP share budget.
+  let linkedRunId: string | null = null;
+  let botHandleFromRun: string | null = null;
+  const runIdRaw = typeof body.run_id === "string" ? body.run_id.trim() : "";
+  if (runIdRaw) {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: "unauthorized" }, 401);
+    const run = await getBotRun(env.SCHEMA_DB, runIdRaw);
+    const decision = botShareReuseDecision(run);
+    if (decision.action === "not_found") return json(env, { error: "run not found" }, 400);
+    if (decision.action === "reuse") {
+      const existing = await env.SCHEMA_DB.prepare(
+        `SELECT share_id, bot_handle FROM shared_chats WHERE share_id = ?1`,
+      ).bind(decision.share_id).first<{ share_id: string; bot_handle: string | null }>();
+      if (existing) {
+        return json(env, {
+          share_id: existing.share_id,
+          url: "/share/" + existing.share_id,
+          can_publish: false,
+          on_timeline: Boolean(existing.bot_handle),
+          bot_handle: existing.bot_handle,
+        });
+      }
+      // Orphan pointer (share row gone) — fall through and mint a fresh share.
+    }
+    linkedRunId = run!.run_id;
+    botHandleFromRun = run!.handle;
+  }
+
   // Abuse signals set server-side only — never accepted from the body (the
   // exact chat-history capture pattern). CF-Connecting-IP is set by Cloudflare.
   const ip = (req.headers.get("CF-Connecting-IP") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
@@ -1958,12 +1990,20 @@ async function createShare(env: Env, req: Request): Promise<Response> {
 
   // Optional bot attribution — only product admins (or ADMIN_TOKEN) may stamp
   // an enabled bot handle onto a share. Bot shares appear on the public timeline.
+  // When run_id is present, the run's handle is the source of truth (body
+  // bot_handle must match if also supplied).
   let botHandle: string | null = null;
   const botHandleRaw = typeof body.bot_handle === "string" ? body.bot_handle.trim().toLowerCase() : "";
-  if (botHandleRaw) {
-    const admin = await requireBotAdmin(env, req);
-    if (!admin.ok) return json(env, { error: "unauthorized" }, 401);
-    const bot = await getBotProfile(env.SCHEMA_DB, botHandleRaw);
+  if (botHandleRaw || botHandleFromRun) {
+    if (!runIdRaw) {
+      const admin = await requireBotAdmin(env, req);
+      if (!admin.ok) return json(env, { error: "unauthorized" }, 401);
+    }
+    if (botHandleRaw && botHandleFromRun && botHandleRaw !== botHandleFromRun) {
+      return json(env, { error: "bot_handle does not match run" }, 400);
+    }
+    const wantHandle = botHandleRaw || botHandleFromRun!;
+    const bot = await getBotProfile(env.SCHEMA_DB, wantHandle);
     if (!bot || !bot.enabled) return json(env, { error: "bot not found" }, 400);
     botHandle = bot.handle;
   }
@@ -1971,8 +2011,8 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   try {
     await env.SCHEMA_DB.prepare(
       `INSERT INTO shared_chats
-         (share_id, chat_id, title, mode, model, messages, source_sql, created_ip, created_ua, created_at, updated_at, bot_handle)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11)`,
+         (share_id, chat_id, title, mode, model, messages, source_sql, created_ip, created_ua, created_at, updated_at, bot_handle, run_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11, ?12)`,
     ).bind(
       shareId,
       String(pass1.chat_id),
@@ -1985,9 +2025,30 @@ async function createShare(env: Env, req: Request): Promise<Response> {
       ua || null,
       now,
       botHandle,
+      linkedRunId,
     ).run();
     if (user && !botHandle) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
+    if (linkedRunId) {
+      await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: shareId });
+    }
   } catch (dbErr) {
+    // Concurrent share of the same run_id: unique index wins — return the
+    // row that landed and keep bot_runs in sync.
+    if (linkedRunId && String(dbErr).includes("UNIQUE")) {
+      const byRun = await env.SCHEMA_DB.prepare(
+        `SELECT share_id, bot_handle FROM shared_chats WHERE run_id = ?1`,
+      ).bind(linkedRunId).first<{ share_id: string; bot_handle: string | null }>();
+      if (byRun) {
+        await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: byRun.share_id });
+        return json(env, {
+          share_id: byRun.share_id,
+          url: "/share/" + byRun.share_id,
+          can_publish: false,
+          on_timeline: Boolean(byRun.bot_handle),
+          bot_handle: byRun.bot_handle,
+        });
+      }
+    }
     // Explicitly user-requested → fail LOUDLY so they can retry (unlike the
     // best-effort lake capture, where D1-buffering absorbs write failures).
     console.error("share create failed", dbErr);

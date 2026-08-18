@@ -419,6 +419,8 @@ export interface ShareChatRecord extends Omit<ChatHistoryRecord, 'messages'> {
   messages: ShareChatMessage[];
   /** Admin-only: stamp this share as a bot timeline post. */
   bot_handle?: string;
+  /** Admin bot session: link this share to a bot_runs row (idempotent per run). */
+  run_id?: string;
 }
 
 /** Response of GET /api/share/:id — public, unlisted, read-only. No auth: the id is the key. */
