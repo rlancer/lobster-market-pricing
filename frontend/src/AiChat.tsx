@@ -613,6 +613,9 @@ function AiChatSession({
       : null,
   );
   useEffect(() => {
+    // Bot generate navigates to /chat/{uuid} with a live bot session. Claiming would
+    // bind the draft to the signed-in admin and break anonymous reopen of unowned chats.
+    if (peekBotHandle()) return;
     if (!user || !firstUserTurn || claimedRef.current) return;
     claimedRef.current = true;
     api.claimChat(chatId, firstUserTurn).then((result) => {
