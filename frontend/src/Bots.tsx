@@ -43,6 +43,24 @@ function formFromBot(bot: BotProfile) {
   };
 }
 
+/** Relative age from epoch ms — compact for dense admin run rows. */
+function formatRelativeAge(createdAtMs: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function runStatusColor(status: BotRun['status']): 'green' | 'red' | 'blue' {
+  if (status === 'shared') return 'green';
+  if (status === 'failed') return 'red';
+  return 'blue';
+}
+
 /**
  * Admin-only bot profiles — edit personas and trigger a Copilot chat that
  * shares publicly under the bot handle (e.g. @yololobster).
@@ -177,6 +195,23 @@ export default function BotsPage() {
       stashPendingPrompt(response.prompt);
       setNotice(`Opening Copilot as @${response.bot.handle}…`);
       void navigate({ to: '/chat/$chatId', params: { chatId: response.chat_id } });
+    } catch (err) {
+      setError(String((err as Error)?.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const failRun = async (runId: string) => {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.updateBotRun(runId, { status: 'failed', error: 'marked failed by admin' });
+      setNotice('Run marked failed.');
+      const detail = await api.adminBot(selected);
+      setRuns(detail.runs);
     } catch (err) {
       setError(String((err as Error)?.message ?? err));
     } finally {
@@ -326,11 +361,33 @@ export default function BotsPage() {
                     <ul className="bots-runs">
                       {runs.map((run) => (
                         <li key={run.run_id}>
-                          <Token label={run.status} color={run.status === 'shared' ? 'green' : run.status === 'failed' ? 'red' : 'blue'} />
-                          <span className="bots-run-prompt">{run.prompt}</span>
-                          {run.share_id && (
-                            <a href={`/share/${run.share_id}`}>/share/{run.share_id}</a>
-                          )}
+                          <div className="bots-run-main">
+                            <Token label={run.status} color={runStatusColor(run.status)} />
+                            <time
+                              className="bots-run-age"
+                              dateTime={new Date(run.created_at).toISOString()}
+                              title={new Date(run.created_at).toLocaleString()}
+                            >
+                              {formatRelativeAge(run.created_at)}
+                            </time>
+                            <span className="bots-run-prompt">{run.prompt}</span>
+                          </div>
+                          <div className="bots-run-meta">
+                            <a href={`/chat/${run.chat_id}`}>/chat/{run.chat_id.slice(0, 8)}…</a>
+                            {run.share_id && (
+                              <a href={`/share/${run.share_id}`}>/share/{run.share_id}</a>
+                            )}
+                            {(run.status === 'queued' || run.status === 'running') && (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                label="Fail"
+                                isDisabled={busy}
+                                onClick={() => { void failRun(run.run_id); }}
+                              />
+                            )}
+                          </div>
+                          {run.error && <p className="bots-run-error">{run.error}</p>}
                         </li>
                       ))}
                     </ul>
