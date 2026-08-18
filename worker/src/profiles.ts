@@ -19,6 +19,9 @@ const RESERVED_HANDLES = new Set([
   "api",
   "assets",
   "auth",
+  "bot",
+  "bots",
+  "brand",
   "chat",
   "chats",
   "comment",
@@ -111,6 +114,9 @@ export async function setHandle(db: D1Database, userId: string, value: unknown):
   if (!parsed.ok) return parsed;
   const existing = await getHandle(db, userId);
   if (existing === parsed.handle) return parsed;
+  // Bot profiles share the /u/{handle} namespace — reject human claims that collide.
+  const bot = await db.prepare("SELECT 1 AS n FROM bot_profiles WHERE handle = ?1").bind(parsed.handle).first();
+  if (bot) return { ok: false, status: 409, error: "that handle is taken" };
   const now = Date.now();
   try {
     await db.prepare(

@@ -178,8 +178,15 @@ function schemaToPrompt(tables: LakeTable[]): string {
   }).join("\n\n");
 }
 
-function systemPrompt(schema: string): string {
-  return [
+export interface BotPromptProfile {
+  handle: string;
+  display_name: string;
+  persona: string;
+  system_prompt_extra: string;
+}
+
+function systemPrompt(schema: string, bot?: BotPromptProfile | null): string {
+  const lines = [
     "You are a senior quant developer writing DataFusion SQL (R2 SQL) against an options market Iceberg lake.",
     "",
     "Schema:",
@@ -210,7 +217,20 @@ function systemPrompt(schema: string): string {
     "- When the user asks for a chart, graph, plot, smile, or surface, you MUST call render_chart after producing chartable data. Narrating \"let me render the chart\" does nothing — the UI only draws a chart from that tool.",
     "- Prefer a compact aggregated frame (one row per x/series) so the plot is clean. For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
     "- The final message is shown verbatim. Do not repeat chain-of-thought or tool narration; close with a 1-3 sentence takeaway.",
-  ].join("\n");
+  ];
+  if (bot) {
+    lines.push(
+      "",
+      `Bot persona (@${bot.handle} — ${bot.display_name}):`,
+      bot.persona,
+    );
+    if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());
+    lines.push(
+      "Write in this persona's voice while still following every SQL/tool rule above.",
+      "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+    );
+  }
+  return lines.join("\n");
 }
 
 function boundedMessages(messages: UIMessage[], historyCharsMax: number): ModelMessage[] {
@@ -303,6 +323,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     }
     // Once an off-topic turn is rejected, the chat stays locked so follow-up
     // jailbreak retries cannot re-enter the agent loop on this instance.
+    this.sql`CREATE TABLE IF NOT EXISTS bot_session (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      handle TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      persona TEXT NOT NULL,
+      system_prompt_extra TEXT NOT NULL,
+      model TEXT,
+      reasoning_effort TEXT,
+      updated_at INTEGER NOT NULL
+    )`;
     this.sql`CREATE TABLE IF NOT EXISTS copilot_scope_lock (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       locked INTEGER NOT NULL,
@@ -421,6 +451,89 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   async getFrameMetadata(): Promise<FrameMetadata[]> {
     this.ensureCopilotSchema();
     return this.frameMetadata();
+  }
+
+  /** Bind this conversation to an enabled bot persona (admin generate / trigger). */
+  @callable()
+  async setBotProfile(profile: {
+    handle: string;
+    display_name: string;
+    persona: string;
+    system_prompt_extra?: string;
+    model?: string | null;
+    reasoning_effort?: string | null;
+  }): Promise<{ ok: true; handle: string }> {
+    this.ensureCopilotSchema();
+    const handle = String(profile.handle ?? "").trim().toLowerCase();
+    const display_name = String(profile.display_name ?? "").trim();
+    const persona = String(profile.persona ?? "").trim();
+    if (!handle || !display_name || !persona) throw new Error("handle, display_name, and persona are required");
+    this.sql`
+      INSERT OR REPLACE INTO bot_session
+        (singleton, handle, display_name, persona, system_prompt_extra, model, reasoning_effort, updated_at)
+      VALUES (
+        1,
+        ${handle},
+        ${display_name},
+        ${persona},
+        ${String(profile.system_prompt_extra ?? "")},
+        ${profile.model ? String(profile.model) : null},
+        ${profile.reasoning_effort ? String(profile.reasoning_effort) : null},
+        ${Date.now()}
+      )
+    `;
+    return { ok: true, handle };
+  }
+
+  private readBotSession(): (BotPromptProfile & { model: string | null; reasoning_effort: string | null }) | null {
+    this.ensureCopilotSchema();
+    const row = this.sql<{
+      handle: string;
+      display_name: string;
+      persona: string;
+      system_prompt_extra: string;
+      model: string | null;
+      reasoning_effort: string | null;
+    }>`
+      SELECT handle, display_name, persona, system_prompt_extra, model, reasoning_effort
+      FROM bot_session WHERE singleton = 1
+    `[0];
+    return row ?? null;
+  }
+
+  private async resolveBotProfile(options: OnChatMessageOptions): Promise<(BotPromptProfile & { model: string | null; reasoning_effort: string | null }) | null> {
+    const stashed = this.readBotSession();
+    if (stashed) return stashed;
+    const handleRaw = typeof options.body?.bot_handle === "string" ? options.body.bot_handle.trim().toLowerCase() : "";
+    if (!handleRaw || !this.env.SCHEMA_DB) return null;
+    const row = await this.env.SCHEMA_DB.prepare(
+      `SELECT handle, display_name, persona, system_prompt_extra, model, reasoning_effort
+       FROM bot_profiles WHERE handle = ?1 AND enabled = 1`,
+    ).bind(handleRaw).first<{
+      handle: string;
+      display_name: string;
+      persona: string;
+      system_prompt_extra: string;
+      model: string | null;
+      reasoning_effort: string | null;
+    }>();
+    if (!row) return null;
+    // Persist so reconnects / continuations keep the persona without re-querying.
+    this.sql`
+      INSERT OR REPLACE INTO bot_session
+        (singleton, handle, display_name, persona, system_prompt_extra, model, reasoning_effort, updated_at)
+      VALUES (
+        1,
+        ${row.handle},
+        ${row.display_name},
+        ${row.persona},
+        ${row.system_prompt_extra},
+        ${row.model},
+        ${row.reasoning_effort},
+        ${Date.now()}
+      )
+    `;
+    return row;
   }
 
   private frameMetadata(): FrameMetadata[] {
@@ -801,7 +914,12 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
 
     const originValue = typeof options.body?.origin === "string" ? options.body.origin : "";
     const origin = /^https?:\/\//.test(originValue) ? originValue : "https://robs-options-slop-dev.pages.dev";
-    const model = createCopilotModel(this.env, origin);
+    const bot = await this.resolveBotProfile(options);
+    const modelEnv = bot?.model
+      ? { ...this.env, COPILOT_MODEL: bot.model }
+      : this.env;
+    const reasoningEffort = bot?.reasoning_effort || this.env.COPILOT_REASONING_EFFORT;
+    const model = createCopilotModel(modelEnv, origin);
 
     // Pre-agent finance gate: reject off-topic turns with a hard error (no
     // assistant prose) and lock the chat so jailbreak follow-ups cannot retry.
@@ -823,6 +941,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const latestQuestion = latestUserText(this.messages).toLowerCase();
     const requestedFrame = this.frameMetadata().find((frame) => latestQuestion.includes(frame.name.toLowerCase()));
     let wroteAnswerStatus = false;
+    const activeModel = bot?.model || this.env.COPILOT_MODEL;
 
     const stream = createUIMessageStream<CopilotMessage>({
       originalMessages,
@@ -833,13 +952,13 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         const tools = this.createTools(tables, capture, status, turn);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables)),
+          system: systemPrompt(schemaToPrompt(tables), bot),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),
           abortSignal: options.abortSignal,
           providerOptions: {
-            openrouter: { reasoning: { effort: normalizeReasoningEffort(this.env.COPILOT_REASONING_EFFORT) } },
+            openrouter: { reasoning: { effort: normalizeReasoningEffort(reasoningEffort) } },
           },
           prepareStep: ({ stepNumber }) => {
             const policy = nextCopilotStepPolicy({
@@ -867,7 +986,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           onFinish: () => {
             console.log(JSON.stringify({
               copilotChat: true,
-              model: this.env.COPILOT_MODEL,
+              model: activeModel,
+              botHandle: bot?.handle ?? null,
               outputTokens: turn.used,
               failedQueryCount: turn.failedQueryCount,
               toolsProducedResult: capture.result !== null,
@@ -876,7 +996,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         });
         writer.merge(result.toUIMessageStream<CopilotMessage>({
           sendReasoning: true,
-          messageMetadata: ({ part }) => part.type === "finish" ? { model: this.env.COPILOT_MODEL, createdAt: Date.now() } : undefined,
+          messageMetadata: ({ part }) => part.type === "finish" ? { model: activeModel, createdAt: Date.now() } : undefined,
         }));
       },
     });

@@ -5,6 +5,8 @@ const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
 export const LIVE_CHAT_KEY = 'openinterest_copilot_live_chat_id';
 export const PENDING_PROMPT_KEY = 'openinterest_copilot_pending_prompt';
+export const BOT_HANDLE_KEY = 'openinterest_copilot_bot_handle';
+export const BOT_RUN_KEY = 'openinterest_copilot_bot_run_id';
 export const CHATS_CHANGED_EVENT = 'lobster:chats-changed';
 
 export function parseChatId(value: unknown): string | null {
@@ -91,6 +93,41 @@ export function peekPendingPrompt(): string | null {
 export function clearPendingPrompt(): void {
   try {
     sessionStorage.removeItem(PENDING_PROMPT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Bind the next /chat session to a bot persona (admin generate flow). */
+export function stashBotSession(handle: string, runId?: string | null): void {
+  const clean = handle.trim().toLowerCase();
+  if (!clean) return;
+  sessionStorage.setItem(BOT_HANDLE_KEY, clean);
+  if (runId) sessionStorage.setItem(BOT_RUN_KEY, runId);
+  else sessionStorage.removeItem(BOT_RUN_KEY);
+}
+
+export function peekBotHandle(): string | null {
+  try {
+    const raw = sessionStorage.getItem(BOT_HANDLE_KEY);
+    return raw?.trim().toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function peekBotRunId(): string | null {
+  try {
+    return sessionStorage.getItem(BOT_RUN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearBotSession(): void {
+  try {
+    sessionStorage.removeItem(BOT_HANDLE_KEY);
+    sessionStorage.removeItem(BOT_RUN_KEY);
   } catch {
     /* ignore */
   }

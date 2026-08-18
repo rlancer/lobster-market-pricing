@@ -24,7 +24,7 @@ import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
-import { clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
+import { clearBotSession, clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
@@ -418,7 +418,10 @@ function AiChatSession({
     // origins. Default fetch credentials omit the session cookie, so owned
     // history 401s and the UI looks like a blank welcome chat.
     credentials: 'include',
-    body: () => ({ origin: window.location.origin }),
+    body: () => ({
+      origin: window.location.origin,
+      ...(peekBotHandle() ? { bot_handle: peekBotHandle() } : {}),
+    }),
     onData: (part) => {
       if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
         setProgressStatus(part.data.status);
@@ -699,6 +702,7 @@ function AiChatSession({
   }, [busy, paused, scopeLocked, sendMessage]);
 
   const canShare = projectedMessages.some((message) => message.role === 'assistant' && message.content);
+  const botHandle = peekBotHandle();
   const shareChat = async () => {
     setShareBusy(true);
     setShareError(null);
@@ -727,10 +731,17 @@ function AiChatSession({
         started_at: new Date(startedAtRef.current ?? Date.now()).toISOString(),
         ended_at: new Date().toISOString(),
         messages: turns,
+        ...(botHandle ? { bot_handle: botHandle } : {}),
       });
       setShareResult(response);
       setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
+      const runId = peekBotRunId();
+      if (runId && response.share_id) {
+        void api.updateBotRun(runId, { status: 'shared', share_id: response.share_id }).catch(() => {
+          /* run bookkeeping is best-effort */
+        });
+      }
     } catch (error) {
       setShareError(String((error as Error)?.message ?? error));
       setShareOpen(true);
@@ -789,14 +800,25 @@ function AiChatSession({
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
+        {botHandle && (
+          <p className="ai-bot-banner" role="status">
+            Generating as <b>@{botHandle}</b> — Share posts this chat to the public timeline as that bot.
+          </p>
+        )}
         <section className="ai-head-actions">
           <ChatDeleteControl chatId={chatId} onNewChat={onNewChat} />
           <IconButton
             variant="ghost"
             size="sm"
-            label="Share chat"
+            label={botHandle ? `Share as @${botHandle}` : 'Share chat'}
             icon={<Share2 size={16} />}
-            tooltip={canShare ? 'Share chat' : 'Share available after the first answer'}
+            tooltip={
+              !canShare
+                ? 'Share available after the first answer'
+                : botHandle
+                  ? `Share publicly as @${botHandle}`
+                  : 'Share chat'
+            }
             isDisabled={!canShare || busy || accessBlocked}
             isLoading={shareBusy}
             onClick={shareChat}
@@ -1118,6 +1140,7 @@ function AiChat() {
     rememberChatId(chatId);
   }, [chatId]);
   const newChat = useCallback(() => {
+    clearBotSession();
     const created = startNewChatId();
     setLiveId(created);
     if (routeChatId) void navigate({ to: '/chat' });

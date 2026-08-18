@@ -10,6 +10,7 @@ import {
   Skeleton,
   Text,
   Timestamp,
+  Token,
   VStack,
 } from '@astryxdesign/core';
 import { ArrowRight, BarChart3, Code2, Newspaper, Sparkles } from 'lucide-react';
@@ -207,6 +208,9 @@ function PostRow({ post }: { post: TimelinePost }) {
           <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
             <Text weight="semibold" maxLines={1}>@{post.handle}</Text>
           </Link>
+          {post.is_bot && (
+            <Token label="bot" color="teal" />
+          )}
           <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
           <Timestamp value={post.published_at / 1000} format="auto" isLive />
         </HStack>
@@ -377,8 +381,17 @@ export default function TimelinePage() {
       <VStack gap={5} className="timeline-body" paddingBlock={5}>
         {handle && !loading && !missing && profile && (
           <HStack as="header" gap={4} vAlign="center" className="timeline-profile">
-            <VStack gap={0} className="timeline-profile-copy">
-              <Heading level={1}>@{profile.handle}</Heading>
+            <VStack gap={1} className="timeline-profile-copy">
+              <HStack gap={2} vAlign="center">
+                <Heading level={1}>@{profile.handle}</Heading>
+                {profile.is_bot && <Token label="bot" color="teal" />}
+              </HStack>
+              {profile.is_bot && profile.persona && (
+                <Text type="supporting">{profile.persona}</Text>
+              )}
+              {profile.is_bot && profile.bio && (
+                <Text type="supporting">{profile.bio}</Text>
+              )}
             </VStack>
             <Button
               variant="secondary"

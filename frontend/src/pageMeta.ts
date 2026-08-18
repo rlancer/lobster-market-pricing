@@ -194,6 +194,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/bots') {
+    return {
+      title: pageTitle('Bots'),
+      description:
+        'Admin-only Copilot personas — edit handles like yololobster and generate public timeline chats.',
+      path: '/bots',
+    };
+  }
+
   if (path === '/docs' || path.startsWith('/docs/')) {
     const slug = path === '/docs' ? 'overview' : (segments[1] ?? 'overview');
     const doc = DOCS[slug] ?? DOCS.overview;
