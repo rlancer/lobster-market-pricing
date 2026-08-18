@@ -798,7 +798,10 @@ export const api = {
   sharedChat: (shareId: string) =>
     get<SharedChat>(`/api/share/${encodeURIComponent(shareId)}`),
   timeline: (opts?: { handle?: string; before?: number; limit?: number }) =>
-    get<TimelineFeed>(`/api/timeline${qs({ handle: opts?.handle, before: opts?.before, limit: opts?.limit })}`),
+    request<TimelineFeed>(`/api/timeline${qs({ handle: opts?.handle, before: opts?.before, limit: opts?.limit })}`, {
+      // Moderated feed — never reuse a cached list after publish/unpublish.
+      cache: 'no-store',
+    }),
   publishTimeline: (share_id: string) =>
     post<{ ok: boolean; share_id: string; published_at: number }>('/api/timeline', { share_id }),
   unpublishTimeline: (shareId: string) =>

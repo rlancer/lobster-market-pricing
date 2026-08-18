@@ -383,7 +383,9 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
     ...itemFromRow(row, tickersByChat.get(row.chat_id) ?? []),
     is_bot: row.is_bot === 1,
   }));
-  return json({ items, next_before, profile });
+  // Feed mutates via publish/unpublish — never serve a stale browser/CDN copy
+  // after an admin unlist (public max-age made removals look like no-ops).
+  return json({ items, next_before, profile }, 200, "private");
 }
 
 async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response> {

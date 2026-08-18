@@ -128,6 +128,7 @@ test.describe('Public timeline', () => {
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline`);
     expect(res.status()).toBe(200);
+    expect(res.headers()['cache-control'] ?? '').toMatch(/no-store|private/i);
     const body = (await res.json()) as {
       items: unknown[];
       next_before: number | null;
