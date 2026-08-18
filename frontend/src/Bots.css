@@ -103,11 +103,29 @@
 }
 
 .bots-runs li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-border-primary);
+  font-size: var(--font-size-sm);
+}
+
+.bots-runs li:last-child {
+  border-bottom: none;
+}
+
+.bots-run-main {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto 1fr;
   gap: var(--spacing-2);
   align-items: center;
-  font-size: var(--font-size-sm);
+  min-width: 0;
+}
+
+.bots-run-age {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 
 .bots-run-prompt {
@@ -115,6 +133,19 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-secondary);
+}
+
+.bots-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.bots-run-error {
+  margin: 0;
+  color: var(--color-error);
+  word-break: break-word;
 }
 
 .bots-error {
