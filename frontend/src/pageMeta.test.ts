@@ -40,10 +40,11 @@ test('research landing has no ticker', () => {
   assert.doesNotMatch(meta.title, /SPY/);
 });
 
-test('profile handle is in the timeline title', () => {
+test('profile handle is in the profile title', () => {
   const meta = pageMetaForUrl('/u/thelobster');
-  assert.equal(meta.title, `@thelobster – Timeline · ${SITE_NAME}`);
+  assert.equal(meta.title, `@thelobster – Profile · ${SITE_NAME}`);
   assert.match(meta.description, /@thelobster/);
+  assert.match(meta.description, /Profile and public chats/);
 });
 
 test('data catalog item uses the lake table name', () => {
