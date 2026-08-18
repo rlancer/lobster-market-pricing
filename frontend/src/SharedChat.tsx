@@ -107,13 +107,18 @@ function SharedChatRoute() {
             <header className="share-title-row">
               <h1 className="share-title">{share.title ?? 'Shared chat'}</h1>
               <p className="share-meta">
-                {share.author && (
-                  <Link to="/u/$handle" params={{ handle: share.author.handle }} className="share-author">
-                    @{share.author.handle}
+                {(share.bot || share.author) && (
+                  <Link
+                    to="/u/$handle"
+                    params={{ handle: (share.bot ?? share.author)!.handle }}
+                    className="share-author"
+                  >
+                    @{(share.bot ?? share.author)!.handle}
                   </Link>
                 )}
                 <Timestamp value={share.created_at / 1000} format="date_time" />
                 {share.model && <span>· {share.model}</span>}
+                {share.bot && <span>· {share.bot.persona}</span>}
                 {share.on_timeline && <span>· on the timeline</span>}
               </p>
             </header>

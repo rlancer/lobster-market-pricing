@@ -1,0 +1,134 @@
+.bots-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--spacing-6) var(--spacing-5) var(--spacing-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-5);
+}
+
+.bots-hero h1 {
+  margin: 0 0 var(--spacing-2);
+}
+
+.bots-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: var(--spacing-6);
+  align-items: start;
+}
+
+.bots-list,
+.bots-editor {
+  background: var(--color-background-surface);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-container);
+  padding: var(--spacing-4);
+}
+
+.bots-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-3);
+}
+
+.bots-handles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.bots-handle {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spacing-3);
+  border-radius: var(--radius-inner);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.bots-handle span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.bots-handle:hover,
+.bots-handle.active {
+  background: var(--color-background-muted);
+  border-color: var(--color-border-primary);
+}
+
+.bots-enabled {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: var(--color-text-secondary);
+}
+
+.bots-actions,
+.bots-generate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.bots-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.bots-generate {
+  margin-top: var(--spacing-4);
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--color-border-primary);
+}
+
+.bots-runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.bots-runs li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--spacing-2);
+  align-items: center;
+  font-size: var(--font-size-sm);
+}
+
+.bots-run-prompt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.bots-error {
+  color: var(--color-error);
+  margin: 0;
+}
+
+.bots-notice {
+  color: var(--color-text-accent);
+  margin: 0;
+}
+
+@media (max-width: 800px) {
+  .bots-layout {
+    grid-template-columns: 1fr;
+  }
+}

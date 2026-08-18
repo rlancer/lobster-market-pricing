@@ -18,6 +18,15 @@
   flex-shrink: 0;
   gap: var(--spacing-2);
 }
+.ai-bot-banner {
+  margin: 0;
+  margin-inline-end: auto;
+  padding: var(--spacing-1) var(--spacing-3);
+  border-radius: var(--radius-inner);
+  background: var(--color-accent-muted);
+  color: var(--color-text-accent);
+  font-size: var(--font-size-sm);
+}
 .ai-head-actions {
   display: flex;
   align-items: center;

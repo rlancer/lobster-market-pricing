@@ -24,6 +24,18 @@
 import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
+import {
+  createBotProfile,
+  createBotRun,
+  deleteBotProfile,
+  getBotProfile,
+  getBotRun,
+  listBotProfiles,
+  listBotRuns,
+  requireBotAdmin,
+  updateBotProfile,
+  updateBotRun,
+} from "./bots";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
 import { getHandle, setHandle, suggestHandle } from "./profiles";
@@ -1943,11 +1955,24 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   const shareId = base62Encode(crypto.getRandomValues(new Uint8Array(SHARE_ID_BYTES)));
   const now = Date.now();
   const user = await getSessionUser(env, req);
+
+  // Optional bot attribution — only product admins (or ADMIN_TOKEN) may stamp
+  // an enabled bot handle onto a share. Bot shares appear on the public timeline.
+  let botHandle: string | null = null;
+  const botHandleRaw = typeof body.bot_handle === "string" ? body.bot_handle.trim().toLowerCase() : "";
+  if (botHandleRaw) {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: "unauthorized" }, 401);
+    const bot = await getBotProfile(env.SCHEMA_DB, botHandleRaw);
+    if (!bot || !bot.enabled) return json(env, { error: "bot not found" }, 400);
+    botHandle = bot.handle;
+  }
+
   try {
     await env.SCHEMA_DB.prepare(
       `INSERT INTO shared_chats
-         (share_id, chat_id, title, mode, model, messages, source_sql, created_ip, created_ua, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`,
+         (share_id, chat_id, title, mode, model, messages, source_sql, created_ip, created_ua, created_at, updated_at, bot_handle)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11)`,
     ).bind(
       shareId,
       String(pass1.chat_id),
@@ -1959,8 +1984,9 @@ async function createShare(env: Env, req: Request): Promise<Response> {
       ip || null,
       ua || null,
       now,
+      botHandle,
     ).run();
-    if (user) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
+    if (user && !botHandle) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
   } catch (dbErr) {
     // Explicitly user-requested → fail LOUDLY so they can retry (unlike the
     // best-effort lake capture, where D1-buffering absorbs write failures).
@@ -1968,12 +1994,13 @@ async function createShare(env: Env, req: Request): Promise<Response> {
     return json(env, { error: "storage unavailable" }, 502);
   }
   shareRateRecordLocal(ip);
-  const handle = user ? await getHandle(env.SCHEMA_DB, user.id) : null;
+  const handle = user && !botHandle ? await getHandle(env.SCHEMA_DB, user.id) : null;
   return json(env, {
     share_id: shareId,
     url: "/share/" + shareId,
     can_publish: Boolean(handle),
-    on_timeline: false,
+    on_timeline: Boolean(botHandle),
+    bot_handle: botHandle,
   });
 }
 
@@ -1985,7 +2012,7 @@ async function createShare(env: Env, req: Request): Promise<Response> {
 async function getSharedChat(env: Env, shareId: string): Promise<Response> {
   if (!SHARE_ID_RE.test(shareId)) return json(env, { error: "not found" }, 404);
   const row = await env.SCHEMA_DB.prepare(
-    `SELECT share_id, title, mode, model, messages, source_sql, created_at, expires_at
+    `SELECT share_id, title, mode, model, messages, source_sql, created_at, expires_at, bot_handle
      FROM shared_chats WHERE share_id = ?1`,
   ).bind(shareId).first<{
     share_id: string;
@@ -1996,6 +2023,7 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     source_sql: string | null;
     created_at: number;
     expires_at: number | null;
+    bot_handle: string | null;
   }>();
   if (!row) return json(env, { error: "not found" }, 404);
   if (row.expires_at && row.expires_at < Date.now()) return json(env, { error: "not found" }, 404);
@@ -2006,6 +2034,13 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     /* rows are written by us; tolerate a corrupt one rather than 500 */
   }
   const author = await getTimelineAuthor(env.SCHEMA_DB, shareId);
+  let bot: { handle: string; display_name: string; persona: string } | null = null;
+  if (row.bot_handle) {
+    const profile = await getBotProfile(env.SCHEMA_DB, row.bot_handle);
+    if (profile) {
+      bot = { handle: profile.handle, display_name: profile.display_name, persona: profile.persona };
+    }
+  }
   return json(env, {
     share_id: row.share_id,
     title: row.title,
@@ -2014,8 +2049,10 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     created_at: row.created_at,
     messages,
     source_sql: row.source_sql,
-    on_timeline: Boolean(author),
+    on_timeline: Boolean(author) || Boolean(bot),
     author,
+    bot_handle: bot?.handle ?? null,
+    bot,
   });
 }
 
@@ -2464,6 +2501,160 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
   return json(env, { error: "method not allowed" }, 405, "private");
 }
 
+/**
+ * Bot profiles — public read of enabled bots; admin CRUD + generate trigger.
+ *
+ * Generate returns a fresh chat_id + prompt so the admin UI can open Copilot
+ * as that persona and auto-send. Sharing with bot_handle stamps the public
+ * timeline attribution.
+ */
+async function handleBots(env: Env, req: Request, path: string): Promise<Response | null> {
+  if (path === "/api/bots" && req.method === "GET") {
+    const items = await listBotProfiles(env.SCHEMA_DB, { enabledOnly: true });
+    return json(env, {
+      items: items.map((bot) => ({
+        handle: bot.handle,
+        display_name: bot.display_name,
+        persona: bot.persona,
+        bio: bot.bio,
+      })),
+    });
+  }
+
+  const publicOne = path.match(/^\/api\/bots\/([^/]+)$/);
+  if (publicOne && req.method === "GET") {
+    const bot = await getBotProfile(env.SCHEMA_DB, decodeURIComponent(publicOne[1]));
+    if (!bot || !bot.enabled) return json(env, { error: "not found" }, 404);
+    return json(env, {
+      handle: bot.handle,
+      display_name: bot.display_name,
+      persona: bot.persona,
+      bio: bot.bio,
+    });
+  }
+
+  if (path === "/api/admin/bots" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    return json(env, { items: await listBotProfiles(env.SCHEMA_DB) }, 200, "private");
+  }
+
+  if (path === "/api/admin/bots" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const result = await createBotProfile(env.SCHEMA_DB, body);
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, { ok: true, bot: result.profile }, 201, "private");
+  }
+
+  const adminOne = path.match(/^\/api\/admin\/bots\/([^/]+)$/);
+  if (adminOne) {
+    const handle = decodeURIComponent(adminOne[1]);
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    if (req.method === "GET") {
+      const bot = await getBotProfile(env.SCHEMA_DB, handle);
+      if (!bot) return json(env, { error: "not found" }, 404, "private");
+      const runs = await listBotRuns(env.SCHEMA_DB, bot.handle, 20);
+      return json(env, { bot, runs }, 200, "private");
+    }
+    if (req.method === "PUT" || req.method === "PATCH") {
+      let body: Record<string, unknown>;
+      try {
+        body = await req.json() as Record<string, unknown>;
+      } catch {
+        return json(env, { error: "invalid JSON body" }, 400, "private");
+      }
+      const result = await updateBotProfile(env.SCHEMA_DB, handle, body);
+      if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+      return json(env, { ok: true, bot: result.profile }, 200, "private");
+    }
+    if (req.method === "DELETE") {
+      const result = await deleteBotProfile(env.SCHEMA_DB, handle);
+      if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+      return json(env, { ok: true }, 200, "private");
+    }
+    return json(env, { error: "method not allowed" }, 405, "private");
+  }
+
+  const generate = path.match(/^\/api\/admin\/bots\/([^/]+)\/generate$/);
+  if (generate && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const bot = await getBotProfile(env.SCHEMA_DB, decodeURIComponent(generate[1]));
+    if (!bot) return json(env, { error: "not found" }, 404, "private");
+    if (!bot.enabled) return json(env, { error: "bot is disabled" }, 400, "private");
+    let body: Record<string, unknown> = {};
+    try {
+      const text = await req.text();
+      if (text.trim()) body = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const promptRaw = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    const prompt = promptRaw || bot.seed_prompts[0] || "";
+    if (!prompt) {
+      return json(env, { error: "prompt is required (or add a seed prompt on the bot)" }, 400, "private");
+    }
+    const chatId = crypto.randomUUID();
+    const run = await createBotRun(env.SCHEMA_DB, bot.handle, chatId, prompt);
+    await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "running" });
+    return json(env, {
+      ok: true,
+      run_id: run.run_id,
+      chat_id: chatId,
+      prompt,
+      bot: {
+        handle: bot.handle,
+        display_name: bot.display_name,
+        persona: bot.persona,
+        system_prompt_extra: bot.system_prompt_extra,
+        model: bot.model,
+        reasoning_effort: bot.reasoning_effort,
+      },
+      chat_url: `/chat/${chatId}`,
+    }, 200, "private");
+  }
+
+  const runPath = path.match(/^\/api\/admin\/bots\/runs\/([^/]+)$/);
+  if (runPath) {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const runId = decodeURIComponent(runPath[1]);
+    if (req.method === "GET") {
+      const run = await getBotRun(env.SCHEMA_DB, runId);
+      if (!run) return json(env, { error: "not found" }, 404, "private");
+      return json(env, { run }, 200, "private");
+    }
+    if (req.method === "PATCH") {
+      let body: Record<string, unknown>;
+      try {
+        body = await req.json() as Record<string, unknown>;
+      } catch {
+        return json(env, { error: "invalid JSON body" }, 400, "private");
+      }
+      const status = body.status;
+      if (status !== "shared" && status !== "failed" && status !== "running" && status !== "queued") {
+        return json(env, { error: "status must be queued|running|shared|failed" }, 400, "private");
+      }
+      const share_id = typeof body.share_id === "string" ? body.share_id : null;
+      const error = typeof body.error === "string" ? body.error : null;
+      const run = await updateBotRun(env.SCHEMA_DB, runId, { status, share_id, error });
+      if (!run) return json(env, { error: "not found" }, 404, "private");
+      return json(env, { ok: true, run }, 200, "private");
+    }
+    return json(env, { error: "method not allowed" }, 405, "private");
+  }
+
+  return null;
+}
+
 async function handleUserChats(env: Env, req: Request, path: string): Promise<Response | null> {
   if (path === "/api/chats" && req.method === "GET") {
     const user = await requireUser(env, req);
@@ -2657,6 +2848,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const timeline = await handleTimeline(env, req, path);
   if (timeline) return timeline;
+
+  const bots = await handleBots(env, req, path);
+  if (bots) return bots;
 
   // Copilot chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")

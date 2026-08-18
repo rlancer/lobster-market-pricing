@@ -17,7 +17,7 @@ import {
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
@@ -54,7 +54,8 @@ const SECTIONS: Section[] = [
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
-const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING];
+const BOTS_HEADING: Section = { to: '/bots', label: 'Bots', heading: 'Bot profiles', icon: Bot };
+const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING, BOTS_HEADING];
 
 /** Global ticker jump — desktop rail on wide viewports, header on mobile. */
 function ResearchSearch({ className }: { className: string }) {
@@ -242,7 +243,9 @@ function WorkspaceNavItems({
 function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
   const { closeMobileNav } = useAppShellMobile();
   const { isAdmin } = useIsAdmin();
-  const sections = isAdmin ? HELP_SECTIONS : HELP_SECTIONS.filter((section) => section.to !== '/brand');
+  const sections = isAdmin
+    ? HELP_SECTIONS
+    : HELP_SECTIONS.filter((section) => section.to !== '/brand' && section.to !== '/bots');
 
   return (
     <>
@@ -255,7 +258,7 @@ function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
           icon={section.icon}
           isSelected={Boolean(activeTo?.startsWith(section.to))}
           endContent={
-            section.to === '/brand'
+            section.to === '/brand' || section.to === '/bots'
               ? <Lock size={14} aria-label="Admin only" />
               : undefined
           }
@@ -333,7 +336,7 @@ function WorkspaceLayout() {
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const active = isTimeline
     ? SECTIONS[0]
-    : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING, BRAND_HEADING].find((s) =>
+    : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING, BRAND_HEADING, BOTS_HEADING].find((s) =>
       s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
     );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);

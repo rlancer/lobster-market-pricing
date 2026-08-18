@@ -141,9 +141,13 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/web_search', desc: 'Open web search (Tavily) — Chat web_search tool' },
   { method: 'GET', path: '/api/econ_calendar', desc: 'Upcoming FRED macro releases + FOMC/Beige (lake + live fallback) — Chat eco_calendar tool' },
   { method: 'GET', path: '/api/notebook/premium', desc: '45-day premium-leaders notebook (calls + puts)' },
-  { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats (limit, before cursor, optional handle filter)' },
+  { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats plus bot shares (limit, before cursor, optional handle filter)' },
   { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the public timeline (session + handle required)' },
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline; the unlisted link remains' },
+  { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
+  { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
+  { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
+  { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + prompt for that bot persona' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 

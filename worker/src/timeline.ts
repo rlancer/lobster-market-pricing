@@ -190,14 +190,23 @@ export async function recordShareOwner(db: D1Database, shareId: string, userId: 
 export async function getTimelineAuthor(
   db: D1Database,
   shareId: string,
-): Promise<{ handle: string; name: string } | null> {
-  return await db.prepare(
+): Promise<{ handle: string; name: string; is_bot?: boolean; persona?: string | null } | null> {
+  const human = await db.prepare(
     `SELECT pr.handle AS handle, u.name AS name
      FROM timeline_posts p
      JOIN user_profiles pr ON pr.user_id = p.user_id
      JOIN "user" u ON u.id = p.user_id
      WHERE p.share_id = ?1`,
   ).bind(shareId).first<{ handle: string; name: string }>();
+  if (human) return { ...human, is_bot: false };
+  const bot = await db.prepare(
+    `SELECT b.handle AS handle, b.display_name AS name, b.persona AS persona
+     FROM shared_chats s
+     JOIN bot_profiles b ON b.handle = s.bot_handle AND b.enabled = 1
+     WHERE s.share_id = ?1 AND s.bot_handle IS NOT NULL`,
+  ).bind(shareId).first<{ handle: string; name: string; persona: string }>();
+  if (!bot) return null;
+  return { handle: bot.handle, name: bot.name, is_bot: true, persona: bot.persona };
 }
 
 interface ShareRow {
@@ -258,48 +267,119 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   const parsed = parseTimelineQuery(new URL(req.url).searchParams);
   if (!parsed.ok) return json({ error: parsed.error }, parsed.status, "private");
 
-  let profile: { handle: string; name: string } | null = null;
+  let profile: {
+    handle: string;
+    name: string;
+    is_bot?: boolean;
+    persona?: string | null;
+    bio?: string | null;
+  } | null = null;
   if (parsed.handle) {
-    profile = await env.SCHEMA_DB.prepare(
+    const human = await env.SCHEMA_DB.prepare(
       `SELECT pr.handle AS handle, u.name AS name
        FROM user_profiles pr
        JOIN "user" u ON u.id = pr.user_id
        WHERE pr.handle = ?1`,
     ).bind(parsed.handle).first<{ handle: string; name: string }>();
-    if (!profile) return json({ error: "not found" }, 404);
+    if (human) {
+      profile = { ...human, is_bot: false };
+    } else {
+      const bot = await env.SCHEMA_DB.prepare(
+        `SELECT handle, display_name AS name, persona, bio
+         FROM bot_profiles WHERE handle = ?1 AND enabled = 1`,
+      ).bind(parsed.handle).first<{ handle: string; name: string; persona: string; bio: string | null }>();
+      if (!bot) return json({ error: "not found" }, 404);
+      profile = {
+        handle: bot.handle,
+        name: bot.name,
+        is_bot: true,
+        persona: bot.persona,
+        bio: bot.bio,
+      };
+    }
   }
 
-  const clauses = ["(s.expires_at IS NULL OR s.expires_at > ?1)"];
-  const bindings: (string | number)[] = [Date.now()];
+  // Fetch human opt-in posts and always-public bot shares, then merge by
+  // published_at. Keeps the query simple (D1 SQLite) and avoids double-counting
+  // when a share somehow appears in both sets.
+  const humanClauses = ["(s.expires_at IS NULL OR s.expires_at > ?1)"];
+  const humanBindings: (string | number)[] = [Date.now()];
   if (parsed.before != null) {
-    bindings.push(parsed.before);
-    clauses.push(`p.published_at < ?${bindings.length}`);
+    humanBindings.push(parsed.before);
+    humanClauses.push(`p.published_at < ?${humanBindings.length}`);
   }
   if (parsed.handle) {
-    bindings.push(parsed.handle);
-    clauses.push(`pr.handle = ?${bindings.length}`);
+    humanBindings.push(parsed.handle);
+    humanClauses.push(`pr.handle = ?${humanBindings.length}`);
   }
-  bindings.push(parsed.limit + 1);
-  const sql =
+  humanBindings.push(parsed.limit + 1);
+  const humanSql =
     `SELECT p.share_id, s.chat_id, p.excerpt, p.has_sql, p.has_chart, p.published_at,
-            s.title, s.model, s.messages, pr.handle, u.name
+            s.title, s.model, s.messages, pr.handle, u.name, 0 AS is_bot
      FROM timeline_posts p
      JOIN shared_chats s ON s.share_id = p.share_id
      JOIN user_profiles pr ON pr.user_id = p.user_id
      JOIN "user" u ON u.id = p.user_id
-     WHERE ${clauses.join(" AND ")}
+     WHERE ${humanClauses.join(" AND ")}
      ORDER BY p.published_at DESC
-     LIMIT ?${bindings.length}`;
-  const rows = await env.SCHEMA_DB.prepare(sql).bind(...bindings).all<TimelineRow>();
-  const list = rows.results ?? [];
-  const extra = list.length > parsed.limit;
-  const page = extra ? list.slice(0, parsed.limit) : list;
+     LIMIT ?${humanBindings.length}`;
+
+  const botClauses = ["(s.expires_at IS NULL OR s.expires_at > ?1)", "s.bot_handle IS NOT NULL"];
+  const botBindings: (string | number)[] = [Date.now()];
+  if (parsed.before != null) {
+    botBindings.push(parsed.before);
+    botClauses.push(`s.created_at < ?${botBindings.length}`);
+  }
+  if (parsed.handle) {
+    botBindings.push(parsed.handle);
+    botClauses.push(`b.handle = ?${botBindings.length}`);
+  }
+  botBindings.push(parsed.limit + 1);
+  const botSql =
+    `SELECT s.share_id, s.chat_id, NULL AS excerpt,
+            0 AS has_sql, 0 AS has_chart, s.created_at AS published_at,
+            s.title, s.model, s.messages, b.handle, b.display_name AS name, 1 AS is_bot
+     FROM shared_chats s
+     JOIN bot_profiles b ON b.handle = s.bot_handle AND b.enabled = 1
+     WHERE ${botClauses.join(" AND ")}
+     ORDER BY s.created_at DESC
+     LIMIT ?${botBindings.length}`;
+
+  const [humanRows, botRows] = await Promise.all([
+    env.SCHEMA_DB.prepare(humanSql).bind(...humanBindings).all<TimelineRow & { is_bot: number }>(),
+    env.SCHEMA_DB.prepare(botSql).bind(...botBindings).all<TimelineRow & { is_bot: number }>(),
+  ]);
+  const merged = [...(humanRows.results ?? []), ...(botRows.results ?? [])]
+    .sort((a, b) => b.published_at - a.published_at || (a.share_id < b.share_id ? 1 : -1));
+  const seen = new Set<string>();
+  const deduped: Array<TimelineRow & { is_bot: number }> = [];
+  for (const row of merged) {
+    if (seen.has(row.share_id)) continue;
+    seen.add(row.share_id);
+    // Recompute flags from messages for bot rows (SQL LIKE is approximate).
+    if (row.is_bot === 1 && row.messages) {
+      try {
+        const flags = flagsFromMessages(JSON.parse(row.messages));
+        row.has_sql = flags.has_sql ? 1 : 0;
+        row.has_chart = flags.has_chart ? 1 : 0;
+        row.excerpt = excerptFromMessages(JSON.parse(row.messages), row.title);
+      } catch {
+        /* keep defaults */
+      }
+    }
+    deduped.push(row);
+  }
+  const extra = deduped.length > parsed.limit;
+  const page = extra ? deduped.slice(0, parsed.limit) : deduped;
   const next_before = extra ? page[page.length - 1]?.published_at ?? null : null;
   const tickersByChat = await listTickersForChats(
     env.SCHEMA_DB,
     page.map((row) => row.chat_id),
   );
-  const items = page.map((row) => itemFromRow(row, tickersByChat.get(row.chat_id) ?? []));
+  const items = page.map((row) => ({
+    ...itemFromRow(row, tickersByChat.get(row.chat_id) ?? []),
+    is_bot: row.is_bot === 1,
+  }));
   return json({ items, next_before, profile });
 }
 
