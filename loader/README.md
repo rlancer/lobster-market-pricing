@@ -213,7 +213,9 @@ D1 hit for first visitors (no new Iceberg table — the brief is already a D1
 JSON blob). Each due batch POSTs to `POST {RESEARCH_API_BASE}/api/research/warm`
 with `Bearer ADMIN_TOKEN` (same secret as the Worker admin endpoints). Item
 store: `research_brief_state` (migration `0004`). Dry-run unless both
-`RESEARCH_API_BASE` and `ADMIN_TOKEN` are set. Manual kick:
+`RESEARCH_API_BASE` and `ADMIN_TOKEN` are set. Loader deploy CI syncs both
+onto `cboe-to-r2` from GitHub secrets (`RESEARCH_API_BASE=https://api.lobster.mp`).
+Manual kick:
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \

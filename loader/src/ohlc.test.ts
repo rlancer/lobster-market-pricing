@@ -141,6 +141,44 @@ describe("normalize", () => {
     expect(recs[0].fetched_at).toBe(FIXED_NOW);
   });
 
+  it("drops bars with null/non-finite close so they cannot shadow good lake rows", () => {
+    const bars: DailyBar[] = [
+      {
+        date: "2026-08-17",
+        open: 100,
+        high: 101,
+        low: 99,
+        close: null,
+        adjustedClose: null,
+        volume: 1,
+      },
+      {
+        date: "2026-08-18",
+        open: 100,
+        high: 102,
+        low: 99,
+        close: 101,
+        adjustedClose: 101,
+        volume: 2,
+      },
+      {
+        date: "2026-08-19",
+        open: 101,
+        high: 103,
+        low: 100,
+        close: Number.NaN,
+        adjustedClose: null,
+        volume: 3,
+      },
+    ];
+    const recs = normalizeOhlcRecords(
+      "AAPL", bars, "yahoo", FIXED_RUN_ID, "2026-08-19", FIXED_NOW,
+    );
+    expect(recs).toHaveLength(1);
+    expect(recs[0].date).toBe("2026-08-18");
+    expect(recs[0].close).toBe(101);
+  });
+
   it("emits a realized-vol record in exact REALIZED_VOL_FIELDS order", () => {
     const bars = barsFromCloses(closesOfStep(0.01, 40));
     const rec = normalizeRealizedVolRecord(

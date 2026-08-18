@@ -395,10 +395,10 @@ async function loadSymbolOhlc(env: Env, symbol: string): Promise<Row[]> {
     `SELECT date, open, high, low, close, volume FROM (` +
       `  SELECT date, open, high, low, close, volume,` +
       `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
-      `  FROM options.ohlc WHERE symbol = ${lit(symbol)} AND date >= ${lit(since)}` +
+      `  FROM options.ohlc WHERE symbol = ${lit(symbol)} AND date >= ${lit(since)} AND close IS NOT NULL` +
       `) WHERE rn = 1 ORDER BY date DESC LIMIT ${OHLC_BARS_LIMIT}`,
-    // v2: date-bounded scan (unbounded window made parts=ohlc multi-second).
-    `sym_ohlc_v2_${symbol}`,
+    // v3: ignore null-close rows (Yahoo holes + stripNones) that would shadow good bars.
+    `sym_ohlc_v3_${symbol}`,
   );
   return (ohlcRows as Row[]).map((r) => ({
     date: String(r.date),
@@ -2231,9 +2231,9 @@ async function loadResearchOhlc(env: Env, ticker: string): Promise<OhlcBar[]> {
       `SELECT date, open, high, low, close, volume FROM (` +
         `  SELECT date, open, high, low, close, volume,` +
         `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.ohlc WHERE symbol = ${lit(ticker)} AND date >= ${lit(since)}` +
+        `  FROM options.ohlc WHERE symbol = ${lit(ticker)} AND date >= ${lit(since)} AND close IS NOT NULL` +
         `) WHERE rn = 1 ORDER BY date DESC LIMIT ${RESEARCH_OHLC_LIMIT}`,
-      "research_ohlc_v2_" + ticker,
+      "research_ohlc_v3_" + ticker,
       QUERY_TTL_MS,
     );
     return (rows as Row[]).map((r) => ({
