@@ -16,10 +16,16 @@
 }
 
 .profile-avatar {
-  width: var(--size-element-xl);
-  height: var(--size-element-xl);
-  flex-shrink: 0;
-  border-radius: var(--radius-full, 999px);
+  /* Match Brand avatar-xl — --size-element-xl is not always defined; without a
+     fallback the bare SVG expands to the flex row and fills the content pane. */
+  display: block;
+  width: var(--size-element-xl, 56px);
+  height: var(--size-element-xl, 56px);
+  max-width: var(--size-element-xl, 56px);
+  max-height: var(--size-element-xl, 56px);
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  overflow: hidden;
 }
 
 .profile-header-copy {

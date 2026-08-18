@@ -22,7 +22,7 @@ import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './Timeline
 function ProfileHeaderSkeleton() {
   return (
     <HStack as="header" gap={4} vAlign="start" className="profile-header" aria-hidden="true">
-      <Skeleton width="var(--size-element-xl)" height="var(--size-element-xl)" radius="rounded" index={0} />
+      <Skeleton width="var(--size-element-xl, 56px)" height="var(--size-element-xl, 56px)" radius="rounded" index={0} />
       <VStack gap={2} className="profile-header-copy">
         <Skeleton width="42%" height="var(--spacing-6)" index={0} />
         <Skeleton width="28%" height="var(--spacing-4)" index={0} />
