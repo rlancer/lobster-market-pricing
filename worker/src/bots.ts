@@ -18,6 +18,10 @@ const SEED_PROMPT_MAX = 4_000;
 const MODEL_MAX = 120;
 const REASONING_EFFORTS = new Set(["xhigh", "high", "medium", "low", "minimal", "none"]);
 
+/** Abandoned / hung generate runs older than this are marked failed. */
+export const BOT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+export const BOT_RUN_TIMEOUT_ERROR = "timed out waiting for completion";
+
 export interface BotEnv extends AuthEnv {
   SCHEMA_DB: D1Database;
   ADMIN_TOKEN?: string;
@@ -367,12 +371,46 @@ export async function deleteBotProfile(
   return { ok: true };
 }
 
+/** Cutoff timestamp: runs created before this (still queued/running) are expired. */
+export function botRunExpiryCutoff(nowMs = Date.now()): number {
+  return nowMs - BOT_RUN_TIMEOUT_MS;
+}
+
+/** Whether a run should be treated as timed out at `nowMs`. */
+export function isBotRunTimedOut(
+  status: BotRun["status"],
+  createdAt: number,
+  nowMs = Date.now(),
+): boolean {
+  return (status === "queued" || status === "running") && createdAt < botRunExpiryCutoff(nowMs);
+}
+
+/**
+ * Mark queued/running bot_runs older than BOT_RUN_TIMEOUT_MS as failed.
+ * Called from list/create paths so abandoned generates do not stay `running` forever.
+ */
+export async function expireStuckBotRuns(db: D1Database, nowMs = Date.now()): Promise<number> {
+  const cutoff = botRunExpiryCutoff(nowMs);
+  const result = await db.prepare(
+    `UPDATE bot_runs
+     SET status = 'failed', error = ?1, updated_at = ?2
+     WHERE status IN ('queued', 'running') AND created_at < ?3`,
+  ).bind(BOT_RUN_TIMEOUT_ERROR, nowMs, cutoff).run();
+  return Number(result.meta?.changes ?? 0);
+}
+
+/** Mark a single run failed with an error message. */
+export async function failBotRun(db: D1Database, runId: string, error: string): Promise<BotRun | null> {
+  return updateBotRun(db, runId, { status: "failed", error });
+}
+
 export async function createBotRun(
   db: D1Database,
   handle: string,
   chatId: string,
   prompt: string,
 ): Promise<BotRun> {
+  await expireStuckBotRuns(db);
   const run_id = crypto.randomUUID();
   const now = Date.now();
   await db.prepare(
@@ -415,6 +453,7 @@ export async function getBotRun(db: D1Database, runId: string): Promise<BotRun |
 }
 
 export async function listBotRuns(db: D1Database, handle: string, limit = 20): Promise<BotRun[]> {
+  await expireStuckBotRuns(db);
   const parsed = parseHandle(handle);
   if (!parsed.ok) return [];
   const rows = await db.prepare(
