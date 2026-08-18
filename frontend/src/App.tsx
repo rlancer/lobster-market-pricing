@@ -17,8 +17,9 @@ import {
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import './App.css';
+import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import MonitorStatus from './MonitorStatus';
@@ -240,9 +241,12 @@ function WorkspaceNavItems({
 
 function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
   const { closeMobileNav } = useAppShellMobile();
+  const { isAdmin } = useIsAdmin();
+  const sections = isAdmin ? HELP_SECTIONS : HELP_SECTIONS.filter((section) => section.to !== '/brand');
+
   return (
     <>
-      {HELP_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <SideNavItem
           key={section.to}
           as={RouterLink}
@@ -250,6 +254,11 @@ function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
           label={section.label}
           icon={section.icon}
           isSelected={Boolean(activeTo?.startsWith(section.to))}
+          endContent={
+            section.to === '/brand'
+              ? <Lock size={14} aria-label="Admin only" />
+              : undefined
+          }
           onClick={closeMobileNav}
         />
       ))}

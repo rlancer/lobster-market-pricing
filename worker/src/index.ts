@@ -22,6 +22,7 @@
  *    CAST(expiration AS DATE) - CURRENT_DATE (returns integer days).
  */
 import { routeAgentRequest } from "agents";
+import { isAdminEmail } from "./admin";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { CopilotAgentBase } from "./copilot";
@@ -2446,6 +2447,7 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
       image: user.image,
       handle,
       suggested_handle: handle ? null : suggestHandle(user.email, user.name),
+      is_admin: isAdminEmail(user.email),
     }, 200, "private");
   }
   if (req.method === "PATCH") {
