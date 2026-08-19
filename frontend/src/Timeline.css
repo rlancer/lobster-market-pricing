@@ -88,6 +88,29 @@
   min-width: 0;
 }
 
+.timeline-author-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  max-width: 100%;
+}
+
+.timeline-author-avatar {
+  display: block;
+  width: var(--size-element-md, 32px);
+  height: var(--size-element-md, 32px);
+  max-width: var(--size-element-md, 32px);
+  max-height: var(--size-element-md, 32px);
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  object-fit: cover;
+}
+
+.timeline-author-identity {
+  min-width: 0;
+}
+
 .timeline-post-byline,
 .timeline-post-meta,
 .timeline-post-flags,
@@ -183,13 +206,84 @@
   margin-block-start: calc(var(--spacing-1) * -1);
 }
 
-/* Feed bubbles sit edge-to-edge in the post — full width of the content column. */
+/* Feed bubbles sit edge-to-edge. Author ask is start-aligned: photo on the
+   left with name/@handle on one line over the bubble; lobster answer is
+   end-aligned with the brand mark on the right. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
 
 .timeline-msgs .ai-bubble {
   max-width: 92%;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--spacing-2);
+  row-gap: var(--spacing-1);
+  align-items: start;
+  justify-content: start;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-msg-avatar-link,
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn > .timeline-author-avatar {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  align-self: start;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-user-label {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .ai-bubble {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  max-width: 100%;
+  /* Tail toward the left-side photo. */
+  border-bottom-right-radius: var(--radius-container);
+  border-bottom-left-radius: var(--radius-inner);
+}
+
+.timeline-msgs .ai-msg.ai-assistant {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+.timeline-msgs .ai-msg.ai-assistant .ai-bubble {
+  /* Tail toward the right-side mark. */
+  border-bottom-left-radius: var(--radius-container);
+  border-bottom-right-radius: var(--radius-inner);
+}
+
+.timeline-user-label {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.timeline-user-label:hover {
+  color: var(--color-text-accent);
+}
+
+.timeline-msg-avatar-link {
+  flex: 0 0 auto;
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  line-height: 0;
+}
+
+.timeline-msg-avatar-link:hover .timeline-author-avatar {
+  outline: var(--border-width) solid var(--color-border-emphasized);
+  outline-offset: var(--spacing-0-5);
 }
 
 .timeline-author-link:hover {

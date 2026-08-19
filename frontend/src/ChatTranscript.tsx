@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Markdown } from '@astryxdesign/core';
 import { CopyButton } from './CopyButton';
@@ -134,26 +134,51 @@ export function TranscriptMessage({
   openInData = false,
   hydrateResult = true,
   collapseSql = false,
+  userAside = null,
+  userLabel = null,
 }: {
   message: SharedChatMessage;
   openInData?: boolean;
   hydrateResult?: boolean;
   collapseSql?: boolean;
+  /**
+   * Optional chrome beside the user bubble (timeline: avatar on the left).
+   * Assistant turns keep the brand mark; omit on /share and /chat.
+   */
+  userAside?: ReactNode;
+  /** Optional single-line name/@handle rendered above the user bubble. */
+  userLabel?: ReactNode;
 }) {
+  if (message.role === 'user') {
+    const body = message.content
+      ? <div className="ai-text">{message.content}</div>
+      : null;
+    if (userAside || userLabel) {
+      return (
+        <div className="ai-msg ai-user timeline-user-turn">
+          {userLabel}
+          <div className="ai-bubble">{body}</div>
+          {userAside}
+        </div>
+      );
+    }
+    return (
+      <div className="ai-msg ai-user">
+        <div className="ai-bubble">{body}</div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`ai-msg ai-${message.role}`}>
-      {message.role === 'assistant' && <AssistantMark />}
+    <div className="ai-msg ai-assistant">
+      <AssistantMark />
       <div className="ai-bubble">
-        {message.role === 'assistant'
-          ? (
-            <AssistantMessageBody
-              message={message}
-              openInData={openInData}
-              hydrateResult={hydrateResult}
-              collapseSql={collapseSql}
-            />
-          )
-          : (message.content && <div className="ai-text">{message.content}</div>)}
+        <AssistantMessageBody
+          message={message}
+          openInData={openInData}
+          hydrateResult={hydrateResult}
+          collapseSql={collapseSql}
+        />
       </div>
     </div>
   );

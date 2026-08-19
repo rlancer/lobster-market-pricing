@@ -31,6 +31,14 @@ test.describe('Public timeline', () => {
   });
 
   test('timeline posts show author identity and a view-full-chat affordance', async ({ page }) => {
+    // 1×1 PNG so the user-bubble <img> loads without hitting the Worker.
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await page.route('**/api/avatars/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: png });
+    });
     await page.route('**/api/timeline**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -47,6 +55,7 @@ test.describe('Public timeline', () => {
             ],
             handle: 'thelobster',
             name: 'Robert Lancer',
+            avatar_url: '/api/avatars/user-1?v=1',
             published_at: Date.now(),
             model: 'deepseek/deepseek-v4-flash-0731',
             has_sql: true,
@@ -61,8 +70,11 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    await expect(post.getByRole('link', { name: '@thelobster' })).toBeVisible();
-    await expect(post.getByRole('link', { name: 'Robert Lancer' })).toHaveCount(0);
+    // Name/@handle on one line over the user bubble; photo on the left.
+    await expect(post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ })).toBeVisible();
+    const userFace = post.getByRole('link', { name: 'Robert Lancer (@thelobster)' });
+    await expect(userFace).toBeVisible();
+    await expect(userFace.locator('img.timeline-author-avatar')).toBeVisible();
     await expect(post.getByText('SQL')).toBeVisible();
     await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
     // Title matches the user bubble — don't duplicate it as a heading.

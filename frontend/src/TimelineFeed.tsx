@@ -15,6 +15,7 @@ import { ArrowRight, BarChart3, Code2, Newspaper, Sparkles } from 'lucide-react'
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
+import { UserAvatar } from './UserAvatar';
 
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
 function shortModel(model: string): string {
@@ -89,7 +90,7 @@ export function TimelinePostRow({
   post: TimelinePost;
   isAdmin: boolean;
   onUnpublish: (post: TimelinePost) => Promise<void>;
-  /** When false (profile page), skip the redundant @handle byline. */
+  /** When false (profile page), skip the redundant author byline. */
   showAuthor?: boolean;
   /** Heading level for the post title (profile pages nest under “Public chats”). */
   titleLevel?: 2 | 3;
@@ -106,9 +107,47 @@ export function TimelinePostRow({
   const tickers = (post.tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
+  const displayName = post.name?.trim() || post.handle;
+  const hasUserTurn = messages.some((message) => message.role === 'user');
+  /**
+   * Left-side photo; home feed also gets a single-line name/@handle over the
+   * bubble. Profile pages already show identity in the header.
+   */
+  const authorAside = showAuthor ? (
+    <Link
+      to="/u/$handle"
+      params={{ handle: post.handle }}
+      className="timeline-msg-avatar-link"
+      aria-label={`${displayName} (@${post.handle})`}
+    >
+      <UserAvatar
+        avatarUrl={post.avatar_url}
+        className="timeline-author-avatar"
+        alt=""
+      />
+    </Link>
+  ) : (
+    <UserAvatar
+      avatarUrl={post.avatar_url}
+      className="timeline-author-avatar"
+      alt=""
+    />
+  );
+  const authorLabel = showAuthor ? (
+    <Link
+      to="/u/$handle"
+      params={{ handle: post.handle }}
+      className="timeline-user-label"
+    >
+      <HStack gap={1} vAlign="center" className="timeline-author-identity">
+        <Text weight="semibold" maxLines={1}>{displayName}</Text>
+        <Text type="supporting" maxLines={1}>@{post.handle}</Text>
+      </HStack>
+    </Link>
+  ) : null;
 
   const unpublish = async () => {
-    const who = post.is_bot ? `bot @${post.handle}` : `@${post.handle}`;
+    const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
     if (!window.confirm(`Unpublish this chat by ${who} from the timeline? The share link will still work.`)) {
       return;
     }
@@ -124,14 +163,28 @@ export function TimelinePostRow({
     <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
       <VStack gap={1} className="timeline-post-head">
         <HStack gap={2} vAlign="center" className="timeline-post-byline">
-          {showAuthor && (
+          {showAuthor && !hasUserTurn && (
             <>
               <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-                <Text weight="semibold" maxLines={1}>@{post.handle}</Text>
+                <UserAvatar
+                  avatarUrl={post.avatar_url}
+                  className="timeline-author-avatar"
+                  alt=""
+                />
+                <HStack gap={1} vAlign="center" className="timeline-author-identity">
+                  <Text weight="semibold" maxLines={1}>{displayName}</Text>
+                  <Text type="supporting" maxLines={1}>@{post.handle}</Text>
+                </HStack>
               </Link>
               {post.is_bot && (
                 <Token label="bot" color="teal" />
               )}
+              <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+            </>
+          )}
+          {showAuthor && hasUserTurn && post.is_bot && (
+            <>
+              <Token label="bot" color="teal" />
               <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
             </>
           )}
@@ -172,6 +225,8 @@ export function TimelinePostRow({
                 openInData
                 hydrateResult={false}
                 collapseSql
+                userAside={authorAside}
+                userLabel={authorLabel}
               />
             ))}
           </VStack>

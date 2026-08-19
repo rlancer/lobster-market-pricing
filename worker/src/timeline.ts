@@ -254,9 +254,12 @@ interface TimelineRow {
   messages: string | null;
   handle: string;
   name: string;
+  user_id: string | null;
+  avatar_key: string | null;
+  updated_at: number | null;
 }
 
-function itemFromRow(row: TimelineRow, tickers: string[] = []) {
+function itemFromRow(row: TimelineRow & { is_bot?: number }, tickers: string[] = []) {
   // Prefer a live first-message preview from the share so older posts stored
   // under the old 280-char cap still render expanded on the feed.
   let parsed: unknown = [];
@@ -272,6 +275,7 @@ function itemFromRow(row: TimelineRow, tickers: string[] = []) {
   if (messages.length) {
     excerpt = excerptFromMessages(parsed, row.title) || excerpt;
   }
+  const isBot = row.is_bot === 1;
   return {
     share_id: row.share_id,
     url: "/share/" + row.share_id,
@@ -280,6 +284,9 @@ function itemFromRow(row: TimelineRow, tickers: string[] = []) {
     messages,
     handle: row.handle,
     name: row.name,
+    avatar_url: !isBot && row.user_id
+      ? avatarUrlFor(row.user_id, row.avatar_key, row.updated_at)
+      : null,
     published_at: row.published_at,
     model: row.model,
     has_sql: row.has_sql === 1,
@@ -369,7 +376,9 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   const humanSql =
     `SELECT p.share_id, s.chat_id, p.excerpt, p.has_sql, p.has_chart, p.published_at,
             s.title, s.model, s.messages, pr.handle,
-            COALESCE(NULLIF(TRIM(pr.display_name), ''), u.name) AS name, 0 AS is_bot
+            COALESCE(NULLIF(TRIM(pr.display_name), ''), u.name) AS name,
+            pr.user_id AS user_id, pr.avatar_key AS avatar_key, pr.updated_at AS updated_at,
+            0 AS is_bot
      FROM timeline_posts p
      JOIN shared_chats s ON s.share_id = p.share_id
      JOIN user_profiles pr ON pr.user_id = p.user_id
@@ -392,7 +401,8 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   const botSql =
     `SELECT s.share_id, s.chat_id, NULL AS excerpt,
             0 AS has_sql, 0 AS has_chart, s.created_at AS published_at,
-            s.title, s.model, s.messages, b.handle, b.display_name AS name, 1 AS is_bot
+            s.title, s.model, s.messages, b.handle, b.display_name AS name,
+            NULL AS user_id, NULL AS avatar_key, NULL AS updated_at, 1 AS is_bot
      FROM shared_chats s
      JOIN bot_profiles b ON b.handle = s.bot_handle AND b.enabled = 1
      WHERE ${botClauses.join(" AND ")}
