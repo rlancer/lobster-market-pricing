@@ -31,6 +31,14 @@ test.describe('Public timeline', () => {
   });
 
   test('timeline posts show author identity and a view-full-chat affordance', async ({ page }) => {
+    // 1×1 PNG so the byline <img> loads without hitting the Worker.
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await page.route('**/api/avatars/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: png });
+    });
     await page.route('**/api/timeline**', async (route) => {
       await route.fulfill({
         status: 200,
