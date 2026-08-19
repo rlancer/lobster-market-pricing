@@ -1,8 +1,6 @@
--- Custom profile photos as D1 BLOBs (user_avatars).
+-- Interim D1 BLOB storage for avatars (superseded by Cloudflare Images in 0016).
 --
--- Served at GET /api/avatars/{user_id}. Requires a claimed handle (FK to
--- user_profiles). avatar_key on user_profiles from 0014 is unused; left in
--- place so we do not rewrite an already-applied migration.
+-- Kept so already-applied migrations stay byte-stable. 0016 drops this table.
 
 CREATE TABLE IF NOT EXISTS user_avatars (
   user_id      TEXT PRIMARY KEY NOT NULL REFERENCES user_profiles(user_id) ON DELETE CASCADE,
