@@ -88,7 +88,14 @@ test.describe('Public timeline', () => {
     await expect(post.getByRole('button', { name: 'Unpublish' })).toHaveCount(0);
   });
 
-  test('timeline title opens the share page and share menu offers Copy link / Share on X', async ({ page }) => {
+  test('timeline title opens the share page and share menu offers Copy link / Share via / Share on X', async ({ page }) => {
+    await page.addInitScript(() => {
+      // Headless Chromium often lacks Web Share — stub it so Share via… appears.
+      Object.defineProperty(navigator, 'share', {
+        configurable: true,
+        value: async () => undefined,
+      });
+    });
     await page.route('**/api/avatars/**', async (route) => {
       await route.fulfill({ status: 204 });
     });
@@ -144,9 +151,12 @@ test.describe('Public timeline', () => {
     await expect(post).toBeVisible();
     const title = post.getByRole('heading', { name: 'SPY call setup' }).getByRole('link');
     await expect(title).toHaveAttribute('href', '/share/TestShareId000000000000042');
+    // Share sits on the title row, not down in the meta footer.
+    await expect(post.locator('.timeline-post-head').getByRole('button', { name: 'Share post' })).toBeVisible();
 
     await post.getByRole('button', { name: 'Share post' }).click();
     await expect(page.getByRole('menuitem', { name: 'Copy link' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Share via…' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Share on X' })).toBeVisible();
     await page.keyboard.press('Escape');
 

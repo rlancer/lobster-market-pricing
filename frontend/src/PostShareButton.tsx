@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { DropdownMenu } from '@astryxdesign/core';
-import { Link2, Share2, X } from 'lucide-react';
+import { Link2, Share2, Upload, X } from 'lucide-react';
 
 /** Resolve a relative Worker path (e.g. `/share/abc`) to an absolute URL. */
 function absoluteUrl(pathOrUrl: string): string {
@@ -8,7 +9,8 @@ function absoluteUrl(pathOrUrl: string): string {
 
 /**
  * Twitter/X-style share control for a public post — icon trigger with
- * Copy link + Share on X. Used on the timeline feed and the /share page.
+ * Copy link, Share via… (system share sheet when available), and Share on X.
+ * Used on the timeline feed and the /share page.
  */
 export function PostShareButton({
   url,
@@ -18,11 +20,29 @@ export function PostShareButton({
   url: string;
   title: string;
 }) {
+  // Detect after mount so SSR/hydration never disagree on the menu shape.
+  const [canNativeShare, setCanNativeShare] = useState(false);
+  useEffect(() => {
+    setCanNativeShare(typeof navigator.share === 'function');
+  }, []);
+
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(absoluteUrl(url));
     } catch {
       /* clipboard unavailable — ignore */
+    }
+  };
+
+  const shareVia = async () => {
+    if (typeof navigator.share !== 'function') return;
+    try {
+      await navigator.share({
+        title: title.trim() || 'Shared chat',
+        url: absoluteUrl(url),
+      });
+    } catch {
+      /* user cancelled the sheet — ignore */
     }
   };
 
@@ -55,6 +75,15 @@ export function PostShareButton({
             void copyLink();
           },
         },
+        ...(canNativeShare
+          ? [{
+              label: 'Share via…',
+              icon: <Upload size={16} aria-hidden="true" />,
+              onClick: () => {
+                void shareVia();
+              },
+            }]
+          : []),
         {
           label: 'Share on X',
           icon: <X size={16} aria-hidden="true" />,

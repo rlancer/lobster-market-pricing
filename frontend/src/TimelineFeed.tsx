@@ -162,9 +162,9 @@ export function TimelinePostRow({
         <Timestamp value={post.published_at / 1000} format="auto" isLive />
       </HStack>
 
-      {/* 2. Headline + tags — what this post is about */}
-      {(showTitle || tickers.length > 0) && (
-        <VStack gap={2} className="timeline-post-head">
+      {/* 2. Headline + share — title opens the post; share sits on the same row */}
+      <HStack gap={3} vAlign="start" className="timeline-post-head">
+        <VStack gap={2} className="timeline-post-head-main">
           {showTitle && (
             <Heading level={titleLevel} className="timeline-post-title">
               <Link
@@ -191,7 +191,8 @@ export function TimelinePostRow({
             </HStack>
           )}
         </VStack>
-      )}
+        <PostShareButton url={post.url} title={titleText} />
+      </HStack>
 
       {/* 3. Full conversation — primary content, expand in place */}
       {messages.length > 0 && (
@@ -210,47 +211,48 @@ export function TimelinePostRow({
         </FeedPreview>
       )}
 
-      {/* 4. Supporting meta — technical flags + share + moderation */}
-      <HStack gap={3} vAlign="center" className="timeline-post-meta">
-        {(post.has_sql || post.has_chart || post.model) && (
-          <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
-            {post.has_sql && (
-              <HStack gap={1} vAlign="center" className="timeline-flag">
-                <Code2 size={14} aria-hidden="true" />
-                <Text type="supporting">SQL</Text>
-              </HStack>
-            )}
-            {post.has_chart && (
-              <HStack gap={1} vAlign="center" className="timeline-flag">
-                <BarChart3 size={14} aria-hidden="true" />
-                <Text type="supporting">Chart</Text>
-              </HStack>
-            )}
-            {post.model && (
-              <>
-                {(post.has_sql || post.has_chart) && (
-                  <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-                )}
-                <Text type="supporting" className="timeline-model" maxLines={1}>
-                  {shortModel(post.model)}
-                </Text>
-              </>
-            )}
-          </HStack>
-        )}
-        <HStack gap={2} vAlign="center" className="timeline-post-actions">
-          <PostShareButton url={post.url} title={titleText} />
+      {/* 4. Supporting meta — technical flags + moderation */}
+      {(post.has_sql || post.has_chart || post.model || isAdmin) && (
+        <HStack gap={3} vAlign="center" className="timeline-post-meta">
+          {(post.has_sql || post.has_chart || post.model) && (
+            <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
+              {post.has_sql && (
+                <HStack gap={1} vAlign="center" className="timeline-flag">
+                  <Code2 size={14} aria-hidden="true" />
+                  <Text type="supporting">SQL</Text>
+                </HStack>
+              )}
+              {post.has_chart && (
+                <HStack gap={1} vAlign="center" className="timeline-flag">
+                  <BarChart3 size={14} aria-hidden="true" />
+                  <Text type="supporting">Chart</Text>
+                </HStack>
+              )}
+              {post.model && (
+                <>
+                  {(post.has_sql || post.has_chart) && (
+                    <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+                  )}
+                  <Text type="supporting" className="timeline-model" maxLines={1}>
+                    {shortModel(post.model)}
+                  </Text>
+                </>
+              )}
+            </HStack>
+          )}
           {isAdmin && (
-            <Button
-              variant="destructive"
-              size="sm"
-              label="Unpublish"
-              isLoading={unpublishing}
-              onClick={() => { void unpublish(); }}
-            />
+            <HStack gap={2} vAlign="center" className="timeline-post-actions">
+              <Button
+                variant="destructive"
+                size="sm"
+                label="Unpublish"
+                isLoading={unpublishing}
+                onClick={() => { void unpublish(); }}
+              />
+            </HStack>
           )}
         </HStack>
-      </HStack>
+      )}
     </VStack>
   );
 }

@@ -70,8 +70,19 @@
 }
 
 .timeline-post-head {
-  min-width: 0;
   width: 100%;
+  min-width: 0;
+}
+
+.timeline-post-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-post-head .post-share {
+  flex-shrink: 0;
+  /* Nudge so the icon sits on the title’s cap-height, not the row’s top edge. */
+  margin-block-start: calc(var(--spacing-1) * -1);
 }
 
 .timeline-post-title {
@@ -157,10 +168,6 @@
 
 .timeline-post-actions {
   margin-inline-start: auto;
-  flex-shrink: 0;
-}
-
-.timeline-post-actions .post-share {
   flex-shrink: 0;
 }
 
