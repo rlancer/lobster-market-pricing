@@ -110,7 +110,7 @@ export function TimelinePostRow({
   const displayName = post.name?.trim() || post.handle;
   const hasUserTurn = messages.some((message) => message.role === 'user');
   /**
-   * Right-side photo; home feed also gets a single-line name/@handle over the
+   * Left-side photo; home feed also gets a single-line name/@handle over the
    * bubble. Profile pages already show identity in the header.
    */
   const authorAside = showAuthor ? (

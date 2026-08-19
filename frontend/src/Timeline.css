@@ -206,9 +206,9 @@
   margin-block-start: calc(var(--spacing-1) * -1);
 }
 
-/* Feed bubbles sit edge-to-edge. Author ask is end-aligned: name/@handle on
-   one line over the bubble, photo on the right; lobster answer stays start-
-   aligned with the brand mark. */
+/* Feed bubbles sit edge-to-edge. Author ask is start-aligned: photo on the
+   left with name/@handle on one line over the bubble; lobster answer is
+   end-aligned with the brand mark on the right. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
@@ -219,32 +219,46 @@
 
 .timeline-msgs .ai-msg.ai-user.timeline-user-turn {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-rows: auto auto;
   column-gap: var(--spacing-2);
   row-gap: var(--spacing-1);
   align-items: start;
-  justify-content: end;
-}
-
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-user-label {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: end;
-}
-
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .ai-bubble {
-  grid-column: 1;
-  grid-row: 2;
-  justify-self: end;
-  max-width: 100%;
+  justify-content: start;
 }
 
 .timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-msg-avatar-link,
 .timeline-msgs .ai-msg.ai-user.timeline-user-turn > .timeline-author-avatar {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1 / -1;
   align-self: start;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-user-label {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .ai-bubble {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  max-width: 100%;
+  /* Tail toward the left-side photo. */
+  border-bottom-right-radius: var(--radius-container);
+  border-bottom-left-radius: var(--radius-inner);
+}
+
+.timeline-msgs .ai-msg.ai-assistant {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+.timeline-msgs .ai-msg.ai-assistant .ai-bubble {
+  /* Tail toward the right-side mark. */
+  border-bottom-left-radius: var(--radius-container);
+  border-bottom-right-radius: var(--radius-inner);
 }
 
 .timeline-user-label {

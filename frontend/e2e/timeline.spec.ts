@@ -70,7 +70,7 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    // Name/@handle on one line over the user bubble; photo on the right.
+    // Name/@handle on one line over the user bubble; photo on the left.
     await expect(post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ })).toBeVisible();
     const userFace = post.getByRole('link', { name: 'Robert Lancer (@thelobster)' });
     await expect(userFace).toBeVisible();

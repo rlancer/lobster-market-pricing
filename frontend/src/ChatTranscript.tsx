@@ -142,8 +142,8 @@ export function TranscriptMessage({
   hydrateResult?: boolean;
   collapseSql?: boolean;
   /**
-   * Optional chrome after the user bubble (timeline: avatar on the right).
-   * Assistant turns keep the brand mark on the left; omit on /share and /chat.
+   * Optional chrome beside the user bubble (timeline: avatar on the left).
+   * Assistant turns keep the brand mark; omit on /share and /chat.
    */
   userAside?: ReactNode;
   /** Optional single-line name/@handle rendered above the user bubble. */
