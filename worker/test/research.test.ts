@@ -81,6 +81,16 @@ describe("parseTickerParam", () => {
     assert.equal(parseTickerParam(""), null);
     assert.equal(parseTickerParam("!!!"), null);
   });
+
+  it("accepts Yahoo index and continuous futures forms", () => {
+    assert.equal(parseTickerParam("^VIX"), "^VIX");
+    assert.equal(parseTickerParam("^vix9d"), "^VIX9D");
+    assert.equal(parseTickerParam("ES=F"), "ES=F");
+    assert.equal(parseTickerParam("6e=f"), "6E=F");
+    assert.equal(parseTickerParam("^"), null);
+    assert.equal(parseTickerParam("=F"), null);
+    assert.equal(parseTickerParam("ES=F=F"), null);
+  });
 });
 
 describe("summarizeResearch", () => {

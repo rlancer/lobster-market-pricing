@@ -78,6 +78,7 @@ import {
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import { createCopilotModel } from "./copilot-contract";
+import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
 
 
@@ -344,21 +345,13 @@ async function screen(env: Env, p: {
 
 async function symbols(env: Env, q?: string, limit = 50): Promise<{ symbol: string; name: string | null; sector: string | null }[]> {
   const lim = clamp(limit, 1, 1000);
-  if (!q) {
-    // Full universe pull (limit 1000 covers all ~500 symbols) — the reference
-    // tier: the browser caches this across sessions and filters client-side.
-    const rows = await r2sql(env,
-      `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ORDER BY symbol LIMIT ${lim}`,
-      "syms_all_" + lim, REF_TTL_MS);
-    return rows.map(row);
-  }
-  const u = `%${q.toUpperCase()}%`;
+  // Equity/ETF names come from underlying_snapshots; indexes + continuous
+  // futures only exist in options.ohlc, so merge the loader catalogs in.
   const rows = await r2sql(env,
-    `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ` +
-    `WHERE (UPPER(symbol) LIKE ${lit(u)} OR UPPER(COALESCE(name,'')) LIKE ${lit(u)}) ` +
-    `ORDER BY CASE WHEN UPPER(symbol) = ${lit(q.toUpperCase())} THEN 0 WHEN UPPER(symbol) LIKE ${lit(q.toUpperCase() + "%")} THEN 1 ELSE 2 END, symbol LIMIT ${lim}`,
-    "syms_q_" + q.toUpperCase() + "_" + lim, REF_TTL_MS);
-  return rows.map(row);
+    `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ORDER BY symbol LIMIT 1000`,
+    "syms_lake_v2", REF_TTL_MS);
+  const merged = mergeSymbolUniverse(rows.map(row));
+  return rankSymbolSuggestions(merged, q ?? undefined, lim);
 }
 function row(r: R2Row): { symbol: string; name: string | null; sector: string | null } {
   return { symbol: String(r.symbol), name: strOrNull(r.name), sector: strOrNull(r.sector) };

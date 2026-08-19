@@ -9,7 +9,7 @@
 
 import { api, type SymbolSuggestion } from './api';
 
-const STORAGE_KEY = 'symbol_cache_v1';
+const STORAGE_KEY = 'symbol_cache_v2';
 /** Universe refreshes nightly; 24h bounds staleness to at most one day. */
 const SYMBOL_TTL_MS = 24 * 60 * 60 * 1000;
 const SEARCH_LIMIT = 50;
@@ -69,6 +69,8 @@ export function rankSymbols(
     const sym = s.symbol.toUpperCase();
     if (sym === q) return 0;
     if (sym.startsWith(q)) return 1;
+    // Prefer ^VIX when the user typed VIX (cash index) over VIXY/VXX.
+    if (sym === `^${q}`) return 1;
     return 2;
   };
   return match

@@ -11,6 +11,7 @@ import type { TickerIdentity } from "./figi";
 import { resolveTickerIdentity, type LakeLookup } from "./figi";
 import { linkChatTicker } from "./chat-tickers";
 import { normalizeTicker } from "./symbology";
+import { catalogLookup } from "./catalog-symbols";
 
 export const RESEARCH_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const RESEARCH_NEWS_LIMIT = 8;
@@ -431,7 +432,7 @@ async function computeAndStoreResearch(
   // OpenFIGI unless liveFigi. Lake loaders use the URL ticker (canonical for
   // this product); identity.ticker is the same except on rare alias remap.
   const secondary = opts?.includeSecondary === true;
-  const [identity, ohlc, realizedVol, earnings, newsResult, etf, fundamentals] = await Promise.all([
+  const [identityRaw, ohlc, realizedVol, earnings, newsResult, etf, fundamentals] = await Promise.all([
     resolveTickerIdentity(env, ticker, {
       lakeLookup: deps.lakeLookup,
       fetchImpl: deps.fetchImpl,
@@ -449,6 +450,13 @@ async function computeAndStoreResearch(
       ? deps.loadFundamentals(ticker).catch(() => emptyFundamentals())
       : Promise.resolve(emptyFundamentals()),
   ]);
+
+  // Indexes/futures have no securities / underlying_snapshots row — fill name
+  // + sector from the same loader catalogs the typeahead uses.
+  const hint = catalogLookup(ticker);
+  const identity = hint && !identityRaw.name
+    ? { ...identityRaw, name: hint.name, sector: identityRaw.sector || hint.sector }
+    : identityRaw;
 
   if (opts?.chatId) {
     try {
@@ -565,11 +573,17 @@ function fmtNum(v: number | null): string {
   return v.toFixed(2);
 }
 
+/**
+ * Accept equity/ETF OCC roots plus Yahoo index (`^VIX`) and continuous futures
+ * (`ES=F`, `6E=F`) forms that the loader lands in options.ohlc.
+ */
 export function parseTickerParam(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const t = normalizeTicker(raw);
-  if (!/^[A-Z][A-Z0-9.\-]{0,11}$/.test(t)) return null;
-  return t;
+  if (/^\^[A-Z][A-Z0-9]{0,10}$/.test(t)) return t;
+  if (/^[A-Z0-9]{1,6}=F$/.test(t)) return t;
+  if (/^[A-Z][A-Z0-9.\-]{0,11}$/.test(t)) return t;
+  return null;
 }
 
 export interface WarmResearchResult {
