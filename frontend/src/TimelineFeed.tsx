@@ -11,7 +11,7 @@ import {
   Token,
   VStack,
 } from '@astryxdesign/core';
-import { ArrowRight, BarChart3, Code2, Newspaper, Sparkles } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Code2, Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
@@ -28,7 +28,10 @@ function titlesMatch(title: string, userContent: string | undefined): boolean {
   return title.trim().toLowerCase() === userContent.trim().toLowerCase();
 }
 
-/** Clamp tall feed previews; expand in place so the first answer stays on the timeline. */
+/**
+ * Clamp tall feed posts; expand/collapse in place so the full conversation
+ * stays on the timeline (no /share route hop to keep reading).
+ */
 function FeedPreview({ children }: { children: ReactNode }) {
   const bodyRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -39,7 +42,7 @@ function FeedPreview({ children }: { children: ReactNode }) {
     const node = bodyRef.current;
     if (!node) return;
     if (expanded) {
-      setOverflows(false);
+      // Keep the control available while expanded so readers can collapse again.
       return;
     }
     const measure = () => {
@@ -62,18 +65,22 @@ function FeedPreview({ children }: { children: ReactNode }) {
         className={collapsed ? 'timeline-preview is-clamped' : 'timeline-preview'}
         aria-expanded={overflows ? expanded : undefined}
       >
-        <VStack ref={bodyRef} gap={3} className="timeline-preview-body">
+        <VStack ref={bodyRef} gap={4} className="timeline-preview-body">
           {children}
         </VStack>
       </VStack>
-      {collapsed && (
+      {overflows && (
         <Button
           variant="ghost"
           size="sm"
           className="timeline-continue"
-          label="Continue reading"
-          endContent={<ArrowRight size={14} aria-hidden="true" />}
-          onClick={() => setExpanded(true)}
+          label={expanded ? 'Show less' : 'Show more'}
+          endContent={
+            expanded
+              ? <ChevronUp size={14} aria-hidden="true" />
+              : <ChevronDown size={14} aria-hidden="true" />
+          }
+          onClick={() => setExpanded((value) => !value)}
         />
       )}
     </VStack>
@@ -108,10 +115,9 @@ export function TimelinePostRow({
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
   const displayName = post.name?.trim() || post.handle;
-  const hasUserTurn = messages.some((message) => message.role === 'user');
   /**
-   * Left-side photo; home feed also gets a single-line name/@handle over the
-   * bubble. Profile pages already show identity in the header.
+   * Identity lives in the byline (or profile header). User turns only keep the
+   * left-side photo so multi-turn threads stay scannable.
    */
   const authorAside = showAuthor ? (
     <Link
@@ -133,18 +139,6 @@ export function TimelinePostRow({
       alt=""
     />
   );
-  const authorLabel = showAuthor ? (
-    <Link
-      to="/u/$handle"
-      params={{ handle: post.handle }}
-      className="timeline-user-label"
-    >
-      <HStack gap={1} vAlign="center" className="timeline-author-identity">
-        <Text weight="semibold" maxLines={1}>{displayName}</Text>
-        <Text type="supporting" maxLines={1}>@{post.handle}</Text>
-      </HStack>
-    </Link>
-  ) : null;
 
   const unpublish = async () => {
     const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
@@ -160,64 +154,66 @@ export function TimelinePostRow({
   };
 
   return (
-    <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
-      <VStack gap={1} className="timeline-post-head">
-        <HStack gap={2} vAlign="center" className="timeline-post-byline">
-          {showAuthor && !hasUserTurn && (
-            <>
-              <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-                <UserAvatar
-                  avatarUrl={post.avatar_url}
-                  className="timeline-author-avatar"
-                  alt=""
-                />
-                <HStack gap={1} vAlign="center" className="timeline-author-identity">
-                  <Text weight="semibold" maxLines={1}>{displayName}</Text>
-                  <Text type="supporting" maxLines={1}>@{post.handle}</Text>
-                </HStack>
-              </Link>
-              {post.is_bot && (
-                <Token label="bot" color="teal" />
-              )}
-              <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-            </>
-          )}
-          {showAuthor && hasUserTurn && post.is_bot && (
-            <>
+    <VStack as="article" className="timeline-post" gap={4} aria-label={titleText}>
+      {/* 1. Identity + time — scan layer */}
+      <HStack gap={2} vAlign="center" className="timeline-post-byline">
+        {showAuthor && (
+          <>
+            <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
+              <UserAvatar
+                avatarUrl={post.avatar_url}
+                className="timeline-author-avatar"
+                alt=""
+              />
+              <HStack gap={1} vAlign="center" className="timeline-author-identity">
+                <Text weight="semibold" maxLines={1}>{displayName}</Text>
+                <Text type="supporting" maxLines={1}>@{post.handle}</Text>
+              </HStack>
+            </Link>
+            {post.is_bot && (
               <Token label="bot" color="teal" />
-              <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-            </>
-          )}
-          <Timestamp value={post.published_at / 1000} format="auto" isLive />
-        </HStack>
-        {tickers.length > 0 && (
-          <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tags">
-            {tickers.map((ticker) => (
-              <Link
-                key={ticker}
-                to="/research/$ticker"
-                params={{ ticker }}
-                className="timeline-ticker"
-              >
-                {ticker}
-              </Link>
-            ))}
-          </HStack>
+            )}
+            <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+          </>
         )}
-        {showTitle && (
-          <Link
-            to="/share/$shareId"
-            params={{ shareId: post.share_id }}
-            className="timeline-post-title"
-          >
-            <Heading level={titleLevel}>{titleText}</Heading>
-          </Link>
+        {!showAuthor && post.is_bot && (
+          <>
+            <Token label="bot" color="teal" />
+            <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+          </>
         )}
-      </VStack>
+        <Timestamp value={post.published_at / 1000} format="auto" isLive />
+      </HStack>
 
+      {/* 2. Headline + tags — what this post is about */}
+      {(showTitle || tickers.length > 0) && (
+        <VStack gap={2} className="timeline-post-head">
+          {showTitle && (
+            <Heading level={titleLevel} className="timeline-post-title">
+              {titleText}
+            </Heading>
+          )}
+          {tickers.length > 0 && (
+            <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tags">
+              {tickers.map((ticker) => (
+                <Link
+                  key={ticker}
+                  to="/research/$ticker"
+                  params={{ ticker }}
+                  className="timeline-ticker"
+                >
+                  {ticker}
+                </Link>
+              ))}
+            </HStack>
+          )}
+        </VStack>
+      )}
+
+      {/* 3. Full conversation — primary content, expand in place */}
       {messages.length > 0 && (
         <FeedPreview>
-          <VStack gap={3} className="timeline-msgs" aria-label="Chat preview">
+          <VStack gap={4} className="timeline-msgs" aria-label="Conversation">
             {messages.map((message, index) => (
               <TranscriptMessage
                 key={`${post.share_id}-${index}`}
@@ -225,61 +221,55 @@ export function TimelinePostRow({
                 openInData
                 hydrateResult={false}
                 collapseSql
-                userAside={authorAside}
-                userLabel={authorLabel}
+                userAside={message.role === 'user' ? authorAside : undefined}
               />
             ))}
           </VStack>
         </FeedPreview>
       )}
 
-      <HStack gap={3} vAlign="center" className="timeline-post-meta">
-        {(post.has_sql || post.has_chart || post.model) && (
-          <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
-            {post.has_sql && (
-              <HStack gap={1} vAlign="center" className="timeline-flag">
-                <Code2 size={14} aria-hidden="true" />
-                <Text type="supporting">SQL</Text>
-              </HStack>
-            )}
-            {post.has_chart && (
-              <HStack gap={1} vAlign="center" className="timeline-flag">
-                <BarChart3 size={14} aria-hidden="true" />
-                <Text type="supporting">Chart</Text>
-              </HStack>
-            )}
-            {post.model && (
-              <>
-                {(post.has_sql || post.has_chart) && (
-                  <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-                )}
-                <Text type="supporting" className="timeline-model" maxLines={1}>
-                  {shortModel(post.model)}
-                </Text>
-              </>
-            )}
-          </HStack>
-        )}
-        <HStack gap={2} vAlign="center" className="timeline-post-actions">
-          {isAdmin && (
-            <Button
-              variant="destructive"
-              size="sm"
-              label="Unpublish"
-              isLoading={unpublishing}
-              onClick={() => { void unpublish(); }}
-            />
+      {/* 4. Supporting meta — technical flags + moderation */}
+      {(post.has_sql || post.has_chart || post.model || isAdmin) && (
+        <HStack gap={3} vAlign="center" className="timeline-post-meta">
+          {(post.has_sql || post.has_chart || post.model) && (
+            <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
+              {post.has_sql && (
+                <HStack gap={1} vAlign="center" className="timeline-flag">
+                  <Code2 size={14} aria-hidden="true" />
+                  <Text type="supporting">SQL</Text>
+                </HStack>
+              )}
+              {post.has_chart && (
+                <HStack gap={1} vAlign="center" className="timeline-flag">
+                  <BarChart3 size={14} aria-hidden="true" />
+                  <Text type="supporting">Chart</Text>
+                </HStack>
+              )}
+              {post.model && (
+                <>
+                  {(post.has_sql || post.has_chart) && (
+                    <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+                  )}
+                  <Text type="supporting" className="timeline-model" maxLines={1}>
+                    {shortModel(post.model)}
+                  </Text>
+                </>
+              )}
+            </HStack>
           )}
-          <Link
-            to="/share/$shareId"
-            params={{ shareId: post.share_id }}
-            className="timeline-post-open"
-          >
-            <Text weight="semibold">View full chat</Text>
-            <ArrowRight size={14} aria-hidden="true" />
-          </Link>
+          {isAdmin && (
+            <HStack gap={2} vAlign="center" className="timeline-post-actions">
+              <Button
+                variant="destructive"
+                size="sm"
+                label="Unpublish"
+                isLoading={unpublishing}
+                onClick={() => { void unpublish(); }}
+              />
+            </HStack>
+          )}
         </HStack>
-      </HStack>
+      )}
     </VStack>
   );
 }

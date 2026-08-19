@@ -76,44 +76,21 @@ export function excerptFromMessages(messages: unknown, title: string | null): st
 }
 
 /**
- * First chat turn for the feed: the opening user question (when present) plus
- * the first assistant answer — same bubble layout as /share and /chat. Falls
- * back to a lone user turn or a title-only assistant stub.
+ * Full conversation for the feed: every user/assistant turn, slimmed the same
+ * way as a single-turn preview (drop result rows, cap text). Readers stay on
+ * the timeline instead of jumping to /share. Falls back to a title-only stub
+ * when the share has no renderable turns.
  */
 export function previewMessagesFromShare(messages: unknown, title: string | null = null): Record<string, unknown>[] {
   const rows = Array.isArray(messages) ? messages : [];
-  let assistantIndex = -1;
-  for (let i = 0; i < rows.length; i++) {
-    const rec = messageRecord(rows[i]);
-    if (rec?.role === "assistant" && (
-      (typeof rec.content === "string" && rec.content.trim())
-      || (typeof rec.sql === "string" && rec.sql.trim())
-      || (typeof rec.reasoning === "string" && rec.reasoning.trim())
-    )) {
-      assistantIndex = i;
-      break;
-    }
-  }
-  if (assistantIndex >= 0) {
-    const out: Record<string, unknown>[] = [];
-    if (assistantIndex > 0) {
-      const prev = messageRecord(rows[assistantIndex - 1]);
-      if (prev?.role === "user") {
-        const user = slimPreviewMessage(prev);
-        if (user) out.push(user);
-      }
-    }
-    const assistant = slimPreviewMessage(messageRecord(rows[assistantIndex])!);
-    if (assistant) out.push(assistant);
-    return out;
-  }
+  const out: Record<string, unknown>[] = [];
   for (const row of rows) {
     const rec = messageRecord(row);
-    if (rec?.role === "user") {
-      const user = slimPreviewMessage(rec);
-      if (user) return [user];
-    }
+    if (!rec) continue;
+    const slim = slimPreviewMessage(rec);
+    if (slim) out.push(slim);
   }
+  if (out.length > 0) return out;
   if (typeof title === "string" && title.trim()) {
     return [{ role: "assistant", content: title.trim() }];
   }
@@ -261,8 +238,8 @@ interface TimelineRow {
 }
 
 function itemFromRow(row: TimelineRow & { is_bot?: number }, tickers: string[] = []) {
-  // Prefer a live first-message preview from the share so older posts stored
-  // under the old 280-char cap still render expanded on the feed.
+  // Prefer a live slimmed transcript from the share so older posts stored
+  // under the old 280-char excerpt cap still render the full conversation.
   let parsed: unknown = [];
   if (row.messages) {
     try {

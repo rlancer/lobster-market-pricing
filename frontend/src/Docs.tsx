@@ -157,7 +157,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Timeline',
-    body: 'The home feed of chats people chose to share publicly. Each post is an opted-in share attributed to a handle; the unlisted /share/<id> link still works either way. A handle’s profile and public chats live at /u/<handle>.',
+    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed) and is attributed to a handle; the unlisted /share/<id> link still works either way. A handle’s profile and public chats live at /u/<handle>.',
   },
   {
     route: '/chat',
