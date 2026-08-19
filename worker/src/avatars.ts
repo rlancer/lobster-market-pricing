@@ -4,11 +4,23 @@
  * Public GET /api/avatars/{userId} serves the bytes. Upload/delete require a
  * session and a claimed handle (FK → user_profiles). Stored in D1 (not R2)
  * so Worker deploy stays within the existing CI API-token permissions.
+ *
+ * SVG is allowed as image/svg+xml. Bytes are screened for script / event-handler
+ * payloads; responses use nosniff + a tight CSP. The UI only renders avatars
+ * inside <img>, which does not execute SVG script.
  */
 import type { SessionUser } from "./auth";
 
 export const AVATAR_MAX_BYTES = 1_048_576; // 1 MiB
-export const AVATAR_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+export const AVATAR_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/svg+xml",
+]);
+
+const SVG_DANGEROUS =
+  /<script[\s>/]|on[a-z]+\s*=|javascript:|data:\s*text\/html|<foreignObject/i;
 
 export interface AvatarEnv {
   SCHEMA_DB: D1Database;
@@ -35,6 +47,33 @@ export async function hasAvatar(db: D1Database, userId: string): Promise<boolean
   return Boolean(row);
 }
 
+/** Reject SVG that is not markup or that carries script/handler payloads. */
+export function assertSafeSvg(bytes: ArrayBuffer): { ok: true } | { ok: false; error: string } {
+  const text = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(bytes);
+  const head = text.trimStart().slice(0, 256).toLowerCase();
+  if (!head.startsWith("<svg") && !head.startsWith("<?xml")) {
+    return { ok: false, error: "file is not a valid SVG" };
+  }
+  if (!/<svg[\s>]/i.test(text)) {
+    return { ok: false, error: "file is not a valid SVG" };
+  }
+  if (SVG_DANGEROUS.test(text)) {
+    return { ok: false, error: "SVG contains disallowed content" };
+  }
+  return { ok: true };
+}
+
+/** Prefer declared MIME; sniff SVG from body when the client omits/mislabels type. */
+export function resolveAvatarMime(contentType: string, bytes: ArrayBuffer): string | null {
+  const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (AVATAR_MIME.has(mime)) return mime;
+  const head = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(bytes.slice(0, 256)).trimStart().toLowerCase();
+  if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) {
+    return "image/svg+xml";
+  }
+  return null;
+}
+
 /**
  * Replace the caller's avatar. Requires an existing user_profiles row (handle
  * claimed).
@@ -45,15 +84,19 @@ export async function putAvatar(
   bytes: ArrayBuffer,
   contentType: string,
 ): Promise<AvatarResult> {
-  const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!AVATAR_MIME.has(mime)) {
-    return { ok: false, status: 415, error: "avatar must be a JPEG, PNG, or WebP image" };
+  const mime = resolveAvatarMime(contentType, bytes);
+  if (!mime) {
+    return { ok: false, status: 415, error: "avatar must be a JPEG, PNG, WebP, or SVG image" };
   }
   if (bytes.byteLength === 0) {
     return { ok: false, status: 400, error: "avatar file is empty" };
   }
   if (bytes.byteLength > AVATAR_MAX_BYTES) {
     return { ok: false, status: 413, error: "avatar must be 1 MB or smaller" };
+  }
+  if (mime === "image/svg+xml") {
+    const safe = assertSafeSvg(bytes);
+    if (!safe.ok) return { ok: false, status: 400, error: safe.error };
   }
 
   const profile = await env.SCHEMA_DB.prepare(
@@ -99,10 +142,19 @@ export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Respo
     "SELECT content_type, data, updated_at FROM user_avatars WHERE user_id = ?1",
   ).bind(id).first<{ content_type: string; data: ArrayBuffer; updated_at: number }>();
   if (!row?.data) return new Response("not found", { status: 404 });
+  const contentType = row.content_type || "image/jpeg";
   const headers = new Headers({
-    "Content-Type": row.content_type || "image/jpeg",
+    "Content-Type": contentType,
     "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
     ETag: `"${row.updated_at}"`,
+    "X-Content-Type-Options": "nosniff",
   });
+  if (contentType === "image/svg+xml") {
+    // Defense in depth if the URL is opened as a document instead of <img>.
+    headers.set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+    );
+  }
   return new Response(row.data, { status: 200, headers });
 }

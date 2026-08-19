@@ -235,7 +235,7 @@ export function AuthControls({
     setUploadingAvatar(true);
     try {
       const prepared = await prepareAvatarUpload(file);
-      const result = await api.uploadAvatar(prepared, 'image/jpeg');
+      const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
       applyProfilePatch(result);
       setAvatarFile(null);
     } catch (err) {
@@ -314,10 +314,10 @@ export function AuthControls({
                 />
                 <FileInput
                   label="Profile photo"
-                  description="JPEG, PNG, or WebP — square crop, up to 1 MB."
+                  description="JPEG, PNG, WebP, or SVG — rasters are square-cropped; SVG stays vector. Up to 1 MB."
                   value={avatarFile}
                   onChange={(files) => { void onAvatarChange(files); }}
-                  accept="image/jpeg,image/png,image/webp,image/*"
+                  accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
                   maxSize={5 * 1024 * 1024}
                   mode="input"
                   placeholder="Upload photo"

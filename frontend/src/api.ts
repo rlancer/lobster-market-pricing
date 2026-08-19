@@ -867,7 +867,9 @@ export const api = {
   uploadAvatar: async (file: Blob, contentType?: string) => {
     const form = new FormData();
     const type = contentType || (file instanceof File ? file.type : 'image/jpeg') || 'image/jpeg';
-    const name = file instanceof File ? file.name : `avatar.${type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'}`;
+    const name = file instanceof File
+      ? file.name
+      : `avatar.${type.includes('svg') ? 'svg' : type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'}`;
     form.append('avatar', file, name);
     const r = await fetch(`${API_BASE}/api/me/avatar`, {
       method: 'POST',

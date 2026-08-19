@@ -231,7 +231,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), and `is_admin`. 401 if anonymous. |
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Requires a claimed handle for display_name-only. 400 if invalid/reserved, 409 if handle taken. |
-| `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP, ≤1 MB. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
+| `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP/SVG, ≤1 MB. SVG is screened for script/handler payloads. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
 | `DELETE /api/me/avatar` | Clear the custom avatar (falls back to the brand sunglasses mark). |
 | `GET /api/avatars/{user_id}` | Public avatar bytes from D1 (404 when unset). |
 | `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`), newest activity first. Only rows with a non-empty title are returned — empty new-chat UUIDs never appear as "Untitled chat". 401 if anonymous. |

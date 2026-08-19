@@ -1,8 +1,19 @@
-/** Client-side avatar prep — square crop + JPEG encode under the Worker 1 MB cap. */
+/** Client-side avatar prep — raster square-crop, or pass-through SVG. */
 
 const MAX_EDGE = 512;
 const JPEG_QUALITY = 0.88;
 const MAX_BYTES = 1_048_576;
+
+export type PreparedAvatar = {
+  blob: Blob;
+  contentType: 'image/jpeg' | 'image/svg+xml';
+};
+
+function isSvgFile(file: File): boolean {
+  const type = (file.type || '').toLowerCase();
+  if (type === 'image/svg+xml') return true;
+  return /\.svg$/i.test(file.name || '');
+}
 
 function loadImage(file: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -33,13 +44,37 @@ function canvasToJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
   });
 }
 
+async function prepareSvgUpload(file: File): Promise<PreparedAvatar> {
+  if (file.size > MAX_BYTES) {
+    throw new Error('Avatar must be 1 MB or smaller');
+  }
+  const text = await file.text();
+  const head = text.trimStart().slice(0, 256).toLowerCase();
+  if (!head.startsWith('<svg') && !head.startsWith('<?xml')) {
+    throw new Error('File is not a valid SVG');
+  }
+  if (!/<svg[\s>]/i.test(text)) {
+    throw new Error('File is not a valid SVG');
+  }
+  if (/<script[\s>/]|on[a-z]+\s*=|javascript:|data:\s*text\/html|<foreignObject/i.test(text)) {
+    throw new Error('SVG contains disallowed content');
+  }
+  return {
+    blob: new Blob([text], { type: 'image/svg+xml' }),
+    contentType: 'image/svg+xml',
+  };
+}
+
 /**
- * Center-crop to square, scale to ≤512px, encode JPEG. Returns a Blob ready
- * for POST /api/me/avatar.
+ * Raster images: center-crop to square, scale to ≤512px, encode JPEG.
+ * SVG: validate and upload as vector (no rasterization).
  */
-export async function prepareAvatarUpload(file: File): Promise<Blob> {
+export async function prepareAvatarUpload(file: File): Promise<PreparedAvatar> {
+  if (isSvgFile(file)) {
+    return prepareSvgUpload(file);
+  }
   if (!file.type.startsWith('image/')) {
-    throw new Error('Choose a JPEG, PNG, or WebP image');
+    throw new Error('Choose a JPEG, PNG, WebP, or SVG image');
   }
   const img = await loadImage(file);
   const side = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
@@ -63,5 +98,5 @@ export async function prepareAvatarUpload(file: File): Promise<Blob> {
   if (blob.size > MAX_BYTES) {
     throw new Error('Avatar must be 1 MB or smaller after resize');
   }
-  return blob;
+  return { blob, contentType: 'image/jpeg' };
 }
