@@ -6,10 +6,15 @@
  * (the home feed). DELETE removes the listing; the share link still works.
  * Admins may unpublish any human listing or any bot share (clears bot_handle
  * so the share leaves the feed without revoking the link).
+ *
+ * Cheap-model title + ticker NER runs for every share that still carries the
+ * prompt as its title (human posts included — not only bot mint).
  */
 import { isAdminEmail } from "./admin";
 import { getSessionUser, type AuthEnv } from "./auth";
+import { backfillShareMeta, shareNeedsMetaBackfill, type ChatMetaEnv } from "./chat-meta";
 import { listTickersForChats } from "./chat-tickers";
+import { createCopilotModel } from "./copilot-contract";
 import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
 import { shareDisplayTitle } from "./user-chats";
@@ -17,11 +22,15 @@ import { shareDisplayTitle } from "./user-chats";
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
 const LIST_MAX = 50;
+/** Cap sync OpenRouter meta passes per timeline page (rest waitUntil). */
+const META_SYNC_MAX = 6;
 /** Safety ceiling for a single first-message preview (not a display truncate). */
 export const EXCERPT_MAX = 100_000;
 
-export interface TimelineEnv extends AuthEnv {
+export interface TimelineEnv extends AuthEnv, ChatMetaEnv {
   SCHEMA_DB: D1Database;
+  OPEN_ROUTER_KEY?: string;
+  COPILOT_MODEL?: string;
 }
 
 function json(data: unknown, status = 200, cache: "public" | "private" = "public"): Response {
@@ -215,6 +224,7 @@ export async function getTimelineAuthor(
 
 interface ShareRow {
   share_id: string;
+  chat_id: string;
   title: string | null;
   messages: string;
   expires_at: number | null;
@@ -274,7 +284,74 @@ function itemFromRow(row: TimelineRow & { is_bot?: number }, tickers: string[] =
   };
 }
 
-async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
+function parseRowMessages(row: TimelineRow): unknown {
+  if (!row.messages) return [];
+  try {
+    return JSON.parse(row.messages);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Heal prompt-as-title (and missing NER) shares on the feed — human posts
+ * included. Sync a small batch so the response already carries headlines;
+ * anything past the cap heals via waitUntil for the next load.
+ */
+async function healTimelineMeta(
+  env: TimelineEnv,
+  ctx: ExecutionContext,
+  rows: TimelineRow[],
+  tickersByChat: Map<string, string[]>,
+  origin: string,
+): Promise<void> {
+  if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return;
+  const needing: { row: TimelineRow; messages: unknown }[] = [];
+  for (const row of rows) {
+    if (!row.chat_id) continue;
+    const messages = parseRowMessages(row);
+    if (!shareNeedsMetaBackfill(row.title, messages)) continue;
+    needing.push({ row, messages });
+  }
+  if (!needing.length) return;
+
+  const model = createCopilotModel(
+    { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+    origin,
+  );
+  const sync = needing.slice(0, META_SYNC_MAX);
+  const deferred = needing.slice(META_SYNC_MAX);
+
+  for (const item of deferred) {
+    ctx.waitUntil(backfillShareMeta(env, {
+      chatId: item.row.chat_id,
+      shareId: item.row.share_id,
+      messages: item.messages,
+      storedTitle: item.row.title,
+      model,
+    }));
+  }
+
+  await Promise.all(sync.map(async ({ row, messages }) => {
+    const meta = await backfillShareMeta(env, {
+      chatId: row.chat_id,
+      shareId: row.share_id,
+      messages,
+      storedTitle: row.title,
+      model,
+    });
+    if (meta.title) row.title = meta.title;
+    if (meta.tickers.length) {
+      const merged = [
+        ...(tickersByChat.get(row.chat_id) ?? []),
+        ...meta.tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean),
+      ];
+      tickersByChat.set(row.chat_id, [...new Set(merged)]);
+    }
+  }));
+}
+
+async function listTimeline(env: TimelineEnv, req: Request, ctx: ExecutionContext): Promise<Response> {
   const parsed = parseTimelineQuery(new URL(req.url).searchParams);
   if (!parsed.ok) return json({ error: parsed.error }, parsed.status, "private");
 
@@ -418,6 +495,7 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
     env.SCHEMA_DB,
     page.map((row) => row.chat_id),
   );
+  await healTimelineMeta(env, ctx, page, tickersByChat, new URL(req.url).origin);
   const items = page.map((row) => ({
     ...itemFromRow(row, tickersByChat.get(row.chat_id) ?? []),
     is_bot: row.is_bot === 1,
@@ -443,7 +521,7 @@ async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response
   if (!SHARE_ID_RE.test(shareId)) return json({ error: "share_id is required" }, 400, "private");
 
   const share = await env.SCHEMA_DB.prepare(
-    `SELECT share_id, title, messages, expires_at FROM shared_chats WHERE share_id = ?1`,
+    `SELECT share_id, chat_id, title, messages, expires_at FROM shared_chats WHERE share_id = ?1`,
   ).bind(shareId).first<ShareRow>();
   if (!share || (share.expires_at && share.expires_at < Date.now())) {
     return json({ error: "not found" }, 404, "private");
@@ -472,7 +550,32 @@ async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response
   } catch {
     messages = [];
   }
-  const excerpt = excerptFromMessages(messages, share.title);
+  // Land with a real headline + NER tags — same pass bots get at mint time.
+  let title = share.title;
+  if (
+    share.chat_id
+    && shareNeedsMetaBackfill(share.title, messages)
+    && env.OPEN_ROUTER_KEY?.trim()
+    && env.COPILOT_MODEL?.trim()
+  ) {
+    try {
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        new URL(req.url).origin,
+      );
+      const meta = await backfillShareMeta(env, {
+        chatId: share.chat_id,
+        shareId: share.share_id,
+        messages,
+        storedTitle: share.title,
+        model,
+      });
+      if (meta.title) title = meta.title;
+    } catch (error) {
+      console.warn("timeline publish meta enrich failed", error);
+    }
+  }
+  const excerpt = excerptFromMessages(messages, title);
   const flags = flagsFromMessages(messages);
   const now = Date.now();
   try {
@@ -545,9 +648,14 @@ async function unpublishTimeline(env: TimelineEnv, req: Request, shareId: string
   return json({ ok: true, share_id: shareId }, 200, "private");
 }
 
-export async function handleTimeline(env: TimelineEnv, req: Request, path: string): Promise<Response | null> {
+export async function handleTimeline(
+  env: TimelineEnv,
+  req: Request,
+  path: string,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
   if (path === "/api/timeline") {
-    if (req.method === "GET") return listTimeline(env, req);
+    if (req.method === "GET") return listTimeline(env, req, ctx);
     if (req.method === "POST") return publishTimeline(env, req);
     return json({ error: "method not allowed" }, 405, "private");
   }

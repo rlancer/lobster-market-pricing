@@ -74,9 +74,8 @@ import {
   titleFromMessages,
   touchUserChat,
   clipTitle,
-  isAutoDerivedTitle,
 } from "./user-chats";
-import { enrichChatMeta } from "./chat-meta";
+import { enrichChatMeta, backfillShareMeta, shareNeedsMetaBackfill } from "./chat-meta";
 import {
   chatIdForShare,
   listToolEvents,
@@ -2158,13 +2157,12 @@ async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext):
   }
   const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
   let tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];
-  // Older shares predate title+NER enrich. Fill tags on first open so the
-  // share page and timeline chips do not stay empty forever (waitUntil alone
-  // can lose the OpenRouter round-trip on a cold isolate).
+  // Older shares (human + bot) may still carry the prompt as title, or predate
+  // NER tags. Enrich on read so /share and the timeline heal without a republish.
   if (
-    tickers.length === 0
-    && row.chat_id
+    row.chat_id
     && messages
+    && shareNeedsMetaBackfill(row.title, messages)
     && env.OPEN_ROUTER_KEY?.trim()
     && env.COPILOT_MODEL?.trim()
   ) {
@@ -2173,14 +2171,16 @@ async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext):
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
         "https://lobster.mp",
       );
-      const meta = await enrichChatMeta(env, row.chat_id, messages, model);
-      tickers = meta.tickers;
-      const first = firstUserContent(messages);
-      if (meta.title && isAutoDerivedTitle(row.title, first)) {
-        await env.SCHEMA_DB.prepare(
-          `UPDATE shared_chats SET title = ?1, updated_at = ?2 WHERE share_id = ?3`,
-        ).bind(meta.title, Date.now(), row.share_id).run();
-        row.title = meta.title;
+      const meta = await backfillShareMeta(env, {
+        chatId: row.chat_id,
+        shareId: row.share_id,
+        messages,
+        storedTitle: row.title,
+        model,
+      });
+      if (meta.title) row.title = meta.title;
+      if (meta.tickers.length) {
+        tickers = [...new Set([...tickers, ...meta.tickers.map((t) => t.trim().toUpperCase()).filter(Boolean)])];
       }
     } catch (error) {
       console.warn("share meta enrich on read failed", error);
@@ -3225,7 +3225,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;
 
-  const timeline = await handleTimeline(env, req, path);
+  const timeline = await handleTimeline(env, req, path, ctx);
   if (timeline) return timeline;
 
   const bots = await handleBots(env, req, path);

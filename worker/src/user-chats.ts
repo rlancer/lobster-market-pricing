@@ -117,14 +117,16 @@ export function firstUserContent(messages: unknown): string | null {
 
 /**
  * True when `stored` looks like an auto clip of the first user turn (including
- * legacy mid-word `slice(0, 120)` without an ellipsis). Manual renames and
- * LLM headlines should return false.
+ * legacy mid-word `slice(0, 120)` without an ellipsis, and the verbatim prompt
+ * used as the title). Manual renames and LLM headlines should return false.
  */
 export function isAutoDerivedTitle(stored: string | null | undefined, firstUser: string | null | undefined): boolean {
   if (typeof stored !== "string" || !stored.trim()) return false;
   if (typeof firstUser !== "string" || !firstUser.trim()) return false;
-  const named = stored.trim();
+  const named = stored.trim().replace(/\s+/g, " ");
   const raw = firstUser.trim().replace(/\s+/g, " ");
+  // Short prompts often land as the full title (no clip) — still auto-derived.
+  if (named.toLowerCase() === raw.toLowerCase()) return true;
   if (named === clipTitle(raw)) return true;
   if (named.endsWith("…")) return false;
   if (raw.startsWith(named) && raw.length > named.length && named.length >= 80) return true;
