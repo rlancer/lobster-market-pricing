@@ -195,8 +195,24 @@ export async function enrichChatMeta(
 }
 
 /**
+ * True when a share still needs the cheap-model headline + NER pass — missing
+ * title, or the stored title is still the prompt (or a clip of it). Once an
+ * LLM headline lands we stop; empty ticker lists after that are "none found".
+ */
+export function shareNeedsMetaBackfill(
+  storedTitle: string | null | undefined,
+  messages: unknown,
+): boolean {
+  const first = firstUserContent(messages);
+  if (!first) return false;
+  if (!storedTitle?.trim()) return true;
+  return isAutoDerivedTitle(storedTitle, first);
+}
+
+/**
  * Best-effort backfill for an existing share: NER tickers → chat_tickers tags,
  * and replace an auto-derived title with the LLM headline when appropriate.
+ * Returns the title/tickers that should be shown after the pass.
  */
 export async function backfillShareMeta(
   env: ChatMetaEnv & { OPEN_ROUTER_KEY?: string; COPILOT_MODEL?: string },
@@ -207,16 +223,20 @@ export async function backfillShareMeta(
     storedTitle: string | null;
     model: LanguageModel;
   },
-): Promise<void> {
+): Promise<{ title: string | null; tickers: string[] }> {
   try {
     const meta = await enrichChatMeta(env, args.chatId, args.messages, args.model);
     const first = firstUserContent(args.messages);
+    let title = args.storedTitle;
     if (meta.title && isAutoDerivedTitle(args.storedTitle, first)) {
       await env.SCHEMA_DB.prepare(
         `UPDATE shared_chats SET title = ?1, updated_at = ?2 WHERE share_id = ?3`,
       ).bind(meta.title, Date.now(), args.shareId).run();
+      title = meta.title;
     }
+    return { title, tickers: meta.tickers };
   } catch (error) {
     console.warn("share meta backfill failed", error);
+    return { title: args.storedTitle, tickers: [] };
   }
 }

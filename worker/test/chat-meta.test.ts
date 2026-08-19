@@ -4,6 +4,7 @@ import {
   formatChatMetaTranscript,
   parseChatMetaResponse,
   sanitizeChatMeta,
+  shareNeedsMetaBackfill,
 } from "../src/chat-meta.ts";
 import { isAutoDerivedTitle, shareDisplayTitle } from "../src/user-chats.ts";
 
@@ -54,4 +55,18 @@ test("shareDisplayTitle prefers LLM headlines over first-user clips", () => {
   );
   assert.equal(isAutoDerivedTitle(prompt.slice(0, 120), prompt), true);
   assert.equal(isAutoDerivedTitle("SPX soft; tech leads the open", prompt), false);
+  // Verbatim short prompt used as title (typical human share) is still auto.
+  assert.equal(isAutoDerivedTitle("What do you think of going long Uber?", "What do you think of going long Uber?"), true);
+  assert.equal(isAutoDerivedTitle(prompt, prompt), true);
+});
+
+test("shareNeedsMetaBackfill only when the title is still the prompt", () => {
+  const messages = [
+    { role: "user", content: "Should I buy TTD" },
+    { role: "assistant", content: "TTD looks extended." },
+  ];
+  assert.equal(shareNeedsMetaBackfill("Should I buy TTD", messages), true);
+  assert.equal(shareNeedsMetaBackfill("TTD extended into the open", messages), false);
+  assert.equal(shareNeedsMetaBackfill(null, messages), true);
+  assert.equal(shareNeedsMetaBackfill("  ", messages), true);
 });

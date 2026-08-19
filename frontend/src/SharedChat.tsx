@@ -69,14 +69,25 @@ function SharedChatRoute() {
     };
   }, [shareId]);
 
-  // First open of a pre-NER share kicks off a waitUntil backfill — refetch once
-  // so ticker tags appear without a full reload.
+  // First open of a pre-meta share awaits enrich on the Worker; if the first
+  // paint still looks like the raw prompt (or tags are empty), refetch once.
   useEffect(() => {
-    if (!shareId || !share || (share.tickers?.length ?? 0) > 0) return;
+    if (!shareId || !share) return;
+    const userContent = share.messages?.find((message) => message.role === 'user')?.content?.trim();
+    const titleLooksAuto = Boolean(
+      userContent
+      && share.title?.trim()
+      && share.title.trim().toLowerCase() === userContent.toLowerCase(),
+    );
+    const missingTags = (share.tickers?.length ?? 0) === 0;
+    if (!titleLooksAuto && !missingTags) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       api.sharedChat(shareId).then((s) => {
-        if (!cancelled && (s.tickers?.length ?? 0) > 0) setShare(s);
+        if (cancelled) return;
+        const improvedTitle = s.title?.trim() && s.title.trim() !== share.title?.trim();
+        const improvedTags = (s.tickers?.length ?? 0) > (share.tickers?.length ?? 0);
+        if (improvedTitle || improvedTags) setShare(s);
       }).catch(() => { /* keep current share */ });
     }, 2_500);
     return () => {
