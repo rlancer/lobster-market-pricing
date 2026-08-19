@@ -3,9 +3,11 @@
  *
  * Clip-of-first-user is the sync fallback; after a turn (or at share mint)
  * a flash OpenRouter call proposes a headline and tickers. Tickers flow
- * through resolveTickerIdentity → linkChatTicker (same graph as research_ticker).
+ * through resolveTickerIdentity → linkChatTicker (same graph as research_ticker)
+ * and surface as public tags on /share and the timeline.
  */
-import { generateText, type LanguageModel } from "ai";
+import { generateObject, generateText, type LanguageModel } from "ai";
+import { z } from "zod";
 import { linkChatTicker } from "./chat-tickers";
 import { resolveTickerIdentity, type FigiEnv } from "./figi";
 import { parseTickerParam } from "./research";
@@ -13,16 +15,21 @@ import { clipTitle, firstUserContent, isAutoDerivedTitle, TITLE_MAX } from "./us
 
 export const CHAT_META_SYSTEM = [
   "You label one Lobster MP Copilot transcript (US equities & ETF options).",
-  "Return ONLY a JSON object with keys title and tickers. No markdown fences.",
-  'Example: {"title":"NVDA vol crush after earnings","tickers":["NVDA"]}',
+  "Return a JSON object with keys title and tickers.",
+  'Example: {"title":"TLT leads as SPY chops into FOMC minutes","tickers":["TLT","SPY","HYG"]}',
   "title: a short display headline (max 80 characters). Capture the topic or desk takeaway — not prompt instructions, not a verbatim paste of the user message.",
-  "tickers: OCC equity/ETF roots clearly discussed (e.g. SPY, QQQ, IWM, NVDA). These become public tags on the share and timeline. Include index forms like ^VIX when relevant. Max 8. Empty array if none.",
+  "tickers: OCC equity/ETF roots clearly discussed in the transcript (e.g. SPY, QQQ, IWM, NVDA, TLT, HYG). These become public tags. Include index forms like ^VIX when relevant. Max 8. Empty array only when no underlyings are named.",
   "Prefer liquid underlyings over strikes or option symbols. Do not invent tickers.",
 ].join("\n");
 
 const META_MAX_TRANSCRIPT_CHARS = 6_000;
 const META_MAX_TICKERS = 8;
 const META_TITLE_SOFT_MAX = 80;
+
+export const chatMetaSchema = z.object({
+  title: z.string().min(1).max(160),
+  tickers: z.array(z.string()).max(META_MAX_TICKERS).default([]),
+});
 
 export type ChatMeta = {
   title: string | null;
@@ -52,18 +59,8 @@ export function formatChatMetaTranscript(messages: unknown, maxChars = META_MAX_
   return joined.slice(joined.length - maxChars);
 }
 
-/** Parse model JSON into a sanitized ChatMeta. Exported for unit tests. */
-export function parseChatMetaResponse(text: string): ChatMeta {
-  const trimmed = text.trim();
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start < 0 || end <= start) return { title: null, tickers: [] };
-  let raw: unknown;
-  try {
-    raw = JSON.parse(trimmed.slice(start, end + 1));
-  } catch {
-    return { title: null, tickers: [] };
-  }
+/** Sanitize a raw meta object into title + tickers. Exported for unit tests. */
+export function sanitizeChatMeta(raw: unknown): ChatMeta {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { title: null, tickers: [] };
   const rec = raw as Record<string, unknown>;
   let title: string | null = null;
@@ -83,9 +80,24 @@ export function parseChatMetaResponse(text: string): ChatMeta {
   return { title, tickers };
 }
 
+/** Parse model JSON text into a sanitized ChatMeta. Exported for unit tests. */
+export function parseChatMetaResponse(text: string): ChatMeta {
+  const trimmed = text.trim();
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start < 0 || end <= start) return { title: null, tickers: [] };
+  try {
+    return sanitizeChatMeta(JSON.parse(trimmed.slice(start, end + 1)));
+  } catch {
+    return { title: null, tickers: [] };
+  }
+}
+
 /**
- * Ask a cheap model for title + tickers. Never throws — returns empty meta
- * on failure so callers keep the clipTitle fallback.
+ * Ask a cheap model for title + tickers. Prefer free-form JSON (flash models
+ * often lack reliable structured-output support); fall back to generateObject.
+ * Keep max tokens high enough that a reasoning-capable model still emits JSON.
+ * Never throws — empty meta keeps clipTitle.
  */
 export async function extractChatMeta(
   messages: unknown,
@@ -94,19 +106,46 @@ export async function extractChatMeta(
 ): Promise<ChatMeta> {
   const transcript = formatChatMetaTranscript(messages);
   if (!transcript) return { title: null, tickers: [] };
+
+  const common = {
+    model,
+    system: CHAT_META_SYSTEM + "\nReply with ONLY the JSON object — no markdown fences, no preamble.",
+    prompt: transcript,
+    // Reasoning-capable flash models can burn a small budget before any JSON.
+    maxOutputTokens: 512,
+    temperature: 0.2,
+    abortSignal: opts?.abortSignal,
+  } as const;
+
   try {
     const result = await generateText({
-      model,
-      system: CHAT_META_SYSTEM,
-      prompt: transcript,
-      maxOutputTokens: 160,
-      temperature: 0.2,
-      abortSignal: opts?.abortSignal,
+      ...common,
+      providerOptions: {
+        openrouter: {
+          reasoning: { effort: "none" },
+        },
+      },
     });
-    return parseChatMetaResponse(result.text);
+    const parsed = parseChatMetaResponse(result.text);
+    if (parsed.title || parsed.tickers.length) return parsed;
+  } catch (textError) {
+    console.warn(JSON.stringify({
+      chatMeta: true,
+      phase: "generateText",
+      error: textError instanceof Error ? textError.message : String(textError),
+    }));
+  }
+
+  try {
+    const result = await generateObject({
+      ...common,
+      schema: chatMetaSchema,
+    });
+    return sanitizeChatMeta(result.object);
   } catch (error) {
     console.warn(JSON.stringify({
       chatMeta: true,
+      phase: "generateObject",
       error: error instanceof Error ? error.message : String(error),
     }));
     return { title: null, tickers: [] };

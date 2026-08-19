@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   formatChatMetaTranscript,
   parseChatMetaResponse,
+  sanitizeChatMeta,
 } from "../src/chat-meta.ts";
 import { isAutoDerivedTitle, shareDisplayTitle } from "../src/user-chats.ts";
 
@@ -12,6 +13,13 @@ test("parseChatMetaResponse accepts JSON and sanitizes tickers", () => {
   );
   assert.equal(meta.title, "SPX soft, QQQ leads the tape");
   assert.deepEqual(meta.tickers, ["SPY", "QQQ"]);
+});
+
+test("sanitizeChatMeta drops junk tickers", () => {
+  assert.deepEqual(
+    sanitizeChatMeta({ title: "Desk take", tickers: ["TLT", "nope", "HYG"] }),
+    { title: "Desk take", tickers: ["TLT", "HYG"] },
+  );
 });
 
 test("parseChatMetaResponse rejects junk", () => {
