@@ -32,7 +32,7 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
-import { extractShareTurns, type ShareTurn } from "./share-turns";
+import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -518,7 +518,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       parts: [{ type: "text", text: prompt }],
     };
     const result = await this.saveMessages((current) => [...current, userMessage]);
-    const messages = extractShareTurns(this.messages as UIMessage[]);
+    let messages = extractShareTurns(this.messages as UIMessage[]);
+    // Parts can omit tool outputs after a headless run; turn-budget capture is
+    // the source of truth for the sql/result/chart the tools just produced.
+    try {
+      const budget = this.readTurnBudget();
+      const capture = JSON.parse(budget.capture_json) as ShareCapture;
+      messages = applyCaptureToShareTurns(messages, capture, prompt);
+    } catch {
+      // No turn budget yet (failed before tools) — keep part-derived turns.
+    }
     const model = [...messages].reverse().find((m) => m.role === "assistant")
       ? (input.bot.model?.trim() || this.env.COPILOT_MODEL?.trim() || null)
       : null;

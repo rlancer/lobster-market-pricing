@@ -13,6 +13,12 @@ export type ShareTurn = {
   ts?: number;
 };
 
+export type ShareCapture = {
+  sql?: string | null;
+  result?: { columns?: string[]; rows?: Record<string, unknown>[]; error?: string } | null;
+  chart?: ChartSpec | null;
+};
+
 type ToolPayload = {
   sql?: unknown;
   result?: { columns?: unknown; rows?: unknown } | null;
@@ -36,13 +42,55 @@ function asChartSpec(value: unknown): ChartSpec | null {
 
 function asQueryResult(value: unknown): { columns: string[]; rows: Record<string, unknown>[] } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const rec = value as { columns?: unknown; rows?: unknown };
+  const rec = value as { columns?: unknown; rows?: unknown; error?: unknown };
+  if (typeof rec.error === "string" && rec.error.trim()) return null;
   if (!Array.isArray(rec.columns) || !rec.columns.every((c) => typeof c === "string")) return null;
   if (!Array.isArray(rec.rows)) return null;
   return {
     columns: rec.columns as string[],
     rows: rec.rows.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row)),
   };
+}
+
+function toolPartName(part: { type?: unknown }): string {
+  if (typeof part.type !== "string") return "";
+  // AI SDK tool UI parts: "tool-render_chart" / "dynamic-tool" with toolName.
+  if (part.type.startsWith("tool-")) return part.type.slice("tool-".length);
+  return part.type;
+}
+
+/**
+ * Stamp the last assistant turn with the DO turn-budget capture.
+ * Message parts sometimes omit tool outputs after headless runs; capture_json
+ * is the authoritative sql/result/chart from the completed turn.
+ */
+export function applyCaptureToShareTurns(
+  turns: ShareTurn[],
+  capture: ShareCapture | null | undefined,
+  question = "",
+): ShareTurn[] {
+  if (!capture || !turns.length) return turns;
+  const out = turns.map((turn) => ({ ...turn }));
+  let assistantIdx = -1;
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role === "assistant") {
+      assistantIdx = i;
+      break;
+    }
+  }
+  if (assistantIdx < 0) return out;
+  const turn = out[assistantIdx];
+  const captureSql = typeof capture.sql === "string" && capture.sql.trim() ? capture.sql.trim() : null;
+  if (captureSql) turn.sql = captureSql;
+  let chart = turn.chart ?? asChartSpec(capture.chart);
+  const result = asQueryResult(capture.result);
+  if (chart && result && !chartFitsResult(chart, result.columns)) chart = null;
+  if (!chart && result && wantsChart(question)) {
+    chart = inferChartSpec(result.columns, result.rows);
+  }
+  if (chart) turn.chart = chart;
+  out[assistantIdx] = turn;
+  return out;
 }
 
 /** Flatten UIMessage parts into share/timeline turns (text + optional reasoning/sql/chart). */
@@ -66,6 +114,13 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     let chart: ChartSpec | null = null;
     let result: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
     for (const part of message.parts) {
+      const name = toolPartName(part as { type?: unknown });
+      const input = "input" in part ? (part as { input?: unknown }).input : undefined;
+      // render_chart args are themselves a ChartSpec — keep them even when output was stripped.
+      if (name === "render_chart") {
+        const fromInput = asChartSpec(input);
+        if (fromInput) chart = fromInput;
+      }
       if (!("output" in part) || !part.output || typeof part.output !== "object") continue;
       const output = part.output as ToolPayload;
       if (typeof output.sql === "string" && output.sql.trim()) sql = output.sql.trim();
@@ -74,7 +129,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         result = nextResult;
         if (chart && !chartFitsResult(chart, result.columns)) chart = null;
       }
-      const nextChart = asChartSpec(output.chart);
+      const nextChart = asChartSpec(output.chart) ?? (name === "render_chart" ? asChartSpec(input) : null);
       if (nextChart) {
         chart = nextChart;
         if (result && !chartFitsResult(chart, result.columns)) chart = null;

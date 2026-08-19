@@ -9,7 +9,7 @@ import {
   scheduleRunDecision,
   validateBotScheduleInput,
 } from "../src/bot-schedule.ts";
-import { extractShareTurns } from "../src/share-turns.ts";
+import { extractShareTurns, applyCaptureToShareTurns } from "../src/share-turns.ts";
 import type { UIMessage } from "ai";
 
 test("marketHoursEnabled defaults on unless explicitly false", () => {
@@ -195,6 +195,51 @@ test("extractShareTurns keeps render_chart specs for timeline shares", () => {
   const turns = extractShareTurns(messages);
   assert.equal(turns.length, 2);
   assert.equal(turns[1].sql, "SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 7");
+  assert.deepEqual(turns[1].chart, { kind: "line", x: "date", y: "close", title: "SPY closes" });
+});
+
+test("extractShareTurns reads render_chart input when tool output was stripped", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Chart SPY closes." }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-render_chart",
+          toolCallId: "c1",
+          state: "input-available",
+          input: { kind: "line", x: "date", y: "close", title: "SPY closes" },
+        },
+        { type: "text", text: "Chart is up." },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.deepEqual(turns[1].chart, { kind: "line", x: "date", y: "close", title: "SPY closes" });
+});
+
+test("applyCaptureToShareTurns stamps chart and sql from the turn budget", () => {
+  const turns = applyCaptureToShareTurns(
+    [
+      { role: "user", content: "Chart SPY closes." },
+      { role: "assistant", content: "Here you go.", sql: "SELECT 1" },
+    ],
+    {
+      sql: "SELECT date, close FROM options.ohlc WHERE symbol='SPY' LIMIT 10",
+      chart: { kind: "line", x: "date", y: "close", title: "SPY closes" },
+      result: {
+        columns: ["date", "close"],
+        rows: [{ date: "2026-08-19", close: 768 }],
+      },
+    },
+    "Chart SPY closes.",
+  );
+  assert.equal(turns[1].sql, "SELECT date, close FROM options.ohlc WHERE symbol='SPY' LIMIT 10");
   assert.deepEqual(turns[1].chart, { kind: "line", x: "date", y: "close", title: "SPY closes" });
 });
 
