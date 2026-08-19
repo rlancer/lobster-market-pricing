@@ -76,6 +76,10 @@ test("shareDisplayTitle heals mid-word stored titles from the first user turn", 
     "Hourly market overview: what's happening right now?",
   );
   assert.equal(shareDisplayTitle([], truncated), clipTitle(truncated));
+  assert.equal(
+    shareDisplayTitle([{ role: "user", content: prompt }], "SPX soft; QQQ leads"),
+    "SPX soft; QQQ leads",
+  );
 });
 
 test("cookie domain is parent-host on lobster.mp and host-only elsewhere", () => {

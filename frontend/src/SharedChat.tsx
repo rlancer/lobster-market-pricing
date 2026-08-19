@@ -6,7 +6,7 @@ import { Sunglasses } from './Sunglasses';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
 import { usePageMeta } from './usePageMeta';
-import { SITE_NAME, truncateTitle } from './pageMeta';
+import { SITE_NAME } from './pageMeta';
 
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
@@ -22,12 +22,9 @@ function SharedChatRoute() {
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
 
-  // Prefer the clipped first user turn over a mid-word stored title (older
-  // shares sliced at 120 chars without a word break).
-  const firstUserTurn = share?.messages.find((m) => m.role === 'user' && m.content.trim())?.content.trim() ?? '';
-  const shareTitle = firstUserTurn
-    ? truncateTitle(firstUserTurn, 120)
-    : (share?.title?.trim() || '');
+  // Worker returns shareDisplayTitle (LLM headline when stored; else clipped
+  // first user turn). Trust that — do not re-derive from the raw prompt.
+  const shareTitle = share?.title?.trim() || '';
   usePageMeta(
     share
       ? {

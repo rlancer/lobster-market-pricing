@@ -23,6 +23,8 @@ import {
   type BotSchedule,
 } from "./bot-schedule";
 import type { MarketHoursEnv } from "./market-hours";
+import { enrichChatMeta } from "./chat-meta";
+import { createCopilotModel } from "./copilot-contract";
 import { clipTitle, TITLE_MAX } from "./user-chats";
 
 const SHARE_MAX_CONTENT = 5_000;
@@ -64,7 +66,7 @@ function base62Encode(bytes: Uint8Array): string {
   return out;
 }
 
-function capShareMessages(messages: ShareTurn[]): { messages: Record<string, unknown>[]; title: string | null; sourceSql: string | null } {
+function capShareMessages(messages: ShareTurn[], titleOverride?: string | null): { messages: Record<string, unknown>[]; title: string | null; sourceSql: string | null } {
   const capped = messages.map((m) => {
     const out: Record<string, unknown> = {
       role: m.role,
@@ -76,7 +78,11 @@ function capShareMessages(messages: ShareTurn[]): { messages: Record<string, unk
     return out;
   });
   const firstUser = capped.find((m) => m.role === "user" && typeof m.content === "string" && m.content);
-  const title = typeof firstUser?.content === "string" ? clipTitle(firstUser.content, SHARE_MAX_TITLE) : null;
+  const clipped =
+    typeof firstUser?.content === "string" ? clipTitle(firstUser.content, SHARE_MAX_TITLE) : null;
+  const title = (typeof titleOverride === "string" && titleOverride.trim()
+    ? clipTitle(titleOverride, SHARE_MAX_TITLE)
+    : null) || clipped;
   let sourceSql: string | null = null;
   for (let i = capped.length - 1; i >= 0; i--) {
     if (capped[i].role === "assistant" && typeof capped[i].sql === "string") {
@@ -98,6 +104,7 @@ async function mintBotShare(
     messages: ShareTurn[];
     startedAt: number;
     endedAt: number;
+    title?: string | null;
   },
 ): Promise<{ ok: true; share_id: string } | { ok: false; error: string }> {
   const existing = await env.SCHEMA_DB.prepare(
@@ -108,7 +115,7 @@ async function mintBotShare(
     return { ok: true, share_id: existing.share_id };
   }
 
-  const { messages, title, sourceSql } = capShareMessages(args.messages);
+  const { messages, title, sourceSql } = capShareMessages(args.messages, args.title);
   if (!messages.some((m) => m.role === "assistant" && typeof m.content === "string" && m.content.trim())) {
     return { ok: false, error: "no assistant content to share" };
   }
@@ -214,6 +221,20 @@ export async function runBotChatAndShare(
       await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "failed", error });
       return { ok: false, error, run: { ...run, status: "failed", error } };
     }
+
+    // Cheap title + ticker NER after the desk turn — clipTitle remains the fallback.
+    let metaTitle: string | null = null;
+    try {
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY!, COPILOT_MODEL: env.COPILOT_MODEL! },
+        "https://lobster.mp",
+      );
+      const meta = await enrichChatMeta(env, chatId, turn.messages, model);
+      metaTitle = meta.title;
+    } catch (error) {
+      console.warn("bot chat-meta enrich failed", error);
+    }
+
     const share = await mintBotShare(env, {
       chatId,
       runId: run.run_id,
@@ -222,6 +243,7 @@ export async function runBotChatAndShare(
       messages: turn.messages,
       startedAt,
       endedAt: Date.now(),
+      title: metaTitle,
     });
     if (!share.ok) {
       await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "failed", error: share.error });

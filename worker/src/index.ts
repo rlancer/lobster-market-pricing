@@ -61,8 +61,10 @@ import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline"
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
   authorizeCopilotAgent,
+  applyGeneratedChatTitle,
   claimChat,
   deleteChat,
+  firstUserContent,
   listUserChats,
   loadOwnedChatTranscript,
   ownerOf,
@@ -73,6 +75,7 @@ import {
   touchUserChat,
   clipTitle,
 } from "./user-chats";
+import { enrichChatMeta } from "./chat-meta";
 import {
   chatIdForShare,
   listToolEvents,
@@ -1586,7 +1589,26 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
     } catch {
       messages = body.messages;
     }
-    ctx.waitUntil(touchUserChat(env.SCHEMA_DB, user.id, chatId, titleFromMessages(messages)));
+    // Instant clip title for the sidebar, then cheap-model headline + ticker NER.
+    ctx.waitUntil((async () => {
+      await touchUserChat(env.SCHEMA_DB, user.id, chatId, titleFromMessages(messages));
+      if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return;
+      try {
+        const model = createCopilotModel(
+          { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+          new URL(req.url).origin,
+        );
+        const meta = await enrichChatMeta(env, chatId, messages, model);
+        await applyGeneratedChatTitle(
+          env.SCHEMA_DB,
+          chatId,
+          meta.title,
+          firstUserContent(messages),
+        );
+      } catch (error) {
+        console.warn("chat-meta enrich failed", error);
+      }
+    })());
   }
 
   if (!env.PIPELINE_CHAT_HISTORY_URL) {
@@ -2000,7 +2022,22 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   if ((recent?.n ?? 0) >= SHARE_RATE_LIMIT) return json(env, { error: "rate limited" }, 429);
 
   // Pass 2 — share-only tightening + budgets.
-  const { messages, sourceSql, title } = normalizeShareRecord(pass1, body.messages);
+  const { messages, sourceSql, title: clippedTitle } = normalizeShareRecord(pass1, body.messages);
+  let title = clippedTitle;
+  // Cheap-model headline + ticker NER before INSERT so the share lands with a
+  // real title (clipTitle remains the fallback if OpenRouter is down).
+  if (env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()) {
+    try {
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        new URL(req.url).origin,
+      );
+      const meta = await enrichChatMeta(env, String(pass1.chat_id), messages, model);
+      if (meta.title) title = meta.title;
+    } catch (error) {
+      console.warn("share chat-meta enrich failed", error);
+    }
+  }
   const messagesJson = JSON.stringify(messages);
   // Assembled-row check: messages JSON + source_sql + column overhead must sit
   // under the D1 2 MB row ceiling — a share can never 500 on INSERT.

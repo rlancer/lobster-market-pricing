@@ -16,7 +16,6 @@ import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
 import { UserAvatar } from './UserAvatar';
-import { truncateTitle } from './pageMeta';
 
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
 function shortModel(model: string): string {
@@ -102,11 +101,8 @@ export function TimelinePostRow({
     : post.excerpt
       ? [{ role: 'assistant', content: post.excerpt }]
       : [];
+  const titleText = post.title?.trim() || 'Shared chat';
   const userMessage = messages.find((message) => message.role === 'user');
-  const firstUserTurn = userMessage?.content?.trim() ?? '';
-  const titleText = firstUserTurn
-    ? truncateTitle(firstUserTurn, 120)
-    : (post.title?.trim() || 'Shared chat');
   const showTitle = !titlesMatch(titleText, userMessage?.content);
   const tickers = (post.tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
