@@ -17,7 +17,7 @@ test("parseChatMetaResponse accepts JSON and sanitizes tickers", () => {
 
 test("sanitizeChatMeta drops junk tickers", () => {
   assert.deepEqual(
-    sanitizeChatMeta({ title: "Desk take", tickers: ["TLT", "nope", "HYG"] }),
+    sanitizeChatMeta({ title: "Desk take", tickers: ["TLT", "not a ticker!!", "HYG"] }),
     { title: "Desk take", tickers: ["TLT", "HYG"] },
   );
 });
