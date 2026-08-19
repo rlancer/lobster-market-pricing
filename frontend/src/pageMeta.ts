@@ -198,7 +198,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Bots'),
       description:
-        'Admin-only Copilot personas — edit handles like yololobster and generate public timeline chats.',
+        'Admin-only Copilot personas — edit handles like nowlobster / yololobster and generate public timeline chats.',
       path: '/bots',
     };
   }

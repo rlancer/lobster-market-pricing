@@ -148,6 +148,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
+  { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
+  { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares to timeline' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 

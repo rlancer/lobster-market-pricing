@@ -32,6 +32,7 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
+import { extractShareTurns } from "./share-turns";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -485,6 +486,54 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       )
     `;
     return { ok: true, handle };
+  }
+
+  /**
+   * Headless bot turn for schedules / server triggers.
+   * Sets the persona, runs one user prompt via saveMessages, returns share-ready turns.
+   */
+  async runHeadlessBotTurn(input: {
+    prompt: string;
+    bot: {
+      handle: string;
+      display_name: string;
+      persona: string;
+      system_prompt_extra?: string;
+      model?: string | null;
+      reasoning_effort?: string | null;
+    };
+  }): Promise<{
+    status: "completed" | "error" | "skipped" | "aborted";
+    error?: string;
+    model: string | null;
+    messages: Array<{
+      role: "user" | "assistant";
+      content: string;
+      reasoning?: string;
+      sql?: string;
+      ts?: number;
+    }>;
+  }> {
+    const prompt = String(input.prompt ?? "").trim();
+    if (!prompt) return { status: "error", error: "prompt is required", model: null, messages: [] };
+    await this.setBotProfile(input.bot);
+    const userMessage: UIMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      parts: [{ type: "text", text: prompt }],
+    };
+    const result = await this.saveMessages((current) => [...current, userMessage]);
+    const messages = extractShareTurns(this.messages as UIMessage[]);
+    const model = [...messages].reverse().find((m) => m.role === "assistant")
+      ? (input.bot.model?.trim() || this.env.COPILOT_MODEL?.trim() || null)
+      : null;
+    if (result.status !== "completed") {
+      return { status: result.status, error: result.error, model, messages };
+    }
+    if (!messages.some((m) => m.role === "assistant" && m.content.trim())) {
+      return { status: "error", error: "no assistant answer produced", model, messages };
+    }
+    return { status: "completed", model, messages };
   }
 
   private readBotSession(): (BotPromptProfile & { model: string | null; reasoning_effort: string | null }) | null {

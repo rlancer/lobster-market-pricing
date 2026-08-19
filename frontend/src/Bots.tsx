@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button, Heading, Text, TextArea, TextInput, Token, VStack } from '@astryxdesign/core';
 import { useIsAdmin } from './useAdmin';
-import { api, type BotProfile, type BotRun } from './api';
+import { api, type BotProfile, type BotRun, type BotSchedule } from './api';
 import { rememberChatId, stashBotSession, stashPendingPrompt } from './chatSession';
 import './Bots.css';
 
@@ -17,6 +17,32 @@ const EMPTY_FORM = {
   reasoning_effort: '',
   enabled: true,
 };
+
+/** Create-form presets — seeded bots + the original yololobster template. */
+const BOT_PRESETS = {
+  nowlobster: {
+    handle: 'nowlobster',
+    display_name: 'Now Lobster',
+    persona: "What's happening now",
+    bio: 'Live desk commentary on the session — indexes, sector leadership, and the options tape that explains the move.',
+    system_prompt_extra:
+      'You write present-tense market commentary for what is happening right now. Lead with the tape: index posture (SPX/NDX/QQQ/IWM), sector leadership or rotation, and the single-name or factor moves that matter. Ground every claim in tool results (quotes, unusual options volume/OI, IV, news, macro calendar) — no invented catalysts. Prefer unusual options flow and tradable liquid names over thin lottery tickets. Close with a sharp 1–3 sentence desk takeaway a trader can act on or dismiss in under 30 seconds. Stay opinionated but honest about uncertainty when the data is mixed.',
+    seed_prompts: [
+      "What's happening in the market right now? Lead with the index move, then the unusual options flow and single-name catalysts that explain it.",
+      'Give me live market commentary for this session — SPX/QQQ posture, sector leadership, and the options tape that matters.',
+      "What is the market pricing right now? Pull IV, unusual volume, and the catalysts driving today's move.",
+    ].join('\n'),
+  },
+  yololobster: {
+    handle: 'yololobster',
+    display_name: 'Yolo Lobster',
+    persona: 'High risk, high reward',
+    bio: '',
+    system_prompt_extra:
+      'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes.',
+    seed_prompts: 'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
+  },
+} as const;
 
 function seedsToText(seeds: string[]): string {
   return seeds.join('\n');
@@ -86,6 +112,13 @@ export default function BotsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [runs, setRuns] = useState<BotRun[]>([]);
+  const [schedule, setSchedule] = useState<BotSchedule | null>(null);
+  const [scheduleForm, setScheduleForm] = useState({
+    enabled: true,
+    cadence_seconds: '3600',
+    market_gated: true,
+    prompt: '',
+  });
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,23 +149,35 @@ export default function BotsPage() {
     const detail = await api.adminBot(handle);
     setForm(formFromBot(detail.bot));
     setRuns(detail.runs);
+    setSchedule(detail.schedule);
+    setScheduleForm({
+      enabled: detail.schedule?.enabled ?? true,
+      cadence_seconds: String(detail.schedule?.cadence_seconds ?? 3600),
+      market_gated: detail.schedule?.market_gated ?? true,
+      prompt: detail.schedule?.prompt
+        ?? "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow or single-name catalysts that explain the tape. Close with a sharp desk takeaway.",
+    });
     setPrompt(nextUnusedSeed(detail.bot.seed_prompts, detail.runs));
   };
 
-  const startCreate = () => {
+  const startCreate = (preset: keyof typeof BOT_PRESETS = 'nowlobster') => {
+    const template = BOT_PRESETS[preset];
     setCreating(true);
     setSelected(null);
     setForm({
       ...EMPTY_FORM,
-      handle: 'yololobster',
-      display_name: 'Yolo Lobster',
-      persona: 'High risk, high reward',
-      system_prompt_extra:
-        'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes.',
-      seed_prompts: 'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
+      ...template,
     });
     setRuns([]);
-    setPrompt('Find the juiciest short-dated call lottery tickets with real volume and open interest today.');
+    setSchedule(null);
+    setScheduleForm({
+      enabled: true,
+      cadence_seconds: '3600',
+      market_gated: true,
+      prompt:
+        "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow or single-name catalysts that explain the tape. Close with a sharp desk takeaway.",
+    });
+    setPrompt(textToSeeds(template.seed_prompts)[0] ?? '');
   };
 
   const save = async () => {
@@ -180,8 +225,69 @@ export default function BotsPage() {
       setSelected(null);
       setForm(EMPTY_FORM);
       setRuns([]);
+      setSchedule(null);
       setNotice(`Deleted @${selected}`);
       await load();
+    } catch (err) {
+      setError(String((err as Error)?.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSchedule = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const cadence = Number(scheduleForm.cadence_seconds);
+      const result = await api.upsertBotSchedule(selected, {
+        enabled: scheduleForm.enabled,
+        cadence_seconds: cadence,
+        market_gated: scheduleForm.market_gated,
+        prompt: scheduleForm.prompt.trim(),
+      });
+      setSchedule(result.schedule);
+      setNotice(`Saved schedule for @${selected}`);
+    } catch (err) {
+      setError(String((err as Error)?.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearSchedule = async () => {
+    if (!selected) return;
+    if (!window.confirm(`Remove schedule for @${selected}?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteBotSchedule(selected);
+      setSchedule(null);
+      setNotice(`Cleared schedule for @${selected}`);
+    } catch (err) {
+      setError(String((err as Error)?.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const triggerSchedule = async (force: boolean) => {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.triggerBotSchedule(selected, force);
+      if (result.deferred) {
+        setNotice(`Deferred (${result.reason}) — next run ${result.next_run_at ? new Date(result.next_run_at).toLocaleString() : 'soon'}`);
+      } else if (result.share_url) {
+        setNotice(`Scheduled run shared: ${result.share_url}`);
+      } else {
+        setNotice('Schedule triggered.');
+      }
+      await selectBot(selected);
     } catch (err) {
       setError(String((err as Error)?.message ?? err));
     } finally {
@@ -249,8 +355,9 @@ export default function BotsPage() {
         <Heading level={1}>Bot profiles</Heading>
         <Text type="supporting">
           Admin-only personas that chat with Copilot and publish under a public handle
-          (e.g. @yololobster for high risk / high reward). Generate opens Chat with the
-          persona loaded — successful answers auto-share to the timeline as that bot.
+          (e.g. @nowlobster for live market commentary, @yololobster for high risk /
+          high reward). Generate opens Chat with the persona loaded — successful answers
+          auto-share to the timeline as that bot.
         </Text>
       </header>
 
@@ -261,10 +368,10 @@ export default function BotsPage() {
         <aside className="bots-list" aria-label="Bot profiles">
           <div className="bots-list-head">
             <Heading level={2}>Bots</Heading>
-            <Button variant="secondary" size="sm" label="New bot" onClick={startCreate} />
+            <Button variant="secondary" size="sm" label="New bot" onClick={() => startCreate()} />
           </div>
           {bots.length === 0 && !creating && (
-            <Text type="supporting">No bots yet — create @yololobster to start.</Text>
+            <Text type="supporting">No bots yet — @nowlobster seeds on deploy, or create one here.</Text>
           )}
           <ul className="bots-handles">
             {bots.map((bot) => (
@@ -359,6 +466,66 @@ export default function BotsPage() {
                   <Button variant="destructive" label="Delete" isDisabled={busy} onClick={() => { void remove(); }} />
                 )}
               </div>
+
+              {!creating && selected && (
+                <section className="bots-generate" aria-label="Schedule">
+                  <Heading level={3}>Schedule</Heading>
+                  <Text type="supporting">
+                    Server-side Copilot runs on a cadence (cron wakes due rows). Market-gated
+                    schedules only fire during the US session — use force to test after hours.
+                    @nowlobster ships with an hourly overview schedule.
+                  </Text>
+                  <label className="bots-enabled">
+                    <input
+                      type="checkbox"
+                      checked={scheduleForm.enabled}
+                      disabled={busy}
+                      onChange={(event) => setScheduleForm((prev) => ({ ...prev, enabled: event.target.checked }))}
+                    />
+                    Schedule enabled
+                  </label>
+                  <TextInput
+                    label="Cadence (seconds)"
+                    value={scheduleForm.cadence_seconds}
+                    onChange={(value) => setScheduleForm((prev) => ({ ...prev, cadence_seconds: value }))}
+                    isDisabled={busy}
+                    description="3600 = hourly."
+                  />
+                  <label className="bots-enabled">
+                    <input
+                      type="checkbox"
+                      checked={scheduleForm.market_gated}
+                      disabled={busy}
+                      onChange={(event) => setScheduleForm((prev) => ({ ...prev, market_gated: event.target.checked }))}
+                    />
+                    Market hours only
+                  </label>
+                  <TextArea
+                    label="Schedule prompt"
+                    value={scheduleForm.prompt}
+                    onChange={(value) => setScheduleForm((prev) => ({ ...prev, prompt: value }))}
+                    isDisabled={busy}
+                    rows={3}
+                    description="Fixed prompt reused each run (unlike manual generate uniqueness)."
+                  />
+                  {schedule && (
+                    <Text type="supporting">
+                      Next run {new Date(schedule.next_run_at).toLocaleString()}
+                      {schedule.last_run_at ? ` · last ${formatRelativeAge(schedule.last_run_at)}` : ''}
+                      {schedule.consecutive_failures > 0 ? ` · ${schedule.consecutive_failures} failure(s)` : ''}
+                      {schedule.last_error ? ` · ${schedule.last_error}` : ''}
+                    </Text>
+                  )}
+                  <div className="bots-actions">
+                    <Button variant="primary" label={busy ? 'Saving…' : 'Save schedule'} isDisabled={busy} onClick={() => { void saveSchedule(); }} />
+                    <Button variant="secondary" label={busy ? 'Running…' : 'Run now'} isDisabled={busy} onClick={() => { void triggerSchedule(false); }} />
+                    <Button variant="secondary" label="Force run" isDisabled={busy} onClick={() => { void triggerSchedule(true); }} />
+                    {schedule && (
+                      <Button variant="destructive" label="Clear" isDisabled={busy} onClick={() => { void clearSchedule(); }} />
+                    )}
+                  </div>
+                </section>
+              )}
 
               {!creating && selected && (
                 <section className="bots-generate" aria-label="Generate chat">

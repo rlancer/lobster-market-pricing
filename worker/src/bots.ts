@@ -2,8 +2,8 @@
  * Admin-editable Copilot bot profiles.
  *
  * Bots claim public handles in the same namespace as user_profiles (e.g.
- * yololobster) and stamp shared_chats.bot_handle when their chats are shared.
- * CRUD + generate require a product-admin session (or ADMIN_TOKEN).
+ * nowlobster, yololobster) and stamp shared_chats.bot_handle when their chats
+ * are shared. CRUD + generate require a product-admin session (or ADMIN_TOKEN).
  */
 import { isAdminEmail } from "./admin";
 import { getSessionUser, type AuthEnv, type SessionUser } from "./auth";
@@ -366,6 +366,7 @@ export async function deleteBotProfile(
   if (!existing) return { ok: false, status: 404, error: "not found" };
   // Detach shares first so the FK does not block delete; public shares remain.
   await db.prepare("UPDATE shared_chats SET bot_handle = NULL WHERE bot_handle = ?1").bind(existing.handle).run();
+  await db.prepare("DELETE FROM bot_schedules WHERE handle = ?1").bind(existing.handle).run();
   await db.prepare("DELETE FROM bot_runs WHERE handle = ?1").bind(existing.handle).run();
   await db.prepare("DELETE FROM bot_profiles WHERE handle = ?1").bind(existing.handle).run();
   return { ok: true };
