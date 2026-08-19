@@ -132,7 +132,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
-  { method: 'GET', path: '/api/symbols', desc: 'Symbol autocomplete for typeaheads' },
+  { method: 'GET', path: '/api/symbols', desc: 'Symbol autocomplete — equity/ETF underlyings plus VIX indexes (^VIX, …) and continuous futures (ES=F, …)' },
   { method: 'GET', path: '/api/screen', desc: 'The screener — filters, sort, pagination (see below)' },
   { method: 'GET', path: '/api/symbol/{symbol}', desc: 'Underlying info + its full option chain from the latest run' },
   { method: 'GET', path: '/api/tables', desc: 'Lake tables with columns/types, row counts, and sample rows (D1-cached; ?force=1 recomputes live)' },
