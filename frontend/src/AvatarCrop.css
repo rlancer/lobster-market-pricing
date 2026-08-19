@@ -11,7 +11,7 @@
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: var(--radius-full);
-  background: var(--color-background-secondary);
+  background: var(--color-background-muted);
   border: var(--border-width) solid var(--color-border);
   touch-action: none;
   cursor: grab;
