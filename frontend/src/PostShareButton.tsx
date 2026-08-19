@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DropdownMenu } from '@astryxdesign/core';
-import { Link2, Share2, Upload, X } from 'lucide-react';
+import { Link2, Share2, Upload } from 'lucide-react';
 
 /** Resolve a relative Worker path (e.g. `/share/abc`) to an absolute URL. */
 function absoluteUrl(pathOrUrl: string): string {
@@ -8,9 +8,9 @@ function absoluteUrl(pathOrUrl: string): string {
 }
 
 /**
- * Twitter/X-style share control for a public post — icon trigger with
- * Copy link, Share via… (system share sheet when available), and Share on X.
- * Used on the timeline feed and the /share page.
+ * Share control for a public post — icon trigger with Copy link and
+ * Share via… (system share sheet when available). Used on the timeline
+ * feed and the /share page.
  */
 export function PostShareButton({
   url,
@@ -46,14 +46,6 @@ export function PostShareButton({
     }
   };
 
-  const shareOnX = () => {
-    const intent = new URL('https://x.com/intent/tweet');
-    intent.searchParams.set('url', absoluteUrl(url));
-    const text = title.trim();
-    if (text) intent.searchParams.set('text', text);
-    window.open(intent.toString(), '_blank', 'noopener,noreferrer');
-  };
-
   return (
     <DropdownMenu
       className="post-share"
@@ -84,11 +76,6 @@ export function PostShareButton({
               },
             }]
           : []),
-        {
-          label: 'Share on X',
-          icon: <X size={16} aria-hidden="true" />,
-          onClick: shareOnX,
-        },
       ]}
     />
   );
