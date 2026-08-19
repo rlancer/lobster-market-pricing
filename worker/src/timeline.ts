@@ -202,25 +202,29 @@ export async function getTimelineAuthor(
   avatar_url?: string | null;
 } | null> {
   const human = await db.prepare(
-    `SELECT pr.handle AS handle, pr.display_name AS display_name, pr.avatar_key AS avatar_key,
-            u.name AS oauth_name, pr.user_id AS user_id
+    `SELECT pr.handle AS handle, pr.display_name AS display_name,
+            u.name AS oauth_name, pr.user_id AS user_id,
+            CASE WHEN a.user_id IS NULL THEN 0 ELSE 1 END AS has_avatar,
+            a.updated_at AS avatar_updated_at
      FROM timeline_posts p
      JOIN user_profiles pr ON pr.user_id = p.user_id
      JOIN "user" u ON u.id = p.user_id
+     LEFT JOIN user_avatars a ON a.user_id = pr.user_id
      WHERE p.share_id = ?1`,
   ).bind(shareId).first<{
     handle: string;
     display_name: string | null;
-    avatar_key: string | null;
     oauth_name: string;
     user_id: string;
+    has_avatar: number;
+    avatar_updated_at: number | null;
   }>();
   if (human) {
     return {
       handle: human.handle,
       name: publicName(human.display_name, human.oauth_name),
       is_bot: false,
-      avatar_url: avatarUrlFor(human.user_id, human.avatar_key),
+      avatar_url: avatarUrlFor(human.user_id, Boolean(human.has_avatar), human.avatar_updated_at),
     };
   }
   const bot = await db.prepare(
@@ -303,18 +307,22 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   } | null = null;
   if (parsed.handle) {
     const human = await env.SCHEMA_DB.prepare(
-      `SELECT pr.handle AS handle, pr.display_name AS display_name, pr.avatar_key AS avatar_key,
-              u.name AS oauth_name, pr.user_id AS user_id, pr.created_at AS created_at
+      `SELECT pr.handle AS handle, pr.display_name AS display_name,
+              u.name AS oauth_name, pr.user_id AS user_id, pr.created_at AS created_at,
+              CASE WHEN a.user_id IS NULL THEN 0 ELSE 1 END AS has_avatar,
+              a.updated_at AS avatar_updated_at
        FROM user_profiles pr
        JOIN "user" u ON u.id = pr.user_id
+       LEFT JOIN user_avatars a ON a.user_id = pr.user_id
        WHERE pr.handle = ?1`,
     ).bind(parsed.handle).first<{
       handle: string;
       display_name: string | null;
-      avatar_key: string | null;
       oauth_name: string;
       user_id: string;
       created_at: number;
+      has_avatar: number;
+      avatar_updated_at: number | null;
     }>();
     if (human) {
       profile = {
@@ -322,7 +330,7 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
         name: publicName(human.display_name, human.oauth_name),
         is_bot: false,
         created_at: human.created_at,
-        avatar_url: avatarUrlFor(human.user_id, human.avatar_key),
+        avatar_url: avatarUrlFor(human.user_id, Boolean(human.has_avatar), human.avatar_updated_at),
       };
     } else {
       const bot = await env.SCHEMA_DB.prepare(

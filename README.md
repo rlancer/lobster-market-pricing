@@ -125,7 +125,7 @@ the app header so the account is available on every workspace page, not only
 Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
 letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
 `user` row). From the account popover you can also set a **display name** and
-upload a **custom avatar** (R2 `lobster-user-avatars`, served at
+upload a **custom avatar** (stored in D1 `user_avatars`, served at
 `/api/avatars/{user_id}`). Handles are the URL slug for `/u/{handle}` (that
 handle's public profile and opted-in chats). Chat ownership still keys off
 `user_id`. A chat is cataloged onto the
@@ -233,7 +233,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Requires a claimed handle for display_name-only. 400 if invalid/reserved, 409 if handle taken. |
 | `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP, ≤1 MB. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
 | `DELETE /api/me/avatar` | Clear the custom avatar (falls back to the brand sunglasses mark). |
-| `GET /api/avatars/{user_id}` | Public avatar bytes from R2 (404 when unset). |
+| `GET /api/avatars/{user_id}` | Public avatar bytes from D1 (404 when unset). |
 | `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`), newest activity first. Only rows with a non-empty title are returned — empty new-chat UUIDs never appear as "Untitled chat". 401 if anonymous. |
 | `POST /api/chats/claim` | Catalog `chat_id` onto the session user **with a title** (the first user turn). Untitled claims are rejected (400) so blank shells are not cataloged. Idempotent for the owner and does **not** bump `updated_at` (opening a chat is not activity). 409 if another user already owns it. Recency is updated by a saved turn (`POST /api/chat/history`) or `PATCH` rename. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
