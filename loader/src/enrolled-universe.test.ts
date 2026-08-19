@@ -125,7 +125,9 @@ describe("enrolled-universe helpers", () => {
     expect(normalizeEnrollTicker("sofi")).toBe("SOFI");
     expect(isEnrollableTicker("^VIX")).toBe(false);
     expect(isEnrollableTicker("ES=F")).toBe(false);
+    expect(isEnrollableTicker("BTC-USD")).toBe(false);
     expect(normalizeEnrollTicker("^VIX")).toBeNull();
+    expect(normalizeEnrollTicker("BTC-USD")).toBeNull();
   });
 
   it("knows bundled universe membership", () => {

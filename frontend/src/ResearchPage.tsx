@@ -225,7 +225,7 @@ export default function ResearchPage() {
         <VStack gap={2} className="research-empty">
           <Text type="supporting">Common underlyings:</Text>
           <HStack gap={2}>
-            {['AAPL', 'NVDA', 'SPY', 'TSLA'].map((sym) => (
+            {['AAPL', 'NVDA', 'SPY', 'IBIT', 'BTC-USD'].map((sym) => (
               <Link key={sym} to="/research/$ticker" params={{ ticker: sym }} className="research-chip-link">
                 {sym}
               </Link>

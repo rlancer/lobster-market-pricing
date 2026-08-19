@@ -1,7 +1,7 @@
 {
   "source": "curated by maintainer: major, liquid US-listed ETFs with active CBOE option chains",
-  "updated": "2026-08-17",
-  "note": "Every symbol here was verified against https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json (HTTP 200 with a non-empty options array). Broad/sector sleeve verified 2026-08-09; VIX ETP sleeve (VXX/UVXY/SVXY/VIXY/VIXM/SVIX/UVIX/VXZ) verified 2026-08-17. IYM/XRT/IBB/QQQE were tried and dropped: CBOE's free delayed-quotes feed does not serve their option chains.",
+  "updated": "2026-08-19",
+  "note": "Every symbol here was verified against https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json (HTTP 200 with a non-empty options array). Broad/sector sleeve verified 2026-08-09; VIX ETP sleeve (VXX/UVXY/SVXY/VIXY/VIXM/SVIX/UVIX/VXZ) verified 2026-08-17; Crypto sleeve (BTC/ETH/SOL/XRP spot + futures/leveraged products) verified 2026-08-19. IYM/XRT/IBB/QQQE were tried and dropped: CBOE's free delayed-quotes feed does not serve their option chains. BRRR/CETH/XRPX returned HTTP 403 on the free feed and were excluded.",
   "etfs": [
     { "symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "asset_class": "Broad Market" },
     { "symbol": "IVV", "name": "iShares Core S&P 500 ETF", "asset_class": "Broad Market" },
@@ -75,6 +75,25 @@
     { "symbol": "VIXM", "name": "ProShares VIX Mid-Term Futures ETF", "asset_class": "Volatility" },
     { "symbol": "SVIX", "name": "-1x Short VIX Futures ETF", "asset_class": "Volatility" },
     { "symbol": "UVIX", "name": "2x Long VIX Futures ETF", "asset_class": "Volatility" },
-    { "symbol": "VXZ", "name": "iPath Series B S&P 500 VIX Mid-Term Futures ETN", "asset_class": "Volatility" }
+    { "symbol": "VXZ", "name": "iPath Series B S&P 500 VIX Mid-Term Futures ETN", "asset_class": "Volatility" },
+    { "symbol": "IBIT", "name": "iShares Bitcoin Trust ETF", "asset_class": "Crypto" },
+    { "symbol": "FBTC", "name": "Fidelity Wise Origin Bitcoin Fund", "asset_class": "Crypto" },
+    { "symbol": "ARKB", "name": "ARK 21Shares Bitcoin ETF", "asset_class": "Crypto" },
+    { "symbol": "BITB", "name": "Bitwise Bitcoin ETF", "asset_class": "Crypto" },
+    { "symbol": "GBTC", "name": "Grayscale Bitcoin Trust ETF", "asset_class": "Crypto" },
+    { "symbol": "BTCO", "name": "Invesco Galaxy Bitcoin ETF", "asset_class": "Crypto" },
+    { "symbol": "HODL", "name": "VanEck Bitcoin Trust", "asset_class": "Crypto" },
+    { "symbol": "EZBC", "name": "Franklin Bitcoin ETF", "asset_class": "Crypto" },
+    { "symbol": "BTCW", "name": "WisdomTree Bitcoin Fund", "asset_class": "Crypto" },
+    { "symbol": "BITO", "name": "ProShares Bitcoin Strategy ETF", "asset_class": "Crypto" },
+    { "symbol": "BITX", "name": "2x Bitcoin Strategy ETF", "asset_class": "Crypto" },
+    { "symbol": "ETHA", "name": "iShares Ethereum Trust ETF", "asset_class": "Crypto" },
+    { "symbol": "ETHE", "name": "Grayscale Ethereum Trust ETF", "asset_class": "Crypto" },
+    { "symbol": "FETH", "name": "Fidelity Ethereum Fund", "asset_class": "Crypto" },
+    { "symbol": "QETH", "name": "Invesco Galaxy Ethereum ETF", "asset_class": "Crypto" },
+    { "symbol": "ETHW", "name": "Bitwise Ethereum ETF", "asset_class": "Crypto" },
+    { "symbol": "SOLZ", "name": "Solana ETF", "asset_class": "Crypto" },
+    { "symbol": "SOLT", "name": "2x Solana ETF", "asset_class": "Crypto" },
+    { "symbol": "XRPI", "name": "XRP ETF", "asset_class": "Crypto" }
   ]
 }

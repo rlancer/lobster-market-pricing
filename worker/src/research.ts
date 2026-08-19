@@ -574,9 +574,10 @@ function fmtNum(v: number | null): string {
 }
 
 /**
- * Accept equity/ETF OCC roots plus Yahoo index (`^VIX`) and continuous futures
- * (`ES=F`, `6E=F`) forms that the loader lands in options.ohlc. Thinkorswim-style
- * `/ES` / `/VX` roots resolve to the researchable lake symbol.
+ * Accept equity/ETF OCC roots plus Yahoo index (`^VIX`), continuous futures
+ * (`ES=F`, `6E=F`), and spot crypto (`BTC-USD`) forms that the loader lands in
+ * options.ohlc. Thinkorswim-style `/ES` / `/VX` roots resolve to the
+ * researchable lake symbol.
  */
 export function parseTickerParam(raw: string | null | undefined): string | null {
   if (!raw) return null;

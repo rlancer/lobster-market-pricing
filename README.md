@@ -450,8 +450,9 @@ escaping; sort columns are whitelisted). Key dialect constraints:
   official and redistributable — safe to land in the lake and serve through
   `/api/query`. Yahoo-sourced data (OHLC, news RSS) is personal-use only and
   must not be re-exposed to third parties through the public query endpoint.
-- The in-repo loader (`loader/`, deployed Worker `cboe-to-r2`) owns CBOE ingestion (nightly run, 591
-  symbols across the S&P 500, Nasdaq-100 delta, and major ETFs including VIX ETPs, ~1M+ contracts). This repo only reads the lake.
+- The in-repo loader (`loader/`, deployed Worker `cboe-to-r2`) owns CBOE ingestion (nightly run, 610
+  symbols across the S&P 500, Nasdaq-100 delta, and major ETFs including VIX ETPs and crypto ETFs,
+  ~1M+ contracts), plus Yahoo OHLC for equities/ETFs/futures/indexes/spot crypto. This repo only reads the lake.
 - Greeks are supplied directly by CBOE (Black-Scholes units; `theta` per
   calendar day, `vega`/`rho` per 1.00 of vol/rate).
 - The Worker cache is in-isolate and tiered by how quickly the underlying data

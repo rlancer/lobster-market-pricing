@@ -1,7 +1,7 @@
 {
   "source": "curated continuous Yahoo futures (=F front month) for CME/CBOT/NYMEX/COMEX — used by futures-ohlc-daily",
-  "updated": "2026-08-17",
-  "note": "Yahoo chart v8 continuous contracts (instrumentType FUTURE). These are NOT CFE products; Cboe Futures Exchange (VX, FBT, …) is ingested separately by cfe-futures-daily via CBOE delayed quotes + settlement CSV. Verified HTTP 200 on query1.finance.yahoo.com/v8/finance/chart/{symbol} 2026-08-17.",
+  "updated": "2026-08-19",
+  "note": "Yahoo chart v8 continuous contracts (instrumentType FUTURE). These are NOT CFE products; Cboe Futures Exchange (VX, FBT, …) is ingested separately by cfe-futures-daily via CBOE delayed quotes + settlement CSV. Spot crypto (BTC-USD, …) is separate (crypto-spot-ohlc-daily). Verified HTTP 200 on query1.finance.yahoo.com/v8/finance/chart/{symbol} 2026-08-19.",
   "futures": [
     { "symbol": "ES=F", "name": "E-mini S&P 500", "asset_class": "Equity Index", "exchange": "CME" },
     { "symbol": "NQ=F", "name": "E-mini Nasdaq-100", "asset_class": "Equity Index", "exchange": "CME" },
@@ -21,6 +21,8 @@
     { "symbol": "6E=F", "name": "Euro FX", "asset_class": "FX", "exchange": "CME" },
     { "symbol": "6J=F", "name": "Japanese Yen", "asset_class": "FX", "exchange": "CME" },
     { "symbol": "BTC=F", "name": "Bitcoin", "asset_class": "Crypto", "exchange": "CME" },
-    { "symbol": "ETH=F", "name": "Ether", "asset_class": "Crypto", "exchange": "CME" }
+    { "symbol": "ETH=F", "name": "Ether", "asset_class": "Crypto", "exchange": "CME" },
+    { "symbol": "MBT=F", "name": "Micro Bitcoin", "asset_class": "Crypto", "exchange": "CME" },
+    { "symbol": "MET=F", "name": "Micro Ether", "asset_class": "Crypto", "exchange": "CME" }
   ]
 }

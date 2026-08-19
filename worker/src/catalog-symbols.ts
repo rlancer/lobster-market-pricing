@@ -1,8 +1,9 @@
 /**
- * Index + continuous-futures symbols that land in options.ohlc via loader jobs
- * but never appear in options.underlying_snapshots (no CBOE equity option chain
- * pass). Kept in lockstep with loader/symbols/indices.json + futures.json —
- * import the same JSON so typeahead / research identity stay source-of-truth.
+ * Index + continuous-futures + spot-crypto symbols that land in options.ohlc
+ * via loader jobs but never appear in options.underlying_snapshots (no CBOE
+ * equity option chain pass). Kept in lockstep with loader/symbols/indices.json,
+ * futures.json, and crypto-spot.json — import the same JSON so typeahead /
+ * research identity stay source-of-truth.
  *
  * Thinkorswim-style `/ROOT` search (e.g. `/ES`, `/VX`) resolves to the
  * researchable lake symbol (`ES=F`, `^VIX`).
@@ -10,18 +11,20 @@
 
 import indicesManifest from "../../loader/symbols/indices.json";
 import futuresManifest from "../../loader/symbols/futures.json";
+import cryptoSpotManifest from "../../loader/symbols/crypto-spot.json";
 
 export interface CatalogSymbol {
   symbol: string;
   name: string;
   sector: string;
-  kind: "index" | "future";
+  kind: "index" | "future" | "crypto";
   /** Futures root without slash — `ES` for `ES=F`, `VX` for cash VIX alias. */
   slash_root?: string;
 }
 
 type IndexRow = { symbol?: unknown; name?: unknown; family?: unknown };
 type FutureRow = { symbol?: unknown; name?: unknown; asset_class?: unknown };
+type CryptoRow = { symbol?: unknown; name?: unknown; asset_class?: unknown };
 
 function str(v: unknown): string | null {
   if (typeof v !== "string") return null;
@@ -72,6 +75,20 @@ function loadCatalog(): CatalogSymbol[] {
       slash_root: root ?? undefined,
     });
   }
+  const cryptos = Array.isArray((cryptoSpotManifest as { cryptos?: unknown }).cryptos)
+    ? ((cryptoSpotManifest as { cryptos: CryptoRow[] }).cryptos)
+    : [];
+  for (const row of cryptos) {
+    const symbol = str(row.symbol)?.toUpperCase();
+    const name = str(row.name);
+    if (!symbol || !name) continue;
+    out.push({
+      symbol,
+      name,
+      sector: str(row.asset_class) || "Crypto",
+      kind: "crypto",
+    });
+  }
   return out;
 }
 
@@ -80,6 +97,13 @@ export function continuousFuturesRoot(symbol: string): string | null {
   const s = symbol.trim().toUpperCase();
   if (!/^[A-Z0-9]{1,6}=F$/.test(s)) return null;
   return s.slice(0, -2);
+}
+
+/** `BTC-USD` → `BTC`; non-spot-crypto symbols → null. */
+export function spotCryptoBase(symbol: string): string | null {
+  const s = symbol.trim().toUpperCase();
+  const m = /^([A-Z0-9]{2,10})-USD$/.exec(s);
+  return m ? m[1] : null;
 }
 
 const CATALOG = loadCatalog();
@@ -136,7 +160,7 @@ export type SymbolSuggestion = {
   sector: string | null;
 };
 
-/** Lake underlyings win on collide; catalog fills indexes/futures gaps. */
+/** Lake underlyings win on collide; catalog fills indexes/futures/crypto gaps. */
 export function mergeSymbolUniverse(
   lake: SymbolSuggestion[],
   extras: readonly CatalogSymbol[] = CATALOG,
@@ -225,9 +249,11 @@ export function rankSymbolSuggestions(
     if (sym.startsWith(needle)) return 1;
     // Prefer ^VIX when the user typed VIX (index cash) over VIXY/VXX substring hits.
     if (sym === `^${needle}`) return 1;
+    // Prefer BTC-USD when the user typed the spot base BTC (ahead of BTC=F).
+    if (spotCryptoBase(sym) === needle) return 1;
     // Prefer ES=F when the user typed the futures root ES.
-    if (continuousFuturesRoot(sym) === needle) return 1;
-    return 2;
+    if (continuousFuturesRoot(sym) === needle) return 2;
+    return 3;
   };
   return match
     .sort((a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol))

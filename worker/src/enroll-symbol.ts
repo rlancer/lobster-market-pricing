@@ -39,11 +39,12 @@ export interface EnrollResponse {
   error?: string;
 }
 
-/** Equity/ETF OCC roots only (no ^VIX / ES=F). */
+/** Equity/ETF OCC roots only (no ^VIX / ES=F / BTC-USD). */
 export function isEnrollableEquityTicker(raw: string | null | undefined): boolean {
   if (!raw) return false;
   const t = String(raw).trim().toUpperCase();
   if (!t || t.startsWith("^") || t.includes("=") || t.startsWith("/")) return false;
+  if (t.endsWith("-USD")) return false;
   return /^[A-Z][A-Z0-9.\-]{0,11}$/.test(t);
 }
 

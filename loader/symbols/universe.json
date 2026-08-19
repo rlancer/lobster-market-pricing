@@ -1,6 +1,6 @@
 {
   "source": "merged universe: symbols/sp500.json + Nasdaq-100 (NDX \\ SPX) + symbols/etfs.json",
-  "updated": "2026-08-17",
+  "updated": "2026-08-19",
   "symbols": [
     "A",
     "AAPL",
@@ -49,6 +49,7 @@
     "APTV",
     "ARE",
     "ARES",
+    "ARKB",
     "ARKK",
     "ARM",
     "ASML",
@@ -70,6 +71,9 @@
     "BF.B",
     "BG",
     "BIIB",
+    "BITB",
+    "BITO",
+    "BITX",
     "BKNG",
     "BKR",
     "BLDR",
@@ -81,6 +85,8 @@
     "BRK.B",
     "BRO",
     "BSX",
+    "BTCO",
+    "BTCW",
     "BX",
     "BXP",
     "C",
@@ -187,6 +193,9 @@
     "ERIE",
     "ES",
     "ESS",
+    "ETHA",
+    "ETHE",
+    "ETHW",
     "ETN",
     "ETR",
     "EVRG",
@@ -200,15 +209,18 @@
     "EXPD",
     "EXPE",
     "EXR",
+    "EZBC",
     "F",
     "FANG",
     "FAST",
+    "FBTC",
     "FCX",
     "FDS",
     "FDX",
     "FDXF",
     "FE",
     "FER",
+    "FETH",
     "FFIV",
     "FICO",
     "FIS",
@@ -223,6 +235,7 @@
     "FTNT",
     "FTV",
     "FXI",
+    "GBTC",
     "GD",
     "GDDY",
     "GE",
@@ -251,6 +264,7 @@
     "HIG",
     "HII",
     "HLT",
+    "HODL",
     "HON",
     "HONA",
     "HOOD",
@@ -265,6 +279,7 @@
     "HWM",
     "HYG",
     "IAU",
+    "IBIT",
     "IBKR",
     "IBM",
     "ICE",
@@ -428,6 +443,7 @@
     "PYPL",
     "Q",
     "QCOM",
+    "QETH",
     "QQQ",
     "QQQM",
     "RCL",
@@ -461,7 +477,9 @@
     "SNDK",
     "SNPS",
     "SO",
+    "SOLT",
     "SOLV",
+    "SOLZ",
     "SOXL",
     "SOXX",
     "SPCX",
@@ -587,6 +605,7 @@
     "XLV",
     "XLY",
     "XOM",
+    "XRPI",
     "XYL",
     "XYZ",
     "YUM",
@@ -830,6 +849,11 @@
       "sector": "Financials",
       "source": "sp500"
     },
+    "ARKB": {
+      "name": "ARK 21Shares Bitcoin ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "ARKK": {
       "name": "ARK Innovation ETF",
       "sector": "Thematic",
@@ -935,6 +959,21 @@
       "sector": "Health Care",
       "source": "sp500"
     },
+    "BITB": {
+      "name": "Bitwise Bitcoin ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
+    "BITO": {
+      "name": "ProShares Bitcoin Strategy ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
+    "BITX": {
+      "name": "2x Bitcoin Strategy ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "BKNG": {
       "name": "Booking Holdings",
       "sector": "Consumer Discretionary",
@@ -989,6 +1028,16 @@
       "name": "Boston Scientific",
       "sector": "Health Care",
       "source": "sp500"
+    },
+    "BTCO": {
+      "name": "Invesco Galaxy Bitcoin ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
+    "BTCW": {
+      "name": "WisdomTree Bitcoin Fund",
+      "sector": "Crypto",
+      "source": "etf"
     },
     "BX": {
       "name": "Blackstone Inc.",
@@ -1520,6 +1569,21 @@
       "sector": "Real Estate",
       "source": "sp500"
     },
+    "ETHA": {
+      "name": "iShares Ethereum Trust ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
+    "ETHE": {
+      "name": "Grayscale Ethereum Trust ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
+    "ETHW": {
+      "name": "Bitwise Ethereum ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "ETN": {
       "name": "Eaton Corporation",
       "sector": "Industrials",
@@ -1585,6 +1649,11 @@
       "sector": "Real Estate",
       "source": "sp500"
     },
+    "EZBC": {
+      "name": "Franklin Bitcoin ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "F": {
       "name": "Ford Motor Company",
       "sector": "Consumer Discretionary",
@@ -1599,6 +1668,11 @@
       "name": "Fastenal",
       "sector": "Industrials",
       "source": "sp500"
+    },
+    "FBTC": {
+      "name": "Fidelity Wise Origin Bitcoin Fund",
+      "sector": "Crypto",
+      "source": "etf"
     },
     "FCX": {
       "name": "Freeport-McMoRan",
@@ -1629,6 +1703,11 @@
       "name": "Ferrovial N.V. Ordinary Shares",
       "sector": "Industrials",
       "source": "nasdaq100"
+    },
+    "FETH": {
+      "name": "Fidelity Ethereum Fund",
+      "sector": "Crypto",
+      "source": "etf"
     },
     "FFIV": {
       "name": "F5, Inc.",
@@ -1698,6 +1777,11 @@
     "FXI": {
       "name": "iShares China Large-Cap ETF",
       "sector": "International",
+      "source": "etf"
+    },
+    "GBTC": {
+      "name": "Grayscale Bitcoin Trust ETF",
+      "sector": "Crypto",
       "source": "etf"
     },
     "GD": {
@@ -1840,6 +1924,11 @@
       "sector": "Consumer Discretionary",
       "source": "sp500"
     },
+    "HODL": {
+      "name": "VanEck Bitcoin Trust",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "HON": {
       "name": "Honeywell Technologies",
       "sector": "Industrials",
@@ -1908,6 +1997,11 @@
     "IAU": {
       "name": "iShares Gold Trust",
       "sector": "Commodities",
+      "source": "etf"
+    },
+    "IBIT": {
+      "name": "iShares Bitcoin Trust ETF",
+      "sector": "Crypto",
       "source": "etf"
     },
     "IBKR": {
@@ -2725,6 +2819,11 @@
       "sector": "Information Technology",
       "source": "sp500"
     },
+    "QETH": {
+      "name": "Invesco Galaxy Ethereum ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "QQQ": {
       "name": "Invesco QQQ Trust (Nasdaq-100)",
       "sector": "Broad Market",
@@ -2890,10 +2989,20 @@
       "sector": "Utilities",
       "source": "sp500"
     },
+    "SOLT": {
+      "name": "2x Solana ETF",
+      "sector": "Crypto",
+      "source": "etf"
+    },
     "SOLV": {
       "name": "Solventum",
       "sector": "Health Care",
       "source": "sp500"
+    },
+    "SOLZ": {
+      "name": "Solana ETF",
+      "sector": "Crypto",
+      "source": "etf"
     },
     "SOXL": {
       "name": "Direxion Daily Semiconductor Bull 3X Shares",
@@ -3519,6 +3628,11 @@
       "name": "ExxonMobil",
       "sector": "Energy",
       "source": "sp500"
+    },
+    "XRPI": {
+      "name": "XRP ETF",
+      "sector": "Crypto",
+      "source": "etf"
     },
     "XYL": {
       "name": "Xylem Inc.",
