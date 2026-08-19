@@ -75,6 +75,17 @@ function loadImage(file: Blob): Promise<HTMLImageElement> {
   });
 }
 
+/** Resolve when the browser can paint `src` in an <img>; reject on error. */
+export function preloadImage(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Could not load saved photo'));
+    img.decoding = 'async';
+    img.src = src;
+  });
+}
+
 function canvasToJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertSafeSvg, resolveAvatarMime } from "../src/avatars.ts";
+import { assertSafeSvg, resolveAvatarMime, sniffImageContentType } from "../src/avatars.ts";
 
 function bytes(text: string): ArrayBuffer {
   return new TextEncoder().encode(text).buffer;
@@ -24,4 +24,17 @@ test("resolveAvatarMime sniffs SVG when Content-Type is missing", () => {
   assert.equal(resolveAvatarMime("image/svg+xml", svg), "image/svg+xml");
   assert.equal(resolveAvatarMime("image/png", bytes("not-png")), "image/png");
   assert.equal(resolveAvatarMime("text/plain", bytes("hello")), null);
+});
+
+test("sniffImageContentType recognizes common image magic bytes", () => {
+  assert.equal(sniffImageContentType(Uint8Array.of(0xff, 0xd8, 0xff, 0xe0)), "image/jpeg");
+  assert.equal(
+    sniffImageContentType(Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)),
+    "image/png",
+  );
+  assert.equal(
+    sniffImageContentType(new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'></svg>")),
+    "image/svg+xml",
+  );
+  assert.equal(sniffImageContentType(Uint8Array.of(0x00, 0x01, 0x02)), null);
 });

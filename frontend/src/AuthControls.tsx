@@ -23,6 +23,7 @@ import { handleInputError, normalizeHandleInput } from './handle';
 import {
   isSvgAvatarFile,
   prepareAvatarUpload,
+  preloadImage,
   type AvatarCrop,
 } from './prepareAvatar';
 import { UserAvatar } from './UserAvatar';
@@ -349,6 +350,17 @@ export function AuthControls({
     try {
       const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
       applyProfilePatch(result);
+      const remote = api.avatarSrc(result.avatar_url);
+      if (remote) {
+        try {
+          await preloadImage(remote);
+        } catch {
+          // Upload succeeded but the GET URL did not paint — keep the local
+          // crop visible instead of swapping to a broken <img>.
+          setAvatarError('Photo saved, but the server image failed to load. Try a refresh.');
+          return;
+        }
+      }
       setOptimisticAvatarPreview(null);
     } catch (err) {
       setOptimisticAvatarPreview(null);
