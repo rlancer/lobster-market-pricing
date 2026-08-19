@@ -18,6 +18,32 @@ const EMPTY_FORM = {
   enabled: true,
 };
 
+/** Create-form presets — seeded bots + the original yololobster template. */
+const BOT_PRESETS = {
+  nowlobster: {
+    handle: 'nowlobster',
+    display_name: 'Now Lobster',
+    persona: "What's happening now",
+    bio: 'Live desk commentary on the session — indexes, sector leadership, and the options tape that explains the move.',
+    system_prompt_extra:
+      'You write present-tense market commentary for what is happening right now. Lead with the tape: index posture (SPX/NDX/QQQ/IWM), sector leadership or rotation, and the single-name or factor moves that matter. Ground every claim in tool results (quotes, unusual options volume/OI, IV, news, macro calendar) — no invented catalysts. Prefer unusual options flow and tradable liquid names over thin lottery tickets. Close with a sharp 1–3 sentence desk takeaway a trader can act on or dismiss in under 30 seconds. Stay opinionated but honest about uncertainty when the data is mixed.',
+    seed_prompts: [
+      "What's happening in the market right now? Lead with the index move, then the unusual options flow and single-name catalysts that explain it.",
+      'Give me live market commentary for this session — SPX/QQQ posture, sector leadership, and the options tape that matters.',
+      "What is the market pricing right now? Pull IV, unusual volume, and the catalysts driving today's move.",
+    ].join('\n'),
+  },
+  yololobster: {
+    handle: 'yololobster',
+    display_name: 'Yolo Lobster',
+    persona: 'High risk, high reward',
+    bio: '',
+    system_prompt_extra:
+      'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes.',
+    seed_prompts: 'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
+  },
+} as const;
+
 function seedsToText(seeds: string[]): string {
   return seeds.join('\n');
 }
@@ -119,20 +145,16 @@ export default function BotsPage() {
     setPrompt(nextUnusedSeed(detail.bot.seed_prompts, detail.runs));
   };
 
-  const startCreate = () => {
+  const startCreate = (preset: keyof typeof BOT_PRESETS = 'nowlobster') => {
+    const template = BOT_PRESETS[preset];
     setCreating(true);
     setSelected(null);
     setForm({
       ...EMPTY_FORM,
-      handle: 'yololobster',
-      display_name: 'Yolo Lobster',
-      persona: 'High risk, high reward',
-      system_prompt_extra:
-        'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes.',
-      seed_prompts: 'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
+      ...template,
     });
     setRuns([]);
-    setPrompt('Find the juiciest short-dated call lottery tickets with real volume and open interest today.');
+    setPrompt(textToSeeds(template.seed_prompts)[0] ?? '');
   };
 
   const save = async () => {
@@ -249,8 +271,9 @@ export default function BotsPage() {
         <Heading level={1}>Bot profiles</Heading>
         <Text type="supporting">
           Admin-only personas that chat with Copilot and publish under a public handle
-          (e.g. @yololobster for high risk / high reward). Generate opens Chat with the
-          persona loaded — successful answers auto-share to the timeline as that bot.
+          (e.g. @nowlobster for live market commentary, @yololobster for high risk /
+          high reward). Generate opens Chat with the persona loaded — successful answers
+          auto-share to the timeline as that bot.
         </Text>
       </header>
 
@@ -261,10 +284,10 @@ export default function BotsPage() {
         <aside className="bots-list" aria-label="Bot profiles">
           <div className="bots-list-head">
             <Heading level={2}>Bots</Heading>
-            <Button variant="secondary" size="sm" label="New bot" onClick={startCreate} />
+            <Button variant="secondary" size="sm" label="New bot" onClick={() => startCreate()} />
           </div>
           {bots.length === 0 && !creating && (
-            <Text type="supporting">No bots yet — create @yololobster to start.</Text>
+            <Text type="supporting">No bots yet — @nowlobster seeds on deploy, or create one here.</Text>
           )}
           <ul className="bots-handles">
             {bots.map((bot) => (

@@ -307,7 +307,8 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News and related chats
 settle on idle. Chat ticker chips (from `research_ticker`) link there.
 **Bots** (`/bots`, admin-only) edit Copilot personas (handles like
-`yololobster`) and trigger a chat from the UI; generate picks a prompt that
+`nowlobster` for live market commentary, `yololobster` for high-risk ideas)
+and trigger a chat from the UI; generate picks a prompt that
 has not already been used on a prior run (next unused seed, or an invented
 question). Sharing stamps the post onto the public timeline under that handle.
 **Data**

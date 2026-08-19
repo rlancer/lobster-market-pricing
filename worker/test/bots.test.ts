@@ -37,6 +37,30 @@ test("validateBotInput accepts yololobster-style profiles", () => {
   assert.deepEqual(result.value.seed_prompts, ["Find lottery-ticket calls with real flow."]);
 });
 
+test("validateBotInput accepts nowlobster market-commentary profile", () => {
+  const result = validateBotInput(
+    {
+      handle: "nowlobster",
+      display_name: "Now Lobster",
+      persona: "What's happening now",
+      bio: "Live desk commentary on the session.",
+      system_prompt_extra:
+        "You write present-tense market commentary for what is happening right now.",
+      seed_prompts: [
+        "What's happening in the market right now? Lead with the index move, then the unusual options flow and single-name catalysts that explain it.",
+        "Give me live market commentary for this session — SPX/QQQ posture, sector leadership, and the options tape that matters.",
+      ],
+      enabled: true,
+    },
+    { requireHandle: true },
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.handle, "nowlobster");
+  assert.equal(result.value.persona, "What's happening now");
+  assert.equal(result.value.seed_prompts.length, 2);
+});
+
 test("validateBotInput rejects bad handles and empty persona", () => {
   assert.equal(validateBotInput({ handle: "1yolo", display_name: "X", persona: "Y" }, { requireHandle: true }).ok, false);
   assert.equal(validateBotInput({ handle: "ab", display_name: "X", persona: "Y" }, { requireHandle: true }).ok, false);
