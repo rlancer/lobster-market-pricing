@@ -43,7 +43,7 @@ INSERT OR IGNORE INTO bot_schedules (
   1,
   3600,
   1,
-  'Hourly market overview: what''s happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow or single-name catalysts that explain the tape. Close with a sharp desk takeaway.',
+  'Hourly market overview: what''s happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow or single-name catalysts that explain the tape. Chart the key series (index closes, sector moves, or IV/volume leaders) with render_chart, then close with a sharp desk takeaway.',
   0,
   NULL,
   NULL,

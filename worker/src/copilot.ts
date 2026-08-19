@@ -32,7 +32,7 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
-import { extractShareTurns } from "./share-turns";
+import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -231,6 +231,7 @@ function systemPrompt(schema: string, bot?: BotPromptProfile | null): string {
     lines.push(
       "Write in this persona's voice while still following every SQL/tool rule above.",
       "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+      "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
     );
   }
   return lines.join("\n");
@@ -506,13 +507,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     status: "completed" | "error" | "skipped" | "aborted";
     error?: string;
     model: string | null;
-    messages: Array<{
-      role: "user" | "assistant";
-      content: string;
-      reasoning?: string;
-      sql?: string;
-      ts?: number;
-    }>;
+    messages: ShareTurn[];
   }> {
     const prompt = String(input.prompt ?? "").trim();
     if (!prompt) return { status: "error", error: "prompt is required", model: null, messages: [] };
@@ -523,7 +518,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       parts: [{ type: "text", text: prompt }],
     };
     const result = await this.saveMessages((current) => [...current, userMessage]);
-    const messages = extractShareTurns(this.messages as UIMessage[]);
+    let messages = extractShareTurns(this.messages as UIMessage[]);
+    // Parts can omit tool outputs after a headless run; turn-budget capture is
+    // the source of truth for the sql/result/chart the tools just produced.
+    try {
+      const budget = this.readTurnBudget();
+      const capture = JSON.parse(budget.capture_json) as ShareCapture;
+      messages = applyCaptureToShareTurns(messages, capture, prompt);
+    } catch {
+      // No turn budget yet (failed before tools) — keep part-derived turns.
+    }
     const model = [...messages].reverse().find((m) => m.role === "assistant")
       ? (input.bot.model?.trim() || this.env.COPILOT_MODEL?.trim() || null)
       : null;
