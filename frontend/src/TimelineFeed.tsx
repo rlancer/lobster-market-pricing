@@ -115,30 +115,6 @@ export function TimelinePostRow({
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
   const displayName = post.name?.trim() || post.handle;
-  /**
-   * Identity lives in the byline (or profile header). User turns only keep the
-   * left-side photo so multi-turn threads stay scannable.
-   */
-  const authorAside = showAuthor ? (
-    <Link
-      to="/u/$handle"
-      params={{ handle: post.handle }}
-      className="timeline-msg-avatar-link"
-      aria-label={`${displayName} (@${post.handle})`}
-    >
-      <UserAvatar
-        avatarUrl={post.avatar_url}
-        className="timeline-author-avatar"
-        alt=""
-      />
-    </Link>
-  ) : (
-    <UserAvatar
-      avatarUrl={post.avatar_url}
-      className="timeline-author-avatar"
-      alt=""
-    />
-  );
 
   const unpublish = async () => {
     const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
@@ -221,7 +197,6 @@ export function TimelinePostRow({
                 openInData
                 hydrateResult={false}
                 collapseSql
-                userAside={message.role === 'user' ? authorAside : undefined}
               />
             ))}
           </VStack>

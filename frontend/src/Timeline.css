@@ -202,9 +202,9 @@
   margin-block-start: calc(var(--spacing-1) * -1);
 }
 
-/* Feed bubbles sit edge-to-edge. Author ask is start-aligned: photo on the
-   left with name/@handle on one line over the bubble; lobster answer is
-   end-aligned with the brand mark on the right. */
+/* Feed bubbles sit edge-to-edge. Author ask is start-aligned; lobster answer
+   is end-aligned with the brand mark on the right. Identity is only in the
+   byline — no second avatar beside user turns. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
@@ -213,26 +213,12 @@
   max-width: 92%;
 }
 
-/* Identity is in the byline; user turns are photo + bubble only. */
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: var(--spacing-2);
-  align-items: start;
-  justify-content: start;
+.timeline-msgs .ai-msg.ai-user {
+  justify-content: flex-start;
 }
 
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-msg-avatar-link,
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn > .timeline-author-avatar {
-  grid-column: 1;
-  align-self: start;
-}
-
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .ai-bubble {
-  grid-column: 2;
-  justify-self: start;
-  max-width: 100%;
-  /* Tail toward the left-side photo. */
+.timeline-msgs .ai-msg.ai-user .ai-bubble {
+  /* Tail toward the start edge (author side). */
   border-bottom-right-radius: var(--radius-container);
   border-bottom-left-radius: var(--radius-inner);
 }
@@ -246,19 +232,6 @@
   /* Tail toward the right-side mark. */
   border-bottom-left-radius: var(--radius-container);
   border-bottom-right-radius: var(--radius-inner);
-}
-
-.timeline-msg-avatar-link {
-  flex: 0 0 auto;
-  display: block;
-  color: inherit;
-  text-decoration: none;
-  line-height: 0;
-}
-
-.timeline-msg-avatar-link:hover .timeline-author-avatar {
-  outline: var(--border-width) solid var(--color-border-emphasized);
-  outline-offset: var(--spacing-0-5);
 }
 
 .timeline-author-link:hover {
