@@ -9,14 +9,14 @@ import { generateText, type LanguageModel } from "ai";
 import { linkChatTicker } from "./chat-tickers";
 import { resolveTickerIdentity, type FigiEnv } from "./figi";
 import { parseTickerParam } from "./research";
-import { clipTitle, firstUserContent, TITLE_MAX } from "./user-chats";
+import { clipTitle, firstUserContent, isAutoDerivedTitle, TITLE_MAX } from "./user-chats";
 
 export const CHAT_META_SYSTEM = [
   "You label one Lobster MP Copilot transcript (US equities & ETF options).",
   "Return ONLY a JSON object with keys title and tickers. No markdown fences.",
   'Example: {"title":"NVDA vol crush after earnings","tickers":["NVDA"]}',
   "title: a short display headline (max 80 characters). Capture the topic or desk takeaway — not prompt instructions, not a verbatim paste of the user message.",
-  "tickers: OCC equity/ETF roots clearly discussed (e.g. SPY, QQQ, IWM, NVDA). Include index forms like ^VIX when relevant. Max 8. Empty array if none.",
+  "tickers: OCC equity/ETF roots clearly discussed (e.g. SPY, QQQ, IWM, NVDA). These become public tags on the share and timeline. Include index forms like ^VIX when relevant. Max 8. Empty array if none.",
   "Prefer liquid underlyings over strikes or option symbols. Do not invent tickers.",
 ].join("\n");
 
@@ -153,4 +153,31 @@ export async function enrichChatMeta(
     : [];
   const title = meta.title || (fallback ? clipTitle(fallback) : null);
   return { title, tickers };
+}
+
+/**
+ * Best-effort backfill for an existing share: NER tickers → chat_tickers tags,
+ * and replace an auto-derived title with the LLM headline when appropriate.
+ */
+export async function backfillShareMeta(
+  env: ChatMetaEnv & { OPEN_ROUTER_KEY?: string; COPILOT_MODEL?: string },
+  args: {
+    chatId: string;
+    shareId: string;
+    messages: unknown;
+    storedTitle: string | null;
+    model: LanguageModel;
+  },
+): Promise<void> {
+  try {
+    const meta = await enrichChatMeta(env, args.chatId, args.messages, args.model);
+    const first = firstUserContent(args.messages);
+    if (meta.title && isAutoDerivedTitle(args.storedTitle, first)) {
+      await env.SCHEMA_DB.prepare(
+        `UPDATE shared_chats SET title = ?1, updated_at = ?2 WHERE share_id = ?3`,
+      ).bind(meta.title, Date.now(), args.shareId).run();
+    }
+  } catch (error) {
+    console.warn("share meta backfill failed", error);
+  }
 }

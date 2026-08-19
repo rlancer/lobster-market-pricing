@@ -75,7 +75,7 @@ import {
   touchUserChat,
   clipTitle,
 } from "./user-chats";
-import { enrichChatMeta } from "./chat-meta";
+import { enrichChatMeta, backfillShareMeta } from "./chat-meta";
 import {
   chatIdForShare,
   listToolEvents,
@@ -2130,13 +2130,14 @@ async function createShare(env: Env, req: Request): Promise<Response> {
  * share_id is the capability); unknown or expired ids are indistinguishable
  * 404s. created_ip / created_ua are never selected — privacy by construction.
  */
-async function getSharedChat(env: Env, shareId: string): Promise<Response> {
+async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): Promise<Response> {
   if (!SHARE_ID_RE.test(shareId)) return json(env, { error: "not found" }, 404);
   const row = await env.SCHEMA_DB.prepare(
-    `SELECT share_id, title, mode, model, messages, source_sql, created_at, expires_at, bot_handle
+    `SELECT share_id, chat_id, title, mode, model, messages, source_sql, created_at, expires_at, bot_handle
      FROM shared_chats WHERE share_id = ?1`,
   ).bind(shareId).first<{
     share_id: string;
+    chat_id: string;
     title: string | null;
     mode: string;
     model: string | null;
@@ -2153,6 +2154,28 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     messages = JSON.parse(row.messages);
   } catch {
     /* rows are written by us; tolerate a corrupt one rather than 500 */
+  }
+  const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
+  const tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];
+  // Older shares predate title+NER enrich — backfill tags (and title) once.
+  if (
+    tickers.length === 0
+    && row.chat_id
+    && messages
+    && env.OPEN_ROUTER_KEY?.trim()
+    && env.COPILOT_MODEL?.trim()
+  ) {
+    const model = createCopilotModel(
+      { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+      "https://lobster.mp",
+    );
+    ctx.waitUntil(backfillShareMeta(env, {
+      chatId: row.chat_id,
+      shareId: row.share_id,
+      messages,
+      storedTitle: row.title,
+      model,
+    }));
   }
   const author = await getTimelineAuthor(env.SCHEMA_DB, shareId);
   let bot: { handle: string; display_name: string; persona: string } | null = null;
@@ -2174,6 +2197,8 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     author,
     bot_handle: bot?.handle ?? null,
     bot,
+    /** NER / research_ticker tags linked via chat_tickers. */
+    tickers,
   });
 }
 
@@ -3239,7 +3264,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/share/chat" && req.method === "POST")
     return await createShare(env, req);
   if (path.startsWith("/api/share/"))
-    return await getSharedChat(env, path.slice("/api/share/".length));
+    return await getSharedChat(env, path.slice("/api/share/".length), ctx);
 
 
   return json(env, { error: "not found" }, 404);

@@ -65,6 +65,30 @@
   letter-spacing: -0.02em;
   color: var(--text);
 }
+.share-tickers {
+  flex-wrap: wrap;
+  margin-top: var(--spacing-2);
+  min-width: 0;
+}
+.share-ticker {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-accent);
+  text-decoration: none;
+  padding: var(--spacing-0-5) var(--spacing-1-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: var(--panel);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+.share-ticker:hover {
+  border-color: var(--color-border-emphasized);
+  text-decoration: underline;
+}
 .share-meta {
   margin: var(--spacing-1) 0 0;
   color: var(--muted);
