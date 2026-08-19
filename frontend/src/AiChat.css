@@ -117,7 +117,7 @@
 }
 .ai-welcome {
   margin: auto;
-  width: min(100%, var(--content-max));
+  width: min(100%, var(--chat-max));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-6);
@@ -197,7 +197,7 @@
 .ai-msg {
   display: flex;
   gap: 10px;
-  width: min(100%, var(--content-max));
+  width: min(100%, var(--chat-max));
   margin-inline: auto;
 }
 .ai-msg.ai-user { justify-content: flex-end; }
@@ -538,7 +538,7 @@
   background: var(--panel);
 }
 .ai-composer-wrap > * {
-  width: min(100%, var(--content-max));
+  width: min(100%, var(--chat-max));
 }
 
 /* ---- responsive ---------------------------------------------------------- */
