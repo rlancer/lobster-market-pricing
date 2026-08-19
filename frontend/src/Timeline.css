@@ -243,7 +243,8 @@
 .timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-msg-avatar-link,
 .timeline-msgs .ai-msg.ai-user.timeline-user-turn > .timeline-author-avatar {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1 / -1;
+  align-self: start;
 }
 
 .timeline-user-label {
