@@ -198,8 +198,13 @@
 }
 
 .timeline-continue {
-  align-self: flex-start;
+  align-self: center;
   margin-block-start: calc(var(--spacing-1) * -1);
+  color: color-mix(in srgb, var(--color-text-secondary, var(--muted)) 72%, transparent);
+}
+
+.timeline-continue:hover {
+  color: var(--color-text-secondary, var(--muted));
 }
 
 /* Feed bubbles sit edge-to-edge. Author ask is start-aligned; lobster answer
