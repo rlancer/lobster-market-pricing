@@ -4,6 +4,7 @@ import {
   AVATAR_D1_KEY,
   assertSafeSvg,
   avatarUrlFor,
+  d1BlobToUint8Array,
   resolveAvatarMime,
   sniffImageContentType,
 } from "../src/avatars.ts";
@@ -49,4 +50,19 @@ test("avatarUrlFor uses the D1 sentinel and version query", () => {
   assert.equal(avatarUrlFor("u1", null), null);
   assert.equal(avatarUrlFor("u1", AVATAR_D1_KEY), "/api/avatars/u1");
   assert.equal(avatarUrlFor("u1", AVATAR_D1_KEY, 99), "/api/avatars/u1?v=99");
+});
+
+test("d1BlobToUint8Array coerces D1 number arrays and buffers", () => {
+  const fromArray = d1BlobToUint8Array([255, 216, 255]);
+  assert.ok(fromArray);
+  assert.deepEqual([...fromArray!], [255, 216, 255]);
+
+  const buf = Uint8Array.of(1, 2, 3).buffer;
+  const fromBuf = d1BlobToUint8Array(buf);
+  assert.ok(fromBuf);
+  assert.deepEqual([...fromBuf!], [1, 2, 3]);
+
+  assert.equal(d1BlobToUint8Array(null), null);
+  assert.equal(d1BlobToUint8Array([]), null);
+  assert.equal(d1BlobToUint8Array(new ArrayBuffer(0)), null);
 });
