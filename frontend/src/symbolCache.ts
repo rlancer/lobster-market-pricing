@@ -9,7 +9,7 @@
 
 import { api, type SymbolSuggestion } from './api';
 
-const STORAGE_KEY = 'symbol_cache_v1';
+const STORAGE_KEY = 'symbol_cache_v2';
 /** Universe refreshes nightly; 24h bounds staleness to at most one day. */
 const SYMBOL_TTL_MS = 24 * 60 * 60 * 1000;
 const SEARCH_LIMIT = 50;
@@ -53,6 +53,9 @@ export async function cachedSymbols(): Promise<SymbolSuggestion[]> {
  * Rank a needle against the universe, mirroring the worker's ordering:
  * exact symbol match, then symbol-prefix, then any substring (symbol or name),
  * ties broken by symbol. Pure and synchronous for testing.
+ *
+ * Slash futures roots (`/ES`, `/VX`) are resolved server-side — see
+ * searchSymbols — so this helper only handles non-slash needles.
  */
 export function rankSymbols(
   items: SymbolSuggestion[],
@@ -69,6 +72,10 @@ export function rankSymbols(
     const sym = s.symbol.toUpperCase();
     if (sym === q) return 0;
     if (sym.startsWith(q)) return 1;
+    // Prefer ^VIX when the user typed VIX (cash index) over VIXY/VXX.
+    if (sym === `^${q}`) return 1;
+    // Prefer ES=F when the user typed the futures root ES.
+    if (sym.endsWith('=F') && sym.slice(0, -2) === q) return 1;
     return 2;
   };
   return match
@@ -79,9 +86,14 @@ export function rankSymbols(
 /**
  * Search the cached universe client-side; falls back to the server-side
  * /api/symbols search when the universe is unavailable.
+ * Slash futures roots (`/vx`, `/es`) always hit the API so ranking stays
+ * identical to the worker catalog (CFE aliases included).
  */
 export async function searchSymbols(q: string): Promise<SymbolSuggestion[]> {
   const needle = q.trim();
+  if (needle.startsWith('/')) {
+    return api.symbols(needle);
+  }
   try {
     const universe = await cachedSymbols();
     return rankSymbols(universe, needle);

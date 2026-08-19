@@ -315,6 +315,13 @@ export function realizedVols(bars: DailyBar[]): RealizedVolResult {
 // ---------------------------------------------------------------------------
 // Normalize (records exactly follow *_FIELDS order)
 // ---------------------------------------------------------------------------
+/** Bars safe to land in the lake — null closes shadow older good rows via latest-wins. */
+export function publishableOhlcBars(bars: DailyBar[]): DailyBar[] {
+  return bars.filter(
+    (b) => typeof b.close === "number" && Number.isFinite(b.close),
+  );
+}
+
 export function normalizeOhlcRecords(
   symbol: string,
   bars: DailyBar[],
@@ -323,7 +330,7 @@ export function normalizeOhlcRecords(
   asOfDate: string,
   fetchedAt: string,
 ): Array<Record<string, unknown>> {
-  return bars.map((b) => {
+  return publishableOhlcBars(bars).map((b) => {
     const rec: Record<string, unknown> = {
       symbol, date: b.date, open: b.open, high: b.high, low: b.low,
       close: b.close, volume: b.volume, source,

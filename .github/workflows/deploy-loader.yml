@@ -16,7 +16,10 @@ name: Deploy loader (Worker)
 #   CLOUDFLARE_ACCOUNT_ID — Cloudflare account ID
 # LOADER_TOKEN and the rotated PIPELINE_*_URL / PIPELINE_AUTH_TOKEN are set
 # once on the deployed Worker via `wrangler secret put` and persist across
-# deploys, so CI does not need them. The ingest URLs are unauthenticated
+# deploys, so CI does not need them for Pipeline ingest. Research brief warming
+# needs RESEARCH_API_BASE + ADMIN_TOKEN on every deploy (synced below from
+# GitHub secrets) — without them `research-briefs-daily` dry-runs forever.
+# The ingest URLs are unauthenticated
 # write endpoints (the subdomain IS the credential) and must NEVER be
 # committed — see SECURITY-AUDIT.md (CRITICAL). Set them after rotating any
 # leaked URLs in the Cloudflare dashboard:
@@ -82,3 +85,20 @@ jobs:
 
       - name: Deploy Worker
         run: cd loader && npx wrangler deploy
+
+      # research-briefs-daily POSTs to the API Worker. Without these secrets the
+      # job reports success while dry-running (no D1 warm). Sync on every deploy
+      # so a merge of the warm job cannot land "green" but inert in prod.
+      - name: Sync research brief warm secrets
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd loader
+          printf '%s' 'https://api.lobster.mp' | npx wrangler secret put RESEARCH_API_BASE
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::warning::ADMIN_TOKEN missing from GitHub secrets — research-briefs-daily will keep dry-running"
+            exit 0
+          fi
+          printf '%s' "$ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN
+          echo "RESEARCH_API_BASE + ADMIN_TOKEN synced onto cboe-to-r2"

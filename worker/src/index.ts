@@ -83,6 +83,7 @@ import {
 } from "./research";
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
+import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
 
 
@@ -349,21 +350,13 @@ async function screen(env: Env, p: {
 
 async function symbols(env: Env, q?: string, limit = 50): Promise<{ symbol: string; name: string | null; sector: string | null }[]> {
   const lim = clamp(limit, 1, 1000);
-  if (!q) {
-    // Full universe pull (limit 1000 covers all ~500 symbols) — the reference
-    // tier: the browser caches this across sessions and filters client-side.
-    const rows = await r2sql(env,
-      `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ORDER BY symbol LIMIT ${lim}`,
-      "syms_all_" + lim, REF_TTL_MS);
-    return rows.map(row);
-  }
-  const u = `%${q.toUpperCase()}%`;
+  // Equity/ETF names come from underlying_snapshots; indexes + continuous
+  // futures only exist in options.ohlc, so merge the loader catalogs in.
   const rows = await r2sql(env,
-    `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ` +
-    `WHERE (UPPER(symbol) LIKE ${lit(u)} OR UPPER(COALESCE(name,'')) LIKE ${lit(u)}) ` +
-    `ORDER BY CASE WHEN UPPER(symbol) = ${lit(q.toUpperCase())} THEN 0 WHEN UPPER(symbol) LIKE ${lit(q.toUpperCase() + "%")} THEN 1 ELSE 2 END, symbol LIMIT ${lim}`,
-    "syms_q_" + q.toUpperCase() + "_" + lim, REF_TTL_MS);
-  return rows.map(row);
+    `SELECT symbol, name, sector FROM (${LATEST_UNDERLYING}) ORDER BY symbol LIMIT 1000`,
+    "syms_lake_v2", REF_TTL_MS);
+  const merged = mergeSymbolUniverse(rows.map(row));
+  return rankSymbolSuggestions(merged, q ?? undefined, lim);
 }
 function row(r: R2Row): { symbol: string; name: string | null; sector: string | null } {
   return { symbol: String(r.symbol), name: strOrNull(r.name), sector: strOrNull(r.sector) };
@@ -400,10 +393,10 @@ async function loadSymbolOhlc(env: Env, symbol: string): Promise<Row[]> {
     `SELECT date, open, high, low, close, volume FROM (` +
       `  SELECT date, open, high, low, close, volume,` +
       `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
-      `  FROM options.ohlc WHERE symbol = ${lit(symbol)} AND date >= ${lit(since)}` +
+      `  FROM options.ohlc WHERE symbol = ${lit(symbol)} AND date >= ${lit(since)} AND close IS NOT NULL` +
       `) WHERE rn = 1 ORDER BY date DESC LIMIT ${OHLC_BARS_LIMIT}`,
-    // v2: date-bounded scan (unbounded window made parts=ohlc multi-second).
-    `sym_ohlc_v2_${symbol}`,
+    // v3: ignore null-close rows (Yahoo holes + stripNones) that would shadow good bars.
+    `sym_ohlc_v3_${symbol}`,
   );
   return (ohlcRows as Row[]).map((r) => ({
     date: String(r.date),
@@ -2236,9 +2229,9 @@ async function loadResearchOhlc(env: Env, ticker: string): Promise<OhlcBar[]> {
       `SELECT date, open, high, low, close, volume FROM (` +
         `  SELECT date, open, high, low, close, volume,` +
         `    ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.ohlc WHERE symbol = ${lit(ticker)} AND date >= ${lit(since)}` +
+        `  FROM options.ohlc WHERE symbol = ${lit(ticker)} AND date >= ${lit(since)} AND close IS NOT NULL` +
         `) WHERE rn = 1 ORDER BY date DESC LIMIT ${RESEARCH_OHLC_LIMIT}`,
-      "research_ohlc_v2_" + ticker,
+      "research_ohlc_v3_" + ticker,
       QUERY_TTL_MS,
     );
     return (rows as Row[]).map((r) => ({
