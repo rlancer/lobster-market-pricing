@@ -2,7 +2,7 @@
 
 const MAX_EDGE = 512;
 const JPEG_QUALITY = 0.88;
-const MAX_BYTES = 5_242_880;
+const MAX_BYTES = 2_097_152;
 
 export type PreparedAvatar = {
   blob: Blob;
@@ -101,7 +101,7 @@ function canvasToJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
 
 async function prepareSvgUpload(file: File): Promise<PreparedAvatar> {
   if (file.size > MAX_BYTES) {
-    throw new Error('Avatar must be 5 MB or smaller');
+    throw new Error('Avatar must be 2 MB or smaller');
   }
   const text = await file.text();
   const head = text.trimStart().slice(0, 256).toLowerCase();
@@ -154,7 +154,7 @@ export async function prepareAvatarUpload(
     blob = await canvasToJpeg(canvas, quality);
   }
   if (blob.size > MAX_BYTES) {
-    throw new Error('Avatar must be 5 MB or smaller after resize');
+    throw new Error('Avatar must be 2 MB or smaller after resize');
   }
   return { blob, contentType: 'image/jpeg' };
 }

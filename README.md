@@ -125,8 +125,8 @@ the app header so the account is available on every workspace page, not only
 Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
 letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
 `user` row). From the account popover you can also set a **display name** and
-upload a **custom avatar** (Cloudflare Images via the Worker `IMAGES`
-binding; D1 only stores the image id on `user_profiles.avatar_key`, served at
+upload a **custom avatar** (JPEG/PNG/WebP/SVG bytes in D1 `user_avatars`;
+`user_profiles.avatar_key` is a presence sentinel, served at
 `/api/avatars/{user_id}`). Handles are the URL slug for `/u/{handle}` (that
 handle's public profile and opted-in chats). Chat ownership still keys off
 `user_id`. A chat is cataloged onto the
@@ -232,9 +232,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), and `is_admin`. 401 if anonymous. |
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Requires a claimed handle for display_name-only. 400 if invalid/reserved, 409 if handle taken. |
-| `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP/SVG, ≤5 MB. Client pan/zoom-crops rasters to a square (≤512px JPEG) before upload; SVG stays vector after script screening. Stored in Cloudflare Images; D1 keeps the image id. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
+| `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP/SVG, ≤2 MB. Client pan/zoom-crops rasters to a square (≤512px JPEG) before upload; SVG stays vector after script screening. Stored as a D1 blob on `user_avatars`. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
 | `DELETE /api/me/avatar` | Clear the custom avatar (falls back to the brand sunglasses mark). |
-| `GET /api/avatars/{user_id}` | Public avatar bytes streamed from Cloudflare Images (404 when unset). |
+| `GET /api/avatars/{user_id}` | Public avatar bytes from D1 (404 when unset). |
 | `GET /api/chats` | List the signed-in user's saved chats (D1 `user_chats`), newest activity first. Only rows with a non-empty title are returned — empty new-chat UUIDs never appear as "Untitled chat". 401 if anonymous. |
 | `POST /api/chats/claim` | Catalog `chat_id` onto the session user **with a title** (the first user turn). Untitled claims are rejected (400) so blank shells are not cataloged. Idempotent for the owner and does **not** bump `updated_at` (opening a chat is not activity). 409 if another user already owns it. Recency is updated by a saved turn (`POST /api/chat/history`) or `PATCH` rename. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |

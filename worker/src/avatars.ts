@@ -1,17 +1,16 @@
 /**
- * Custom user avatars — Cloudflare Images (hosted), keyed on user_profiles.
+ * Custom user avatars — D1 BLOBs keyed off user_id.
  *
- * Upload via env.IMAGES.hosted; the Images id is stored in
- * user_profiles.avatar_key. Public GET /api/avatars/{userId} streams the
- * original bytes through the binding (stable app URL, CDN-friendly headers).
- *
- * SVG is allowed; Cloudflare sanitizes hosted SVGs, and we still reject
- * obvious script/handler payloads before upload.
+ * Public GET /api/avatars/{userId} serves the bytes. Upload/delete require a
+ * session and a claimed handle. Stored in D1 (not Cloudflare Images / R2) so
+ * the bytes round-trip through the same Worker DB binding that already works
+ * in CI — Images hosted upload was persisting avatar_key ids that could not
+ * be retrieved (GET returned 404 → broken <img> after the local crop preview).
  */
 import type { SessionUser } from "./auth";
 
-/** Cloudflare Images allows up to 10 MB; keep headroom under that. */
-export const AVATAR_MAX_BYTES = 5_242_880; // 5 MiB
+/** Keep headroom under D1 practical row limits; client already ≤512px JPEG. */
+export const AVATAR_MAX_BYTES = 2_097_152; // 2 MiB
 export const AVATAR_MIME = new Set([
   "image/jpeg",
   "image/png",
@@ -19,12 +18,14 @@ export const AVATAR_MIME = new Set([
   "image/svg+xml",
 ]);
 
+/** Sentinel stored on user_profiles.avatar_key when a D1 blob exists. */
+export const AVATAR_D1_KEY = "d1";
+
 const SVG_DANGEROUS =
   /<script[\s>/]|on[a-z]+\s*=|javascript:|data:\s*text\/html|<foreignObject/i;
 
 export interface AvatarEnv {
   SCHEMA_DB: D1Database;
-  IMAGES: ImagesBinding;
 }
 
 export type AvatarResult =
@@ -71,171 +72,7 @@ export function resolveAvatarMime(contentType: string, bytes: ArrayBuffer): stri
   return null;
 }
 
-function filenameForMime(mime: string): string {
-  if (mime === "image/svg+xml") return "avatar.svg";
-  if (mime === "image/png") return "avatar.png";
-  if (mime === "image/webp") return "avatar.webp";
-  return "avatar.jpg";
-}
-
-/**
- * Replace the caller's avatar. Requires an existing user_profiles row (handle
- * claimed). Uploads to Cloudflare Images and stores the image id in avatar_key.
- */
-export async function putAvatar(
-  env: AvatarEnv,
-  user: SessionUser,
-  bytes: ArrayBuffer,
-  contentType: string,
-): Promise<AvatarResult> {
-  const mime = resolveAvatarMime(contentType, bytes);
-  if (!mime) {
-    return { ok: false, status: 415, error: "avatar must be a JPEG, PNG, WebP, or SVG image" };
-  }
-  if (bytes.byteLength === 0) {
-    return { ok: false, status: 400, error: "avatar file is empty" };
-  }
-  if (bytes.byteLength > AVATAR_MAX_BYTES) {
-    return { ok: false, status: 413, error: "avatar must be 5 MB or smaller" };
-  }
-  if (mime === "image/svg+xml") {
-    const safe = assertSafeSvg(bytes);
-    if (!safe.ok) return { ok: false, status: 400, error: safe.error };
-  }
-
-  const profile = await env.SCHEMA_DB.prepare(
-    "SELECT handle, avatar_key FROM user_profiles WHERE user_id = ?1",
-  ).bind(user.id).first<{ handle: string; avatar_key: string | null }>();
-  if (!profile) {
-    return { ok: false, status: 400, error: "claim a handle before uploading an avatar" };
-  }
-
-  let uploaded: ImageMetadata;
-  try {
-    uploaded = await env.IMAGES.hosted.upload(bytes, {
-      filename: filenameForMime(mime),
-      metadata: { user_id: user.id, purpose: "avatar", content_type: mime },
-      creator: user.id,
-      requireSignedURLs: false,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, status: 502, error: `image upload failed: ${message.slice(0, 200)}` };
-  }
-
-  const now = Date.now();
-  await env.SCHEMA_DB.prepare(
-    `UPDATE user_profiles SET avatar_key = ?1, updated_at = ?2 WHERE user_id = ?3`,
-  ).bind(uploaded.id, now, user.id).run();
-
-  if (profile.avatar_key && profile.avatar_key !== uploaded.id) {
-    try {
-      await env.IMAGES.hosted.image(profile.avatar_key).delete();
-    } catch {
-      /* best-effort cleanup of the previous Images object */
-    }
-  }
-
-  return { ok: true, avatar_url: avatarUrlFor(user.id, uploaded.id, now) };
-}
-
-export async function clearAvatar(env: AvatarEnv, user: SessionUser): Promise<AvatarResult> {
-  const profile = await env.SCHEMA_DB.prepare(
-    "SELECT avatar_key FROM user_profiles WHERE user_id = ?1",
-  ).bind(user.id).first<{ avatar_key: string | null }>();
-  if (!profile) {
-    return { ok: false, status: 400, error: "claim a handle before clearing an avatar" };
-  }
-  if (profile.avatar_key) {
-    try {
-      await env.IMAGES.hosted.image(profile.avatar_key).delete();
-    } catch {
-      /* best-effort */
-    }
-  }
-  await env.SCHEMA_DB.prepare(
-    `UPDATE user_profiles SET avatar_key = NULL, updated_at = ?1 WHERE user_id = ?2`,
-  ).bind(Date.now(), user.id).run();
-  return { ok: true, avatar_url: null };
-}
-
-export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Response> {
-  const id = userId.trim();
-  if (!id || id.length > 128 || id.includes("/") || id.includes("\\") || id.includes("..")) {
-    return new Response("not found", { status: 404 });
-  }
-  const row = await env.SCHEMA_DB.prepare(
-    "SELECT avatar_key, updated_at FROM user_profiles WHERE user_id = ?1",
-  ).bind(id).first<{ avatar_key: string | null; updated_at: number }>();
-  if (!row?.avatar_key) return new Response("not found", { status: 404 });
-
-  const handle = env.IMAGES.hosted.image(row.avatar_key);
-
-  let details: ImageMetadata | null = null;
-  try {
-    details = await handle.details();
-  } catch {
-    details = null;
-  }
-
-  let bytes: ReadableStream<Uint8Array> | null = null;
-  try {
-    bytes = await handle.bytes();
-  } catch {
-    bytes = null;
-  }
-
-  if (bytes) {
-    const sniffed = await sniffStreamContentType(bytes);
-    const metaType = metaContentType(details?.meta);
-    const contentType =
-      contentTypeFromFilename(details?.filename)
-      ?? metaType
-      ?? sniffed.contentType
-      ?? "image/jpeg";
-    const headers = new Headers({
-      "Content-Type": contentType,
-      "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-      ETag: `"${row.updated_at}"`,
-      "X-Content-Type-Options": "nosniff",
-    });
-    if (contentType === "image/svg+xml") {
-      headers.set(
-        "Content-Security-Policy",
-        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
-      );
-    }
-    return new Response(sniffed.body, { status: 200, headers });
-  }
-
-  // bytes() unavailable — fall back to a Cloudflare Images delivery variant.
-  const variant = details?.variants?.find((url) => typeof url === "string" && url.length > 0);
-  if (variant) {
-    return Response.redirect(variant, 302);
-  }
-
-  return new Response("not found", { status: 404 });
-}
-
-function contentTypeFromFilename(filename: string | null | undefined): string | null {
-  if (!filename) return null;
-  const name = filename.toLowerCase();
-  if (name.endsWith(".svg")) return "image/svg+xml";
-  if (name.endsWith(".png")) return "image/png";
-  if (name.endsWith(".webp")) return "image/webp";
-  if (name.endsWith(".gif")) return "image/gif";
-  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
-  return null;
-}
-
-function metaContentType(meta: Record<string, unknown> | null | undefined): string | null {
-  const raw = meta?.content_type;
-  if (typeof raw !== "string") return null;
-  const mime = raw.split(";")[0]?.trim().toLowerCase() ?? "";
-  return AVATAR_MIME.has(mime) ? mime : null;
-}
-
-/** Peek at magic bytes so <img> never gets application/octet-stream. */
+/** Peek at magic bytes so we never store/serve the wrong Content-Type. */
 export function sniffImageContentType(header: Uint8Array): string | null {
   if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
     return "image/jpeg";
@@ -263,33 +100,104 @@ export function sniffImageContentType(header: Uint8Array): string | null {
   return null;
 }
 
-async function sniffStreamContentType(
-  stream: ReadableStream<Uint8Array>,
-): Promise<{ contentType: string | null; body: ReadableStream<Uint8Array> }> {
-  const [peek, body] = stream.tee();
-  const reader = peek.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
+/**
+ * Replace the caller's avatar. Requires an existing user_profiles row (handle
+ * claimed). Writes bytes to D1 and marks avatar_key so public profiles expose
+ * `/api/avatars/{user_id}`.
+ */
+export async function putAvatar(
+  env: AvatarEnv,
+  user: SessionUser,
+  bytes: ArrayBuffer,
+  contentType: string,
+): Promise<AvatarResult> {
+  const mime = resolveAvatarMime(contentType, bytes);
+  if (!mime) {
+    return { ok: false, status: 415, error: "avatar must be a JPEG, PNG, WebP, or SVG image" };
+  }
+  if (bytes.byteLength === 0) {
+    return { ok: false, status: 400, error: "avatar file is empty" };
+  }
+  if (bytes.byteLength > AVATAR_MAX_BYTES) {
+    return { ok: false, status: 413, error: "avatar must be 2 MB or smaller" };
+  }
+  if (mime === "image/svg+xml") {
+    const safe = assertSafeSvg(bytes);
+    if (!safe.ok) return { ok: false, status: 400, error: safe.error };
+  }
+
+  const profile = await env.SCHEMA_DB.prepare(
+    "SELECT handle FROM user_profiles WHERE user_id = ?1",
+  ).bind(user.id).first<{ handle: string }>();
+  if (!profile) {
+    return { ok: false, status: 400, error: "claim a handle before uploading an avatar" };
+  }
+
+  const now = Date.now();
   try {
-    while (total < 256) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value?.length) {
-        chunks.push(value);
-        total += value.length;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-    await peek.cancel().catch(() => {});
+    await env.SCHEMA_DB.prepare(
+      `INSERT INTO user_avatars (user_id, content_type, data, updated_at)
+       VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(user_id) DO UPDATE SET
+         content_type = excluded.content_type,
+         data = excluded.data,
+         updated_at = excluded.updated_at`,
+    ).bind(user.id, mime, bytes, now).run();
+
+    await env.SCHEMA_DB.prepare(
+      `UPDATE user_profiles SET avatar_key = ?1, updated_at = ?2 WHERE user_id = ?3`,
+    ).bind(AVATAR_D1_KEY, now, user.id).run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, status: 502, error: `avatar store failed: ${message.slice(0, 200)}` };
   }
-  const header = new Uint8Array(Math.min(total, 256));
-  let offset = 0;
-  for (const chunk of chunks) {
-    if (offset >= header.length) break;
-    const copy = Math.min(chunk.length, header.length - offset);
-    header.set(chunk.subarray(0, copy), offset);
-    offset += copy;
+
+  return { ok: true, avatar_url: avatarUrlFor(user.id, AVATAR_D1_KEY, now) };
+}
+
+export async function clearAvatar(env: AvatarEnv, user: SessionUser): Promise<AvatarResult> {
+  const profile = await env.SCHEMA_DB.prepare(
+    "SELECT handle FROM user_profiles WHERE user_id = ?1",
+  ).bind(user.id).first<{ handle: string }>();
+  if (!profile) {
+    return { ok: false, status: 400, error: "claim a handle before clearing an avatar" };
   }
-  return { contentType: sniffImageContentType(header), body };
+  await env.SCHEMA_DB.prepare("DELETE FROM user_avatars WHERE user_id = ?1").bind(user.id).run();
+  await env.SCHEMA_DB.prepare(
+    `UPDATE user_profiles SET avatar_key = NULL, updated_at = ?1 WHERE user_id = ?2`,
+  ).bind(Date.now(), user.id).run();
+  return { ok: true, avatar_url: null };
+}
+
+export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Response> {
+  const id = userId.trim();
+  if (!id || id.length > 128 || id.includes("/") || id.includes("\\") || id.includes("..")) {
+    return new Response("not found", { status: 404 });
+  }
+  const row = await env.SCHEMA_DB.prepare(
+    "SELECT content_type, data, updated_at FROM user_avatars WHERE user_id = ?1",
+  ).bind(id).first<{ content_type: string; data: ArrayBuffer; updated_at: number }>();
+  if (!row?.data || row.data.byteLength === 0) {
+    return new Response("not found", { status: 404 });
+  }
+
+  const header = new Uint8Array(row.data.slice(0, 256));
+  const contentType =
+    (AVATAR_MIME.has(row.content_type) ? row.content_type : null)
+    ?? sniffImageContentType(header)
+    ?? "image/jpeg";
+
+  const headers = new Headers({
+    "Content-Type": contentType,
+    "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+    ETag: `"${row.updated_at}"`,
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (contentType === "image/svg+xml") {
+    headers.set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+    );
+  }
+  return new Response(row.data, { status: 200, headers });
 }
