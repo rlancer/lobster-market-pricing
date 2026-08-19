@@ -91,6 +91,13 @@ describe("parseTickerParam", () => {
     assert.equal(parseTickerParam("=F"), null);
     assert.equal(parseTickerParam("ES=F=F"), null);
   });
+
+  it("resolves slash futures roots to lake symbols", () => {
+    assert.equal(parseTickerParam("/ES"), "ES=F");
+    assert.equal(parseTickerParam("/vx"), "^VIX");
+    assert.equal(parseTickerParam("/NQ"), "NQ=F");
+    assert.equal(parseTickerParam("/nope"), null);
+  });
 });
 
 describe("summarizeResearch", () => {

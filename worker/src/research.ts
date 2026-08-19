@@ -11,7 +11,7 @@ import type { TickerIdentity } from "./figi";
 import { resolveTickerIdentity, type LakeLookup } from "./figi";
 import { linkChatTicker } from "./chat-tickers";
 import { normalizeTicker } from "./symbology";
-import { catalogLookup } from "./catalog-symbols";
+import { catalogLookup, resolveSlashRoot } from "./catalog-symbols";
 
 export const RESEARCH_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const RESEARCH_NEWS_LIMIT = 8;
@@ -575,11 +575,14 @@ function fmtNum(v: number | null): string {
 
 /**
  * Accept equity/ETF OCC roots plus Yahoo index (`^VIX`) and continuous futures
- * (`ES=F`, `6E=F`) forms that the loader lands in options.ohlc.
+ * (`ES=F`, `6E=F`) forms that the loader lands in options.ohlc. Thinkorswim-style
+ * `/ES` / `/VX` roots resolve to the researchable lake symbol.
  */
 export function parseTickerParam(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const t = normalizeTicker(raw);
+  const fromSlash = resolveSlashRoot(t);
+  if (fromSlash) return fromSlash;
   if (/^\^[A-Z][A-Z0-9]{0,10}$/.test(t)) return t;
   if (/^[A-Z0-9]{1,6}=F$/.test(t)) return t;
   if (/^[A-Z][A-Z0-9.\-]{0,11}$/.test(t)) return t;
