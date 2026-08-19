@@ -45,7 +45,8 @@ import {
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
 import { CopilotAgentBase } from "./copilot";
-import { getHandle, setHandle, suggestHandle } from "./profiles";
+import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
+import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
@@ -2534,19 +2535,68 @@ async function requireUser(env: Env, req: Request): Promise<SessionUser | Respon
 }
 
 async function handleMe(env: Env, req: Request, path: string): Promise<Response | null> {
+  if (path === "/api/me/avatar") {
+    const user = await requireUser(env, req);
+    if (user instanceof Response) return user;
+    if (req.method === "POST") {
+      const contentType = req.headers.get("Content-Type") || "";
+      let bytes: ArrayBuffer;
+      let mime: string;
+      try {
+        if (contentType.includes("multipart/form-data")) {
+          const form = await req.formData();
+          const file = form.get("avatar") ?? form.get("file");
+          if (!(file instanceof File)) {
+            return json(env, { error: "avatar file is required (field name: avatar)" }, 400, "private");
+          }
+          if (file.size > AVATAR_MAX_BYTES) {
+            return json(env, { error: "avatar must be 5 MB or smaller" }, 413, "private");
+          }
+          bytes = await file.arrayBuffer();
+          mime = file.type || "application/octet-stream";
+        } else {
+          const len = Number(req.headers.get("Content-Length") || 0);
+          if (len > AVATAR_MAX_BYTES) {
+            return json(env, { error: "avatar must be 5 MB or smaller" }, 413, "private");
+          }
+          bytes = await req.arrayBuffer();
+          mime = contentType || "application/octet-stream";
+        }
+      } catch {
+        return json(env, { error: "could not read avatar upload" }, 400, "private");
+      }
+      const result = await putAvatar(env, user, bytes, mime);
+      if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+      const row = await getUserProfile(env.SCHEMA_DB, user.id);
+      const pub = profilePublicFields(user.id, row, user.name);
+      return json(env, { ok: true, ...pub }, 200, "private");
+    }
+    if (req.method === "DELETE") {
+      const result = await clearAvatar(env, user);
+      if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+      const row = await getUserProfile(env.SCHEMA_DB, user.id);
+      const pub = profilePublicFields(user.id, row, user.name);
+      return json(env, { ok: true, ...pub }, 200, "private");
+    }
+    return json(env, { error: "method not allowed" }, 405, "private");
+  }
+
   if (path !== "/api/me") return null;
   const user = await requireUser(env, req);
   if (user instanceof Response) return user;
   if (req.method === "GET") {
-    const handle = await getHandle(env.SCHEMA_DB, user.id);
+    const row = await getUserProfile(env.SCHEMA_DB, user.id);
+    const pub = profilePublicFields(user.id, row, user.name);
     return json(env, {
       ok: true,
       id: user.id,
-      name: user.name,
+      name: pub.name,
       email: user.email,
-      image: user.image,
-      handle,
-      suggested_handle: handle ? null : suggestHandle(user.email, user.name),
+      image: user.image ?? null,
+      handle: row?.handle ?? null,
+      display_name: pub.display_name,
+      avatar_url: pub.avatar_url,
+      suggested_handle: row?.handle ? null : suggestHandle(user.email, user.name),
       is_admin: isAdminEmail(user.email),
     }, 200, "private");
   }
@@ -2557,11 +2607,26 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
     } catch {
       return json(env, { error: "invalid JSON body" }, 400, "private");
     }
-    const result = await setHandle(env.SCHEMA_DB, user.id, body.handle);
+    const result = await updateProfile(env.SCHEMA_DB, user.id, body, user.name);
     if (!result.ok) return json(env, { error: result.error }, result.status, "private");
-    return json(env, { ok: true, handle: result.handle }, 200, "private");
+    return json(env, {
+      ok: true,
+      handle: result.handle,
+      display_name: result.display_name,
+      avatar_url: result.avatar_url,
+      name: result.name,
+    }, 200, "private");
   }
   return json(env, { error: "method not allowed" }, 405, "private");
+}
+
+async function handleAvatarGet(env: Env, req: Request, path: string): Promise<Response | null> {
+  const match = path.match(/^\/api\/avatars\/([^/]+)$/);
+  if (!match) return null;
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return json(env, { error: "method not allowed" }, 405, "private");
+  }
+  return serveAvatar(env, decodeURIComponent(match[1]));
 }
 
 /**
@@ -2927,6 +2992,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const me = await handleMe(env, req, path);
   if (me) return me;
+
+  const avatar = await handleAvatarGet(env, req, path);
+  if (avatar) return avatar;
 
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;

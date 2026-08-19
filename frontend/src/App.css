@@ -133,7 +133,12 @@ button, select { cursor: pointer; }
   width: var(--size-element-lg);
   height: var(--size-element-lg);
   border-radius: var(--radius-full);
+  object-fit: cover;
   transition: transform var(--duration-fast) var(--ease-standard);
+}
+.topbar-account-copy {
+  flex: 1;
+  min-width: 0;
 }
 .topbar-profile:hover .topbar-profile-icon {
   transform: scale(1.06);

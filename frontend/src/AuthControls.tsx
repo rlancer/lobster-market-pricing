@@ -4,6 +4,7 @@ import {
   Button,
   Dialog,
   DialogHeader,
+  FileInput,
   HStack,
   Layout,
   LayoutContent,
@@ -14,13 +15,15 @@ import {
   Tooltip,
   VStack,
 } from '@astryxdesign/core';
-import { AtSign, LogOut } from 'lucide-react';
+import { AtSign, LogOut, UserRound } from 'lucide-react';
 import { api, type ProfileMe } from './api';
 import { authClient, signInWithGoogle, signOut } from './auth';
 import { handleInputError, normalizeHandleInput } from './handle';
-import { ProfileSunglasses } from './Sunglasses';
+import { prepareAvatarUpload } from './prepareAvatar';
+import { UserAvatar } from './UserAvatar';
 
 const HANDLE_PROMPT_KEY = 'lobster.handle-prompt-dismissed';
+const DISPLAY_NAME_MAX = 80;
 
 function HandleField({
   value,
@@ -54,7 +57,8 @@ function HandleField({
 /**
  * Optional Google account controls for the app header. Chat stays anonymous
  * by default; this only appears when the Worker has Google OAuth configured,
- * or when a session is already present. First sign-in claims a public handle.
+ * or when a session is already present. First sign-in claims a public handle;
+ * name and avatar edit once a handle exists.
  */
 export function AuthControls({
   placement = 'below',
@@ -68,8 +72,14 @@ export function AuthControls({
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [profile, setProfile] = useState<ProfileMe | null>(null);
   const [draft, setDraft] = useState('');
+  const [nameDraft, setNameDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [claimOpen, setClaimOpen] = useState(false);
 
   useEffect(() => {
@@ -86,7 +96,11 @@ export function AuthControls({
     if (!user) {
       setProfile(null);
       setDraft('');
+      setNameDraft('');
       setError(null);
+      setNameError(null);
+      setAvatarError(null);
+      setAvatarFile(null);
       setClaimOpen(false);
       return;
     }
@@ -95,7 +109,9 @@ export function AuthControls({
       if (!active) return;
       setProfile(me);
       setDraft(me.handle ?? me.suggested_handle ?? '');
+      setNameDraft(me.display_name ?? me.name ?? '');
       setError(null);
+      setNameError(null);
       if (!me.handle && sessionStorage.getItem(HANDLE_PROMPT_KEY) !== me.id) {
         setClaimOpen(true);
       }
@@ -124,14 +140,42 @@ export function AuthControls({
   }
 
   const userId = user.id;
-  const displayName = user.name || user.email || 'Account';
+  const displayName = profile?.name || user.name || user.email || 'Account';
   const email = user.email && user.email !== displayName ? user.email : null;
   const currentHandle = profile?.handle ?? null;
-  const canSave = !saving && !handleInputError(draft) && draft !== (currentHandle ?? '');
+  const canSaveHandle = !saving && !handleInputError(draft) && draft !== (currentHandle ?? '');
+  const trimmedName = nameDraft.trim().replace(/\s+/g, ' ');
+  const nameTooLong = trimmedName.length > DISPLAY_NAME_MAX;
+  const currentDisplayName = (profile?.display_name ?? profile?.name ?? '').trim();
+  const canSaveName = Boolean(currentHandle)
+    && !savingName
+    && !nameTooLong
+    && trimmedName !== currentDisplayName
+    && (trimmedName.length > 0 || Boolean(profile?.display_name));
 
   function dismissClaim() {
     sessionStorage.setItem(HANDLE_PROMPT_KEY, userId);
     setClaimOpen(false);
+  }
+
+  function applyProfilePatch(patch: {
+    handle?: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+    name?: string;
+  }) {
+    setProfile((prev) => (
+      prev
+        ? {
+            ...prev,
+            handle: patch.handle ?? prev.handle,
+            display_name: patch.display_name !== undefined ? patch.display_name : prev.display_name,
+            avatar_url: patch.avatar_url !== undefined ? patch.avatar_url : prev.avatar_url,
+            name: patch.name ?? prev.name,
+            suggested_handle: patch.handle ? null : prev.suggested_handle,
+          }
+        : prev
+    ));
   }
 
   async function saveHandle() {
@@ -143,18 +187,76 @@ export function AuthControls({
     setSaving(true);
     setError(null);
     try {
-      const result = await api.setHandle(draft);
-      setProfile((prev) => (
-        prev
-          ? { ...prev, handle: result.handle, suggested_handle: null }
-          : prev
-      ));
+      const result = await api.updateProfile({ handle: draft });
+      applyProfilePatch(result);
       setDraft(result.handle);
       setClaimOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save handle');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveName() {
+    if (!currentHandle) {
+      setNameError('Claim a handle first');
+      return;
+    }
+    if (nameTooLong) {
+      setNameError(`Name must be ${DISPLAY_NAME_MAX} characters or fewer`);
+      return;
+    }
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const result = await api.updateProfile({
+        display_name: trimmedName.length ? trimmedName : null,
+      });
+      applyProfilePatch(result);
+      setNameDraft(result.display_name ?? result.name);
+    } catch (err) {
+      setNameError(err instanceof Error ? err.message : 'Could not save name');
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function onAvatarChange(files: File | File[] | null) {
+    const file = Array.isArray(files) ? files[0] ?? null : files;
+    setAvatarFile(file);
+    setAvatarError(null);
+    if (!file) return;
+    if (!currentHandle) {
+      setAvatarError('Claim a handle before uploading a photo');
+      setAvatarFile(null);
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const prepared = await prepareAvatarUpload(file);
+      const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
+      applyProfilePatch(result);
+      setAvatarFile(null);
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : 'Could not upload photo');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function removeAvatar() {
+    if (!profile?.avatar_url) return;
+    setUploadingAvatar(true);
+    setAvatarError(null);
+    try {
+      const result = await api.clearAvatar();
+      applyProfilePatch(result);
+      setAvatarFile(null);
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : 'Could not remove photo');
+    } finally {
+      setUploadingAvatar(false);
     }
   }
 
@@ -169,24 +271,77 @@ export function AuthControls({
         placement={placement}
         alignment={alignment}
         label="Account"
-        width="20rem"
+        width="22rem"
         content={
           <VStack gap={3}>
-            <VStack gap={0.5}>
-              <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
-              {currentHandle ? (
-                <Link to="/u/$handle" params={{ handle: currentHandle }} className="topbar-handle-link">
-                  <Text type="supporting" maxLines={1}>@{currentHandle}</Text>
-                </Link>
-              ) : null}
-              {email ? <Text type="supporting" maxLines={1}>{email}</Text> : null}
-            </VStack>
+            <HStack gap={3} vAlign="center">
+              <UserAvatar avatarUrl={profile?.avatar_url} className="topbar-profile-icon" alt="" />
+              <VStack gap={0.5} className="topbar-account-copy">
+                <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
+                {currentHandle ? (
+                  <Link to="/u/$handle" params={{ handle: currentHandle }} className="topbar-handle-link">
+                    <Text type="supporting" maxLines={1}>@{currentHandle}</Text>
+                  </Link>
+                ) : null}
+                {email ? <Text type="supporting" maxLines={1}>{email}</Text> : null}
+              </VStack>
+            </HStack>
+
+            {currentHandle ? (
+              <>
+                <TextInput
+                  label="Display name"
+                  description="Shown on your public profile. Leave blank to use your Google name."
+                  value={nameDraft}
+                  onChange={(value) => {
+                    setNameDraft(value);
+                    setNameError(null);
+                  }}
+                  startIcon={<UserRound size={16} />}
+                  placeholder={user.name || 'Your name'}
+                  status={nameError
+                    ? { type: 'error', message: nameError }
+                    : nameTooLong
+                      ? { type: 'error', message: `Name must be ${DISPLAY_NAME_MAX} characters or fewer` }
+                      : undefined}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  label={savingName ? 'Saving…' : 'Save name'}
+                  isDisabled={!canSaveName}
+                  onClick={() => { void saveName(); }}
+                />
+                <FileInput
+                  label="Profile photo"
+                  description="JPEG, PNG, WebP, or SVG — rasters are square-cropped; SVG stays vector. Stored in Cloudflare Images, up to 5 MB."
+                  value={avatarFile}
+                  onChange={(files) => { void onAvatarChange(files); }}
+                  accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
+                  maxSize={5 * 1024 * 1024}
+                  mode="input"
+                  placeholder="Upload photo"
+                  isLoading={uploadingAvatar}
+                  status={avatarError ? { type: 'error', message: avatarError } : undefined}
+                />
+                {profile?.avatar_url ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    label="Remove photo"
+                    isDisabled={uploadingAvatar}
+                    onClick={() => { void removeAvatar(); }}
+                  />
+                ) : null}
+              </>
+            ) : null}
+
             <HandleField value={draft} error={error} onChange={onDraftChange} />
             <Button
               variant="primary"
               size="sm"
               label={currentHandle ? 'Save handle' : 'Choose handle'}
-              isDisabled={!canSave}
+              isDisabled={!canSaveHandle}
               onClick={() => { void saveHandle(); }}
             />
             <Button
@@ -201,7 +356,7 @@ export function AuthControls({
       >
         <Tooltip content="Account" hasHoverIndication={false}>
           <button type="button" className="topbar-profile" aria-label="Account">
-            <ProfileSunglasses className="topbar-profile-icon" />
+            <UserAvatar avatarUrl={profile?.avatar_url} className="topbar-profile-icon" alt="" />
           </button>
         </Tooltip>
       </Popover>
@@ -216,7 +371,7 @@ export function AuthControls({
           header={
             <DialogHeader
               title="Choose a handle"
-              subtitle="This is your public name. Letters and numbers only — no spaces or punctuation."
+              subtitle="This is your public URL. Letters and numbers only — no spaces or punctuation. You can set your display name and photo after."
               onOpenChange={dismissClaim}
             />
           }
@@ -231,7 +386,7 @@ export function AuthControls({
                 <Button
                   variant="primary"
                   label={saving ? 'Saving…' : 'Save handle'}
-                  isDisabled={!canSave}
+                  isDisabled={!canSaveHandle}
                   onClick={() => { void saveHandle(); }}
                 />
               </HStack>

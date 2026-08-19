@@ -10,7 +10,8 @@
 import { isAdminEmail } from "./admin";
 import { getSessionUser, type AuthEnv } from "./auth";
 import { listTickersForChats } from "./chat-tickers";
-import { getHandle, parseHandle } from "./profiles";
+import { getHandle, parseHandle, publicName } from "./profiles";
+import { avatarUrlFor } from "./avatars";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
@@ -193,15 +194,37 @@ export async function recordShareOwner(db: D1Database, shareId: string, userId: 
 export async function getTimelineAuthor(
   db: D1Database,
   shareId: string,
-): Promise<{ handle: string; name: string; is_bot?: boolean; persona?: string | null } | null> {
+): Promise<{
+  handle: string;
+  name: string;
+  is_bot?: boolean;
+  persona?: string | null;
+  avatar_url?: string | null;
+} | null> {
   const human = await db.prepare(
-    `SELECT pr.handle AS handle, u.name AS name
+    `SELECT pr.handle AS handle, pr.display_name AS display_name,
+            pr.avatar_key AS avatar_key, pr.updated_at AS updated_at,
+            u.name AS oauth_name, pr.user_id AS user_id
      FROM timeline_posts p
      JOIN user_profiles pr ON pr.user_id = p.user_id
      JOIN "user" u ON u.id = p.user_id
      WHERE p.share_id = ?1`,
-  ).bind(shareId).first<{ handle: string; name: string }>();
-  if (human) return { ...human, is_bot: false };
+  ).bind(shareId).first<{
+    handle: string;
+    display_name: string | null;
+    avatar_key: string | null;
+    updated_at: number;
+    oauth_name: string;
+    user_id: string;
+  }>();
+  if (human) {
+    return {
+      handle: human.handle,
+      name: publicName(human.display_name, human.oauth_name),
+      is_bot: false,
+      avatar_url: avatarUrlFor(human.user_id, human.avatar_key, human.updated_at),
+    };
+  }
   const bot = await db.prepare(
     `SELECT b.handle AS handle, b.display_name AS name, b.persona AS persona
      FROM shared_chats s
@@ -209,7 +232,7 @@ export async function getTimelineAuthor(
      WHERE s.share_id = ?1 AND s.bot_handle IS NOT NULL`,
   ).bind(shareId).first<{ handle: string; name: string; persona: string }>();
   if (!bot) return null;
-  return { handle: bot.handle, name: bot.name, is_bot: true, persona: bot.persona };
+  return { handle: bot.handle, name: bot.name, is_bot: true, persona: bot.persona, avatar_url: null };
 }
 
 interface ShareRow {
@@ -278,16 +301,33 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
     bio?: string | null;
     /** Epoch ms when the public handle (or bot profile) was created. */
     created_at?: number | null;
+    avatar_url?: string | null;
   } | null = null;
   if (parsed.handle) {
     const human = await env.SCHEMA_DB.prepare(
-      `SELECT pr.handle AS handle, u.name AS name, pr.created_at AS created_at
+      `SELECT pr.handle AS handle, pr.display_name AS display_name,
+              pr.avatar_key AS avatar_key, pr.updated_at AS updated_at,
+              u.name AS oauth_name, pr.user_id AS user_id, pr.created_at AS created_at
        FROM user_profiles pr
        JOIN "user" u ON u.id = pr.user_id
        WHERE pr.handle = ?1`,
-    ).bind(parsed.handle).first<{ handle: string; name: string; created_at: number }>();
+    ).bind(parsed.handle).first<{
+      handle: string;
+      display_name: string | null;
+      avatar_key: string | null;
+      updated_at: number;
+      oauth_name: string;
+      user_id: string;
+      created_at: number;
+    }>();
     if (human) {
-      profile = { ...human, is_bot: false };
+      profile = {
+        handle: human.handle,
+        name: publicName(human.display_name, human.oauth_name),
+        is_bot: false,
+        created_at: human.created_at,
+        avatar_url: avatarUrlFor(human.user_id, human.avatar_key, human.updated_at),
+      };
     } else {
       const bot = await env.SCHEMA_DB.prepare(
         `SELECT handle, display_name AS name, persona, bio, created_at
@@ -307,6 +347,7 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
         persona: bot.persona,
         bio: bot.bio,
         created_at: bot.created_at,
+        avatar_url: null,
       };
     }
   }
@@ -327,7 +368,8 @@ async function listTimeline(env: TimelineEnv, req: Request): Promise<Response> {
   humanBindings.push(parsed.limit + 1);
   const humanSql =
     `SELECT p.share_id, s.chat_id, p.excerpt, p.has_sql, p.has_chart, p.published_at,
-            s.title, s.model, s.messages, pr.handle, u.name, 0 AS is_bot
+            s.title, s.model, s.messages, pr.handle,
+            COALESCE(NULLIF(TRIM(pr.display_name), ''), u.name) AS name, 0 AS is_bot
      FROM timeline_posts p
      JOIN shared_chats s ON s.share_id = p.share_id
      JOIN user_profiles pr ON pr.user_id = p.user_id
