@@ -216,7 +216,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/stats` | Counts of underlyings / contracts / calls / puts, last-updated timestamp |
 | `GET /api/sectors` | Per-sector symbol count & avg spot price |
 | `GET /api/underlyings?sector=&q=&limit=&offset=` | Paginated underlyings |
-| `GET /api/symbols?q=&limit=` | Symbol autocomplete |
+| `GET /api/symbols?q=&limit=` | Symbol autocomplete (equities/ETFs + `^VIX` indexes + `ES=F` futures; `/ES` / `/VX` roots) |
 | `GET /api/screen` | The screener — see below |
 | `GET /api/symbol/{symbol}` | Underlying info + option contracts (latest run), plus OHLC enrichment: ~1y of daily bars, latest 30d/90d realized-vol snapshot, recent dividends/splits. Optional staging params for the research page: `parts=ohlc` (single date-bounded OHLC query — skips underlying lookup, chain, and RV/CA/ETF enrichment), `parts=ohlc_intraday` (Yahoo 5-minute bars for the current/last session — Day chart), `parts=chain` (skip enrichment; one expiration), `expiration=YYYY-MM-DD`, `near_spot=N` (N strikes closest to spot). Default `parts=full` keeps the legacy dump. |
 | `GET /api/research/{ticker}` | Ticker research brief (price/volume technicals, consolidation/accumulation, lake `options.fundamentals` latest-wins, earnings, and for ETFs fund profile + top holdings from `options.etf_profiles` / `options.etf_holdings`). Cached in D1 (~1h); stale rows serve immediately while a background refresh recomputes. Critical path is lake + D1 only — no live Yahoo, no OpenFIGI, no Tavily. Headlines load separately via `GET /api/news`. Pass `?force=1` to recompute; `?chat_id=` links the chat to the security. `Server-Timing` reports `cache` vs `compute`. |
