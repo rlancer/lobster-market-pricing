@@ -108,3 +108,58 @@ test('real lake FROM still validates cleanly', () => {
   );
   assert.equal(errors.length, 0, errors.join('; '));
 });
+
+test('applyColumnSynonyms rewrites symbol→ticker on underlying_snapshots', async () => {
+  const { applyColumnSynonyms } = await import('../src/copilot-sql.ts');
+  const snapTables: LakeTable[] = [
+    {
+      name: 'underlying_snapshots',
+      row_count: 1,
+      columns: [
+        { name: 'ticker', type: 'string' },
+        { name: 'spot_price', type: 'float' },
+        { name: 'name', type: 'string' },
+      ],
+      sample: [],
+    },
+    {
+      name: 'option_contracts',
+      row_count: 1,
+      columns: [
+        { name: 'symbol', type: 'string' },
+        { name: 'type', type: 'string' },
+      ],
+      sample: [],
+    },
+  ];
+
+  // GME-style failure: unqualified symbol on a ticker-only table.
+  const solo = applyColumnSynonyms(
+    "SELECT symbol, spot_price FROM options.underlying_snapshots WHERE symbol = 'GME' LIMIT 5",
+    snapTables,
+  );
+  assert.match(solo.sql, /\bticker\b/i);
+  assert.doesNotMatch(solo.sql, /\bsymbol\b/i);
+  assert.ok(solo.rewrites.some((r) => /symbol → ticker/i.test(r)));
+  assert.equal(validateSqlSchema(solo.sql, snapTables).filter((i) => i.severity === 'error').length, 0);
+
+  // Mixed join: only the snapshots side is rewritten.
+  const joined = applyColumnSynonyms(
+    `SELECT c.symbol, u.symbol AS spot_sym, u.spot_price
+     FROM options.option_contracts c
+     JOIN options.underlying_snapshots u ON c.symbol = u.symbol
+     WHERE c.symbol = 'GME' LIMIT 20`,
+    snapTables,
+  );
+  assert.match(joined.sql, /c\.symbol/i);
+  assert.match(joined.sql, /u\.ticker/i);
+  assert.doesNotMatch(joined.sql, /u\.symbol/i);
+  assert.ok(joined.rewrites.some((r) => /underlying_snapshots\.symbol → ticker/i.test(r)));
+
+  // Literals must not be rewritten.
+  const lit = applyColumnSynonyms(
+    "SELECT ticker FROM options.underlying_snapshots WHERE name = 'symbol' LIMIT 1",
+    snapTables,
+  );
+  assert.match(lit.sql, /'symbol'/);
+});

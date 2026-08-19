@@ -45,6 +45,7 @@ import {
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
 import { CopilotAgentBase } from "./copilot";
+import { applyColumnSynonyms } from "./copilot-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
@@ -2981,11 +2982,19 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   if (path === "/api/query" && req.method === "POST") {
     const body = await req.json() as { sql?: string; limit?: number };
-    const sql = body.sql ?? "";
+    let sql = body.sql ?? "";
     // Private tables (options.chat_history) are admin-only: block any SQL that
     // references them unless the request carries ADMIN_TOKEN.
     if (!adminAuthorized(req, env) && PRIVATE_LAKE_TABLES_RE.test(sql.toLowerCase())) {
       return json(env, { error: "query references a private table" }, 403);
+    }
+    // Normalize ticker↔symbol against the live DESCRIBE cache so SQL Lab and
+    // hand-written queries hit the same synonym rewrite Copilot uses.
+    try {
+      const tables = await schemaTables(env, ctx, false);
+      sql = applyColumnSynonyms(sql, tables).sql;
+    } catch (e) {
+      console.error("query synonym rewrite skipped", e);
     }
     return json(env, await runQuery(env, sql, body.limit ?? 1000));
   }
