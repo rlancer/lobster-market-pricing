@@ -70,8 +70,19 @@
 }
 
 .timeline-post-head {
-  min-width: 0;
   width: 100%;
+  min-width: 0;
+}
+
+.timeline-post-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-post-head .post-share {
+  flex-shrink: 0;
+  /* Nudge so the icon sits on the title’s cap-height, not the row’s top edge. */
+  margin-block-start: calc(var(--spacing-1) * -1);
 }
 
 .timeline-post-title {
@@ -79,6 +90,17 @@
   font-size: var(--font-size-lg);
   letter-spacing: -0.02em;
   line-height: var(--line-height-heading, 1.25);
+}
+
+.timeline-post-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.timeline-post-title-link:hover {
+  color: var(--color-text-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
 }
 
 .timeline-author-link {

@@ -15,6 +15,7 @@ import { BarChart3, ChevronDown, ChevronUp, Code2, Newspaper, Sparkles } from 'l
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
+import { PostShareButton } from './PostShareButton';
 import { UserAvatar } from './UserAvatar';
 
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
@@ -161,12 +162,18 @@ export function TimelinePostRow({
         <Timestamp value={post.published_at / 1000} format="auto" isLive />
       </HStack>
 
-      {/* 2. Headline + tags — what this post is about */}
-      {(showTitle || tickers.length > 0) && (
-        <VStack gap={2} className="timeline-post-head">
+      {/* 2. Headline + share — title opens the post; share sits on the same row */}
+      <HStack gap={3} vAlign="start" className="timeline-post-head">
+        <VStack gap={2} className="timeline-post-head-main">
           {showTitle && (
             <Heading level={titleLevel} className="timeline-post-title">
-              {titleText}
+              <Link
+                to="/share/$shareId"
+                params={{ shareId: post.share_id }}
+                className="timeline-post-title-link"
+              >
+                {titleText}
+              </Link>
             </Heading>
           )}
           {tickers.length > 0 && (
@@ -184,7 +191,8 @@ export function TimelinePostRow({
             </HStack>
           )}
         </VStack>
-      )}
+        <PostShareButton url={post.url} title={titleText} />
+      </HStack>
 
       {/* 3. Full conversation — primary content, expand in place */}
       {messages.length > 0 && (

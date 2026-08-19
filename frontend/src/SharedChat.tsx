@@ -5,6 +5,7 @@ import './SharedChat.css';
 import { Sunglasses } from './Sunglasses';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
+import { PostShareButton } from './PostShareButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME } from './pageMeta';
 
@@ -123,7 +124,13 @@ function SharedChatRoute() {
         {!loading && !missing && share && (
           <>
             <header className="share-title-row">
-              <h1 className="share-title">{shareTitle || 'Shared chat'}</h1>
+              <HStack gap={3} vAlign="start" className="share-title-bar">
+                <h1 className="share-title">{shareTitle || 'Shared chat'}</h1>
+                <PostShareButton
+                  url={`/share/${share.share_id}`}
+                  title={shareTitle || 'Shared chat'}
+                />
+              </HStack>
               {(share.tickers?.length ?? 0) > 0 && (
                 <HStack gap={2} vAlign="center" className="share-tickers" aria-label="Tags">
                   {share.tickers!.map((ticker) => (
