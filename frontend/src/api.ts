@@ -503,6 +503,21 @@ export interface BotRun {
   updated_at: number;
 }
 
+export interface BotSchedule {
+  handle: string;
+  enabled: boolean;
+  cadence_seconds: number;
+  market_gated: boolean;
+  prompt: string;
+  next_run_at: number;
+  last_run_at: number | null;
+  last_run_id: string | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface BotGenerateResponse {
   ok: true;
   run_id: string;
@@ -831,7 +846,9 @@ export const api = {
     del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
   adminBot: (handle: string) =>
-    get<{ bot: BotProfile; runs: BotRun[] }>(`/api/admin/bots/${encodeURIComponent(handle)}`),
+    get<{ bot: BotProfile; runs: BotRun[]; schedule: BotSchedule | null }>(
+      `/api/admin/bots/${encodeURIComponent(handle)}`,
+    ),
   createBot: (body: Partial<BotProfile> & { handle: string; display_name: string; persona: string }) =>
     post<{ ok: true; bot: BotProfile }>('/api/admin/bots', body),
   updateBot: (handle: string, body: Partial<BotProfile>) =>
@@ -850,6 +867,34 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  upsertBotSchedule: (
+    handle: string,
+    body: Partial<Pick<BotSchedule, 'enabled' | 'cadence_seconds' | 'market_gated' | 'prompt' | 'next_run_at'>>,
+  ) =>
+    request<{ ok: true; schedule: BotSchedule }>(
+      `/api/admin/bots/${encodeURIComponent(handle)}/schedule`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
+  deleteBotSchedule: (handle: string) =>
+    request<{ ok: true }>(`/api/admin/bots/${encodeURIComponent(handle)}/schedule`, { method: 'DELETE' }),
+  triggerBotSchedule: (handle: string, force = false) =>
+    post<{
+      ok: true;
+      deferred?: boolean;
+      reason?: string;
+      next_run_at?: number;
+      run_id?: string;
+      chat_id?: string;
+      share_id?: string;
+      share_url?: string;
+    }>(
+      `/api/admin/bots/${encodeURIComponent(handle)}/schedule/trigger${force ? '?force=1' : ''}`,
+      {},
+    ),
   me: () => get<ProfileMe>('/api/me'),
   updateProfile: async (body: { handle?: string; display_name?: string | null }) => {
     const r = await fetch(`${API_BASE}/api/me`, {

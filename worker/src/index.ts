@@ -29,6 +29,15 @@ import {
   resolveBotGeneratePrompt,
 } from "./bot-prompt";
 import {
+  runDueBotSchedules,
+  runOneBotSchedule,
+} from "./bot-runner";
+import {
+  deleteBotSchedule,
+  getBotSchedule,
+  upsertBotSchedule,
+} from "./bot-schedule";
+import {
   botShareReuseDecision,
   createBotProfile,
   createBotRun,
@@ -108,6 +117,11 @@ export interface Env extends Cloudflare.Env {
   GOOGLE_CLIENT_SECRET?: string;
   /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
   OPEN_FIGI?: string;
+  /** Bot schedule market gate — set "false" to run schedules around the clock. */
+  MARKET_HOURS_ENABLED?: string;
+  MARKET_OPEN_MINUTES?: string;
+  MARKET_CLOSE_MINUTES?: string;
+  MARKET_EARLY_CLOSE_MINUTES?: string;
 }
 
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs
@@ -2754,7 +2768,8 @@ async function handleBots(env: Env, req: Request, path: string): Promise<Respons
       const bot = await getBotProfile(env.SCHEMA_DB, handle);
       if (!bot) return json(env, { error: "not found" }, 404, "private");
       const runs = await listBotRuns(env.SCHEMA_DB, bot.handle, 20);
-      return json(env, { bot, runs }, 200, "private");
+      const schedule = await getBotSchedule(env.SCHEMA_DB, bot.handle);
+      return json(env, { bot, runs, schedule }, 200, "private");
     }
     if (req.method === "PUT" || req.method === "PATCH") {
       let body: Record<string, unknown>;
@@ -2833,6 +2848,70 @@ async function handleBots(env: Env, req: Request, path: string): Promise<Respons
       },
       chat_url: `/chat/${chatId}`,
     }, 200, "private");
+  }
+
+  const schedulePath = path.match(/^\/api\/admin\/bots\/([^/]+)\/schedule$/);
+  if (schedulePath) {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const handle = decodeURIComponent(schedulePath[1]);
+    const bot = await getBotProfile(env.SCHEMA_DB, handle);
+    if (!bot) return json(env, { error: "not found" }, 404, "private");
+    if (req.method === "GET") {
+      const schedule = await getBotSchedule(env.SCHEMA_DB, bot.handle);
+      return json(env, { schedule }, 200, "private");
+    }
+    if (req.method === "PUT" || req.method === "PATCH") {
+      let body: Record<string, unknown>;
+      try {
+        body = await req.json() as Record<string, unknown>;
+      } catch {
+        return json(env, { error: "invalid JSON body" }, 400, "private");
+      }
+      const result = await upsertBotSchedule(env.SCHEMA_DB, bot.handle, body, env);
+      if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+      return json(env, { ok: true, schedule: result.schedule }, 200, "private");
+    }
+    if (req.method === "DELETE") {
+      await deleteBotSchedule(env.SCHEMA_DB, bot.handle);
+      return json(env, { ok: true }, 200, "private");
+    }
+    return json(env, { error: "method not allowed" }, 405, "private");
+  }
+
+  const scheduleTrigger = path.match(/^\/api\/admin\/bots\/([^/]+)\/schedule\/trigger$/);
+  if (scheduleTrigger && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const handle = decodeURIComponent(scheduleTrigger[1]);
+    const schedule = await getBotSchedule(env.SCHEMA_DB, handle);
+    if (!schedule) return json(env, { error: "schedule not found" }, 404, "private");
+    const force = new URL(req.url).searchParams.get("force") === "1";
+    const outcome = await runOneBotSchedule(env, schedule, { force });
+    if (outcome.ok && outcome.deferred) {
+      return json(env, {
+        ok: true,
+        deferred: true,
+        reason: outcome.reason,
+        next_run_at: outcome.next_run_at,
+      }, 200, "private");
+    }
+    if (!outcome.ok) return json(env, { error: outcome.error }, 400, "private");
+    return json(env, {
+      ok: true,
+      run_id: outcome.run.run_id,
+      chat_id: outcome.run.chat_id,
+      share_id: outcome.share_id,
+      share_url: `/share/${outcome.share_id}`,
+    }, 200, "private");
+  }
+
+  const schedulesTick = path === "/api/admin/bots/schedules/tick";
+  if (schedulesTick && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const summary = await runDueBotSchedules(env);
+    return json(env, { ok: true, ...summary }, 200, "private");
   }
 
   const runPath = path.match(/^\/api\/admin\/bots\/runs\/([^/]+)$/);
@@ -3150,5 +3229,19 @@ export default {
     } catch (e) {
       return withCors(env, req, json(env, { error: String(e) }, 500));
     }
+  },
+
+  /**
+   * Hourly cron — process due bot schedules (market-gated hourly overviews).
+   * Actual cadence is per-row on bot_schedules; this tick just wakes the runner.
+   */
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runDueBotSchedules(env).then((summary) => {
+        console.log(JSON.stringify({ botSchedules: true, ...summary }));
+      }).catch((error) => {
+        console.error("bot schedules tick failed", error);
+      }),
+    );
   },
 };
