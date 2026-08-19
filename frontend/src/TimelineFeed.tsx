@@ -108,6 +108,22 @@ export function TimelinePostRow({
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
   const displayName = post.name?.trim() || post.handle;
+  const hasUserTurn = messages.some((message) => message.role === 'user');
+  /** Face sits on the user bubble so the preview reads as a two-speaker convo. */
+  const authorFace = (
+    <Link
+      to="/u/$handle"
+      params={{ handle: post.handle }}
+      className="timeline-msg-avatar-link"
+      aria-label={`${displayName} (@${post.handle})`}
+    >
+      <UserAvatar
+        avatarUrl={post.avatar_url}
+        className="timeline-author-avatar"
+        alt=""
+      />
+    </Link>
+  );
 
   const unpublish = async () => {
     const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
@@ -129,11 +145,15 @@ export function TimelinePostRow({
           {showAuthor && (
             <>
               <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-                <UserAvatar
-                  avatarUrl={post.avatar_url}
-                  className="timeline-author-avatar"
-                  alt=""
-                />
+                {/* Avatar lives on the user bubble when present; keep a byline face
+                    for assistant-only previews so the post still has a profile cue. */}
+                {!hasUserTurn && (
+                  <UserAvatar
+                    avatarUrl={post.avatar_url}
+                    className="timeline-author-avatar"
+                    alt=""
+                  />
+                )}
                 <HStack gap={1} vAlign="center" className="timeline-author-identity">
                   <Text weight="semibold" maxLines={1}>{displayName}</Text>
                   <Text type="supporting" maxLines={1}>@{post.handle}</Text>
@@ -182,6 +202,7 @@ export function TimelinePostRow({
                 openInData
                 hydrateResult={false}
                 collapseSql
+                userFace={authorFace}
               />
             ))}
           </VStack>

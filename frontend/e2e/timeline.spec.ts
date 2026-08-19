@@ -31,7 +31,7 @@ test.describe('Public timeline', () => {
   });
 
   test('timeline posts show author identity and a view-full-chat affordance', async ({ page }) => {
-    // 1×1 PNG so the byline <img> loads without hitting the Worker.
+    // 1×1 PNG so the user-bubble <img> loads without hitting the Worker.
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
       'base64',
@@ -70,9 +70,11 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    const author = post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ });
-    await expect(author).toBeVisible();
-    await expect(author.locator('img.timeline-author-avatar')).toBeVisible();
+    await expect(post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ })).toBeVisible();
+    // Profile photo sits next to the user bubble (convo layout), not the byline.
+    const userFace = post.getByRole('link', { name: 'Robert Lancer (@thelobster)' });
+    await expect(userFace).toBeVisible();
+    await expect(userFace.locator('img.timeline-author-avatar')).toBeVisible();
     await expect(post.getByText('SQL')).toBeVisible();
     await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
     // Title matches the user bubble — don't duplicate it as a heading.

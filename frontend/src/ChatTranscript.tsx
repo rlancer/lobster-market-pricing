@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Markdown } from '@astryxdesign/core';
 import { CopyButton } from './CopyButton';
@@ -134,15 +134,22 @@ export function TranscriptMessage({
   openInData = false,
   hydrateResult = true,
   collapseSql = false,
+  userFace = null,
 }: {
   message: SharedChatMessage;
   openInData?: boolean;
   hydrateResult?: boolean;
   collapseSql?: boolean;
+  /**
+   * Optional face for the user turn (timeline author avatar). Assistant turns
+   * keep the brand mark; omit on /share and /chat where there is no profile.
+   */
+  userFace?: ReactNode;
 }) {
   return (
     <div className={`ai-msg ai-${message.role}`}>
       {message.role === 'assistant' && <AssistantMark />}
+      {message.role === 'user' && userFace}
       <div className="ai-bubble">
         {message.role === 'assistant'
           ? (
