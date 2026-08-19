@@ -29,6 +29,20 @@ function textToSeeds(text: string): string[] {
     .filter(Boolean);
 }
 
+function normalizePrompt(prompt: string): string {
+  return prompt.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** Prefer an unused seed so the prompt field previews what generate will send. */
+function nextUnusedSeed(seeds: string[], runs: BotRun[]): string {
+  const used = new Set(runs.map((run) => normalizePrompt(run.prompt)).filter(Boolean));
+  for (const seed of seeds) {
+    const trimmed = seed.trim();
+    if (trimmed && !used.has(normalizePrompt(trimmed))) return trimmed;
+  }
+  return '';
+}
+
 function formFromBot(bot: BotProfile) {
   return {
     handle: bot.handle,
@@ -102,7 +116,7 @@ export default function BotsPage() {
     const detail = await api.adminBot(handle);
     setForm(formFromBot(detail.bot));
     setRuns(detail.runs);
-    setPrompt(detail.bot.seed_prompts[0] ?? '');
+    setPrompt(nextUnusedSeed(detail.bot.seed_prompts, detail.runs));
   };
 
   const startCreate = () => {
@@ -189,11 +203,19 @@ export default function BotsPage() {
         setError('Save the bot before generating a chat.');
         return;
       }
+      // Empty / already-used prompts are resolved server-side to an unused seed
+      // or an invented question that is not a repeat of prior chats.
       const response = await api.generateBotChat(handle, prompt.trim() || undefined);
       rememberChatId(response.chat_id);
       stashBotSession(response.bot.handle, response.run_id);
       stashPendingPrompt(response.prompt);
-      setNotice(`Opening Copilot as @${response.bot.handle}…`);
+      const sourceNote =
+        response.prompt_source === 'invent'
+          ? ' (invented a new question)'
+          : response.prompt_source === 'seed'
+            ? ' (next unused seed)'
+            : '';
+      setNotice(`Opening Copilot as @${response.bot.handle}${sourceNote}…`);
       void navigate({ to: '/chat/$chatId', params: { chatId: response.chat_id } });
     } catch (err) {
       setError(String((err as Error)?.message ?? err));
@@ -306,7 +328,7 @@ export default function BotsPage() {
                 onChange={(value) => setForm((prev) => ({ ...prev, seed_prompts: value }))}
                 isDisabled={busy}
                 rows={4}
-                description="One starter question per line. First line is the default generate prompt."
+                description="One starter question per line. Generate prefers the next unused seed, then invents a new question."
               />
               <TextInput
                 label="Model override"
@@ -342,19 +364,22 @@ export default function BotsPage() {
                 <section className="bots-generate" aria-label="Generate chat">
                   <Heading level={3}>Generate chat</Heading>
                   <Text type="supporting">
-                    Opens Copilot as @{selected}. Successful answers auto-share to the timeline as this bot.
+                    Opens Copilot as @{selected} with a prompt that has not already been used
+                    in a prior run. Leave blank to take the next unused seed or invent a new
+                    question. Successful answers auto-share to the timeline as this bot.
                   </Text>
                   <TextArea
-                    label="Prompt"
+                    label="Prompt (optional)"
                     value={prompt}
                     onChange={setPrompt}
                     isDisabled={busy}
                     rows={3}
+                    description="If this matches a prior chat, generate invents or picks an unused seed instead."
                   />
                   <Button
                     variant="primary"
                     label={busy ? 'Starting…' : 'Generate with Copilot'}
-                    isDisabled={busy || !prompt.trim()}
+                    isDisabled={busy}
                     onClick={() => { void generate(); }}
                   />
                   {runs.length > 0 && (
