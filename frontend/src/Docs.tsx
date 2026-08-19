@@ -143,6 +143,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/econ_calendar', desc: 'Upcoming FRED macro releases + FOMC/Beige (lake + live fallback) — Chat eco_calendar tool' },
   { method: 'GET', path: '/api/notebook/premium', desc: '45-day premium-leaders notebook (calls + puts)' },
   { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats plus bot shares (limit, before cursor, optional handle filter)' },
+  { method: 'GET', path: '/api/timeline/rail', desc: 'Desktop timeline column — trending public tags, breaking market news, and SPY/QQQ/IWM/DIA/VIX highlights' },
   { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the public timeline (session + handle required)' },
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
@@ -158,7 +159,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Timeline',
-    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed); the title opens the unlisted /share/<id> page, and a share control beside the title offers copy link or system Share via…. Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>.',
+    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed); the title opens the unlisted /share/<id> page, and a share control beside the title offers copy link or system Share via…. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>.',
   },
   {
     route: '/chat',

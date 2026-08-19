@@ -39,7 +39,7 @@ test.describe('Public timeline', () => {
     await page.route('**/api/avatars/**', async (route) => {
       await route.fulfill({ status: 200, contentType: 'image/png', body: png });
     });
-    await page.route('**/api/timeline**', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -99,7 +99,7 @@ test.describe('Public timeline', () => {
     await page.route('**/api/avatars/**', async (route) => {
       await route.fulfill({ status: 204 });
     });
-    await page.route('**/api/timeline**', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -170,7 +170,7 @@ test.describe('Public timeline', () => {
     await page.route('**/api/avatars/**', async (route) => {
       await route.fulfill({ status: 204 });
     });
-    await page.route('**/api/timeline**', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -220,7 +220,7 @@ test.describe('Public timeline', () => {
   });
 
   test('ask composer collapses to a chip after scrolling the feed', async ({ page }) => {
-    await page.route('**/api/timeline**', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       const items = Array.from({ length: 8 }, (_, index) => ({
         share_id: `TestShareId0000000000000${index}`,
         url: `/share/TestShareId0000000000000${index}`,
@@ -271,6 +271,86 @@ test.describe('Public timeline', () => {
     await expect(composer.getByRole('textbox', { name: 'Message input' })).toBeVisible();
   });
 
+  test('desktop timeline shows a rail with tags, breaking news, and market highlights', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline/rail', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          tags: [{ ticker: 'SPY', posts: 4 }, { ticker: 'NVDA', posts: 2 }],
+          news: [{
+            title: 'Markets open mixed',
+            link: 'https://example.com/breaking',
+            published: null,
+            snippet: 'Futures firmer into the open.',
+            source: 'tavily',
+          }],
+          highlights: [
+            { ticker: 'SPY', name: 'S&P 500', spot: 500.12, change_1d_pct: 0.4 },
+            { ticker: 'QQQ', name: 'Nasdaq-100', spot: 440.5, change_1d_pct: -0.2 },
+          ],
+          fetched_at: '2026-08-19T00:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const rail = page.getByRole('complementary', { name: 'Market rail' });
+    await expect(rail).toBeVisible();
+    await expect(rail.getByRole('heading', { name: 'Tags' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: /SPY/ })).toBeVisible();
+    await expect(rail.getByRole('list', { name: 'Breaking news' })).toBeVisible();
+    await expect(rail.getByText('Markets open mixed')).toBeVisible();
+    await expect(rail.getByRole('list', { name: 'Market highlights' })).toBeVisible();
+    await expect(rail.getByText('S&P 500')).toBeVisible();
+    await expect(rail.getByText('+0.4%')).toBeVisible();
+  });
+
+  test('timeline rail is hidden on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline/rail', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ tags: [], news: [], highlights: [], fetched_at: '2026-08-19T00:00:00.000Z' }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
+  });
+
+
+  test('GET /api/timeline/rail is public and returns a rail envelope', async ({ request }) => {
+    const res = await request.get(`${LOCAL_WORKER}/api/timeline/rail`);
+    expect(res.status()).toBe(200);
+    const body = (await res.json()) as {
+      tags: unknown[];
+      news: unknown[];
+      highlights: unknown[];
+      fetched_at: string;
+    };
+    expect(Array.isArray(body.tags)).toBe(true);
+    expect(Array.isArray(body.news)).toBe(true);
+    expect(Array.isArray(body.highlights)).toBe(true);
+    expect(typeof body.fetched_at).toBe('string');
+  });
 
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline`);
@@ -294,7 +374,7 @@ test.describe('Public timeline', () => {
   });
 
   test('profile page shows identity and public chats for a handle', async ({ page }) => {
-    await page.route('**/api/timeline**', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       const url = new URL(route.request().url());
       const handle = url.searchParams.get('handle');
       if (handle !== 'thelobster') {
@@ -352,7 +432,7 @@ test.describe('Public timeline', () => {
   });
 
   test('unknown profile handle shows not found', async ({ page }) => {
-    await page.route('**/api/timeline**', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
