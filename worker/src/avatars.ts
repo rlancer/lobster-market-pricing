@@ -2,10 +2,11 @@
  * Custom user avatars — D1 BLOBs keyed off user_id.
  *
  * Public GET /api/avatars/{userId} serves the bytes. Upload/delete require a
- * session and a claimed handle. Stored in D1 (not Cloudflare Images / R2) so
- * the bytes round-trip through the same Worker DB binding that already works
- * in CI — Images hosted upload was persisting avatar_key ids that could not
- * be retrieved (GET returned 404 → broken <img> after the local crop preview).
+ * session and a claimed handle.
+ *
+ * D1 quirk (Workers binding): BLOB columns are returned as a plain number[]
+ * (Array.from on the bytes), not ArrayBuffer. We coerce on read and bind
+ * Uint8Array on write so <img> gets a real binary body.
  */
 import type { SessionUser } from "./auth";
 
@@ -101,6 +102,28 @@ export function sniffImageContentType(header: Uint8Array): string | null {
 }
 
 /**
+ * D1 returns BLOB as number[] (see Workers D1 type conversion). Also accept
+ * ArrayBuffer / TypedArray from tests or future runtime changes.
+ */
+export function d1BlobToUint8Array(data: unknown): Uint8Array | null {
+  if (data == null) return null;
+  if (data instanceof ArrayBuffer) {
+    return data.byteLength > 0 ? new Uint8Array(data) : null;
+  }
+  if (ArrayBuffer.isView(data)) {
+    const view = data as ArrayBufferView;
+    return view.byteLength > 0
+      ? new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+      : null;
+  }
+  if (Array.isArray(data)) {
+    if (data.length === 0) return null;
+    return new Uint8Array(data as number[]);
+  }
+  return null;
+}
+
+/**
  * Replace the caller's avatar. Requires an existing user_profiles row (handle
  * claimed). Writes bytes to D1 and marks avatar_key so public profiles expose
  * `/api/avatars/{user_id}`.
@@ -134,15 +157,29 @@ export async function putAvatar(
   }
 
   const now = Date.now();
+  const payload = new Uint8Array(bytes);
   try {
-    await env.SCHEMA_DB.prepare(
+    const write = await env.SCHEMA_DB.prepare(
       `INSERT INTO user_avatars (user_id, content_type, data, updated_at)
        VALUES (?1, ?2, ?3, ?4)
        ON CONFLICT(user_id) DO UPDATE SET
          content_type = excluded.content_type,
          data = excluded.data,
          updated_at = excluded.updated_at`,
-    ).bind(user.id, mime, bytes, now).run();
+    ).bind(user.id, mime, payload, now).run();
+    if (!write.success) {
+      return { ok: false, status: 502, error: "avatar store failed" };
+    }
+
+    // Confirm the blob actually landed — D1 can report success while leaving
+    // an unreadable/empty BLOB, which previously made GET /api/avatars 404
+    // after a "successful" upload.
+    const stored = await env.SCHEMA_DB.prepare(
+      `SELECT length(data) AS nbytes FROM user_avatars WHERE user_id = ?1`,
+    ).bind(user.id).first<{ nbytes: number | null }>();
+    if (!stored || !stored.nbytes || stored.nbytes < 32) {
+      return { ok: false, status: 502, error: "avatar store wrote an empty blob" };
+    }
 
     await env.SCHEMA_DB.prepare(
       `UPDATE user_profiles SET avatar_key = ?1, updated_at = ?2 WHERE user_id = ?3`,
@@ -176,21 +213,22 @@ export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Respo
   }
   const row = await env.SCHEMA_DB.prepare(
     "SELECT content_type, data, updated_at FROM user_avatars WHERE user_id = ?1",
-  ).bind(id).first<{ content_type: string; data: ArrayBuffer; updated_at: number }>();
-  if (!row?.data || row.data.byteLength === 0) {
+  ).bind(id).first<{ content_type: string; data: unknown; updated_at: number }>();
+
+  const bytes = d1BlobToUint8Array(row?.data);
+  if (!bytes) {
     return new Response("not found", { status: 404 });
   }
 
-  const header = new Uint8Array(row.data.slice(0, 256));
   const contentType =
-    (AVATAR_MIME.has(row.content_type) ? row.content_type : null)
-    ?? sniffImageContentType(header)
+    (row?.content_type && AVATAR_MIME.has(row.content_type) ? row.content_type : null)
+    ?? sniffImageContentType(bytes.subarray(0, 256))
     ?? "image/jpeg";
 
   const headers = new Headers({
     "Content-Type": contentType,
     "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-    ETag: `"${row.updated_at}"`,
+    ETag: `"${row?.updated_at ?? 0}"`,
     "X-Content-Type-Options": "nosniff",
   });
   if (contentType === "image/svg+xml") {
@@ -199,5 +237,6 @@ export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Respo
       "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
     );
   }
-  return new Response(row.data, { status: 200, headers });
+  // Copy into a fresh ArrayBuffer-backed view — Response rejects plain number[].
+  return new Response(bytes, { status: 200, headers });
 }
