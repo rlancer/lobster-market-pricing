@@ -48,7 +48,6 @@ export function AvatarCropDialog({
   imageUrl,
   naturalWidth,
   naturalHeight,
-  busy = false,
   onCancel,
   onConfirm,
 }: {
@@ -56,15 +55,20 @@ export function AvatarCropDialog({
   imageUrl: string | null;
   naturalWidth: number;
   naturalHeight: number;
-  busy?: boolean;
   onCancel: () => void;
-  onConfirm: (crop: AvatarCrop) => void;
+  onConfirm: (crop: AvatarCrop) => Promise<void>;
 }) {
   const [crop, setCrop] = useState<AvatarCrop>(DEFAULT_AVATAR_CROP);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const dragRef = useRef<DragState | null>(null);
 
   useEffect(() => {
-    if (open) setCrop(DEFAULT_AVATAR_CROP);
+    if (open) {
+      setCrop(DEFAULT_AVATAR_CROP);
+      setSaving(false);
+      setError(null);
+    }
   }, [open, imageUrl]);
 
   const framed = normalizeAvatarCrop(crop);
@@ -82,7 +86,7 @@ export function AvatarCropDialog({
   }
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (busy || event.button !== 0) return;
+    if (saving || event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
@@ -113,16 +117,28 @@ export function AvatarCropDialog({
   }
 
   function onWheel(event: WheelEvent<HTMLDivElement>) {
-    if (busy) return;
+    if (saving) return;
     event.preventDefault();
     const delta = event.deltaY > 0 ? -0.12 : 0.12;
     setZoom(framed.zoom + delta);
   }
 
+  async function handleSave() {
+    if (saving || !imageUrl) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onConfirm(framed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save photo');
+      setSaving(false);
+    }
+  }
+
   return (
     <Dialog
       isOpen={open}
-      onOpenChange={(next) => { if (!next && !busy) onCancel(); }}
+      onOpenChange={(next) => { if (!next && !saving) onCancel(); }}
       purpose="form"
       width={400}
     >
@@ -132,7 +148,7 @@ export function AvatarCropDialog({
           <DialogHeader
             title="Frame your photo"
             subtitle="Drag to pan, scroll or use the slider to zoom — fill the circle."
-            onOpenChange={() => { if (!busy) onCancel(); }}
+            onOpenChange={() => { if (!saving) onCancel(); }}
           />
         }
         content={
@@ -172,11 +188,14 @@ export function AvatarCropDialog({
                   max={MAX_ZOOM}
                   step={0.01}
                   value={framed.zoom}
-                  disabled={busy}
+                  disabled={saving}
                   aria-label="Zoom"
                   onChange={(event) => setZoom(Number(event.target.value))}
                 />
               </VStack>
+              {error ? (
+                <Text type="supporting" className="avatar-crop-error">{error}</Text>
+              ) : null}
             </VStack>
           </LayoutContent>
         }
@@ -184,16 +203,19 @@ export function AvatarCropDialog({
           <LayoutFooter>
             <HStack gap={2} hAlign="end">
               <Button
+                type="button"
                 variant="ghost"
                 label="Cancel"
-                isDisabled={busy}
+                isDisabled={saving}
                 onClick={onCancel}
               />
               <Button
+                type="button"
                 variant="primary"
-                label={busy ? 'Uploading…' : 'Use photo'}
-                isDisabled={busy || !imageUrl}
-                onClick={() => onConfirm(framed)}
+                label={saving ? 'Saving…' : 'Save photo'}
+                isDisabled={saving || !imageUrl}
+                isLoading={saving}
+                onClick={() => { void handleSave(); }}
               />
             </HStack>
           </LayoutFooter>

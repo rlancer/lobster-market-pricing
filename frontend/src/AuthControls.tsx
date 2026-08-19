@@ -112,6 +112,7 @@ export function AuthControls({
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [pendingAvatar, setPendingAvatar] = useState<PendingAvatar | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [claimOpen, setClaimOpen] = useState(false);
 
   useEffect(() => {
@@ -135,6 +136,10 @@ export function AuthControls({
       setAvatarFile(null);
       setPendingAvatar((prev) => {
         if (prev) URL.revokeObjectURL(prev.url);
+        return null;
+      });
+      setAvatarPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
         return null;
       });
       setClaimOpen(false);
@@ -266,6 +271,13 @@ export function AuthControls({
     setAvatarFile(null);
   }
 
+  function setOptimisticAvatarPreview(url: string | null) {
+    setAvatarPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+  }
+
   async function uploadPreparedAvatar(file: File, crop?: AvatarCrop | null) {
     setUploadingAvatar(true);
     setAvatarError(null);
@@ -274,6 +286,7 @@ export function AuthControls({
       const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
       applyProfilePatch(result);
       clearPendingAvatar();
+      setOptimisticAvatarPreview(null);
     } catch (err) {
       setAvatarError(err instanceof Error ? err.message : 'Could not upload photo');
       throw err;
@@ -322,22 +335,40 @@ export function AuthControls({
   }
 
   async function confirmAvatarCrop(crop: AvatarCrop) {
-    if (!pendingAvatar) return;
+    const pending = pendingAvatar;
+    if (!pending) throw new Error('No photo selected');
+
+    // Encode first so framing errors stay in the crop dialog.
+    const prepared = await prepareAvatarUpload(pending.file, crop);
+    const preview = URL.createObjectURL(prepared.blob);
+    setOptimisticAvatarPreview(preview);
+    clearPendingAvatar();
+
+    setUploadingAvatar(true);
+    setAvatarError(null);
     try {
-      await uploadPreparedAvatar(pendingAvatar.file, crop);
-    } catch {
-      /* error already surfaced on the file field */
+      const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
+      applyProfilePatch(result);
+      setOptimisticAvatarPreview(null);
+    } catch (err) {
+      setOptimisticAvatarPreview(null);
+      const message = err instanceof Error ? err.message : 'Could not upload photo';
+      setAvatarError(message);
+      throw err;
+    } finally {
+      setUploadingAvatar(false);
     }
   }
 
   async function removeAvatar() {
-    if (!profile?.avatar_url) return;
+    if (!profile?.avatar_url && !avatarPreviewUrl) return;
     setUploadingAvatar(true);
     setAvatarError(null);
     try {
       const result = await api.clearAvatar();
       applyProfilePatch(result);
       clearPendingAvatar();
+      setOptimisticAvatarPreview(null);
     } catch (err) {
       setAvatarError(err instanceof Error ? err.message : 'Could not remove photo');
     } finally {
@@ -350,6 +381,8 @@ export function AuthControls({
     setError(null);
   }
 
+  const avatarDisplayUrl = avatarPreviewUrl ?? profile?.avatar_url ?? null;
+
   return (
     <>
       <Popover
@@ -360,7 +393,7 @@ export function AuthControls({
         content={
           <VStack gap={3}>
             <HStack gap={3} vAlign="center">
-              <UserAvatar avatarUrl={profile?.avatar_url} className="topbar-profile-icon" alt="" />
+              <UserAvatar avatarUrl={avatarDisplayUrl} className="topbar-profile-icon" alt="" />
               <VStack gap={0.5} className="topbar-account-copy">
                 <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
                 {currentHandle ? (
@@ -409,7 +442,7 @@ export function AuthControls({
                   isLoading={uploadingAvatar}
                   status={avatarError ? { type: 'error', message: avatarError } : undefined}
                 />
-                {profile?.avatar_url ? (
+                {profile?.avatar_url || avatarPreviewUrl ? (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -441,7 +474,7 @@ export function AuthControls({
       >
         <Tooltip content="Account" hasHoverIndication={false}>
           <button type="button" className="topbar-profile" aria-label="Account">
-            <UserAvatar avatarUrl={profile?.avatar_url} className="topbar-profile-icon" alt="" />
+            <UserAvatar avatarUrl={avatarDisplayUrl} className="topbar-profile-icon" alt="" />
           </button>
         </Tooltip>
       </Popover>
@@ -484,11 +517,10 @@ export function AuthControls({
         imageUrl={pendingAvatar?.url ?? null}
         naturalWidth={pendingAvatar?.width ?? 0}
         naturalHeight={pendingAvatar?.height ?? 0}
-        busy={uploadingAvatar}
         onCancel={() => {
           if (!uploadingAvatar) clearPendingAvatar();
         }}
-        onConfirm={(crop) => { void confirmAvatarCrop(crop); }}
+        onConfirm={confirmAvatarCrop}
       />
     </>
   );

@@ -18,6 +18,7 @@ export function UserAvatar({
   if (src) {
     return (
       <img
+        key={src}
         src={src}
         alt={alt}
         className={className}

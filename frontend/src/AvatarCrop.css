@@ -50,6 +50,12 @@
   cursor: pointer;
 }
 
+.avatar-crop-error {
+  width: min(100%, 280px);
+  color: var(--color-text-red);
+  text-align: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .avatar-crop-image {
     will-change: auto;
