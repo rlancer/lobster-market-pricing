@@ -1,17 +1,22 @@
 import type { ItemJob, SchedulerEnv } from "../scheduler.js";
 import { runSymbols } from "../run-symbols.js";
-import universe from "../../symbols/universe.json";
-
-const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
+import {
+  bundledUniverse,
+  effectiveUniverse,
+  expectedUniverseSize,
+} from "../enrolled-universe.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
   return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
-// CBOE S&P 500 options: item-scoped, market-gated, continuous cadence. Item
-// store is `symbol_state`; the scheduler owns per-symbol due/backoff and this
-// adapter maps a due batch through runSymbols (items-in / failures-out).
+// CBOE options: item-scoped, market-gated, continuous cadence. Item store is
+// `symbol_state`; the scheduler owns per-symbol due/backoff and this adapter
+// maps a due batch through runSymbols (items-in / failures-out).
+//
+// Universe = bundled symbols/universe.json ∪ enabled enrolled_symbols so
+// on-demand tickers stay in the continuous refresh loop after enrollment.
 export function cboeOptionsJob(env: SchedulerEnv): ItemJob {
   return {
     id: "cboe-options",
@@ -20,11 +25,12 @@ export function cboeOptionsJob(env: SchedulerEnv): ItemJob {
     scope: "items",
     itemTable: "symbol_state",
     itemIdColumn: "symbol",
-    seedSize: () => SYMBOLS.length,
+    seedSize: (db) => expectedUniverseSize(db),
     seedItems: async (db) => {
       const now = Date.now();
       const base = num(env, "LOADER_BACKOFF_BASE_SECONDS", 60);
-      for (const symbol of SYMBOLS) {
+      const symbols = await effectiveUniverse(db);
+      for (const symbol of symbols) {
         await db.prepare(
           `INSERT OR IGNORE INTO symbol_state
              (symbol, enabled, last_success_at, last_attempt_at, consecutive_failures,
@@ -32,7 +38,11 @@ export function cboeOptionsJob(env: SchedulerEnv): ItemJob {
            VALUES (?, 1, NULL, NULL, 0, ?, ?, NULL, 0)`
         ).bind(symbol, now, base).run();
       }
-      console.log(JSON.stringify({ event: "seeded_symbol_state", symbols: SYMBOLS.length }));
+      console.log(JSON.stringify({
+        event: "seeded_symbol_state",
+        symbols: symbols.length,
+        bundled: bundledUniverse().length,
+      }));
     },
     run: async (items, e) => {
       const result = await runSymbols(items, e);

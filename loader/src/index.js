@@ -1,5 +1,11 @@
 import { EtlScheduler, DRIVER_ID } from "./scheduler.js";
 import { runSymbols } from "./run-symbols.js";
+import { publishOhlc } from "./ohlc.js";
+import {
+  enrollSymbol,
+  listEnrolledRows,
+  normalizeEnrollTicker,
+} from "./enrolled-universe.js";
 
 export { EtlScheduler };
 
@@ -66,6 +72,79 @@ async function handleRun(request, env) {
   }
 }
 
+/**
+ * POST /symbols/enroll — durable on-demand enrollment.
+ * Body: { symbol, source?, requested_by?, notes?, load_now? }
+ * Seeds enrolled_symbols + symbol_state / ohlc_backfill_state /
+ * research_brief_state, optionally kicks an immediate CBOE+OHLC load.
+ */
+async function handleEnroll(request, env, ctx) {
+  if (!env.LOADER_DB) {
+    return json({ error: "LOADER_DB is not configured" }, 503);
+  }
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "invalid JSON body" }, 400);
+  }
+  const raw = body && typeof body.symbol === "string" ? body.symbol : "";
+  const symbol = normalizeEnrollTicker(raw);
+  if (!symbol) {
+    return json({ error: `invalid enrollable ticker: ${raw || "(empty)"}` }, 400);
+  }
+  const loadNow = body.load_now !== false;
+  try {
+    const result = await enrollSymbol(env.LOADER_DB, symbol, {
+      source: typeof body.source === "string" ? body.source : "on_demand",
+      requestedBy: typeof body.requested_by === "string" ? body.requested_by : null,
+      notes: typeof body.notes === "string" ? body.notes : null,
+      backoffBaseSeconds: Number(env.LOADER_BACKOFF_BASE_SECONDS) || 60,
+    });
+    armDriver(env, ctx);
+    if (loadNow) {
+      ctx.waitUntil(
+        (async () => {
+          try {
+            await runSymbols([symbol], env);
+          } catch (error) {
+            console.log(JSON.stringify({
+              event: "enroll_run_symbols_error",
+              symbol,
+              error: String((error && error.message) || error),
+            }));
+          }
+          try {
+            if (env.PIPELINE_OHLC_URL || env.PIPELINE_REALIZED_VOL_URL) {
+              await publishOhlc(symbol, env);
+            }
+          } catch (error) {
+            console.log(JSON.stringify({
+              event: "enroll_publish_ohlc_error",
+              symbol,
+              error: String((error && error.message) || error),
+            }));
+          }
+        })(),
+      );
+    }
+    return json({ ...result, load_now: loadNow });
+  } catch (error) {
+    return json({ error: (error && error.message) || String(error) }, 500);
+  }
+}
+
+async function handleEnrolledList(request, env) {
+  if (!env.LOADER_DB) {
+    return json({ error: "LOADER_DB is not configured" }, 503);
+  }
+  const url = new URL(request.url);
+  const limit = Number(url.searchParams.get("limit") || 100);
+  const offset = Number(url.searchParams.get("offset") || 0);
+  const rows = await listEnrolledRows(env.LOADER_DB, { limit, offset });
+  return json({ symbols: rows, count: rows.length });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -114,6 +193,27 @@ export default {
         },
       });
     }
+
+    if (url.pathname === "/symbols/enroll" && request.method === "POST") {
+      if (!authorized(request, env)) {
+        return new Response("Unauthorized\n", {
+          status: 401,
+          headers: { "www-authenticate": "Bearer" },
+        });
+      }
+      return handleEnroll(request, env, ctx);
+    }
+
+    if (url.pathname === "/symbols/enrolled" && request.method === "GET") {
+      if (!authorized(request, env)) {
+        return new Response("Unauthorized\n", {
+          status: 401,
+          headers: { "www-authenticate": "Bearer" },
+        });
+      }
+      return handleEnrolledList(request, env);
+    }
+
     if (url.pathname !== "/run" || request.method !== "POST") {
       return new Response("Not found\n", { status: 404 });
     }

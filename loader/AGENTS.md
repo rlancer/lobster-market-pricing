@@ -48,6 +48,18 @@ symbol→{name, sector, source} map that enriches every symbol):
    (73 broad-market / sector / international / fixed-income / commodity / real-estate /
    thematic / leveraged / volatility ETFs, each verified to have a CBOE option chain).
 
+**On-demand enrollment.** Tickers outside that bundled manifest (e.g. a Copilot
+question about SOFI when it is not in the lake) are written to D1
+`enrolled_symbols` via `POST /symbols/enroll` (Bearer `LOADER_TOKEN`). The API
+Worker auto-calls this when research returns a thin brief for an out-of-universe
+equity. Enrollment also seeds `symbol_state`, `ohlc_backfill_state`, and
+`research_brief_state`, and optionally kicks an immediate CBOE + OHLC load.
+ETL jobs (`cboe-options`, `ohlc-daily`, `ohlc-backfill`, `earnings-daily`,
+`fundamentals-daily`, `research-briefs-daily`) use the **effective universe** =
+bundled manifest ∪ enabled `enrolled_symbols`. List enrollments with
+`GET /symbols/enrolled`. Admin proxy: `POST /api/symbols/enroll` on the API
+Worker (Bearer `ADMIN_TOKEN`; requires `LOADER_TOKEN` on that Worker too).
+
 The Dow Jones 30 is deliberately excluded: every Dow member is already an S&P
 500 constituent, so it adds zero symbols. Russell 1000/3000 are excluded per
 product scope ("the whole universe" is not wanted).

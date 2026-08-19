@@ -18,8 +18,8 @@ import { researchBriefsDailyJob } from "./research-briefs-daily.js";
 // Phase 2 registers:
 //   - cboe-options    — item-scoped, market-gated, continuous cadence, item
 //     store `symbol_state` (wraps runSymbols).
-//   - ohlc-daily      — batch, ungated, daily cadence, whole merged universe
-//     (S&P 500 + Nasdaq-100 + ETFs) (wraps publishOhlc).
+//   - ohlc-daily      — batch, ungated, daily cadence, effective universe
+//     (bundled manifest ∪ enrolled_symbols) (wraps publishOhlc).
 //   - ohlc-backfill   — item-scoped, resumable 2y backfill (manual trigger).
 //   - earnings-daily  — batch, ungated, daily cadence; ~2-week Nasdaq
 //     earnings-calendar window filtered to the merged universe

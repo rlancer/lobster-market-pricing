@@ -328,7 +328,7 @@ export function DocsPipeline() {
         A single <code>EtlScheduler</code> Durable Object runs a self-rescheduling alarm loop. Each pass:
       </p>
       <ol className="docs-ordered">
-        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the bundled manifest (<code>symbols/universe.json</code>, 591 symbols), all enabled and due immediately.</li>
+        <li><b>Seed</b> — the first pass loads <code>symbol_state</code> from the effective universe (bundled <code>symbols/universe.json</code>, ~591 symbols, plus any on-demand <code>enrolled_symbols</code>), all enabled and due immediately.</li>
         <li><b>Pick the batch</b> — due symbols (<code>enabled = 1 AND next_attempt_after &lt;= now</code>), stalest first, capped at <code>LOADER_BATCH_SIZE</code> (40).</li>
         <li><b>Fetch &amp; normalize</b> — each symbol comes down from CBOE, is normalized to OCC form, and is published to Pipelines in symbol order with retries and idempotency keys (8 symbols fetched in parallel per pass).</li>
         <li><b>Bookkeeping</b> — success resets the failure count and reschedules the reload at the cadence (15 min); failure increments <code>consecutive_failures</code> and doubles the backoff 60&nbsp;s → 5&nbsp;min → 30&nbsp;min (capped). No special-casing, no dead symbols.</li>

@@ -18,6 +18,11 @@ OPEN_FIGI=
 # Optional override for local dev; defaults to the production loader.
 LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
 
+# Same bearer as loader LOADER_TOKEN — required for on-demand ticker enrollment
+# (Copilot/research auto-enroll + POST /api/symbols/enroll). Deploy with:
+#   cd worker && npx wrangler secret put LOADER_TOKEN
+LOADER_TOKEN=
+
 # Admin bearer token guarding GET /api/admin/chat_history (transcripts with
 # ip/user_id) and private lake SQL. Tool-call debug is public at
 # GET /api/tool_calls — no token. Generate a long random value; deployed via

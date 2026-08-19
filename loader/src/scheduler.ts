@@ -87,14 +87,18 @@ export interface ItemJob extends JobBase {
   itemIdColumn: string;
   seedItems(db: D1Database): Promise<void>;
   // Expected item-store row count after seeding. Lets the scheduler re-seed
-  // additively when the universe grows (e.g. adding ETFs) without touching
-  // existing per-item progress. Legacy jobs omit it → seed only when empty.
-  seedSize?: () => number;
+  // additively when the universe grows (bundled manifest and/or on-demand
+  // enrolled_symbols) without touching existing per-item progress. Legacy
+  // jobs omit it → seed only when empty. May be async when it reads D1.
+  seedSize?: (db: D1Database) => number | Promise<number>;
 }
 
 export interface BatchJob extends JobBase {
   scope: "batch";
-  universe(): string[];
+  // May read D1 (enrolled_symbols ∪ bundled manifest). Scheduler always awaits.
+  // `db` is optional so jobs that ignore enrollment (indexes/futures/econ) and
+  // unit tests can keep calling `universe()` with no args.
+  universe(db?: D1Database): string[] | Promise<string[]>;
 }
 
 export type JobSpec = ItemJob | BatchJob;
@@ -463,16 +467,17 @@ export class EtlScheduler {
 
   // Seed an item-scoped job's item store. Seeds when the store is empty
   // (legacy jobs without `seedSize`) or smaller than the job's expected item
-  // count, so a universe expansion (e.g. adding ETFs) seeds its new items
-  // without touching existing per-item progress. seedItems uses INSERT OR
-  // IGNORE, so a re-seed only adds missing rows.
+  // count, so a universe expansion (bundled ETFs / on-demand enrollment)
+  // seeds its new items without touching existing per-item progress.
+  // seedItems uses INSERT OR IGNORE, so a re-seed only adds missing rows.
   async seedIfEmpty(spec: ItemJob): Promise<boolean> {
-    const row = await this.db().prepare(
+    const db = this.db();
+    const row = await db.prepare(
       `SELECT COUNT(*) AS c FROM ${spec.itemTable}`
     ).first();
-    const expected = spec.seedSize ? spec.seedSize() : 1;
+    const expected = spec.seedSize ? await Promise.resolve(spec.seedSize(db)) : 1;
     if (row && (row.c as number) >= expected) return false;
-    await spec.seedItems(this.db());
+    await spec.seedItems(db);
     return true;
   }
 
@@ -651,7 +656,7 @@ export class EtlScheduler {
       await this.seedIfEmpty(spec); // seed the item store on first run
       batch = await this.pickDue(batchSize, spec);
     } else {
-      batch = spec.universe();
+      batch = await Promise.resolve(spec.universe(this.db()));
     }
     if (batch.length === 0) return; // nothing due this pass
 

@@ -1,7 +1,9 @@
 import type { ItemJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
-import universe from "../../symbols/universe.json";
-
-const SYMBOLS = Array.isArray(universe.symbols) ? (universe.symbols as string[]) : [];
+import {
+  bundledUniverse,
+  effectiveUniverse,
+  expectedUniverseSize,
+} from "../enrolled-universe.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
@@ -91,8 +93,7 @@ export async function warmResearchBatch(
 // Research brief warm: item-scoped, ungated, daily cadence. Each due batch is
 // POSTed to the API Worker (`POST /api/research/warm`, Bearer ADMIN_TOKEN),
 // which force-recomputes lake→D1 `ticker_research` rows. Spreading the universe
-// across passes (LOADER_BATCH_SIZE) keeps each pass inside the run timeout and
-// avoids stampeding R2 SQL.
+// (bundled ∪ enrolled) across passes keeps each pass inside the run timeout.
 //
 // Dry-run: without RESEARCH_API_BASE + ADMIN_TOKEN the pass is a no-op.
 export function researchBriefsDailyJob(env: SchedulerEnv): ItemJob {
@@ -103,11 +104,12 @@ export function researchBriefsDailyJob(env: SchedulerEnv): ItemJob {
     scope: "items",
     itemTable: "research_brief_state",
     itemIdColumn: "symbol",
-    seedSize: () => SYMBOLS.length,
+    seedSize: (db) => expectedUniverseSize(db),
     seedItems: async (db) => {
       const now = Date.now();
       const base = num(env, "LOADER_BACKOFF_BASE_SECONDS", 60);
-      for (const symbol of SYMBOLS) {
+      const symbols = await effectiveUniverse(db);
+      for (const symbol of symbols) {
         await db.prepare(
           `INSERT OR IGNORE INTO research_brief_state
              (symbol, enabled, last_success_at, last_attempt_at,
@@ -116,7 +118,11 @@ export function researchBriefsDailyJob(env: SchedulerEnv): ItemJob {
            VALUES (?, 1, NULL, NULL, 0, ?, ?, NULL, 0)`,
         ).bind(symbol, now, base).run();
       }
-      console.log(JSON.stringify({ event: "seeded_research_brief_state", symbols: SYMBOLS.length }));
+      console.log(JSON.stringify({
+        event: "seeded_research_brief_state",
+        symbols: symbols.length,
+        bundled: bundledUniverse().length,
+      }));
     },
     run: async (items, e) => {
       if (!researchWarmConfigured(e)) {

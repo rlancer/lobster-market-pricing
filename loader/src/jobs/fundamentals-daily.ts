@@ -1,8 +1,9 @@
-import type { BatchJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
+import type { BatchJob, JobRunFailure, SchedulerEnv, D1Database } from "../scheduler.js";
 import type { FundamentalsEnv } from "../fundamentals.js";
 import { openYahooSession } from "../etf.js";
 import { publishFundamentals } from "../fundamentals.js";
 import universe from "../../symbols/universe.json";
+import { listEnrolledSymbols } from "../enrolled-universe.js";
 
 type Constituent = { name?: string; sector?: string; source?: string };
 
@@ -18,6 +19,23 @@ export function fundamentalsUniverse(): string[] {
     const src = CONSTITUENTS[s]?.source;
     return src !== "etf";
   });
+}
+
+/**
+ * Bundled equity sleeve ∪ on-demand enrolled tickers (enrolled names are treated
+ * as equities; Yahoo no-ops harmlessly for true ETFs that land here).
+ */
+export async function fundamentalsEffectiveUniverse(db?: D1Database): Promise<string[]> {
+  const bundled = fundamentalsUniverse();
+  if (!db) return bundled;
+  const set = new Set(bundled.map((s) => s.toUpperCase()));
+  for (const s of await listEnrolledSymbols(db)) {
+    if (CONSTITUENTS[s]?.source === "etf") continue;
+    set.add(s);
+  }
+  // Keep stable order: bundled equities first, then enrolled extras sorted.
+  const extras = Array.from(set).filter((s) => !bundled.includes(s)).sort();
+  return [...bundled, ...extras];
 }
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
@@ -37,7 +55,7 @@ export function fundamentalsDailyJob(env: SchedulerEnv): BatchJob {
     marketGated: false,
     cadenceSeconds: Math.floor(num(env, "FUNDAMENTALS_CADENCE_SECONDS", 86400)),
     scope: "batch",
-    universe: () => fundamentalsUniverse(),
+    universe: (db) => fundamentalsEffectiveUniverse(db),
     run: async (items, e) => {
       if (!e.PIPELINE_FUNDAMENTALS_URL) {
         return { runId: null, failures: [] };

@@ -32,7 +32,7 @@ describe("researchBriefsDailyJob", () => {
     expect(job.marketGated).toBe(false);
     expect(job.cadenceSeconds).toBe(86400);
     expect(job.itemTable).toBe("research_brief_state");
-    expect(job.seedSize?.()).toBeGreaterThan(500);
+    expect(await job.seedSize?.(null as never)).toBeGreaterThan(500);
 
     const result = await job.run(["AAPL", "MSFT"], {});
     expect(result.runId).toBeNull();
@@ -50,12 +50,14 @@ describe("researchBriefsDailyJob", () => {
             }
             return { success: true };
           },
+          first: async () => ({ c: 0 }),
+          all: async () => ({ results: [], success: true }),
         }),
       }),
     };
     const job = researchBriefsDailyJob({ LOADER_BACKOFF_BASE_SECONDS: "60" });
     await job.seedItems(db as never);
-    expect(inserts.length).toBe(job.seedSize?.());
+    expect(inserts.length).toBe(await job.seedSize?.(db as never));
     expect(inserts).toContain("AAPL");
   });
 });
