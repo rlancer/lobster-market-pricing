@@ -25,6 +25,10 @@ import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import {
+  inventBotPrompt,
+  resolveBotGeneratePrompt,
+} from "./bot-prompt";
+import {
   botShareReuseDecision,
   createBotProfile,
   createBotRun,
@@ -32,12 +36,14 @@ import {
   getBotProfile,
   getBotRun,
   listBotProfiles,
+  listBotRunPrompts,
   listBotRuns,
   requireBotAdmin,
   updateBotProfile,
   updateBotRun,
 } from "./bots";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
+import { createCopilotModel } from "./copilot-contract";
 import { CopilotAgentBase } from "./copilot";
 import { getHandle, setHandle, suggestHandle } from "./profiles";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
@@ -77,7 +83,6 @@ import {
 } from "./research";
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
-import { createCopilotModel } from "./copilot-contract";
 import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
 
@@ -2562,9 +2567,10 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
 /**
  * Bot profiles — public read of enabled bots; admin CRUD + generate trigger.
  *
- * Generate returns a fresh chat_id + prompt so the admin UI can open Copilot
- * as that persona and auto-send. Sharing with bot_handle stamps the public
- * timeline attribution.
+ * Generate returns a fresh chat_id + a prompt that has not already been used
+ * on a prior run for that bot (unused seed, or LLM invent). The admin UI opens
+ * Copilot as that persona and auto-sends. Sharing with bot_handle stamps the
+ * public timeline attribution.
  */
 async function handleBots(env: Env, req: Request, path: string): Promise<Response | null> {
   if (path === "/api/bots" && req.method === "GET") {
@@ -2656,9 +2662,29 @@ async function handleBots(env: Env, req: Request, path: string): Promise<Respons
       return json(env, { error: "invalid JSON body" }, 400, "private");
     }
     const promptRaw = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    const prompt = promptRaw || bot.seed_prompts[0] || "";
+    const usedPrompts = await listBotRunPrompts(env.SCHEMA_DB, bot.handle, 100);
+    const resolved = resolveBotGeneratePrompt(promptRaw || undefined, bot.seed_prompts, usedPrompts);
+    let prompt = resolved.prompt;
+    let prompt_source: "requested" | "seed" | "invent" = resolved.source === "invent" ? "invent" : resolved.source;
     if (!prompt) {
-      return json(env, { error: "prompt is required (or add a seed prompt on the bot)" }, 400, "private");
+      if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) {
+        return json(env, {
+          error: "all seed prompts were already used — add a new seed, pass a unique prompt, or configure Copilot to invent one",
+        }, 400, "private");
+      }
+      const origin = new URL(req.url).origin;
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        origin,
+      );
+      const invented = await inventBotPrompt(bot, usedPrompts, model);
+      if (!invented) {
+        return json(env, {
+          error: "could not invent a unique prompt different from prior chats — try again or pass a new prompt",
+        }, 502, "private");
+      }
+      prompt = invented;
+      prompt_source = "invent";
     }
     const chatId = crypto.randomUUID();
     const run = await createBotRun(env.SCHEMA_DB, bot.handle, chatId, prompt);
@@ -2668,6 +2694,7 @@ async function handleBots(env: Env, req: Request, path: string): Promise<Respons
       run_id: run.run_id,
       chat_id: chatId,
       prompt,
+      prompt_source,
       bot: {
         handle: bot.handle,
         display_name: bot.display_name,

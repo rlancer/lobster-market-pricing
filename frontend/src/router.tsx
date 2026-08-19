@@ -8,6 +8,7 @@ import App from './App';
 import DataPage from './DataPage';
 import AiChat from './AiChat';
 import TimelinePage from './Timeline';
+import ProfilePage from './Profile';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
@@ -134,7 +135,7 @@ const shareRoute = createRoute({
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/u/$handle',
-  component: TimelinePage,
+  component: ProfilePage,
 });
 
 const brandRoute = createRoute({

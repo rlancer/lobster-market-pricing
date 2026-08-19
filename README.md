@@ -125,7 +125,7 @@ the app header so the account is available on every workspace page, not only
 Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
 letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
 `user` row). Handles are editable from the account popover and are the URL slug for
-`/u/{handle}` (that handle's public posts). Chat ownership still keys off
+`/u/{handle}` (that handle's public profile and opted-in chats). Chat ownership still keys off
 `user_id`. A chat is cataloged onto the
 user when they send a real turn (or when they sign in on a chat that already
 has a transcript) — not when they merely open a new empty UUID. Identity is
@@ -238,14 +238,14 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/tool_calls` | Public Copilot tool-call debug log from D1 (no token). Defaults to failures (`ok=false`); filter with `chat_id`, `share_id`, `tool`, `ok=true\|false\|all`, `limit`, `before` (ISO). Each item has tool name, capped args, error, summary, sql, duration, turn/chat ids. `/api/admin/tool_calls` is an alias. |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name}`. Bot shares also include `bot_handle` / `bot: {handle, display_name, persona}`. |
-| `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `tickers` and optional `is_bot`. 404 if `handle` is set and unknown. |
+| `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `tickers` and optional `is_bot`; when `handle` is set, `profile` includes `name`, `created_at`, and for bots `persona`/`bio`. 404 if `handle` is set and unknown. |
 | `POST /api/timeline` | List a share on the public timeline (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. |
 | `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs) / update / delete a bot. |
-| `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + prompt for Copilot under that persona (`{prompt?}`). UI opens `/chat/{id}` and auto-sends. |
+| `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Copilot under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 
 ### `/api/screen` query parameters
 
@@ -270,8 +270,10 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News and related chats
 settle on idle. Chat ticker chips (from `research_ticker`) link there.
 **Bots** (`/bots`, admin-only) edit Copilot personas (handles like
-`yololobster`) and trigger a chat from the UI; sharing stamps the post onto
-the public timeline under that handle. **Data**
+`yololobster`) and trigger a chat from the UI; generate picks a prompt that
+has not already been used on a prior run (next unused seed, or an invented
+question). Sharing stamps the post onto the public timeline under that handle.
+**Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
 - Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
@@ -370,7 +372,7 @@ can view, nobody can enumerate, and a fresh incognito tab renders the
 read-only transcript (user + assistant bubbles, SQL blocks) with no key or
 login. From the share dialog, a signed-in author with a handle can opt the
 share onto the **public timeline** (`POST /api/timeline`) — the home feed at
-`/` and that author's `/u/{handle}`. Unlisted stays the default; turning the
+`/` and that author's profile page at `/u/{handle}`. Unlisted stays the default; turning the
 switch off removes the listing (`DELETE /api/timeline/{id}`) without revoking
 the link. Admins can unpublish any feed post from the timeline UI (same
 DELETE): human listings drop out of `timeline_posts`, bot shares clear

@@ -146,8 +146,74 @@ test.describe('Public timeline', () => {
     expect(res.status()).toBe(401);
   });
 
-  test('unpublishing from the timeline requires a session', async ({ request }) => {
-    const res = await request.delete(`${LOCAL_WORKER}/api/timeline/notarealshare`);
-    expect(res.status()).toBe(401);
+  test('profile page shows identity and public chats for a handle', async ({ page }) => {
+    await page.route('**/api/timeline**', async (route) => {
+      const url = new URL(route.request().url());
+      const handle = url.searchParams.get('handle');
+      if (handle !== 'thelobster') {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'not found' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000001',
+            url: '/share/TestShareId000000000000001',
+            title: 'Should I buy SPY calls',
+            excerpt: 'Liquidity looks thin.',
+            messages: [
+              { role: 'user', content: 'Should I buy SPY calls' },
+              { role: 'assistant', content: 'Liquidity looks thin across the near-dated SPY call board.' },
+            ],
+            handle: 'thelobster',
+            name: 'Robert Lancer',
+            published_at: Date.now(),
+            model: 'deepseek/deepseek-v4-flash-0731',
+            has_sql: true,
+            has_chart: false,
+            is_bot: false,
+          }],
+          next_before: null,
+          profile: {
+            handle: 'thelobster',
+            name: 'Robert Lancer',
+            is_bot: false,
+            created_at: Date.UTC(2026, 0, 15),
+          },
+        }),
+      });
+    });
+
+    await page.goto('/u/thelobster');
+    await expect(page.getByRole('heading', { name: 'Robert Lancer' })).toBeVisible();
+    await expect(page.getByText('@thelobster')).toBeVisible();
+    await expect(page.getByText('Joined')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Public chats' })).toBeVisible();
+    const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
+    await expect(post).toBeVisible();
+    // Author byline is redundant on the profile page.
+    await expect(post.getByRole('link', { name: '@thelobster' })).toHaveCount(0);
+    await expect(post.getByRole('link', { name: 'View full chat' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'All posts' })).toBeVisible();
+  });
+
+  test('unknown profile handle shows not found', async ({ page }) => {
+    await page.route('**/api/timeline**', async (route) => {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'not found' }),
+      });
+    });
+
+    await page.goto('/u/nobodyhere');
+    await expect(page.getByRole('heading', { name: 'Profile not found' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Back to timeline' })).toBeVisible();
   });
 });

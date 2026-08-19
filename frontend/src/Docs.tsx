@@ -147,7 +147,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
-  { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + prompt for that bot persona' },
+  { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 
@@ -155,7 +155,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Timeline',
-    body: 'The home feed of chats people chose to share publicly. Each post is an opted-in share attributed to a handle; the unlisted /share/<id> link still works either way. A handle’s posts also live at /u/<handle>.',
+    body: 'The home feed of chats people chose to share publicly. Each post is an opted-in share attributed to a handle; the unlisted /share/<id> link still works either way. A handle’s profile and public chats live at /u/<handle>.',
   },
   {
     route: '/chat',
@@ -460,7 +460,9 @@ export function DocsFrontend() {
   return (
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
-        The React app (Vite + TanStack Router) is a public timeline, Chat, and a Data catalog on one shell — sidebar navigation plus a header with dataset status. The left nav links here and to the brand guide under a divider.
+        The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
+        /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation plus a
+        header with dataset status. The left nav links here and to the brand guide under a divider.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>
