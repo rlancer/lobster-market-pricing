@@ -178,43 +178,46 @@ export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Respo
     details = null;
   }
 
+  // Prefer the Images CDN variant — correct Content-Type, no Worker stream
+  // footguns. <img src="/api/avatars/..."> follows the redirect fine.
+  const variant = details?.variants?.find((url) => typeof url === "string" && /^https?:\/\//i.test(url));
+  if (variant) {
+    return Response.redirect(variant, 302);
+  }
+
   let bytes: ReadableStream<Uint8Array> | null = null;
   try {
     bytes = await handle.bytes();
   } catch {
     bytes = null;
   }
+  if (!bytes) return new Response("not found", { status: 404 });
 
-  if (bytes) {
-    const sniffed = await sniffStreamContentType(bytes);
-    const metaType = metaContentType(details?.meta);
-    const contentType =
-      contentTypeFromFilename(details?.filename)
-      ?? metaType
-      ?? sniffed.contentType
-      ?? "image/jpeg";
-    const headers = new Headers({
-      "Content-Type": contentType,
-      "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-      ETag: `"${row.updated_at}"`,
-      "X-Content-Type-Options": "nosniff",
-    });
-    if (contentType === "image/svg+xml") {
-      headers.set(
-        "Content-Security-Policy",
-        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
-      );
-    }
-    return new Response(sniffed.body, { status: 200, headers });
+  // Buffer the payload (avatars are ≤5 MB, usually ≪512 KB after client resize).
+  // Avoid stream.tee()+cancel — that was returning an empty/corrupt body that
+  // painted as a broken <img> after the optimistic local preview.
+  const buffer = await new Response(bytes).arrayBuffer();
+  if (buffer.byteLength === 0) return new Response("not found", { status: 404 });
+
+  const contentType =
+    contentTypeFromFilename(details?.filename)
+    ?? metaContentType(details?.meta)
+    ?? sniffImageContentType(new Uint8Array(buffer.slice(0, 256)))
+    ?? "image/jpeg";
+
+  const headers = new Headers({
+    "Content-Type": contentType,
+    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+    ETag: `"${row.updated_at}"`,
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (contentType === "image/svg+xml") {
+    headers.set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+    );
   }
-
-  // bytes() unavailable — fall back to a Cloudflare Images delivery variant.
-  const variant = details?.variants?.find((url) => typeof url === "string" && url.length > 0);
-  if (variant) {
-    return Response.redirect(variant, 302);
-  }
-
-  return new Response("not found", { status: 404 });
+  return new Response(buffer, { status: 200, headers });
 }
 
 function contentTypeFromFilename(filename: string | null | undefined): string | null {
@@ -261,35 +264,4 @@ export function sniffImageContentType(header: Uint8Array): string | null {
     return "image/svg+xml";
   }
   return null;
-}
-
-async function sniffStreamContentType(
-  stream: ReadableStream<Uint8Array>,
-): Promise<{ contentType: string | null; body: ReadableStream<Uint8Array> }> {
-  const [peek, body] = stream.tee();
-  const reader = peek.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (total < 256) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value?.length) {
-        chunks.push(value);
-        total += value.length;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-    await peek.cancel().catch(() => {});
-  }
-  const header = new Uint8Array(Math.min(total, 256));
-  let offset = 0;
-  for (const chunk of chunks) {
-    if (offset >= header.length) break;
-    const copy = Math.min(chunk.length, header.length - offset);
-    header.set(chunk.subarray(0, copy), offset);
-    offset += copy;
-  }
-  return { contentType: sniffImageContentType(header), body };
 }

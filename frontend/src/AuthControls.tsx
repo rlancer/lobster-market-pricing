@@ -363,7 +363,8 @@ export function AuthControls({
       }
       setOptimisticAvatarPreview(null);
     } catch (err) {
-      setOptimisticAvatarPreview(null);
+      // Keep the framed preview so a failed upload does not snap back to the
+      // previous (possibly broken) avatar from the shared profile row.
       const message = err instanceof Error ? err.message : 'Could not upload photo';
       setAvatarError(message);
       throw err;
