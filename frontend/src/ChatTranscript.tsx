@@ -134,22 +134,22 @@ export function TranscriptMessage({
   openInData = false,
   hydrateResult = true,
   collapseSql = false,
-  userFace = null,
+  userAside = null,
 }: {
   message: SharedChatMessage;
   openInData?: boolean;
   hydrateResult?: boolean;
   collapseSql?: boolean;
   /**
-   * Optional face for the user turn (timeline author avatar). Assistant turns
-   * keep the brand mark; omit on /share and /chat where there is no profile.
+   * Optional chrome after the user bubble (timeline: avatar + name on the
+   * right). Assistant turns keep the brand mark on the left; omit on /share
+   * and /chat where there is no profile.
    */
-  userFace?: ReactNode;
+  userAside?: ReactNode;
 }) {
   return (
     <div className={`ai-msg ai-${message.role}`}>
       {message.role === 'assistant' && <AssistantMark />}
-      {message.role === 'user' && userFace}
       <div className="ai-bubble">
         {message.role === 'assistant'
           ? (
@@ -162,6 +162,7 @@ export function TranscriptMessage({
           )
           : (message.content && <div className="ai-text">{message.content}</div>)}
       </div>
+      {message.role === 'user' && userAside}
     </div>
   );
 }

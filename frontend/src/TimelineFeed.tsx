@@ -109,20 +109,43 @@ export function TimelinePostRow({
     .filter(Boolean);
   const displayName = post.name?.trim() || post.handle;
   const hasUserTurn = messages.some((message) => message.role === 'user');
-  /** Face sits on the user bubble so the preview reads as a two-speaker convo. */
-  const authorFace = (
-    <Link
-      to="/u/$handle"
-      params={{ handle: post.handle }}
-      className="timeline-msg-avatar-link"
-      aria-label={`${displayName} (@${post.handle})`}
-    >
-      <UserAvatar
-        avatarUrl={post.avatar_url}
-        className="timeline-author-avatar"
-        alt=""
-      />
-    </Link>
+  /**
+   * Right-side speaker chrome: photo + (on the home feed) name/@handle.
+   * Profile pages already show identity in the header, so the aside is face-only.
+   */
+  const authorAside = (
+    <VStack gap={1} className="timeline-user-aside" hAlign="center">
+      {showAuthor ? (
+        <Link
+          to="/u/$handle"
+          params={{ handle: post.handle }}
+          className="timeline-msg-avatar-link"
+          aria-label={`${displayName} (@${post.handle})`}
+        >
+          <UserAvatar
+            avatarUrl={post.avatar_url}
+            className="timeline-author-avatar"
+            alt=""
+          />
+        </Link>
+      ) : (
+        <UserAvatar
+          avatarUrl={post.avatar_url}
+          className="timeline-author-avatar"
+          alt=""
+        />
+      )}
+      {showAuthor && (
+        <Link
+          to="/u/$handle"
+          params={{ handle: post.handle }}
+          className="timeline-user-aside-copy"
+        >
+          <Text weight="semibold" maxLines={1}>{displayName}</Text>
+          <Text type="supporting" maxLines={1}>@{post.handle}</Text>
+        </Link>
+      )}
+    </VStack>
   );
 
   const unpublish = async () => {
@@ -142,18 +165,14 @@ export function TimelinePostRow({
     <VStack as="article" className="timeline-post" gap={3} aria-label={titleText}>
       <VStack gap={1} className="timeline-post-head">
         <HStack gap={2} vAlign="center" className="timeline-post-byline">
-          {showAuthor && (
+          {showAuthor && !hasUserTurn && (
             <>
               <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-                {/* Avatar lives on the user bubble when present; keep a byline face
-                    for assistant-only previews so the post still has a profile cue. */}
-                {!hasUserTurn && (
-                  <UserAvatar
-                    avatarUrl={post.avatar_url}
-                    className="timeline-author-avatar"
-                    alt=""
-                  />
-                )}
+                <UserAvatar
+                  avatarUrl={post.avatar_url}
+                  className="timeline-author-avatar"
+                  alt=""
+                />
                 <HStack gap={1} vAlign="center" className="timeline-author-identity">
                   <Text weight="semibold" maxLines={1}>{displayName}</Text>
                   <Text type="supporting" maxLines={1}>@{post.handle}</Text>
@@ -162,6 +181,12 @@ export function TimelinePostRow({
               {post.is_bot && (
                 <Token label="bot" color="teal" />
               )}
+              <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+            </>
+          )}
+          {showAuthor && hasUserTurn && post.is_bot && (
+            <>
+              <Token label="bot" color="teal" />
               <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
             </>
           )}
@@ -202,7 +227,7 @@ export function TimelinePostRow({
                 openInData
                 hydrateResult={false}
                 collapseSql
-                userFace={authorFace}
+                userAside={authorAside}
               />
             ))}
           </VStack>

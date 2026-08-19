@@ -70,11 +70,11 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    await expect(post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ })).toBeVisible();
-    // Profile photo sits next to the user bubble (convo layout), not the byline.
+    // Author identity lives on the right of the user bubble (photo + name/@handle).
     const userFace = post.getByRole('link', { name: 'Robert Lancer (@thelobster)' });
     await expect(userFace).toBeVisible();
     await expect(userFace.locator('img.timeline-author-avatar')).toBeVisible();
+    await expect(post.getByRole('link', { name: /Robert Lancer/ }).filter({ hasText: '@thelobster' })).toBeVisible();
     await expect(post.getByText('SQL')).toBeVisible();
     await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
     // Title matches the user bubble — don't duplicate it as a heading.

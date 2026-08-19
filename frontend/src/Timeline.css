@@ -206,25 +206,30 @@
   margin-block-start: calc(var(--spacing-1) * -1);
 }
 
-/* Feed bubbles sit edge-to-edge in the post — full width of the content column.
-   Both speakers stack start-aligned with a face mark so the preview reads as a
-   conversation (author ↔ lobster), not a social card above a chat embed. */
+/* Feed bubbles sit edge-to-edge. Author ask is end-aligned with photo + name
+   on the right; lobster answer stays start-aligned with the brand mark. */
 .timeline-msgs .ai-msg {
   width: 100%;
-}
-
-.timeline-msgs .ai-msg.ai-user {
-  justify-content: flex-start;
 }
 
 .timeline-msgs .ai-bubble {
   max-width: 92%;
 }
 
+.timeline-msgs .ai-msg.ai-user .ai-bubble {
+  /* Leave room for the right-side photo + name column. */
+  max-width: calc(100% - (var(--size-element-md, 32px) * 4) - var(--spacing-3));
+}
+
+.timeline-user-aside {
+  flex: 0 0 auto;
+  max-width: calc(var(--size-element-md, 32px) * 4);
+  margin-block-start: var(--spacing-0-5);
+}
+
 .timeline-msg-avatar-link {
   flex: 0 0 auto;
   display: block;
-  margin-block-start: var(--spacing-0-5);
   color: inherit;
   text-decoration: none;
   line-height: 0;
@@ -233,6 +238,22 @@
 .timeline-msg-avatar-link:hover .timeline-author-avatar {
   outline: var(--border-width) solid var(--color-border-emphasized);
   outline-offset: var(--spacing-0-5);
+}
+
+.timeline-user-aside-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+  text-align: center;
+}
+
+.timeline-user-aside-copy:hover {
+  color: var(--color-text-accent);
 }
 
 .timeline-author-link:hover {
