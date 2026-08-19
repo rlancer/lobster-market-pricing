@@ -18,9 +18,41 @@ import {
 import { AtSign, LogOut, UserRound } from 'lucide-react';
 import { api, type ProfileMe } from './api';
 import { authClient, signInWithGoogle, signOut } from './auth';
+import { AvatarCropDialog } from './AvatarCropDialog';
 import { handleInputError, normalizeHandleInput } from './handle';
-import { prepareAvatarUpload } from './prepareAvatar';
+import {
+  isSvgAvatarFile,
+  prepareAvatarUpload,
+  preloadImage,
+  type AvatarCrop,
+} from './prepareAvatar';
 import { UserAvatar } from './UserAvatar';
+
+type PendingAvatar = {
+  file: File;
+  url: string;
+  width: number;
+  height: number;
+};
+
+function loadImageSize(file: File): Promise<{ url: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({
+        url,
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read that image'));
+    };
+    img.src = url;
+  });
+}
 
 const HANDLE_PROMPT_KEY = 'lobster.handle-prompt-dismissed';
 const DISPLAY_NAME_MAX = 80;
@@ -80,6 +112,8 @@ export function AuthControls({
   const [savingName, setSavingName] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [pendingAvatar, setPendingAvatar] = useState<PendingAvatar | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [claimOpen, setClaimOpen] = useState(false);
 
   useEffect(() => {
@@ -101,6 +135,14 @@ export function AuthControls({
       setNameError(null);
       setAvatarError(null);
       setAvatarFile(null);
+      setPendingAvatar((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
+        return null;
+      });
+      setAvatarPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       setClaimOpen(false);
       return;
     }
@@ -222,37 +264,123 @@ export function AuthControls({
     }
   }
 
+  function clearPendingAvatar() {
+    setPendingAvatar((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+    setAvatarFile(null);
+  }
+
+  function setOptimisticAvatarPreview(url: string | null) {
+    setAvatarPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+  }
+
+  async function uploadPreparedAvatar(file: File, crop?: AvatarCrop | null) {
+    setUploadingAvatar(true);
+    setAvatarError(null);
+    try {
+      const prepared = await prepareAvatarUpload(file, crop);
+      const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
+      applyProfilePatch(result);
+      clearPendingAvatar();
+      setOptimisticAvatarPreview(null);
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : 'Could not upload photo');
+      throw err;
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
   async function onAvatarChange(files: File | File[] | null) {
     const file = Array.isArray(files) ? files[0] ?? null : files;
     setAvatarFile(file);
     setAvatarError(null);
-    if (!file) return;
+    if (!file) {
+      clearPendingAvatar();
+      return;
+    }
     if (!currentHandle) {
       setAvatarError('Claim a handle before uploading a photo');
       setAvatarFile(null);
       return;
     }
-    setUploadingAvatar(true);
+    if (isSvgAvatarFile(file)) {
+      try {
+        await uploadPreparedAvatar(file);
+      } catch {
+        setAvatarFile(null);
+      }
+      return;
+    }
     try {
-      const prepared = await prepareAvatarUpload(file);
+      const sized = await loadImageSize(file);
+      if (Math.min(sized.width, sized.height) < 32) {
+        URL.revokeObjectURL(sized.url);
+        setAvatarError('Image is too small');
+        setAvatarFile(null);
+        return;
+      }
+      setPendingAvatar((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
+        return { file, url: sized.url, width: sized.width, height: sized.height };
+      });
+    } catch (err) {
+      setAvatarError(err instanceof Error ? err.message : 'Could not read that image');
+      setAvatarFile(null);
+    }
+  }
+
+  async function confirmAvatarCrop(crop: AvatarCrop) {
+    const pending = pendingAvatar;
+    if (!pending) throw new Error('No photo selected');
+
+    // Encode first so framing errors stay in the crop dialog.
+    const prepared = await prepareAvatarUpload(pending.file, crop);
+    const preview = URL.createObjectURL(prepared.blob);
+    setOptimisticAvatarPreview(preview);
+    clearPendingAvatar();
+
+    setUploadingAvatar(true);
+    setAvatarError(null);
+    try {
       const result = await api.uploadAvatar(prepared.blob, prepared.contentType);
       applyProfilePatch(result);
-      setAvatarFile(null);
+      const remote = api.avatarSrc(result.avatar_url);
+      if (remote) {
+        try {
+          await preloadImage(remote);
+        } catch {
+          // Upload succeeded but the GET URL did not paint — keep the local
+          // crop visible instead of swapping to a broken <img>.
+          setAvatarError('Photo saved, but the server image failed to load. Try a refresh.');
+          return;
+        }
+      }
+      setOptimisticAvatarPreview(null);
     } catch (err) {
-      setAvatarError(err instanceof Error ? err.message : 'Could not upload photo');
+      setOptimisticAvatarPreview(null);
+      const message = err instanceof Error ? err.message : 'Could not upload photo';
+      setAvatarError(message);
+      throw err;
     } finally {
       setUploadingAvatar(false);
     }
   }
 
   async function removeAvatar() {
-    if (!profile?.avatar_url) return;
+    if (!profile?.avatar_url && !avatarPreviewUrl) return;
     setUploadingAvatar(true);
     setAvatarError(null);
     try {
       const result = await api.clearAvatar();
       applyProfilePatch(result);
-      setAvatarFile(null);
+      clearPendingAvatar();
+      setOptimisticAvatarPreview(null);
     } catch (err) {
       setAvatarError(err instanceof Error ? err.message : 'Could not remove photo');
     } finally {
@@ -265,6 +393,8 @@ export function AuthControls({
     setError(null);
   }
 
+  const avatarDisplayUrl = avatarPreviewUrl ?? profile?.avatar_url ?? null;
+
   return (
     <>
       <Popover
@@ -275,7 +405,7 @@ export function AuthControls({
         content={
           <VStack gap={3}>
             <HStack gap={3} vAlign="center">
-              <UserAvatar avatarUrl={profile?.avatar_url} className="topbar-profile-icon" alt="" />
+              <UserAvatar avatarUrl={avatarDisplayUrl} className="topbar-profile-icon" alt="" />
               <VStack gap={0.5} className="topbar-account-copy">
                 <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
                 {currentHandle ? (
@@ -314,7 +444,7 @@ export function AuthControls({
                 />
                 <FileInput
                   label="Profile photo"
-                  description="JPEG, PNG, WebP, or SVG — rasters are square-cropped; SVG stays vector. Stored in Cloudflare Images, up to 5 MB."
+                  description="JPEG, PNG, WebP, or SVG — pan and zoom rasters to fill the circle; SVG stays vector. Stored in Cloudflare Images, up to 5 MB."
                   value={avatarFile}
                   onChange={(files) => { void onAvatarChange(files); }}
                   accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
@@ -324,7 +454,7 @@ export function AuthControls({
                   isLoading={uploadingAvatar}
                   status={avatarError ? { type: 'error', message: avatarError } : undefined}
                 />
-                {profile?.avatar_url ? (
+                {profile?.avatar_url || avatarPreviewUrl ? (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -356,7 +486,7 @@ export function AuthControls({
       >
         <Tooltip content="Account" hasHoverIndication={false}>
           <button type="button" className="topbar-profile" aria-label="Account">
-            <UserAvatar avatarUrl={profile?.avatar_url} className="topbar-profile-icon" alt="" />
+            <UserAvatar avatarUrl={avatarDisplayUrl} className="topbar-profile-icon" alt="" />
           </button>
         </Tooltip>
       </Popover>
@@ -394,6 +524,16 @@ export function AuthControls({
           }
         />
       </Dialog>
+      <AvatarCropDialog
+        open={pendingAvatar != null}
+        imageUrl={pendingAvatar?.url ?? null}
+        naturalWidth={pendingAvatar?.width ?? 0}
+        naturalHeight={pendingAvatar?.height ?? 0}
+        onCancel={() => {
+          if (!uploadingAvatar) clearPendingAvatar();
+        }}
+        onConfirm={confirmAvatarCrop}
+      />
     </>
   );
 }

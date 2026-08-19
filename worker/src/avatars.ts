@@ -114,7 +114,7 @@ export async function putAvatar(
   try {
     uploaded = await env.IMAGES.hosted.upload(bytes, {
       filename: filenameForMime(mime),
-      metadata: { user_id: user.id, purpose: "avatar" },
+      metadata: { user_id: user.id, purpose: "avatar", content_type: mime },
       creator: user.id,
       requireSignedURLs: false,
     });
@@ -169,36 +169,127 @@ export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Respo
   ).bind(id).first<{ avatar_key: string | null; updated_at: number }>();
   if (!row?.avatar_key) return new Response("not found", { status: 404 });
 
-  let stream: ReadableStream<Uint8Array> | null = null;
-  let contentType = "application/octet-stream";
-  try {
-    const handle = env.IMAGES.hosted.image(row.avatar_key);
-    const [details, bytes] = await Promise.all([handle.details(), handle.bytes()]);
-    stream = bytes;
-    if (details?.filename) {
-      const name = details.filename.toLowerCase();
-      if (name.endsWith(".svg")) contentType = "image/svg+xml";
-      else if (name.endsWith(".png")) contentType = "image/png";
-      else if (name.endsWith(".webp")) contentType = "image/webp";
-      else if (name.endsWith(".gif")) contentType = "image/gif";
-      else contentType = "image/jpeg";
-    }
-  } catch {
-    return new Response("not found", { status: 404 });
-  }
-  if (!stream) return new Response("not found", { status: 404 });
+  const handle = env.IMAGES.hosted.image(row.avatar_key);
 
-  const headers = new Headers({
-    "Content-Type": contentType,
-    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-    ETag: `"${row.updated_at}"`,
-    "X-Content-Type-Options": "nosniff",
-  });
-  if (contentType === "image/svg+xml") {
-    headers.set(
-      "Content-Security-Policy",
-      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
-    );
+  let details: ImageMetadata | null = null;
+  try {
+    details = await handle.details();
+  } catch {
+    details = null;
   }
-  return new Response(stream, { status: 200, headers });
+
+  let bytes: ReadableStream<Uint8Array> | null = null;
+  try {
+    bytes = await handle.bytes();
+  } catch {
+    bytes = null;
+  }
+
+  if (bytes) {
+    const sniffed = await sniffStreamContentType(bytes);
+    const metaType = metaContentType(details?.meta);
+    const contentType =
+      contentTypeFromFilename(details?.filename)
+      ?? metaType
+      ?? sniffed.contentType
+      ?? "image/jpeg";
+    const headers = new Headers({
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+      ETag: `"${row.updated_at}"`,
+      "X-Content-Type-Options": "nosniff",
+    });
+    if (contentType === "image/svg+xml") {
+      headers.set(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+      );
+    }
+    return new Response(sniffed.body, { status: 200, headers });
+  }
+
+  // bytes() unavailable — fall back to a Cloudflare Images delivery variant.
+  const variant = details?.variants?.find((url) => typeof url === "string" && url.length > 0);
+  if (variant) {
+    return Response.redirect(variant, 302);
+  }
+
+  return new Response("not found", { status: 404 });
+}
+
+function contentTypeFromFilename(filename: string | null | undefined): string | null {
+  if (!filename) return null;
+  const name = filename.toLowerCase();
+  if (name.endsWith(".svg")) return "image/svg+xml";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".gif")) return "image/gif";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  return null;
+}
+
+function metaContentType(meta: Record<string, unknown> | null | undefined): string | null {
+  const raw = meta?.content_type;
+  if (typeof raw !== "string") return null;
+  const mime = raw.split(";")[0]?.trim().toLowerCase() ?? "";
+  return AVATAR_MIME.has(mime) ? mime : null;
+}
+
+/** Peek at magic bytes so <img> never gets application/octet-stream. */
+export function sniffImageContentType(header: Uint8Array): string | null {
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    header.length >= 8
+    && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (
+    header.length >= 12
+    && header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46
+    && header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  if (header.length >= 6 && header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46) {
+    return "image/gif";
+  }
+  const head = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(header.slice(0, 256)).trimStart().toLowerCase();
+  if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) {
+    return "image/svg+xml";
+  }
+  return null;
+}
+
+async function sniffStreamContentType(
+  stream: ReadableStream<Uint8Array>,
+): Promise<{ contentType: string | null; body: ReadableStream<Uint8Array> }> {
+  const [peek, body] = stream.tee();
+  const reader = peek.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < 256) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value?.length) {
+        chunks.push(value);
+        total += value.length;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+    await peek.cancel().catch(() => {});
+  }
+  const header = new Uint8Array(Math.min(total, 256));
+  let offset = 0;
+  for (const chunk of chunks) {
+    if (offset >= header.length) break;
+    const copy = Math.min(chunk.length, header.length - offset);
+    header.set(chunk.subarray(0, copy), offset);
+    offset += copy;
+  }
+  return { contentType: sniffImageContentType(header), body };
 }

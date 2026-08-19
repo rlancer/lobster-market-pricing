@@ -1,4 +1,4 @@
-/** Client-side avatar prep — raster square-crop, or pass-through SVG. */
+/** Client-side avatar prep — square crop with optional pan/zoom, or SVG pass-through. */
 
 const MAX_EDGE = 512;
 const JPEG_QUALITY = 0.88;
@@ -8,6 +8,50 @@ export type PreparedAvatar = {
   blob: Blob;
   contentType: 'image/jpeg' | 'image/svg+xml';
 };
+
+/**
+ * Framing for the circular avatar. Zoom 1 = largest square that fits the
+ * image (cover). Higher zoom crops tighter. Pan is relative to remaining
+ * travel: 0 centered, ±1 flush to that edge.
+ */
+export type AvatarCrop = {
+  zoom: number;
+  panX: number;
+  panY: number;
+};
+
+export const DEFAULT_AVATAR_CROP: AvatarCrop = { zoom: 1, panX: 0, panY: 0 };
+
+export function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+export function normalizeAvatarCrop(crop?: AvatarCrop | null): AvatarCrop {
+  const zoom = clamp(crop?.zoom ?? 1, 1, 4);
+  return {
+    zoom,
+    panX: clamp(crop?.panX ?? 0, -1, 1),
+    panY: clamp(crop?.panY ?? 0, -1, 1),
+  };
+}
+
+/** Source square in image pixels for the given framing. */
+export function avatarCropRect(
+  width: number,
+  height: number,
+  crop?: AvatarCrop | null,
+): { sx: number; sy: number; side: number } {
+  const nw = Math.max(0, width);
+  const nh = Math.max(0, height);
+  const { zoom, panX, panY } = normalizeAvatarCrop(crop);
+  const minSide = Math.min(nw, nh);
+  const side = minSide / zoom;
+  const maxX = Math.max(0, nw - side);
+  const maxY = Math.max(0, nh - side);
+  const sx = (maxX / 2) * (1 + panX);
+  const sy = (maxY / 2) * (1 + panY);
+  return { sx, sy, side };
+}
 
 function isSvgFile(file: File): boolean {
   const type = (file.type || '').toLowerCase();
@@ -28,6 +72,17 @@ function loadImage(file: Blob): Promise<HTMLImageElement> {
       reject(new Error('Could not read that image'));
     };
     img.src = url;
+  });
+}
+
+/** Resolve when the browser can paint `src` in an <img>; reject on error. */
+export function preloadImage(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Could not load saved photo'));
+    img.decoding = 'async';
+    img.src = src;
   });
 }
 
@@ -66,10 +121,13 @@ async function prepareSvgUpload(file: File): Promise<PreparedAvatar> {
 }
 
 /**
- * Raster images: center-crop to square, scale to ≤512px, encode JPEG.
+ * Raster images: square-crop (pan/zoom optional), scale to ≤512px, encode JPEG.
  * SVG: validate and upload as vector (no rasterization).
  */
-export async function prepareAvatarUpload(file: File): Promise<PreparedAvatar> {
+export async function prepareAvatarUpload(
+  file: File,
+  crop?: AvatarCrop | null,
+): Promise<PreparedAvatar> {
   if (isSvgFile(file)) {
     return prepareSvgUpload(file);
   }
@@ -77,11 +135,11 @@ export async function prepareAvatarUpload(file: File): Promise<PreparedAvatar> {
     throw new Error('Choose a JPEG, PNG, WebP, or SVG image');
   }
   const img = await loadImage(file);
-  const side = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
+  const nw = img.naturalWidth || img.width;
+  const nh = img.naturalHeight || img.height;
+  const { sx, sy, side } = avatarCropRect(nw, nh, crop);
   if (side < 32) throw new Error('Image is too small');
-  const sx = Math.floor(((img.naturalWidth || img.width) - side) / 2);
-  const sy = Math.floor(((img.naturalHeight || img.height) - side) / 2);
-  const edge = Math.min(MAX_EDGE, side);
+  const edge = Math.min(MAX_EDGE, Math.floor(side));
   const canvas = document.createElement('canvas');
   canvas.width = edge;
   canvas.height = edge;
@@ -99,4 +157,8 @@ export async function prepareAvatarUpload(file: File): Promise<PreparedAvatar> {
     throw new Error('Avatar must be 5 MB or smaller after resize');
   }
   return { blob, contentType: 'image/jpeg' };
+}
+
+export function isSvgAvatarFile(file: File): boolean {
+  return isSvgFile(file);
 }

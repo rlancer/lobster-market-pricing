@@ -889,10 +889,10 @@ export const api = {
     if (!r.ok) throw new Error(typeof data.error === 'string' ? data.error : `API ${r.status}`);
     return data as ProfileUpdate;
   },
-  /** Absolute URL for a relative `/api/avatars/...` path (or pass-through for absolute URLs). */
+  /** Absolute URL for a relative `/api/avatars/...` path (or pass-through for absolute/blob URLs). */
   avatarSrc: (avatarUrl: string | null | undefined): string | null => {
     if (!avatarUrl) return null;
-    if (/^https?:\/\//i.test(avatarUrl)) return avatarUrl;
+    if (/^(https?:|blob:|data:)/i.test(avatarUrl)) return avatarUrl;
     return `${API_BASE}${avatarUrl.startsWith('/') ? '' : '/'}${avatarUrl}`;
   },
   myChats: () => get<UserChatList>('/api/chats'),
