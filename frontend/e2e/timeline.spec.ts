@@ -82,8 +82,78 @@ test.describe('Public timeline', () => {
     // Full conversation stays on the timeline — no route hop to /share.
     await expect(post.getByRole('link', { name: 'View full chat' })).toHaveCount(0);
     await expect(post.getByLabel('Conversation')).toContainText('Liquidity looks thin across the near-dated SPY call board.');
+    // Share control is always available even when the title is hidden.
+    await expect(post.getByRole('button', { name: 'Share post' })).toBeVisible();
     // Admin-only moderation control — anonymous visitors must not see it.
     await expect(post.getByRole('button', { name: 'Unpublish' })).toHaveCount(0);
+  });
+
+  test('timeline title opens the share page and share menu offers Copy link / Share on X', async ({ page }) => {
+    await page.route('**/api/avatars/**', async (route) => {
+      await route.fulfill({ status: 204 });
+    });
+    await page.route('**/api/timeline**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000042',
+            url: '/share/TestShareId000000000000042',
+            title: 'SPY call setup',
+            excerpt: 'First answer.',
+            messages: [
+              { role: 'user', content: 'How is SPY looking?' },
+              { role: 'assistant', content: 'Near-dated call liquidity is thin.' },
+            ],
+            handle: 'thelobster',
+            name: 'Robert Lancer',
+            published_at: Date.now(),
+            model: null,
+            has_sql: false,
+            has_chart: false,
+          }],
+          next_before: null,
+          profile: null,
+        }),
+      });
+    });
+    await page.route('**/api/share/TestShareId000000000000042', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          share_id: 'TestShareId000000000000042',
+          title: 'SPY call setup',
+          mode: 'funded',
+          created_at: Date.now(),
+          model: null,
+          source_sql: null,
+          on_timeline: true,
+          messages: [
+            { role: 'user', content: 'How is SPY looking?' },
+            { role: 'assistant', content: 'Near-dated call liquidity is thin.' },
+          ],
+          author: { handle: 'thelobster', name: 'Robert Lancer' },
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const post = page.getByRole('article', { name: 'SPY call setup' });
+    await expect(post).toBeVisible();
+    const title = post.getByRole('heading', { name: 'SPY call setup' }).getByRole('link');
+    await expect(title).toHaveAttribute('href', '/share/TestShareId000000000000042');
+
+    await post.getByRole('button', { name: 'Share post' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Copy link' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Share on X' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await title.click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/share/TestShareId000000000000042');
+    await expect(page.getByRole('heading', { name: 'SPY call setup' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Share post' })).toBeVisible();
   });
 
   test('timeline posts expand the full conversation in place', async ({ page }) => {
@@ -124,6 +194,10 @@ test.describe('Public timeline', () => {
     const post = page.getByRole('article', { name: 'SPY liquidity thread' });
     await expect(post).toBeVisible();
     await expect(post.getByRole('heading', { name: 'SPY liquidity thread' })).toBeVisible();
+    await expect(
+      post.getByRole('heading', { name: 'SPY liquidity thread' }).getByRole('link'),
+    ).toHaveAttribute('href', '/share/TestShareId000000000000099');
+    await expect(post.getByRole('button', { name: 'Share post' })).toBeVisible();
     await expect(post.getByLabel('Conversation')).toContainText('How is SPY looking?');
     await expect(post.getByLabel('Conversation')).toContainText('What about puts?');
     await expect(post.getByLabel('Conversation')).toContainText('Put side is deeper into next week.');

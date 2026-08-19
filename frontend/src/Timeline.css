@@ -81,6 +81,17 @@
   line-height: var(--line-height-heading, 1.25);
 }
 
+.timeline-post-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.timeline-post-title-link:hover {
+  color: var(--color-text-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
 .timeline-author-link {
   display: inline-flex;
   align-items: center;
@@ -146,6 +157,10 @@
 
 .timeline-post-actions {
   margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
+.timeline-post-actions .post-share {
   flex-shrink: 0;
 }
 

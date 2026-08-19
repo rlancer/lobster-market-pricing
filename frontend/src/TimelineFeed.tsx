@@ -15,6 +15,7 @@ import { BarChart3, ChevronDown, ChevronUp, Code2, Newspaper, Sparkles } from 'l
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
+import { PostShareButton } from './PostShareButton';
 import { UserAvatar } from './UserAvatar';
 
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
@@ -166,7 +167,13 @@ export function TimelinePostRow({
         <VStack gap={2} className="timeline-post-head">
           {showTitle && (
             <Heading level={titleLevel} className="timeline-post-title">
-              {titleText}
+              <Link
+                to="/share/$shareId"
+                params={{ shareId: post.share_id }}
+                className="timeline-post-title-link"
+              >
+                {titleText}
+              </Link>
             </Heading>
           )}
           {tickers.length > 0 && (
@@ -203,48 +210,47 @@ export function TimelinePostRow({
         </FeedPreview>
       )}
 
-      {/* 4. Supporting meta — technical flags + moderation */}
-      {(post.has_sql || post.has_chart || post.model || isAdmin) && (
-        <HStack gap={3} vAlign="center" className="timeline-post-meta">
-          {(post.has_sql || post.has_chart || post.model) && (
-            <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
-              {post.has_sql && (
-                <HStack gap={1} vAlign="center" className="timeline-flag">
-                  <Code2 size={14} aria-hidden="true" />
-                  <Text type="supporting">SQL</Text>
-                </HStack>
-              )}
-              {post.has_chart && (
-                <HStack gap={1} vAlign="center" className="timeline-flag">
-                  <BarChart3 size={14} aria-hidden="true" />
-                  <Text type="supporting">Chart</Text>
-                </HStack>
-              )}
-              {post.model && (
-                <>
-                  {(post.has_sql || post.has_chart) && (
-                    <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-                  )}
-                  <Text type="supporting" className="timeline-model" maxLines={1}>
-                    {shortModel(post.model)}
-                  </Text>
-                </>
-              )}
-            </HStack>
-          )}
+      {/* 4. Supporting meta — technical flags + share + moderation */}
+      <HStack gap={3} vAlign="center" className="timeline-post-meta">
+        {(post.has_sql || post.has_chart || post.model) && (
+          <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
+            {post.has_sql && (
+              <HStack gap={1} vAlign="center" className="timeline-flag">
+                <Code2 size={14} aria-hidden="true" />
+                <Text type="supporting">SQL</Text>
+              </HStack>
+            )}
+            {post.has_chart && (
+              <HStack gap={1} vAlign="center" className="timeline-flag">
+                <BarChart3 size={14} aria-hidden="true" />
+                <Text type="supporting">Chart</Text>
+              </HStack>
+            )}
+            {post.model && (
+              <>
+                {(post.has_sql || post.has_chart) && (
+                  <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
+                )}
+                <Text type="supporting" className="timeline-model" maxLines={1}>
+                  {shortModel(post.model)}
+                </Text>
+              </>
+            )}
+          </HStack>
+        )}
+        <HStack gap={2} vAlign="center" className="timeline-post-actions">
+          <PostShareButton url={post.url} title={titleText} />
           {isAdmin && (
-            <HStack gap={2} vAlign="center" className="timeline-post-actions">
-              <Button
-                variant="destructive"
-                size="sm"
-                label="Unpublish"
-                isLoading={unpublishing}
-                onClick={() => { void unpublish(); }}
-              />
-            </HStack>
+            <Button
+              variant="destructive"
+              size="sm"
+              label="Unpublish"
+              isLoading={unpublishing}
+              onClick={() => { void unpublish(); }}
+            />
           )}
         </HStack>
-      )}
+      </HStack>
     </VStack>
   );
 }

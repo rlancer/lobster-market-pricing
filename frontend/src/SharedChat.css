@@ -64,6 +64,16 @@
   font-size: var(--font-size-2xl);
   letter-spacing: -0.02em;
   color: var(--text);
+  min-width: 0;
+  flex: 1;
+}
+.share-title-bar {
+  width: 100%;
+  min-width: 0;
+}
+.share-title-bar .post-share {
+  flex-shrink: 0;
+  margin-block-start: var(--spacing-1);
 }
 .share-tickers {
   flex-wrap: wrap;
