@@ -90,15 +90,33 @@ R2_SQL_TOKEN=cfat_...
 
 ### Loader — `LOADER_TOKEN` (secret)
 
-The loader Worker (`loader/`, deployed as `cboe-to-r2`) protects its `/run`
-endpoint with a bearer token. Set it once as a Worker secret:
+The loader Worker (`loader/`, deployed as `cboe-to-r2`) protects its `/run`,
+`/symbols/enroll`, `/loop/trigger`, and `/jobs/*/trigger` endpoints with a
+bearer token. Store the value in **GitHub Actions secrets** (source of truth)
+and on the loader Worker:
 
 ```bash
+# once — GitHub (CI + force-loader-pass workflow)
+gh secret set LOADER_TOKEN
+
+# once — loader Worker (or let deploy-loader.yml keep verifying it exists)
 cd loader && npx wrangler secret put LOADER_TOKEN
 ```
 
-For local dev, put the same value in `loader/.dev.vars` (gitignored; see
-`loader/.dev.vars.example`). Pipeline ingest URLs are **secrets** (the URL
+The **API Worker** (`screener-api` / `screener-api-dev`) needs the **same**
+value so Copilot/research can call `POST /symbols/enroll` when a ticker is
+missing from the lake. `Deploy` (`.github/workflows/deploy.yml`) syncs
+`secrets.LOADER_TOKEN` onto both Workers on every deploy (same pattern as
+`ADMIN_TOKEN`). Until that lands, set it by hand:
+
+```bash
+cd worker
+printf '%s' "$LOADER_TOKEN" | npx wrangler secret put LOADER_TOKEN --name screener-api
+printf '%s' "$LOADER_TOKEN" | npx wrangler secret put LOADER_TOKEN --name screener-api-dev
+```
+
+For local dev, put the same value in `loader/.dev.vars` and
+`worker/.dev.vars` (gitignored; see `*.dev.vars.example`). Pipeline ingest URLs are **secrets** (the URL
 subdomain IS the credential) — deployed via `wrangler secret put`, never in
 `wrangler.jsonc`. See `loader/.dev.vars.example` for the full secret list.
 The root `.env` holds `WRANGLER_R2_SQL_AUTH_TOKEN` for local `wrangler r2 sql
