@@ -3,6 +3,7 @@
 // Runtime types generated with workerd@1.20260801.1 2026-08-05 global_fetch_strictly_public,nodejs_compat
 interface __BaseEnv_Env {
 	SCHEMA_DB: D1Database;
+	AVATARS: R2Bucket;
 	R2_SQL_ACCOUNT_ID: "3315bb3e7d2e3556bfea6fb3947a890e";
 	R2_SQL_BUCKET: "cboe-options-data";
 	CORS_ORIGIN: "*";

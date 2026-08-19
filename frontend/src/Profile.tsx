@@ -15,7 +15,7 @@ import { Newspaper } from 'lucide-react';
 import './Timeline.css';
 import './Profile.css';
 import { api, type TimelineAuthor, type TimelinePost } from './api';
-import { ProfileSunglasses } from './Sunglasses';
+import { UserAvatar } from './UserAvatar';
 import { useIsAdmin } from './useAdmin';
 import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './TimelineFeed';
 
@@ -45,7 +45,7 @@ function ProfileHeader({
 
   return (
     <HStack as="header" gap={4} vAlign="start" className="profile-header">
-      <ProfileSunglasses className="profile-avatar" />
+      <UserAvatar avatarUrl={profile.avatar_url} className="profile-avatar" alt="" />
       <VStack gap={2} className="profile-header-copy">
         <VStack gap={1}>
           <Heading level={1} maxLines={2}>{profile.name}</Heading>

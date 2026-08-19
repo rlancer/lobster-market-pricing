@@ -449,6 +449,8 @@ export interface TimelineAuthor {
   bio?: string | null;
   /** Epoch ms when the public handle (or bot profile) was created. */
   created_at?: number | null;
+  /** Relative Worker path (`/api/avatars/{user_id}`) when a custom photo is set. */
+  avatar_url?: string | null;
 }
 
 export interface TimelinePost {
@@ -531,15 +533,29 @@ export interface Health {
 export interface ProfileMe {
   ok: true;
   id: string;
+  /** Public display name — product override or Google name. */
   name: string;
   email: string;
   image: string | null;
   handle: string | null;
+  /** Product display name; null means fall back to Google name. */
+  display_name: string | null;
+  /** Relative `/api/avatars/{id}` path when a custom photo is uploaded. */
+  avatar_url: string | null;
   suggested_handle: string | null;
   /** True when the signed-in email is on the product admin allowlist. */
   is_admin: boolean;
 }
 
+export interface ProfileUpdate {
+  ok: true;
+  handle: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  name: string;
+}
+
+/** @deprecated Prefer ProfileUpdate — kept for call sites that only read handle. */
 export interface ProfileHandle {
   ok: true;
   handle: string;
@@ -833,16 +849,49 @@ export const api = {
       body: JSON.stringify(body),
     }),
   me: () => get<ProfileMe>('/api/me'),
-  setHandle: async (handle: string) => {
+  updateProfile: async (body: { handle?: string; display_name?: string | null }) => {
     const r = await fetch(`${API_BASE}/api/me`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ handle }),
+      body: JSON.stringify(body),
     });
-    const data = await r.json().catch(() => ({})) as { error?: string; handle?: string; ok?: boolean };
+    const data = await r.json().catch(() => ({})) as { error?: string } & Partial<ProfileUpdate>;
     if (!r.ok) throw new Error(typeof data.error === 'string' ? data.error : `API ${r.status}`);
-    return data as ProfileHandle;
+    return data as ProfileUpdate;
+  },
+  /** @deprecated Use updateProfile({ handle }) */
+  setHandle: async (handle: string) => {
+    return api.updateProfile({ handle });
+  },
+  uploadAvatar: async (file: Blob, contentType?: string) => {
+    const form = new FormData();
+    const type = contentType || (file instanceof File ? file.type : 'image/jpeg') || 'image/jpeg';
+    const name = file instanceof File ? file.name : `avatar.${type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'}`;
+    form.append('avatar', file, name);
+    const r = await fetch(`${API_BASE}/api/me/avatar`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    });
+    const data = await r.json().catch(() => ({})) as { error?: string } & Partial<ProfileUpdate>;
+    if (!r.ok) throw new Error(typeof data.error === 'string' ? data.error : `API ${r.status}`);
+    return data as ProfileUpdate;
+  },
+  clearAvatar: async () => {
+    const r = await fetch(`${API_BASE}/api/me/avatar`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const data = await r.json().catch(() => ({})) as { error?: string } & Partial<ProfileUpdate>;
+    if (!r.ok) throw new Error(typeof data.error === 'string' ? data.error : `API ${r.status}`);
+    return data as ProfileUpdate;
+  },
+  /** Absolute URL for a relative `/api/avatars/...` path (or pass-through for absolute URLs). */
+  avatarSrc: (avatarUrl: string | null | undefined): string | null => {
+    if (!avatarUrl) return null;
+    if (/^https?:\/\//i.test(avatarUrl)) return avatarUrl;
+    return `${API_BASE}${avatarUrl.startsWith('/') ? '' : '/'}${avatarUrl}`;
   },
   myChats: () => get<UserChatList>('/api/chats'),
   claimChat: (chat_id: string, title?: string) =>

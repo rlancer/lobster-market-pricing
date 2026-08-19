@@ -259,8 +259,9 @@ export default function BrandPage() {
             ))}
           </div>
           <p className="brand-lede">
-            Component: <code>ProfileSunglasses</code> in <code>Sunglasses.tsx</code>. Used by the
-            header account control and anywhere a Lobster “face” is needed without PII imagery.
+            Component: <code>ProfileSunglasses</code> in <code>Sunglasses.tsx</code> (via{' '}
+            <code>UserAvatar</code>). Default header / profile face when no custom photo is
+            uploaded — never the Google OAuth picture.
           </p>
         </Section>
 

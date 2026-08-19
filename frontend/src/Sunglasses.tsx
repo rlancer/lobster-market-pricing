@@ -53,7 +53,8 @@ export function AssistantMark({ className = 'ai-msg-mark' }: { className?: strin
 /**
  * Round header avatar: purpose-built brand shades on a soft disc.
  * Drawn for 32×32 (not a scaled lobster-logo crop) so it stays crisp in the
- * topbar — no Google photo, no cartoon smile.
+ * topbar. Custom photos replace this via UserAvatar; Google OAuth pictures
+ * are never shown here.
  */
 export function ProfileSunglasses({ className }: { className?: string }) {
   return (

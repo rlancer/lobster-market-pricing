@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseHandle, suggestHandle } from "../src/profiles.ts";
+import { parseDisplayName, parseHandle, publicName, suggestHandle } from "../src/profiles.ts";
 
 test("parseHandle lowercases, strips padding, and accepts a letter-led slug", () => {
   assert.deepEqual(parseHandle("Rob"), { ok: true, handle: "rob" });
@@ -34,7 +34,7 @@ test("parseHandle rejects blank, short, long, and non-slug input", () => {
 });
 
 test("parseHandle blocks reserved product slugs", () => {
-  for (const reserved of ["api", "chat", "docs", "share", "admin", "lobster"]) {
+  for (const reserved of ["api", "chat", "docs", "share", "admin", "lobster", "avatars"]) {
     const result = parseHandle(reserved);
     assert.equal(result.ok, false);
     if (!result.ok) {
@@ -51,4 +51,20 @@ test("suggestHandle prefers the email local part, then the name", () => {
   assert.equal(suggestHandle("admin@gmail.com", "Ada Lovelace"), "adalovelace");
   assert.equal(suggestHandle("admin@gmail.com", "Me"), null);
   assert.equal(suggestHandle(null, null), null);
+});
+
+test("parseDisplayName trims, collapses spaces, and clears blanks", () => {
+  assert.deepEqual(parseDisplayName("  Rob   Lancer "), { ok: true, display_name: "Rob Lancer" });
+  assert.deepEqual(parseDisplayName(""), { ok: true, display_name: null });
+  assert.deepEqual(parseDisplayName("   "), { ok: true, display_name: null });
+  assert.deepEqual(parseDisplayName(null), { ok: true, display_name: null });
+  assert.equal(parseDisplayName(12).ok, false);
+  assert.equal(parseDisplayName("x".repeat(81)).ok, false);
+});
+
+test("publicName prefers product display_name over Google name", () => {
+  assert.equal(publicName("Ada", "Google Name"), "Ada");
+  assert.equal(publicName(null, "Google Name"), "Google Name");
+  assert.equal(publicName("  ", "Google Name"), "Google Name");
+  assert.equal(publicName(null, null), "Member");
 });

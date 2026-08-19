@@ -35,6 +35,12 @@
       "migrations_dir": "./migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "AVATARS",
+      "bucket_name": "lobster-user-avatars"
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -72,6 +78,12 @@
           "database_name": "screener-schema-cache",
           "database_id": "b0efdfb0-9774-45ea-a6f2-e12361bcb4dd",
           "migrations_dir": "./migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "AVATARS",
+          "bucket_name": "lobster-user-avatars"
         }
       ],
       "routes": [
