@@ -110,43 +110,41 @@ export function TimelinePostRow({
   const displayName = post.name?.trim() || post.handle;
   const hasUserTurn = messages.some((message) => message.role === 'user');
   /**
-   * Right-side speaker chrome: photo + (on the home feed) name/@handle.
-   * Profile pages already show identity in the header, so the aside is face-only.
+   * Right-side photo; home feed also gets a single-line name/@handle over the
+   * bubble. Profile pages already show identity in the header.
    */
-  const authorAside = (
-    <VStack gap={1} className="timeline-user-aside" hAlign="center">
-      {showAuthor ? (
-        <Link
-          to="/u/$handle"
-          params={{ handle: post.handle }}
-          className="timeline-msg-avatar-link"
-          aria-label={`${displayName} (@${post.handle})`}
-        >
-          <UserAvatar
-            avatarUrl={post.avatar_url}
-            className="timeline-author-avatar"
-            alt=""
-          />
-        </Link>
-      ) : (
-        <UserAvatar
-          avatarUrl={post.avatar_url}
-          className="timeline-author-avatar"
-          alt=""
-        />
-      )}
-      {showAuthor && (
-        <Link
-          to="/u/$handle"
-          params={{ handle: post.handle }}
-          className="timeline-user-aside-copy"
-        >
-          <Text weight="semibold" maxLines={1}>{displayName}</Text>
-          <Text type="supporting" maxLines={1}>@{post.handle}</Text>
-        </Link>
-      )}
-    </VStack>
+  const authorAside = showAuthor ? (
+    <Link
+      to="/u/$handle"
+      params={{ handle: post.handle }}
+      className="timeline-msg-avatar-link"
+      aria-label={`${displayName} (@${post.handle})`}
+    >
+      <UserAvatar
+        avatarUrl={post.avatar_url}
+        className="timeline-author-avatar"
+        alt=""
+      />
+    </Link>
+  ) : (
+    <UserAvatar
+      avatarUrl={post.avatar_url}
+      className="timeline-author-avatar"
+      alt=""
+    />
   );
+  const authorLabel = showAuthor ? (
+    <Link
+      to="/u/$handle"
+      params={{ handle: post.handle }}
+      className="timeline-user-label"
+    >
+      <HStack gap={1} vAlign="center" className="timeline-author-identity">
+        <Text weight="semibold" maxLines={1}>{displayName}</Text>
+        <Text type="supporting" maxLines={1}>@{post.handle}</Text>
+      </HStack>
+    </Link>
+  ) : null;
 
   const unpublish = async () => {
     const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
@@ -228,6 +226,7 @@ export function TimelinePostRow({
                 hydrateResult={false}
                 collapseSql
                 userAside={authorAside}
+                userLabel={authorLabel}
               />
             ))}
           </VStack>

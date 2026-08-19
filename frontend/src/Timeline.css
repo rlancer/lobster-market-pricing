@@ -206,8 +206,9 @@
   margin-block-start: calc(var(--spacing-1) * -1);
 }
 
-/* Feed bubbles sit edge-to-edge. Author ask is end-aligned with photo + name
-   on the right; lobster answer stays start-aligned with the brand mark. */
+/* Feed bubbles sit edge-to-edge. Author ask is end-aligned: name/@handle on
+   one line over the bubble, photo on the right; lobster answer stays start-
+   aligned with the brand mark. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
@@ -216,15 +217,45 @@
   max-width: 92%;
 }
 
-.timeline-msgs .ai-msg.ai-user .ai-bubble {
-  /* Leave room for the right-side photo + name column. */
-  max-width: calc(100% - (var(--size-element-md, 32px) * 4) - var(--spacing-3));
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: var(--spacing-2);
+  row-gap: var(--spacing-1);
+  align-items: start;
+  justify-content: end;
 }
 
-.timeline-user-aside {
-  flex: 0 0 auto;
-  max-width: calc(var(--size-element-md, 32px) * 4);
-  margin-block-start: var(--spacing-0-5);
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-user-label {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .ai-bubble {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: end;
+  max-width: 100%;
+}
+
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-msg-avatar-link,
+.timeline-msgs .ai-msg.ai-user.timeline-user-turn > .timeline-author-avatar {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.timeline-user-label {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.timeline-user-label:hover {
+  color: var(--color-text-accent);
 }
 
 .timeline-msg-avatar-link {
@@ -238,22 +269,6 @@
 .timeline-msg-avatar-link:hover .timeline-author-avatar {
   outline: var(--border-width) solid var(--color-border-emphasized);
   outline-offset: var(--spacing-0-5);
-}
-
-.timeline-user-aside-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  min-width: 0;
-  max-width: 100%;
-  color: inherit;
-  text-decoration: none;
-  text-align: center;
-}
-
-.timeline-user-aside-copy:hover {
-  color: var(--color-text-accent);
 }
 
 .timeline-author-link:hover {
