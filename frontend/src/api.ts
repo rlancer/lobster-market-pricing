@@ -504,6 +504,8 @@ export interface BotGenerateResponse {
   run_id: string;
   chat_id: string;
   prompt: string;
+  /** How the prompt was chosen — unused requested text, unused seed, or LLM invent. */
+  prompt_source?: 'requested' | 'seed' | 'invent';
   bot: {
     handle: string;
     display_name: string;

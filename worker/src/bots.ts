@@ -479,6 +479,18 @@ export async function listBotRuns(db: D1Database, handle: string, limit = 20): P
   return (rows.results ?? []).map(rowToRun);
 }
 
+/** Recent run prompts for uniqueness checks when minting a new generate chat. */
+export async function listBotRunPrompts(db: D1Database, handle: string, limit = 100): Promise<string[]> {
+  const parsed = parseHandle(handle);
+  if (!parsed.ok) return [];
+  const rows = await db.prepare(
+    `SELECT prompt FROM bot_runs WHERE handle = ?1 ORDER BY created_at DESC LIMIT ?2`,
+  ).bind(parsed.handle, Math.min(Math.max(limit, 1), 200)).all<{ prompt: string }>();
+  return (rows.results ?? [])
+    .map((row) => (typeof row.prompt === "string" ? row.prompt : ""))
+    .filter(Boolean);
+}
+
 /** Persona block appended to the base Copilot system prompt. */
 export function botSystemAddon(profile: Pick<BotProfile, "handle" | "display_name" | "persona" | "system_prompt_extra">): string {
   const lines = [

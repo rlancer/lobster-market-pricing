@@ -245,7 +245,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs) / update / delete a bot. |
-| `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + prompt for Copilot under that persona (`{prompt?}`). UI opens `/chat/{id}` and auto-sends. |
+| `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Copilot under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 
 ### `/api/screen` query parameters
 
@@ -270,8 +270,10 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News and related chats
 settle on idle. Chat ticker chips (from `research_ticker`) link there.
 **Bots** (`/bots`, admin-only) edit Copilot personas (handles like
-`yololobster`) and trigger a chat from the UI; sharing stamps the post onto
-the public timeline under that handle. **Data**
+`yololobster`) and trigger a chat from the UI; generate picks a prompt that
+has not already been used on a prior run (next unused seed, or an invented
+question). Sharing stamps the post onto the public timeline under that handle.
+**Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
 - Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)

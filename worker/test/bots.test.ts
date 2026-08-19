@@ -11,6 +11,12 @@ import {
   validateBotInput,
   type BotRun,
 } from "../src/bots.ts";
+import {
+  isBotPromptUsed,
+  normalizeBotPrompt,
+  pickUnusedSeedPrompt,
+  resolveBotGeneratePrompt,
+} from "../src/bot-prompt.ts";
 
 test("validateBotInput accepts yololobster-style profiles", () => {
   const result = validateBotInput(
@@ -222,4 +228,53 @@ test("botShareReuseDecision rejects a missing run", () => {
     run_id: "run-1",
     handle: "yololobster",
   });
+});
+
+test("normalizeBotPrompt collapses case and whitespace", () => {
+  assert.equal(normalizeBotPrompt("  Find  LOTTERY   tickets  "), "find lottery tickets");
+});
+
+test("isBotPromptUsed matches normalized duplicates", () => {
+  assert.equal(isBotPromptUsed("Find lottery tickets", ["  find   LOTTERY tickets "]), true);
+  assert.equal(isBotPromptUsed("Find put hedges", ["Find lottery tickets"]), false);
+});
+
+test("pickUnusedSeedPrompt skips prompts already used in chats", () => {
+  const seeds = [
+    "Find lottery-ticket calls with real flow.",
+    "Scan for crowded short squeezes with call OI.",
+    "Hunt 0DTE call lotteries into catalysts.",
+  ];
+  assert.equal(
+    pickUnusedSeedPrompt(seeds, ["Find lottery-ticket calls with real flow."]),
+    "Scan for crowded short squeezes with call OI.",
+  );
+  assert.equal(
+    pickUnusedSeedPrompt(seeds, [
+      "Find lottery-ticket calls with real flow.",
+      "Scan for crowded short squeezes with call OI.",
+      "Hunt 0DTE call lotteries into catalysts.",
+    ]),
+    null,
+  );
+});
+
+test("resolveBotGeneratePrompt prefers unused requested, then unused seed, else invent", () => {
+  const seeds = ["Seed A", "Seed B"];
+  assert.deepEqual(
+    resolveBotGeneratePrompt("Brand new angle on IV crush", seeds, ["Seed A"]),
+    { prompt: "Brand new angle on IV crush", source: "requested" },
+  );
+  assert.deepEqual(
+    resolveBotGeneratePrompt("Seed A", seeds, ["Seed A"]),
+    { prompt: "Seed B", source: "seed" },
+  );
+  assert.deepEqual(
+    resolveBotGeneratePrompt(undefined, seeds, ["Seed A", "Seed B"]),
+    { prompt: null, source: "invent" },
+  );
+  assert.deepEqual(
+    resolveBotGeneratePrompt("", seeds, []),
+    { prompt: "Seed A", source: "seed" },
+  );
 });
