@@ -191,7 +191,7 @@ export function TimelinePostRow({
           <Timestamp value={post.published_at / 1000} format="auto" isLive />
         </HStack>
         {tickers.length > 0 && (
-          <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tickers">
+          <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tags">
             {tickers.map((ticker) => (
               <Link
                 key={ticker}

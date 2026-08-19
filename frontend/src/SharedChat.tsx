@@ -22,6 +22,8 @@ function SharedChatRoute() {
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
 
+  // Worker returns shareDisplayTitle (LLM headline when stored; else clipped
+  // first user turn). Trust that — do not re-derive from the raw prompt.
   const shareTitle = share?.title?.trim() || '';
   usePageMeta(
     share
@@ -66,6 +68,22 @@ function SharedChatRoute() {
     };
   }, [shareId]);
 
+  // First open of a pre-NER share kicks off a waitUntil backfill — refetch once
+  // so ticker tags appear without a full reload.
+  useEffect(() => {
+    if (!shareId || !share || (share.tickers?.length ?? 0) > 0) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api.sharedChat(shareId).then((s) => {
+        if (!cancelled && (s.tickers?.length ?? 0) > 0) setShare(s);
+      }).catch(() => { /* keep current share */ });
+    }, 2_500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [shareId, share]);
+
   return (
     <AppShell
       className="share-app"
@@ -105,7 +123,21 @@ function SharedChatRoute() {
         {!loading && !missing && share && (
           <>
             <header className="share-title-row">
-              <h1 className="share-title">{share.title ?? 'Shared chat'}</h1>
+              <h1 className="share-title">{shareTitle || 'Shared chat'}</h1>
+              {(share.tickers?.length ?? 0) > 0 && (
+                <HStack gap={2} vAlign="center" className="share-tickers" aria-label="Tags">
+                  {share.tickers!.map((ticker) => (
+                    <Link
+                      key={ticker}
+                      to="/research/$ticker"
+                      params={{ ticker }}
+                      className="share-ticker"
+                    >
+                      {ticker}
+                    </Link>
+                  ))}
+                </HStack>
+              )}
               <p className="share-meta">
                 {(share.bot || share.author) && (
                   <Link

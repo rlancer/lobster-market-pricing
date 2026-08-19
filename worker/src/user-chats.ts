@@ -9,8 +9,35 @@
 import { getSessionUser } from "./auth";
 
 const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TITLE_MAX = 120;
+/** Catalog / share title ceiling (chars). Longer first turns are clipped. */
+export const TITLE_MAX = 120;
 const LIST_LIMIT = 100;
+
+/**
+ * Cap a display title without cutting mid-word when possible.
+ *
+ * Prefer the opening sentence when it fits under `max` (bot prompts often
+ * lead with a short question, then instructions). Otherwise break on the last
+ * word boundary and append an ellipsis so the UI never ends on "and th".
+ */
+export function clipTitle(text: string, max = TITLE_MAX): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  if (trimmed.length <= max) return trimmed;
+
+  const sentence = trimmed.match(/^(.+?[.!?])(?:\s|$)/);
+  if (sentence && sentence[1].length >= 12 && sentence[1].length <= max) {
+    return sentence[1];
+  }
+
+  const budget = max - 1; // room for …
+  let slice = trimmed.slice(0, budget);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace >= Math.min(24, Math.floor(budget * 0.4))) {
+    slice = slice.slice(0, lastSpace);
+  }
+  return `${slice.trimEnd()}…`;
+}
 
 export interface UserChatRow {
   chat_id: string;
@@ -41,10 +68,14 @@ export function sortUserChats(rows: UserChatRow[]): UserChatRow[] {
 /** Non-empty catalog title, or null. History never lists untitled shells. */
 export function historyTitle(title: string | null | undefined): string | null {
   if (typeof title !== "string") return null;
-  const trimmed = title.trim().slice(0, TITLE_MAX);
-  return trimmed || null;
+  const clipped = clipTitle(title);
+  return clipped || null;
 }
 
+/**
+ * Prefer a saved title when present; otherwise the first user turn, clipped
+ * for display (sentence / word boundary — never a mid-word hard cut).
+ */
 export function titleFromMessages(messages: unknown, fallback?: string | null): string | null {
   const named = historyTitle(fallback);
   if (named) return named;
@@ -53,9 +84,51 @@ export function titleFromMessages(messages: unknown, fallback?: string | null): 
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const rec = message as Record<string, unknown>;
     if (rec.role !== "user") continue;
-    if (typeof rec.content === "string" && rec.content.trim()) return rec.content.trim().slice(0, TITLE_MAX);
+    if (typeof rec.content === "string" && rec.content.trim()) {
+      return clipTitle(rec.content);
+    }
   }
   return null;
+}
+
+/**
+ * Prefer a saved/LLM title when it is not just an auto clip of the first user
+ * turn. Heal legacy mid-word `slice(0, 120)` rows from the intact first turn.
+ */
+export function shareDisplayTitle(messages: unknown, stored?: string | null): string | null {
+  const first = firstUserContent(messages);
+  const named = historyTitle(stored);
+  if (named && !isAutoDerivedTitle(named, first)) return named;
+  if (first) return clipTitle(first) || null;
+  return named;
+}
+
+/** First non-empty user turn content, or null. */
+export function firstUserContent(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (const message of messages) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue;
+    const rec = message as Record<string, unknown>;
+    if (rec.role !== "user") continue;
+    if (typeof rec.content === "string" && rec.content.trim()) return rec.content.trim();
+  }
+  return null;
+}
+
+/**
+ * True when `stored` looks like an auto clip of the first user turn (including
+ * legacy mid-word `slice(0, 120)` without an ellipsis). Manual renames and
+ * LLM headlines should return false.
+ */
+export function isAutoDerivedTitle(stored: string | null | undefined, firstUser: string | null | undefined): boolean {
+  if (typeof stored !== "string" || !stored.trim()) return false;
+  if (typeof firstUser !== "string" || !firstUser.trim()) return false;
+  const named = stored.trim();
+  const raw = firstUser.trim().replace(/\s+/g, " ");
+  if (named === clipTitle(raw)) return true;
+  if (named.endsWith("…")) return false;
+  if (raw.startsWith(named) && raw.length > named.length && named.length >= 80) return true;
+  return false;
 }
 
 export function copilotAgentChatId(pathname: string): string | null {
@@ -288,7 +361,7 @@ export async function renameChat(
   chatId: string,
   title: string,
 ): Promise<{ ok: true; title: string } | { ok: false; status: 400 | 404; error: string }> {
-  const trimmed = title.trim().slice(0, TITLE_MAX);
+  const trimmed = clipTitle(title);
   if (!trimmed) return { ok: false, status: 400, error: "title is required" };
   const result = await db.prepare(
     `UPDATE user_chats
@@ -297,6 +370,32 @@ export async function renameChat(
   ).bind(trimmed, Date.now(), chatId, userId).run();
   if (!result.meta.changes) return { ok: false, status: 404, error: "not found" };
   return { ok: true, title: trimmed };
+}
+
+/**
+ * Overwrite a chat title when the current value is still auto-derived (clip /
+ * legacy truncate). Never clobbers an explicit rename. Best-effort.
+ */
+export async function applyGeneratedChatTitle(
+  db: D1Database,
+  chatId: string,
+  title: string | null,
+  firstUser: string | null,
+): Promise<void> {
+  const named = historyTitle(title);
+  if (!named) return;
+  try {
+    const row = await db.prepare(
+      `SELECT title FROM user_chats WHERE chat_id = ?1 AND deleted_at IS NULL`,
+    ).bind(chatId).first<{ title: string | null }>();
+    if (!row) return;
+    if (row.title && !isAutoDerivedTitle(row.title, firstUser)) return;
+    await db.prepare(
+      `UPDATE user_chats SET title = ?1, updated_at = ?2 WHERE chat_id = ?3 AND deleted_at IS NULL`,
+    ).bind(named, Date.now(), chatId).run();
+  } catch (error) {
+    console.error("applyGeneratedChatTitle failed", error);
+  }
 }
 
 export async function deleteChat(

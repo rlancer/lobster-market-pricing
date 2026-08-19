@@ -439,6 +439,8 @@ export interface SharedChat {
   author?: { handle: string; name: string; is_bot?: boolean; persona?: string | null } | null;
   bot_handle?: string | null;
   bot?: { handle: string; display_name: string; persona: string } | null;
+  /** NER / research_ticker tags linked via chat_tickers (may be empty). */
+  tickers?: string[];
 }
 
 export interface TimelineAuthor {

@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cookieDomainFor, isTrustedOrigin, trustedOrigins } from "../src/auth.ts";
-import { copilotAgentChatId, compareUserChats, historyTitle, parseChatId, sortUserChats, titleFromMessages } from "../src/user-chats.ts";
+import {
+  clipTitle,
+  copilotAgentChatId,
+  compareUserChats,
+  historyTitle,
+  parseChatId,
+  shareDisplayTitle,
+  sortUserChats,
+  titleFromMessages,
+} from "../src/user-chats.ts";
 
 test("parseChatId accepts UUIDs and rejects junk", () => {
   const id = "3b1d0a2e-7c4f-4a11-9f2d-8e6c1b0a9d77";
@@ -29,6 +38,21 @@ test("historyTitle rejects blank titles so Untitled shells stay out of the list"
   assert.equal(historyTitle("  Chart NVDA  "), "Chart NVDA");
 });
 
+test("clipTitle prefers the opening sentence and never cuts mid-word", () => {
+  const prompt =
+    "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow or single-name catalysts that explain the tape. Close with a sharp desk takeaway.";
+  assert.equal(clipTitle(prompt), "Hourly market overview: what's happening right now?");
+
+  const longWords =
+    "Lead with SPX QQQ IWM posture sector leadership or rotation and the unusual options flow or single-name catalysts that explain the tape close with a sharp desk takeaway today";
+  const clipped = clipTitle(longWords);
+  assert.ok(clipped.endsWith("…"));
+  assert.ok(clipped.length <= 120);
+  // Hard slice(0, 120) of the bot prompt ended on "and th" — word break must not.
+  assert.equal(clipped.endsWith(" th…"), false);
+  assert.match(clipped, /\s\S+…$/);
+});
+
 test("titleFromMessages uses the first user turn, never client user_id", () => {
   assert.equal(titleFromMessages([{ role: "user", content: "  Chart NVDA smile  " }]), "Chart NVDA smile");
   assert.equal(
@@ -39,6 +63,23 @@ test("titleFromMessages uses the first user turn, never client user_id", () => {
   assert.equal(titleFromMessages([], "  "), null);
   const long = "x".repeat(200);
   assert.equal(titleFromMessages([{ role: "user", content: long }])?.length, 120);
+  assert.ok(titleFromMessages([{ role: "user", content: long }])?.endsWith("…"));
+});
+
+test("shareDisplayTitle heals mid-word stored titles from the first user turn", () => {
+  const prompt =
+    "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow or single-name catalysts that explain the tape. Close with a sharp desk takeaway.";
+  const truncated = prompt.slice(0, 120);
+  assert.equal(truncated.endsWith("and th"), true);
+  assert.equal(
+    shareDisplayTitle([{ role: "user", content: prompt }, { role: "assistant", content: "Tape…" }], truncated),
+    "Hourly market overview: what's happening right now?",
+  );
+  assert.equal(shareDisplayTitle([], truncated), clipTitle(truncated));
+  assert.equal(
+    shareDisplayTitle([{ role: "user", content: prompt }], "SPX soft; QQQ leads"),
+    "SPX soft; QQQ leads",
+  );
 });
 
 test("cookie domain is parent-host on lobster.mp and host-only elsewhere", () => {

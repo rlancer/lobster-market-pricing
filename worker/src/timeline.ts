@@ -12,6 +12,7 @@ import { getSessionUser, type AuthEnv } from "./auth";
 import { listTickersForChats } from "./chat-tickers";
 import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
+import { shareDisplayTitle } from "./user-chats";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
@@ -279,7 +280,7 @@ function itemFromRow(row: TimelineRow & { is_bot?: number }, tickers: string[] =
   return {
     share_id: row.share_id,
     url: "/share/" + row.share_id,
-    title: row.title,
+    title: shareDisplayTitle(parsed, row.title),
     excerpt,
     messages,
     handle: row.handle,

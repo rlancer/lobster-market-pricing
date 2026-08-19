@@ -6,6 +6,7 @@ import {
   SITE_NAME,
   pageMetaForUrl,
   pageMetaTags,
+  truncateTitle,
 } from './pageMeta.ts';
 
 test('homepage keeps the brand title and split descriptions', () => {
@@ -86,4 +87,15 @@ test('pageMetaTags emit title, description, canonical, og, and twitter', () => {
   assert.equal(by('meta', 'og:url')?.kind === 'meta' ? by('meta', 'og:url').content : '', 'https://lobster.mp/research/SPY');
   assert.equal(by('meta', 'twitter:title')?.kind === 'meta' ? by('meta', 'twitter:title').content : '', `SPY – Research · ${SITE_NAME}`);
   assert.equal(by('meta', 'og:image')?.kind === 'meta' ? by('meta', 'og:image').content : '', 'https://lobster.mp/og.png');
+});
+
+test('truncateTitle prefers the opening sentence over a mid-word cut', () => {
+  const prompt =
+    "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM posture, sector leadership or rotation, and the unusual options flow.";
+  assert.equal(truncateTitle(prompt, 60), "Hourly market overview: what's happening right now?");
+  const noSentence = 'Lead with SPX QQQ IWM posture sector leadership or rotation and the unusual options flow today';
+  const clipped = truncateTitle(noSentence, 60);
+  assert.ok(clipped.endsWith('…'));
+  assert.ok(clipped.length <= 60);
+  assert.match(clipped, /\s\S+…$/);
 });

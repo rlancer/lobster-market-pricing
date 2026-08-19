@@ -61,16 +61,22 @@ import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline"
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
   authorizeCopilotAgent,
+  applyGeneratedChatTitle,
   claimChat,
   deleteChat,
+  firstUserContent,
   listUserChats,
   loadOwnedChatTranscript,
   ownerOf,
   parseChatId,
   renameChat,
+  shareDisplayTitle,
   titleFromMessages,
   touchUserChat,
+  clipTitle,
+  isAutoDerivedTitle,
 } from "./user-chats";
+import { enrichChatMeta } from "./chat-meta";
 import {
   chatIdForShare,
   listToolEvents,
@@ -1584,7 +1590,26 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
     } catch {
       messages = body.messages;
     }
-    ctx.waitUntil(touchUserChat(env.SCHEMA_DB, user.id, chatId, titleFromMessages(messages)));
+    // Instant clip title for the sidebar, then cheap-model headline + ticker NER.
+    ctx.waitUntil((async () => {
+      await touchUserChat(env.SCHEMA_DB, user.id, chatId, titleFromMessages(messages));
+      if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return;
+      try {
+        const model = createCopilotModel(
+          { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+          new URL(req.url).origin,
+        );
+        const meta = await enrichChatMeta(env, chatId, messages, model);
+        await applyGeneratedChatTitle(
+          env.SCHEMA_DB,
+          chatId,
+          meta.title,
+          firstUserContent(messages),
+        );
+      } catch (error) {
+        console.warn("chat-meta enrich failed", error);
+      }
+    })());
   }
 
   if (!env.PIPELINE_CHAT_HISTORY_URL) {
@@ -1709,7 +1734,7 @@ const SHARE_MAX_SQL = 10_000;               // chars — per message sql
 const SHARE_MAX_REASONING = 20_000;         // chars — per message thinking trace
 const SHARE_MAX_TOOLS = 20;                 // tool entries per message
 const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
-const SHARE_MAX_TITLE = 120;                // chars — auto-derived title
+const SHARE_MAX_TITLE = 120;                // chars — auto-derived title (see clipTitle)
 const SHARE_MAX_RESULT_ROWS = 200;          // query rows snapshotted onto a share
 const SHARE_MAX_RESULT_COLS = 40;
 const SHARE_RATE_WINDOW_MS = 10 * 60_000;   // per-IP window
@@ -1874,10 +1899,10 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     return out;
   });
 
-  const title =
-    (messages.find((m) => m.role === "user" && typeof m.content === "string" && m.content)?.content as
-      | string
-      | undefined)?.slice(0, SHARE_MAX_TITLE) ?? null;
+  const firstUser = messages.find((m) => m.role === "user" && typeof m.content === "string" && m.content);
+  const title = typeof firstUser?.content === "string"
+    ? clipTitle(firstUser.content, SHARE_MAX_TITLE)
+    : null;
 
   // Byte budget: drop oldest turns first (a share is judged by its tail),
   // then older sql, then hard-backstop truncation. The tighter per-field caps
@@ -1998,7 +2023,22 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   if ((recent?.n ?? 0) >= SHARE_RATE_LIMIT) return json(env, { error: "rate limited" }, 429);
 
   // Pass 2 — share-only tightening + budgets.
-  const { messages, sourceSql, title } = normalizeShareRecord(pass1, body.messages);
+  const { messages, sourceSql, title: clippedTitle } = normalizeShareRecord(pass1, body.messages);
+  let title = clippedTitle;
+  // Cheap-model headline + ticker NER before INSERT so the share lands with a
+  // real title (clipTitle remains the fallback if OpenRouter is down).
+  if (env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()) {
+    try {
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        new URL(req.url).origin,
+      );
+      const meta = await enrichChatMeta(env, String(pass1.chat_id), messages, model);
+      if (meta.title) title = meta.title;
+    } catch (error) {
+      console.warn("share chat-meta enrich failed", error);
+    }
+  }
   const messagesJson = JSON.stringify(messages);
   // Assembled-row check: messages JSON + source_sql + column overhead must sit
   // under the D1 2 MB row ceiling — a share can never 500 on INSERT.
@@ -2091,13 +2131,14 @@ async function createShare(env: Env, req: Request): Promise<Response> {
  * share_id is the capability); unknown or expired ids are indistinguishable
  * 404s. created_ip / created_ua are never selected — privacy by construction.
  */
-async function getSharedChat(env: Env, shareId: string): Promise<Response> {
+async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext): Promise<Response> {
   if (!SHARE_ID_RE.test(shareId)) return json(env, { error: "not found" }, 404);
   const row = await env.SCHEMA_DB.prepare(
-    `SELECT share_id, title, mode, model, messages, source_sql, created_at, expires_at, bot_handle
+    `SELECT share_id, chat_id, title, mode, model, messages, source_sql, created_at, expires_at, bot_handle
      FROM shared_chats WHERE share_id = ?1`,
   ).bind(shareId).first<{
     share_id: string;
+    chat_id: string;
     title: string | null;
     mode: string;
     model: string | null;
@@ -2115,6 +2156,36 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
   } catch {
     /* rows are written by us; tolerate a corrupt one rather than 500 */
   }
+  const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
+  let tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];
+  // Older shares predate title+NER enrich. Fill tags on first open so the
+  // share page and timeline chips do not stay empty forever (waitUntil alone
+  // can lose the OpenRouter round-trip on a cold isolate).
+  if (
+    tickers.length === 0
+    && row.chat_id
+    && messages
+    && env.OPEN_ROUTER_KEY?.trim()
+    && env.COPILOT_MODEL?.trim()
+  ) {
+    try {
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        "https://lobster.mp",
+      );
+      const meta = await enrichChatMeta(env, row.chat_id, messages, model);
+      tickers = meta.tickers;
+      const first = firstUserContent(messages);
+      if (meta.title && isAutoDerivedTitle(row.title, first)) {
+        await env.SCHEMA_DB.prepare(
+          `UPDATE shared_chats SET title = ?1, updated_at = ?2 WHERE share_id = ?3`,
+        ).bind(meta.title, Date.now(), row.share_id).run();
+        row.title = meta.title;
+      }
+    } catch (error) {
+      console.warn("share meta enrich on read failed", error);
+    }
+  }
   const author = await getTimelineAuthor(env.SCHEMA_DB, shareId);
   let bot: { handle: string; display_name: string; persona: string } | null = null;
   if (row.bot_handle) {
@@ -2125,7 +2196,7 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
   }
   return json(env, {
     share_id: row.share_id,
-    title: row.title,
+    title: shareDisplayTitle(messages, row.title),
     mode: row.mode,
     model: row.model,
     created_at: row.created_at,
@@ -2135,6 +2206,8 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
     author,
     bot_handle: bot?.handle ?? null,
     bot,
+    /** NER / research_ticker tags linked via chat_tickers. */
+    tickers,
   });
 }
 
@@ -3200,7 +3273,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/share/chat" && req.method === "POST")
     return await createShare(env, req);
   if (path.startsWith("/api/share/"))
-    return await getSharedChat(env, path.slice("/api/share/".length));
+    return await getSharedChat(env, path.slice("/api/share/".length), ctx);
 
 
   return json(env, { error: "not found" }, 404);
