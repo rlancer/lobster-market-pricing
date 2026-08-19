@@ -18,6 +18,7 @@ import { createCopilotModel } from "./copilot-contract";
 import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
 import { shareDisplayTitle } from "./user-chats";
+import { loadTimelineRail, type TimelineLakeQuery } from "./timeline-rail";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
@@ -31,6 +32,7 @@ export interface TimelineEnv extends AuthEnv, ChatMetaEnv {
   SCHEMA_DB: D1Database;
   OPEN_ROUTER_KEY?: string;
   COPILOT_MODEL?: string;
+  TAVILY_API_KEY?: string;
 }
 
 function json(data: unknown, status = 200, cache: "public" | "private" = "public"): Response {
@@ -653,11 +655,16 @@ export async function handleTimeline(
   req: Request,
   path: string,
   ctx: ExecutionContext,
+  queryLake?: TimelineLakeQuery,
 ): Promise<Response | null> {
   if (path === "/api/timeline") {
     if (req.method === "GET") return listTimeline(env, req, ctx);
     if (req.method === "POST") return publishTimeline(env, req);
     return json({ error: "method not allowed" }, 405, "private");
+  }
+  if (path === "/api/timeline/rail") {
+    if (req.method !== "GET") return json({ error: "method not allowed" }, 405, "private");
+    return json(await loadTimelineRail({ env, queryLake }));
   }
   const item = path.match(/^\/api\/timeline\/([^/]+)$/);
   if (!item) return null;

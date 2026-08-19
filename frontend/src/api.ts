@@ -544,6 +544,36 @@ export interface TimelineFeed {
   profile: TimelineAuthor | null;
 }
 
+/** Desktop timeline rail — tags from public posts, breaking news, index tape. */
+export interface TimelineRailTag {
+  ticker: string;
+  posts: number;
+}
+
+export interface TimelineRailNewsItem {
+  title: string;
+  link: string;
+  published: string | null;
+  snippet: string;
+  source: 'tavily';
+}
+
+export interface TimelineRailHighlight {
+  ticker: string;
+  name: string;
+  spot: number | null;
+  change_1d_pct: number | null;
+}
+
+export interface TimelineRail {
+  tags: TimelineRailTag[];
+  news: TimelineRailNewsItem[];
+  highlights: TimelineRailHighlight[];
+  news_error?: string;
+  highlights_error?: string;
+  fetched_at: string;
+}
+
 export interface Health {
   ok: boolean;
   auth?: { google: boolean };
@@ -841,6 +871,7 @@ export const api = {
       // Moderated feed — never reuse a cached list after publish/unpublish.
       cache: 'no-store',
     }),
+  timelineRail: () => get<TimelineRail>('/api/timeline/rail'),
   publishTimeline: (share_id: string) =>
     post<{ ok: boolean; share_id: string; published_at: number }>('/api/timeline', { share_id }),
   unpublishTimeline: (shareId: string) =>

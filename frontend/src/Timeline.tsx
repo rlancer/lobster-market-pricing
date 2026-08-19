@@ -14,6 +14,7 @@ import { api, type TimelinePost } from './api';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
 import { useIsAdmin } from './useAdmin';
 import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './TimelineFeed';
+import { TimelineRail } from './TimelineRail';
 
 /** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
 function nearestScrollRoot(node: HTMLElement | null): Element | null {
@@ -192,52 +193,58 @@ export default function TimelinePage() {
 
   return (
     <VStack className="timeline content-column" gap={0}>
-      <TimelineAskComposer
-        value={composer}
-        onChange={setComposer}
-        onSubmit={launchChat}
-      />
+      <section className="timeline-columns">
+        <VStack className="timeline-main" gap={0}>
+          <TimelineAskComposer
+            value={composer}
+            onChange={setComposer}
+            onSubmit={launchChat}
+          />
 
-      <VStack gap={5} className="timeline-body" paddingBlock={5}>
-        {loading && <TimelineFeedSkeleton />}
+          <VStack gap={5} className="timeline-body" paddingBlock={5}>
+            {loading && <TimelineFeedSkeleton />}
 
-        {(error || actionError) && (
-          <VStack gap={3} className="timeline-state">
-            <Text className="timeline-err">{error ?? actionError}</Text>
-            {error && (
-              <Button variant="secondary" size="sm" label="Try again" onClick={() => { void load(); }} />
+            {(error || actionError) && (
+              <VStack gap={3} className="timeline-state">
+                <Text className="timeline-err">{error ?? actionError}</Text>
+                {error && (
+                  <Button variant="secondary" size="sm" label="Try again" onClick={() => { void load(); }} />
+                )}
+              </VStack>
+            )}
+
+            {!loading && !error && items.length === 0 && (
+              <TimelineEmpty onAsk={() => { void navigate({ to: '/chat' }); }} />
+            )}
+
+            {!loading && items.length > 0 && (
+              <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
+                {items.map((post) => (
+                  <TimelinePostRow
+                    key={post.share_id}
+                    post={post}
+                    isAdmin={isAdmin}
+                    onUnpublish={unpublishPost}
+                  />
+                ))}
+              </VStack>
+            )}
+
+            {nextBefore != null && (
+              <HStack hAlign="center" className="timeline-more">
+                <Button
+                  variant="secondary"
+                  label="Load older posts"
+                  isLoading={loadingMore}
+                  onClick={() => { void load(nextBefore); }}
+                />
+              </HStack>
             )}
           </VStack>
-        )}
+        </VStack>
 
-        {!loading && !error && items.length === 0 && (
-          <TimelineEmpty onAsk={() => { void navigate({ to: '/chat' }); }} />
-        )}
-
-        {!loading && items.length > 0 && (
-          <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
-            {items.map((post) => (
-              <TimelinePostRow
-                key={post.share_id}
-                post={post}
-                isAdmin={isAdmin}
-                onUnpublish={unpublishPost}
-              />
-            ))}
-          </VStack>
-        )}
-
-        {nextBefore != null && (
-          <HStack hAlign="center" className="timeline-more">
-            <Button
-              variant="secondary"
-              label="Load older posts"
-              isLoading={loadingMore}
-              onClick={() => { void load(nextBefore); }}
-            />
-          </HStack>
-        )}
-      </VStack>
+        <TimelineRail />
+      </section>
     </VStack>
   );
 }

@@ -3225,7 +3225,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;
 
-  const timeline = await handleTimeline(env, req, path, ctx);
+  const timeline = await handleTimeline(env, req, path, ctx, (sql, key) => r2sql(env, sql, key));
   if (timeline) return timeline;
 
   const bots = await handleBots(env, req, path);
