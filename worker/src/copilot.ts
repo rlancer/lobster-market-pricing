@@ -31,7 +31,7 @@ import {
   QUERY_FORCE_FAILURES_MAX,
   nextCopilotStepPolicy,
 } from "./copilot-loop";
-import { validateSqlSchema, type LakeTable } from "./copilot-sql";
+import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -197,6 +197,7 @@ function systemPrompt(schema: string, bot?: BotPromptProfile | null): string {
     "- To answer a market-data question, ALWAYS write a read-only query and execute it with run_query. Never return only SQL.",
     "- ALWAYS end the turn with a concise plain-English answer grounded in your results. A query, table, chart, or frame alone is never a complete turn — even for a chart request, close with a 1-3 sentence takeaway.",
     "- Use only table and column names in the schema. Never invent identifiers. check_schema and run_query validate them.",
+    "- OCC root naming differs by table: option_contracts / ohlc / realized_vol / earnings use `symbol`; underlying_snapshots / securities / fundamentals / etf_profiles / etf_holdings / corporate_actions / symbol_history use `ticker`. Prefer the real column; run_query also rewrites the synonym when unambiguous.",
     "- End the top-level query with LIMIT. Prefer explicit columns. No OFFSET, CROSS JOIN, or named WINDOW clauses. WHERE comes before QUALIFY.",
     "- Every run_query MUST SELECT FROM at least one options.* lake table (or a CTE that does). Bare probes like SELECT 1 or SELECT 'test' AS t are rejected before they hit the lake.",
     "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",
@@ -709,7 +710,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Every successful result is cached as frame 'last' (up to 5000 rows) for local filter/reduce follow-ups. Pass save_as for a named alias.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
         execute: async ({ sql, save_as }) => this.safeTool("run_query", TOOL_LABELS.run_query, { sql, save_as }, capture, async () => {
-          const issues = validateSqlSchema(sql, tables);
+          const normalized = applyColumnSynonyms(sql, tables);
+          const issues = validateSqlSchema(normalized.sql, tables);
           const errors = issues.filter((issue) => issue.severity === "error");
           if (errors.length) {
             const message = errors.map((issue) => issue.message).join(" ");
@@ -717,27 +719,34 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             return this.output(false, `Schema validation failed: ${message}`, { error: message });
           }
           status("Running query…");
-          const result = await this.executeLakeQuery(sql, FRAME_QUERY_LIMIT);
-          this.setCapturedResult(capture, result, sql);
+          const result = await this.executeLakeQuery(normalized.sql, FRAME_QUERY_LIMIT);
+          this.setCapturedResult(capture, result, normalized.sql);
           if (result.error) {
             noteQueryFailure();
-            return this.output(false, `Query failed: ${result.error}`, { error: result.error, sql, result });
+            return this.output(false, `Query failed: ${result.error}`, { error: result.error, sql: normalized.sql, result });
           }
           turn.successfulQuery = true;
           turn.failedQueryCount = 0;
-          const cached = this.cacheQueryFrame(result, sql, save_as);
+          const cached = this.cacheQueryFrame(result, normalized.sql, save_as);
           persist();
           const warnings = issues.filter((issue) => issue.severity === "warning").map((issue) => issue.message);
-          const summary = summarizeResult(result, [...(warnings.length ? [`Schema notes: ${warnings.join(" ")}`] : []), ...cached]);
-          return this.output(true, summary, { error: null, sql, result, frames: this.frameMetadata() });
+          const synonymNote = normalized.rewrites.length
+            ? [`Column synonyms applied: ${normalized.rewrites.join("; ")}`]
+            : [];
+          const summary = summarizeResult(result, [...synonymNote, ...(warnings.length ? [`Schema notes: ${warnings.join(" ")}`] : []), ...cached]);
+          return this.output(true, summary, { error: null, sql: normalized.sql, result, frames: this.frameMetadata() });
         }),
       }),
       check_schema: tool({
         description: "Validate proposed SQL against the real options table and column names without executing it.",
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema,
         execute: async ({ sql }) => this.safeTool("check_schema", TOOL_LABELS.check_schema, { sql }, capture, () => {
-          const issues = validateSqlSchema(sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
-          return this.output(issues.every((issue) => !issue.startsWith("[error]")), issues.join("\n") || "SQL matches the current schema.", { issues });
+          const normalized = applyColumnSynonyms(sql, tables);
+          const issues = validateSqlSchema(normalized.sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
+          if (normalized.rewrites.length) {
+            issues.unshift(`[info] Column synonyms applied: ${normalized.rewrites.join("; ")}`);
+          }
+          return this.output(issues.every((issue) => !issue.startsWith("[error]")), issues.join("\n") || "SQL matches the current schema.", { issues, sql: normalized.sql });
         }),
       }),
       list_frames: tool({

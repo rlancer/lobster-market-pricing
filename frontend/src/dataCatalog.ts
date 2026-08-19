@@ -348,7 +348,7 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   underlying_snapshots: {
     summary: 'Latest spot, name, and sector per ticker',
     description:
-      'Per-refresh underlying snapshot: spot_price, name, and sector denormalized from the universe manifest. Join to option_contracts on symbol/ticker for moneyness and sector screens.',
+      'Per-refresh underlying snapshot: spot_price, name, and sector denormalized from the universe manifest. The OCC root column is `ticker` (not `symbol`). Join to option_contracts with underlying_snapshots.ticker = option_contracts.symbol.',
     feeds: ['cboe'],
     tools: ['run_query'],
   },
