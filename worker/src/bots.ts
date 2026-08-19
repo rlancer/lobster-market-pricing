@@ -505,6 +505,7 @@ export function botSystemAddon(profile: Pick<BotProfile, "handle" | "display_nam
   lines.push(
     "Write in this persona's voice while still following every SQL/tool rule above.",
     "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+    "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
   );
   return lines.join("\n");
 }

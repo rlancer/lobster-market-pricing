@@ -25,6 +25,7 @@ import {
 import type { MarketHoursEnv } from "./market-hours";
 import { enrichChatMeta } from "./chat-meta";
 import { createCopilotModel } from "./copilot-contract";
+import type { ShareTurn } from "./share-turns";
 import { clipTitle, TITLE_MAX } from "./user-chats";
 
 const SHARE_MAX_CONTENT = 5_000;
@@ -40,14 +41,6 @@ export interface BotRunnerEnv extends BotEnv, MarketHoursEnv {
   COPILOT_MODEL?: string;
   OPEN_ROUTER_KEY?: string;
 }
-
-type ShareTurn = {
-  role: "user" | "assistant";
-  content: string;
-  reasoning?: string;
-  sql?: string;
-  ts?: number;
-};
 
 function utf8Bytes(s: string): number {
   return new TextEncoder().encode(s).byteLength;
@@ -74,6 +67,7 @@ function capShareMessages(messages: ShareTurn[], titleOverride?: string | null):
     };
     if (m.reasoning) out.reasoning = m.reasoning.slice(0, SHARE_MAX_REASONING);
     if (m.sql) out.sql = m.sql.slice(0, SHARE_MAX_SQL);
+    if (m.chart) out.chart = m.chart;
     if (typeof m.ts === "number") out.ts = m.ts;
     return out;
   });

@@ -140,3 +140,98 @@ test("extractShareTurns keeps user and assistant text", () => {
   assert.equal(turns[1].reasoning, "checking tape");
   assert.equal(turns[1].ts, 1_700_000_000_000);
 });
+
+test("extractShareTurns keeps render_chart specs for timeline shares", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Chart SPY closes for the last week." }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-run_query",
+          toolCallId: "q1",
+          state: "output-available",
+          input: { sql: "SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 7" },
+          output: {
+            ok: true,
+            sql: "SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 7",
+            result: {
+              columns: ["date", "close"],
+              rows: [
+                { date: "2026-08-18", close: 640 },
+                { date: "2026-08-19", close: 642 },
+              ],
+            },
+          },
+        },
+        {
+          type: "tool-render_chart",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { kind: "line", x: "date", y: "close" },
+          output: {
+            ok: true,
+            sql: "SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 7",
+            result: {
+              columns: ["date", "close"],
+              rows: [
+                { date: "2026-08-18", close: 640 },
+                { date: "2026-08-19", close: 642 },
+              ],
+            },
+            chart: { kind: "line", x: "date", y: "close", title: "SPY closes" },
+          },
+        },
+        { type: "text", text: "SPY grinded higher into the close." },
+      ],
+      metadata: { createdAt: 1_700_000_000_100 },
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns.length, 2);
+  assert.equal(turns[1].sql, "SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 7");
+  assert.deepEqual(turns[1].chart, { kind: "line", x: "date", y: "close", title: "SPY closes" });
+});
+
+test("extractShareTurns infers a chart when the prompt asked and the model skipped render_chart", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Plot the NVDA IV smile." }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-run_query",
+          toolCallId: "q1",
+          state: "output-available",
+          input: {},
+          output: {
+            ok: true,
+            sql: "SELECT strike, implied_vol, type FROM options.option_contracts LIMIT 20",
+            result: {
+              columns: ["strike", "implied_vol", "type"],
+              rows: [
+                { strike: 100, implied_vol: 0.4, type: "call" },
+                { strike: 105, implied_vol: 0.38, type: "put" },
+              ],
+            },
+          },
+        },
+        { type: "text", text: "Smile is bid on the puts." },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns[1].chart?.x, "strike");
+  assert.equal(turns[1].chart?.y, "implied_vol");
+  assert.equal(turns[1].chart?.series, "type");
+});

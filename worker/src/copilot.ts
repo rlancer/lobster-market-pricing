@@ -32,7 +32,7 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
-import { extractShareTurns } from "./share-turns";
+import { extractShareTurns, type ShareTurn } from "./share-turns";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -231,6 +231,7 @@ function systemPrompt(schema: string, bot?: BotPromptProfile | null): string {
     lines.push(
       "Write in this persona's voice while still following every SQL/tool rule above.",
       "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+      "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
     );
   }
   return lines.join("\n");
@@ -506,13 +507,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     status: "completed" | "error" | "skipped" | "aborted";
     error?: string;
     model: string | null;
-    messages: Array<{
-      role: "user" | "assistant";
-      content: string;
-      reasoning?: string;
-      sql?: string;
-      ts?: number;
-    }>;
+    messages: ShareTurn[];
   }> {
     const prompt = String(input.prompt ?? "").trim();
     if (!prompt) return { status: "error", error: "prompt is required", model: null, messages: [] };
