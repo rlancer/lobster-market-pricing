@@ -1,0 +1,57 @@
+/* Interactive circular crop preview for profile photo uploads. */
+
+.avatar-crop {
+  width: 100%;
+  align-items: center;
+}
+
+.avatar-crop-stage {
+  position: relative;
+  width: 280px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-background-secondary);
+  border: var(--border-width) solid var(--color-border);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.avatar-crop-stage:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.avatar-crop-mask {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 var(--border-width) color-mix(in srgb, var(--color-border) 70%, transparent);
+  pointer-events: none;
+}
+
+.avatar-crop-zoom {
+  width: min(100%, 280px);
+}
+
+.avatar-crop-slider {
+  width: 100%;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-crop-image {
+    will-change: auto;
+  }
+}
