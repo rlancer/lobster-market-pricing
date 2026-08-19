@@ -23,11 +23,12 @@ import {
   type BotSchedule,
 } from "./bot-schedule";
 import type { MarketHoursEnv } from "./market-hours";
+import { clipTitle, TITLE_MAX } from "./user-chats";
 
 const SHARE_MAX_CONTENT = 5_000;
 const SHARE_MAX_SQL = 10_000;
 const SHARE_MAX_REASONING = 20_000;
-const SHARE_MAX_TITLE = 120;
+const SHARE_MAX_TITLE = TITLE_MAX;
 const SHARE_ID_BYTES = 18;
 const SHARE_ROW_MAX_BYTES = 2_000_000;
 
@@ -74,9 +75,8 @@ function capShareMessages(messages: ShareTurn[]): { messages: Record<string, unk
     if (typeof m.ts === "number") out.ts = m.ts;
     return out;
   });
-  const title =
-    (capped.find((m) => m.role === "user" && typeof m.content === "string" && m.content)?.content as string | undefined)
-      ?.slice(0, SHARE_MAX_TITLE) ?? null;
+  const firstUser = capped.find((m) => m.role === "user" && typeof m.content === "string" && m.content);
+  const title = typeof firstUser?.content === "string" ? clipTitle(firstUser.content, SHARE_MAX_TITLE) : null;
   let sourceSql: string | null = null;
   for (let i = capped.length - 1; i >= 0; i--) {
     if (capped[i].role === "assistant" && typeof capped[i].sql === "string") {

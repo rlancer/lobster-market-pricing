@@ -68,8 +68,10 @@ import {
   ownerOf,
   parseChatId,
   renameChat,
+  shareDisplayTitle,
   titleFromMessages,
   touchUserChat,
+  clipTitle,
 } from "./user-chats";
 import {
   chatIdForShare,
@@ -1709,7 +1711,7 @@ const SHARE_MAX_SQL = 10_000;               // chars — per message sql
 const SHARE_MAX_REASONING = 20_000;         // chars — per message thinking trace
 const SHARE_MAX_TOOLS = 20;                 // tool entries per message
 const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
-const SHARE_MAX_TITLE = 120;                // chars — auto-derived title
+const SHARE_MAX_TITLE = 120;                // chars — auto-derived title (see clipTitle)
 const SHARE_MAX_RESULT_ROWS = 200;          // query rows snapshotted onto a share
 const SHARE_MAX_RESULT_COLS = 40;
 const SHARE_RATE_WINDOW_MS = 10 * 60_000;   // per-IP window
@@ -1874,10 +1876,10 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     return out;
   });
 
-  const title =
-    (messages.find((m) => m.role === "user" && typeof m.content === "string" && m.content)?.content as
-      | string
-      | undefined)?.slice(0, SHARE_MAX_TITLE) ?? null;
+  const firstUser = messages.find((m) => m.role === "user" && typeof m.content === "string" && m.content);
+  const title = typeof firstUser?.content === "string"
+    ? clipTitle(firstUser.content, SHARE_MAX_TITLE)
+    : null;
 
   // Byte budget: drop oldest turns first (a share is judged by its tail),
   // then older sql, then hard-backstop truncation. The tighter per-field caps
@@ -2125,7 +2127,7 @@ async function getSharedChat(env: Env, shareId: string): Promise<Response> {
   }
   return json(env, {
     share_id: row.share_id,
-    title: row.title,
+    title: shareDisplayTitle(messages, row.title),
     mode: row.mode,
     model: row.model,
     created_at: row.created_at,

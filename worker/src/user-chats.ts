@@ -9,8 +9,35 @@
 import { getSessionUser } from "./auth";
 
 const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const TITLE_MAX = 120;
+/** Catalog / share title ceiling (chars). Longer first turns are clipped. */
+export const TITLE_MAX = 120;
 const LIST_LIMIT = 100;
+
+/**
+ * Cap a display title without cutting mid-word when possible.
+ *
+ * Prefer the opening sentence when it fits under `max` (bot prompts often
+ * lead with a short question, then instructions). Otherwise break on the last
+ * word boundary and append an ellipsis so the UI never ends on "and th".
+ */
+export function clipTitle(text: string, max = TITLE_MAX): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  if (trimmed.length <= max) return trimmed;
+
+  const sentence = trimmed.match(/^(.+?[.!?])(?:\s|$)/);
+  if (sentence && sentence[1].length >= 12 && sentence[1].length <= max) {
+    return sentence[1];
+  }
+
+  const budget = max - 1; // room for …
+  let slice = trimmed.slice(0, budget);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace >= Math.min(24, Math.floor(budget * 0.4))) {
+    slice = slice.slice(0, lastSpace);
+  }
+  return `${slice.trimEnd()}…`;
+}
 
 export interface UserChatRow {
   chat_id: string;
@@ -41,10 +68,14 @@ export function sortUserChats(rows: UserChatRow[]): UserChatRow[] {
 /** Non-empty catalog title, or null. History never lists untitled shells. */
 export function historyTitle(title: string | null | undefined): string | null {
   if (typeof title !== "string") return null;
-  const trimmed = title.trim().slice(0, TITLE_MAX);
-  return trimmed || null;
+  const clipped = clipTitle(title);
+  return clipped || null;
 }
 
+/**
+ * Prefer a saved title when present; otherwise the first user turn, clipped
+ * for display (sentence / word boundary — never a mid-word hard cut).
+ */
 export function titleFromMessages(messages: unknown, fallback?: string | null): string | null {
   const named = historyTitle(fallback);
   if (named) return named;
@@ -53,9 +84,30 @@ export function titleFromMessages(messages: unknown, fallback?: string | null): 
     if (!message || typeof message !== "object" || Array.isArray(message)) continue;
     const rec = message as Record<string, unknown>;
     if (rec.role !== "user") continue;
-    if (typeof rec.content === "string" && rec.content.trim()) return rec.content.trim().slice(0, TITLE_MAX);
+    if (typeof rec.content === "string" && rec.content.trim()) {
+      return clipTitle(rec.content);
+    }
   }
   return null;
+}
+
+/**
+ * Public share / timeline headline. Prefer the clipped first user turn so
+ * older rows that stored a mid-word `slice(0, 120)` recover a clean title
+ * from the still-intact message body.
+ */
+export function shareDisplayTitle(messages: unknown, stored?: string | null): string | null {
+  if (Array.isArray(messages)) {
+    for (const message of messages) {
+      if (!message || typeof message !== "object" || Array.isArray(message)) continue;
+      const rec = message as Record<string, unknown>;
+      if (rec.role !== "user") continue;
+      if (typeof rec.content === "string" && rec.content.trim()) {
+        return clipTitle(rec.content);
+      }
+    }
+  }
+  return historyTitle(stored);
 }
 
 export function copilotAgentChatId(pathname: string): string | null {
@@ -288,7 +340,7 @@ export async function renameChat(
   chatId: string,
   title: string,
 ): Promise<{ ok: true; title: string } | { ok: false; status: 400 | 404; error: string }> {
-  const trimmed = title.trim().slice(0, TITLE_MAX);
+  const trimmed = clipTitle(title);
   if (!trimmed) return { ok: false, status: 400, error: "title is required" };
   const result = await db.prepare(
     `UPDATE user_chats

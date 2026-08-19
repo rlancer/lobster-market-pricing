@@ -300,6 +300,20 @@ function cssEscape(value: string): string {
 
 export function truncateTitle(text: string, max = 60): string {
   const trimmed = text.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return '';
   if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max - 1).trimEnd()}…`;
+
+  // Prefer the opening sentence when it fits (same rule as worker clipTitle).
+  const sentence = trimmed.match(/^(.+?[.!?])(?:\s|$)/);
+  if (sentence && sentence[1].length >= 12 && sentence[1].length <= max) {
+    return sentence[1];
+  }
+
+  const budget = max - 1;
+  let slice = trimmed.slice(0, budget);
+  const lastSpace = slice.lastIndexOf(' ');
+  if (lastSpace >= Math.min(24, Math.floor(budget * 0.4))) {
+    slice = slice.slice(0, lastSpace);
+  }
+  return `${slice.trimEnd()}…`;
 }

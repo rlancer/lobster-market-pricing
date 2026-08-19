@@ -6,7 +6,7 @@ import { Sunglasses } from './Sunglasses';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
 import { usePageMeta } from './usePageMeta';
-import { SITE_NAME } from './pageMeta';
+import { SITE_NAME, truncateTitle } from './pageMeta';
 
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
@@ -22,7 +22,12 @@ function SharedChatRoute() {
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
 
-  const shareTitle = share?.title?.trim() || '';
+  // Prefer the clipped first user turn over a mid-word stored title (older
+  // shares sliced at 120 chars without a word break).
+  const firstUserTurn = share?.messages.find((m) => m.role === 'user' && m.content.trim())?.content.trim() ?? '';
+  const shareTitle = firstUserTurn
+    ? truncateTitle(firstUserTurn, 120)
+    : (share?.title?.trim() || '');
   usePageMeta(
     share
       ? {
@@ -105,7 +110,7 @@ function SharedChatRoute() {
         {!loading && !missing && share && (
           <>
             <header className="share-title-row">
-              <h1 className="share-title">{share.title ?? 'Shared chat'}</h1>
+              <h1 className="share-title">{shareTitle || 'Shared chat'}</h1>
               <p className="share-meta">
                 {(share.bot || share.author) && (
                   <Link
