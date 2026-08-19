@@ -88,6 +88,29 @@
   min-width: 0;
 }
 
+.timeline-author-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  max-width: 100%;
+}
+
+.timeline-author-avatar {
+  display: block;
+  width: var(--size-element-md, 32px);
+  height: var(--size-element-md, 32px);
+  max-width: var(--size-element-md, 32px);
+  max-height: var(--size-element-md, 32px);
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  object-fit: cover;
+}
+
+.timeline-author-identity {
+  min-width: 0;
+}
+
 .timeline-post-byline,
 .timeline-post-meta,
 .timeline-post-flags,

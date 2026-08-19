@@ -47,6 +47,7 @@ test.describe('Public timeline', () => {
             ],
             handle: 'thelobster',
             name: 'Robert Lancer',
+            avatar_url: '/api/avatars/user-1?v=1',
             published_at: Date.now(),
             model: 'deepseek/deepseek-v4-flash-0731',
             has_sql: true,
@@ -61,8 +62,9 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    await expect(post.getByRole('link', { name: '@thelobster' })).toBeVisible();
-    await expect(post.getByRole('link', { name: 'Robert Lancer' })).toHaveCount(0);
+    const author = post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ });
+    await expect(author).toBeVisible();
+    await expect(author.locator('img.timeline-author-avatar')).toBeVisible();
     await expect(post.getByText('SQL')).toBeVisible();
     await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
     // Title matches the user bubble — don't duplicate it as a heading.

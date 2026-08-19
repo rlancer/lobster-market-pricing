@@ -15,6 +15,7 @@ import { ArrowRight, BarChart3, Code2, Newspaper, Sparkles } from 'lucide-react'
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
+import { UserAvatar } from './UserAvatar';
 
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
 function shortModel(model: string): string {
@@ -89,7 +90,7 @@ export function TimelinePostRow({
   post: TimelinePost;
   isAdmin: boolean;
   onUnpublish: (post: TimelinePost) => Promise<void>;
-  /** When false (profile page), skip the redundant @handle byline. */
+  /** When false (profile page), skip the redundant author byline. */
   showAuthor?: boolean;
   /** Heading level for the post title (profile pages nest under “Public chats”). */
   titleLevel?: 2 | 3;
@@ -106,9 +107,10 @@ export function TimelinePostRow({
   const tickers = (post.tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
+  const displayName = post.name?.trim() || post.handle;
 
   const unpublish = async () => {
-    const who = post.is_bot ? `bot @${post.handle}` : `@${post.handle}`;
+    const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
     if (!window.confirm(`Unpublish this chat by ${who} from the timeline? The share link will still work.`)) {
       return;
     }
@@ -127,7 +129,15 @@ export function TimelinePostRow({
           {showAuthor && (
             <>
               <Link to="/u/$handle" params={{ handle: post.handle }} className="timeline-author-link">
-                <Text weight="semibold" maxLines={1}>@{post.handle}</Text>
+                <UserAvatar
+                  avatarUrl={post.avatar_url}
+                  className="timeline-author-avatar"
+                  alt=""
+                />
+                <HStack gap={1} vAlign="center" className="timeline-author-identity">
+                  <Text weight="semibold" maxLines={1}>{displayName}</Text>
+                  <Text type="supporting" maxLines={1}>@{post.handle}</Text>
+                </HStack>
               </Link>
               {post.is_bot && (
                 <Token label="bot" color="teal" />

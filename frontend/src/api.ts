@@ -465,6 +465,8 @@ export interface TimelinePost {
   messages: SharedChatMessage[];
   handle: string;
   name: string;
+  /** Relative Worker path when the author has a custom photo; null for bots / default face. */
+  avatar_url?: string | null;
   published_at: number;
   model: string | null;
   has_sql: boolean;
