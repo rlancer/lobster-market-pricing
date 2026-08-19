@@ -461,8 +461,8 @@ export interface TimelinePost {
   title: string | null;
   excerpt: string;
   /**
-   * First user→assistant turn (or a lone first message) for chat-style feed
-   * rendering — includes sql / reasoning / chart when the share has them.
+   * Full slimmed conversation for in-feed reading (result rows omitted) —
+   * includes sql / reasoning / chart on assistant turns when present.
    */
   messages: SharedChatMessage[];
   handle: string;

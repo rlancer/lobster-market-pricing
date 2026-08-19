@@ -70,18 +70,69 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    // Name/@handle on one line over the user bubble; photo on the left.
-    await expect(post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ })).toBeVisible();
-    const userFace = post.getByRole('link', { name: 'Robert Lancer (@thelobster)' });
-    await expect(userFace).toBeVisible();
-    await expect(userFace.locator('img.timeline-author-avatar')).toBeVisible();
+    // Identity lives once in the byline — no second avatar on user bubbles.
+    const author = post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ });
+    await expect(author).toBeVisible();
+    await expect(author.locator('img.timeline-author-avatar')).toBeVisible();
+    await expect(post.locator('.timeline-msgs .timeline-author-avatar')).toHaveCount(0);
     await expect(post.getByText('SQL')).toBeVisible();
     await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
     // Title matches the user bubble — don't duplicate it as a heading.
     await expect(post.getByRole('heading', { name: 'Should I buy SPY calls' })).toHaveCount(0);
-    await expect(post.getByRole('link', { name: 'View full chat' })).toBeVisible();
+    // Full conversation stays on the timeline — no route hop to /share.
+    await expect(post.getByRole('link', { name: 'View full chat' })).toHaveCount(0);
+    await expect(post.getByLabel('Conversation')).toContainText('Liquidity looks thin across the near-dated SPY call board.');
     // Admin-only moderation control — anonymous visitors must not see it.
     await expect(post.getByRole('button', { name: 'Unpublish' })).toHaveCount(0);
+  });
+
+  test('timeline posts expand the full conversation in place', async ({ page }) => {
+    await page.route('**/api/avatars/**', async (route) => {
+      await route.fulfill({ status: 204 });
+    });
+    await page.route('**/api/timeline**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000099',
+            url: '/share/TestShareId000000000000099',
+            title: 'SPY liquidity thread',
+            excerpt: 'First answer.',
+            messages: [
+              { role: 'user', content: 'How is SPY looking?' },
+              { role: 'assistant', content: `${'Near-dated call liquidity is thin. '.repeat(24)}` },
+              { role: 'user', content: 'What about puts?' },
+              { role: 'assistant', content: 'Put side is deeper into next week.' },
+            ],
+            handle: 'thelobster',
+            name: 'Robert Lancer',
+            published_at: Date.now(),
+            model: null,
+            has_sql: false,
+            has_chart: false,
+          }],
+          next_before: null,
+          profile: null,
+        }),
+      });
+    });
+
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto('/');
+    const post = page.getByRole('article', { name: 'SPY liquidity thread' });
+    await expect(post).toBeVisible();
+    await expect(post.getByRole('heading', { name: 'SPY liquidity thread' })).toBeVisible();
+    await expect(post.getByLabel('Conversation')).toContainText('How is SPY looking?');
+    await expect(post.getByLabel('Conversation')).toContainText('What about puts?');
+    await expect(post.getByLabel('Conversation')).toContainText('Put side is deeper into next week.');
+    // Tall threads clamp with an in-place Show more — never leave the feed.
+    const showMore = post.getByRole('button', { name: 'Show more' });
+    await expect(showMore).toBeVisible();
+    await showMore.click();
+    await expect(post.getByRole('button', { name: 'Show less' })).toBeVisible();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   });
 
   test('ask composer collapses to a chip after scrolling the feed', async ({ page }) => {
@@ -211,7 +262,8 @@ test.describe('Public timeline', () => {
     await expect(post).toBeVisible();
     // Author byline is redundant on the profile page.
     await expect(post.getByRole('link', { name: '@thelobster' })).toHaveCount(0);
-    await expect(post.getByRole('link', { name: 'View full chat' })).toBeVisible();
+    await expect(post.getByRole('link', { name: 'View full chat' })).toHaveCount(0);
+    await expect(post.getByLabel('Conversation')).toContainText('Liquidity looks thin');
     await expect(page.getByRole('button', { name: 'All posts' })).toBeVisible();
   });
 

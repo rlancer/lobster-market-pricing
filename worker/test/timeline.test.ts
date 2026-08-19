@@ -44,7 +44,7 @@ test("excerptFromMessages keeps paragraph breaks and the full first message", ()
   assert.equal(excerpt.endsWith("…"), false);
 });
 
-test("previewMessagesFromShare returns the first user→assistant turn with sql and reasoning", () => {
+test("previewMessagesFromShare returns the full slimmed conversation with sql and reasoning", () => {
   const preview = previewMessagesFromShare([
     { role: "user", content: "Best calls?" },
     {
@@ -58,7 +58,7 @@ test("previewMessagesFromShare returns the first user→assistant turn with sql 
     { role: "user", content: "More?" },
     { role: "assistant", content: "Later turn." },
   ]);
-  assert.equal(preview.length, 2);
+  assert.equal(preview.length, 4);
   assert.deepEqual(preview[0], { role: "user", content: "Best calls?" });
   assert.equal(preview[1]?.role, "assistant");
   assert.equal(preview[1]?.content, "FISV leads.");
@@ -66,6 +66,8 @@ test("previewMessagesFromShare returns the first user→assistant turn with sql 
   assert.equal(preview[1]?.sql, "SELECT 1");
   assert.deepEqual(preview[1]?.chart, { kind: "bar", x: "a", y: "a" });
   assert.equal("result" in (preview[1] ?? {}), false);
+  assert.deepEqual(preview[2], { role: "user", content: "More?" });
+  assert.deepEqual(preview[3], { role: "assistant", content: "Later turn." });
 });
 
 test("previewMessagesFromShare falls back to a lone user turn or title", () => {

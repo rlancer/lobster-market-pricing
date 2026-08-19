@@ -74,18 +74,11 @@
   width: 100%;
 }
 
-.timeline-post-title :is(h1, h2) {
+.timeline-post-title {
   margin-block-end: 0;
   font-size: var(--font-size-lg);
   letter-spacing: -0.02em;
-}
-
-.timeline-author-link,
-.timeline-post-title,
-.timeline-post-open {
-  color: inherit;
-  text-decoration: none;
-  min-width: 0;
+  line-height: var(--line-height-heading, 1.25);
 }
 
 .timeline-author-link {
@@ -93,6 +86,9 @@
   align-items: center;
   gap: var(--spacing-2);
   max-width: 100%;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
 }
 
 .timeline-author-avatar {
@@ -202,13 +198,18 @@
 }
 
 .timeline-continue {
-  align-self: flex-start;
+  align-self: center;
   margin-block-start: calc(var(--spacing-1) * -1);
+  color: color-mix(in srgb, var(--color-text-secondary, var(--muted)) 72%, transparent);
 }
 
-/* Feed bubbles sit edge-to-edge. Author ask is start-aligned: photo on the
-   left with name/@handle on one line over the bubble; lobster answer is
-   end-aligned with the brand mark on the right. */
+.timeline-continue:hover {
+  color: var(--color-text-secondary, var(--muted));
+}
+
+/* Feed bubbles sit edge-to-edge. Author ask is start-aligned; lobster answer
+   is end-aligned with the brand mark on the right. Identity is only in the
+   byline — no second avatar beside user turns. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
@@ -217,35 +218,12 @@
   max-width: 92%;
 }
 
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  column-gap: var(--spacing-2);
-  row-gap: var(--spacing-1);
-  align-items: start;
-  justify-content: start;
+.timeline-msgs .ai-msg.ai-user {
+  justify-content: flex-start;
 }
 
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-msg-avatar-link,
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn > .timeline-author-avatar {
-  grid-column: 1;
-  grid-row: 1 / -1;
-  align-self: start;
-}
-
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .timeline-user-label {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: start;
-}
-
-.timeline-msgs .ai-msg.ai-user.timeline-user-turn .ai-bubble {
-  grid-column: 2;
-  grid-row: 2;
-  justify-self: start;
-  max-width: 100%;
-  /* Tail toward the left-side photo. */
+.timeline-msgs .ai-msg.ai-user .ai-bubble {
+  /* Tail toward the start edge (author side). */
   border-bottom-right-radius: var(--radius-container);
   border-bottom-left-radius: var(--radius-inner);
 }
@@ -261,50 +239,8 @@
   border-bottom-right-radius: var(--radius-inner);
 }
 
-.timeline-user-label {
-  display: block;
-  max-width: 100%;
-  min-width: 0;
-  color: inherit;
-  text-decoration: none;
-}
-
-.timeline-user-label:hover {
-  color: var(--color-text-accent);
-}
-
-.timeline-msg-avatar-link {
-  flex: 0 0 auto;
-  display: block;
-  color: inherit;
-  text-decoration: none;
-  line-height: 0;
-}
-
-.timeline-msg-avatar-link:hover .timeline-author-avatar {
-  outline: var(--border-width) solid var(--color-border-emphasized);
-  outline-offset: var(--spacing-0-5);
-}
-
 .timeline-author-link:hover {
   color: var(--color-text-accent);
-}
-
-.timeline-post-title:hover :is(h2, h1) {
-  color: var(--color-text-accent);
-}
-
-.timeline-post-open {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-1);
-  color: var(--color-text-accent);
-  transition: gap var(--duration-fast) var(--ease-standard);
-}
-
-.timeline-post-open:hover {
-  gap: var(--spacing-2);
-  text-decoration: underline;
 }
 
 .timeline-more {
@@ -335,10 +271,6 @@
 @media (prefers-reduced-motion: reduce) {
   .timeline-post {
     animation: none;
-  }
-
-  .timeline-post-open {
-    transition: none;
   }
 }
 
