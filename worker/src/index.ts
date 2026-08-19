@@ -74,8 +74,9 @@ import {
   titleFromMessages,
   touchUserChat,
   clipTitle,
+  isAutoDerivedTitle,
 } from "./user-chats";
-import { enrichChatMeta, backfillShareMeta } from "./chat-meta";
+import { enrichChatMeta } from "./chat-meta";
 import {
   chatIdForShare,
   listToolEvents,
@@ -2130,7 +2131,7 @@ async function createShare(env: Env, req: Request): Promise<Response> {
  * share_id is the capability); unknown or expired ids are indistinguishable
  * 404s. created_ip / created_ua are never selected — privacy by construction.
  */
-async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): Promise<Response> {
+async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext): Promise<Response> {
   if (!SHARE_ID_RE.test(shareId)) return json(env, { error: "not found" }, 404);
   const row = await env.SCHEMA_DB.prepare(
     `SELECT share_id, chat_id, title, mode, model, messages, source_sql, created_at, expires_at, bot_handle
@@ -2156,8 +2157,10 @@ async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): 
     /* rows are written by us; tolerate a corrupt one rather than 500 */
   }
   const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
-  const tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];
-  // Older shares predate title+NER enrich — backfill tags (and title) once.
+  let tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];
+  // Older shares predate title+NER enrich. Fill tags on first open so the
+  // share page and timeline chips do not stay empty forever (waitUntil alone
+  // can lose the OpenRouter round-trip on a cold isolate).
   if (
     tickers.length === 0
     && row.chat_id
@@ -2165,17 +2168,23 @@ async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): 
     && env.OPEN_ROUTER_KEY?.trim()
     && env.COPILOT_MODEL?.trim()
   ) {
-    const model = createCopilotModel(
-      { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
-      "https://lobster.mp",
-    );
-    ctx.waitUntil(backfillShareMeta(env, {
-      chatId: row.chat_id,
-      shareId: row.share_id,
-      messages,
-      storedTitle: row.title,
-      model,
-    }));
+    try {
+      const model = createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        "https://lobster.mp",
+      );
+      const meta = await enrichChatMeta(env, row.chat_id, messages, model);
+      tickers = meta.tickers;
+      const first = firstUserContent(messages);
+      if (meta.title && isAutoDerivedTitle(row.title, first)) {
+        await env.SCHEMA_DB.prepare(
+          `UPDATE shared_chats SET title = ?1, updated_at = ?2 WHERE share_id = ?3`,
+        ).bind(meta.title, Date.now(), row.share_id).run();
+        row.title = meta.title;
+      }
+    } catch (error) {
+      console.warn("share meta enrich on read failed", error);
+    }
   }
   const author = await getTimelineAuthor(env.SCHEMA_DB, shareId);
   let bot: { handle: string; display_name: string; persona: string } | null = null;
