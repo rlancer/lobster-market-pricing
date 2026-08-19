@@ -314,7 +314,7 @@ export function AuthControls({
                 />
                 <FileInput
                   label="Profile photo"
-                  description="JPEG, PNG, WebP, or SVG — rasters are square-cropped; SVG stays vector. Up to 1 MB."
+                  description="JPEG, PNG, WebP, or SVG — rasters are square-cropped; SVG stays vector. Stored in Cloudflare Images, up to 5 MB."
                   value={avatarFile}
                   onChange={(files) => { void onAvatarChange(files); }}
                   accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"

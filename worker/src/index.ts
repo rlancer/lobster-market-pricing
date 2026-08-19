@@ -2557,14 +2557,14 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
             return json(env, { error: "avatar file is required (field name: avatar)" }, 400, "private");
           }
           if (file.size > AVATAR_MAX_BYTES) {
-            return json(env, { error: "avatar must be 1 MB or smaller" }, 413, "private");
+            return json(env, { error: "avatar must be 5 MB or smaller" }, 413, "private");
           }
           bytes = await file.arrayBuffer();
           mime = file.type || "application/octet-stream";
         } else {
           const len = Number(req.headers.get("Content-Length") || 0);
           if (len > AVATAR_MAX_BYTES) {
-            return json(env, { error: "avatar must be 1 MB or smaller" }, 413, "private");
+            return json(env, { error: "avatar must be 5 MB or smaller" }, 413, "private");
           }
           bytes = await req.arrayBuffer();
           mime = contentType || "application/octet-stream";

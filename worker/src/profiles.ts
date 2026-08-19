@@ -77,8 +77,7 @@ export type DisplayNameResult = DisplayNameOk | DisplayNameErr;
 export interface UserProfileRow {
   handle: string;
   display_name: string | null;
-  has_avatar: number;
-  avatar_updated_at: number | null;
+  avatar_key: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -150,12 +149,8 @@ export async function getHandle(db: D1Database, userId: string): Promise<string 
 
 export async function getUserProfile(db: D1Database, userId: string): Promise<UserProfileRow | null> {
   return db.prepare(
-    `SELECT pr.handle, pr.display_name, pr.created_at, pr.updated_at,
-            CASE WHEN a.user_id IS NULL THEN 0 ELSE 1 END AS has_avatar,
-            a.updated_at AS avatar_updated_at
-     FROM user_profiles pr
-     LEFT JOIN user_avatars a ON a.user_id = pr.user_id
-     WHERE pr.user_id = ?1`,
+    `SELECT handle, display_name, avatar_key, created_at, updated_at
+     FROM user_profiles WHERE user_id = ?1`,
   ).bind(userId).first<UserProfileRow>();
 }
 
@@ -168,14 +163,14 @@ export function publicName(displayName: string | null | undefined, oauthName: st
 
 export function profilePublicFields(
   userId: string,
-  row: Pick<UserProfileRow, "display_name" | "has_avatar" | "avatar_updated_at"> | null,
+  row: Pick<UserProfileRow, "display_name" | "avatar_key" | "updated_at"> | null,
   oauthName: string | null | undefined,
 ): { display_name: string | null; name: string; avatar_url: string | null } {
   const display_name = row?.display_name?.trim() || null;
   return {
     display_name,
     name: publicName(display_name, oauthName),
-    avatar_url: avatarUrlFor(userId, Boolean(row?.has_avatar), row?.avatar_updated_at ?? null),
+    avatar_url: avatarUrlFor(userId, row?.avatar_key, row?.updated_at ?? null),
   };
 }
 

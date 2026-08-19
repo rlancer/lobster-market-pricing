@@ -35,6 +35,9 @@
       "migrations_dir": "./migrations"
     }
   ],
+  "images": {
+    "binding": "IMAGES"
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -74,6 +77,9 @@
           "migrations_dir": "./migrations"
         }
       ],
+      "images": {
+        "binding": "IMAGES"
+      },
       "routes": [
         { "pattern": "api-dev.lobster.mp", "custom_domain": true }
       ]

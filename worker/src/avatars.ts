@@ -1,17 +1,17 @@
 /**
- * Custom user avatars — D1 BLOBs keyed off user_id.
+ * Custom user avatars — Cloudflare Images (hosted), keyed on user_profiles.
  *
- * Public GET /api/avatars/{userId} serves the bytes. Upload/delete require a
- * session and a claimed handle (FK → user_profiles). Stored in D1 (not R2)
- * so Worker deploy stays within the existing CI API-token permissions.
+ * Upload via env.IMAGES.hosted; the Images id is stored in
+ * user_profiles.avatar_key. Public GET /api/avatars/{userId} streams the
+ * original bytes through the binding (stable app URL, CDN-friendly headers).
  *
- * SVG is allowed as image/svg+xml. Bytes are screened for script / event-handler
- * payloads; responses use nosniff + a tight CSP. The UI only renders avatars
- * inside <img>, which does not execute SVG script.
+ * SVG is allowed; Cloudflare sanitizes hosted SVGs, and we still reject
+ * obvious script/handler payloads before upload.
  */
 import type { SessionUser } from "./auth";
 
-export const AVATAR_MAX_BYTES = 1_048_576; // 1 MiB
+/** Cloudflare Images allows up to 10 MB; keep headroom under that. */
+export const AVATAR_MAX_BYTES = 5_242_880; // 5 MiB
 export const AVATAR_MIME = new Set([
   "image/jpeg",
   "image/png",
@@ -24,27 +24,21 @@ const SVG_DANGEROUS =
 
 export interface AvatarEnv {
   SCHEMA_DB: D1Database;
+  IMAGES: ImagesBinding;
 }
 
 export type AvatarResult =
   | { ok: true; avatar_url: string | null }
-  | { ok: false; status: 400 | 404 | 413 | 415; error: string };
+  | { ok: false; status: 400 | 404 | 413 | 415 | 502; error: string };
 
 export function avatarUrlFor(
   userId: string,
-  hasAvatar: boolean,
+  imageId: string | null | undefined,
   version?: number | null,
 ): string | null {
-  if (!hasAvatar) return null;
+  if (!imageId) return null;
   const base = `/api/avatars/${encodeURIComponent(userId)}`;
   return typeof version === "number" && version > 0 ? `${base}?v=${version}` : base;
-}
-
-export async function hasAvatar(db: D1Database, userId: string): Promise<boolean> {
-  const row = await db.prepare(
-    "SELECT 1 AS n FROM user_avatars WHERE user_id = ?1",
-  ).bind(userId).first();
-  return Boolean(row);
 }
 
 /** Reject SVG that is not markup or that carries script/handler payloads. */
@@ -67,16 +61,26 @@ export function assertSafeSvg(bytes: ArrayBuffer): { ok: true } | { ok: false; e
 export function resolveAvatarMime(contentType: string, bytes: ArrayBuffer): string | null {
   const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   if (AVATAR_MIME.has(mime)) return mime;
-  const head = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(bytes.slice(0, 256)).trimStart().toLowerCase();
+  const head = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true })
+    .decode(bytes.slice(0, 256))
+    .trimStart()
+    .toLowerCase();
   if (head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"))) {
     return "image/svg+xml";
   }
   return null;
 }
 
+function filenameForMime(mime: string): string {
+  if (mime === "image/svg+xml") return "avatar.svg";
+  if (mime === "image/png") return "avatar.png";
+  if (mime === "image/webp") return "avatar.webp";
+  return "avatar.jpg";
+}
+
 /**
  * Replace the caller's avatar. Requires an existing user_profiles row (handle
- * claimed).
+ * claimed). Uploads to Cloudflare Images and stores the image id in avatar_key.
  */
 export async function putAvatar(
   env: AvatarEnv,
@@ -92,7 +96,7 @@ export async function putAvatar(
     return { ok: false, status: 400, error: "avatar file is empty" };
   }
   if (bytes.byteLength > AVATAR_MAX_BYTES) {
-    return { ok: false, status: 413, error: "avatar must be 1 MB or smaller" };
+    return { ok: false, status: 413, error: "avatar must be 5 MB or smaller" };
   }
   if (mime === "image/svg+xml") {
     const safe = assertSafeSvg(bytes);
@@ -100,36 +104,58 @@ export async function putAvatar(
   }
 
   const profile = await env.SCHEMA_DB.prepare(
-    "SELECT handle FROM user_profiles WHERE user_id = ?1",
-  ).bind(user.id).first<{ handle: string }>();
+    "SELECT handle, avatar_key FROM user_profiles WHERE user_id = ?1",
+  ).bind(user.id).first<{ handle: string; avatar_key: string | null }>();
   if (!profile) {
     return { ok: false, status: 400, error: "claim a handle before uploading an avatar" };
   }
 
-  const now = Date.now();
-  // D1 bind accepts ArrayBuffer / Uint8Array for BLOB columns.
-  await env.SCHEMA_DB.prepare(
-    `INSERT INTO user_avatars (user_id, content_type, data, updated_at)
-     VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT(user_id) DO UPDATE SET
-       content_type = excluded.content_type,
-       data = excluded.data,
-       updated_at = excluded.updated_at`,
-  ).bind(user.id, mime, bytes, now).run();
+  let uploaded: ImageMetadata;
+  try {
+    uploaded = await env.IMAGES.hosted.upload(bytes, {
+      filename: filenameForMime(mime),
+      metadata: { user_id: user.id, purpose: "avatar" },
+      creator: user.id,
+      requireSignedURLs: false,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, status: 502, error: `image upload failed: ${message.slice(0, 200)}` };
+  }
 
-  return { ok: true, avatar_url: avatarUrlFor(user.id, true, now) };
+  const now = Date.now();
+  await env.SCHEMA_DB.prepare(
+    `UPDATE user_profiles SET avatar_key = ?1, updated_at = ?2 WHERE user_id = ?3`,
+  ).bind(uploaded.id, now, user.id).run();
+
+  if (profile.avatar_key && profile.avatar_key !== uploaded.id) {
+    try {
+      await env.IMAGES.hosted.image(profile.avatar_key).delete();
+    } catch {
+      /* best-effort cleanup of the previous Images object */
+    }
+  }
+
+  return { ok: true, avatar_url: avatarUrlFor(user.id, uploaded.id, now) };
 }
 
 export async function clearAvatar(env: AvatarEnv, user: SessionUser): Promise<AvatarResult> {
   const profile = await env.SCHEMA_DB.prepare(
-    "SELECT handle FROM user_profiles WHERE user_id = ?1",
-  ).bind(user.id).first<{ handle: string }>();
+    "SELECT avatar_key FROM user_profiles WHERE user_id = ?1",
+  ).bind(user.id).first<{ avatar_key: string | null }>();
   if (!profile) {
     return { ok: false, status: 400, error: "claim a handle before clearing an avatar" };
   }
+  if (profile.avatar_key) {
+    try {
+      await env.IMAGES.hosted.image(profile.avatar_key).delete();
+    } catch {
+      /* best-effort */
+    }
+  }
   await env.SCHEMA_DB.prepare(
-    "DELETE FROM user_avatars WHERE user_id = ?1",
-  ).bind(user.id).run();
+    `UPDATE user_profiles SET avatar_key = NULL, updated_at = ?1 WHERE user_id = ?2`,
+  ).bind(Date.now(), user.id).run();
   return { ok: true, avatar_url: null };
 }
 
@@ -139,22 +165,40 @@ export async function serveAvatar(env: AvatarEnv, userId: string): Promise<Respo
     return new Response("not found", { status: 404 });
   }
   const row = await env.SCHEMA_DB.prepare(
-    "SELECT content_type, data, updated_at FROM user_avatars WHERE user_id = ?1",
-  ).bind(id).first<{ content_type: string; data: ArrayBuffer; updated_at: number }>();
-  if (!row?.data) return new Response("not found", { status: 404 });
-  const contentType = row.content_type || "image/jpeg";
+    "SELECT avatar_key, updated_at FROM user_profiles WHERE user_id = ?1",
+  ).bind(id).first<{ avatar_key: string | null; updated_at: number }>();
+  if (!row?.avatar_key) return new Response("not found", { status: 404 });
+
+  let stream: ReadableStream<Uint8Array> | null = null;
+  let contentType = "application/octet-stream";
+  try {
+    const handle = env.IMAGES.hosted.image(row.avatar_key);
+    const [details, bytes] = await Promise.all([handle.details(), handle.bytes()]);
+    stream = bytes;
+    if (details?.filename) {
+      const name = details.filename.toLowerCase();
+      if (name.endsWith(".svg")) contentType = "image/svg+xml";
+      else if (name.endsWith(".png")) contentType = "image/png";
+      else if (name.endsWith(".webp")) contentType = "image/webp";
+      else if (name.endsWith(".gif")) contentType = "image/gif";
+      else contentType = "image/jpeg";
+    }
+  } catch {
+    return new Response("not found", { status: 404 });
+  }
+  if (!stream) return new Response("not found", { status: 404 });
+
   const headers = new Headers({
     "Content-Type": contentType,
-    "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
     ETag: `"${row.updated_at}"`,
     "X-Content-Type-Options": "nosniff",
   });
   if (contentType === "image/svg+xml") {
-    // Defense in depth if the URL is opened as a document instead of <img>.
     headers.set(
       "Content-Security-Policy",
       "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
     );
   }
-  return new Response(row.data, { status: 200, headers });
+  return new Response(stream, { status: 200, headers });
 }
