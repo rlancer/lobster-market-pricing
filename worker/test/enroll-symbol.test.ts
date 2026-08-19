@@ -59,14 +59,17 @@ describe("enroll-symbol", () => {
   it("detects enrollable equities and bundled membership", () => {
     assert.equal(isEnrollableEquityTicker("sofi"), true);
     assert.equal(isEnrollableEquityTicker("^VIX"), false);
+    assert.equal(isEnrollableEquityTicker("BTC-USD"), false);
     assert.equal(isBundledUniverseTicker("AAPL"), true);
     assert.equal(isBundledUniverseTicker("SOFI"), false);
+    assert.equal(isBundledUniverseTicker("IBIT"), true);
   });
 
   it("enrolls only thin, out-of-universe equities", () => {
     assert.equal(shouldEnrollForMissingLakeData(thinResearch("SOFI")), true);
     assert.equal(shouldEnrollForMissingLakeData(thinResearch("AAPL")), false);
     assert.equal(shouldEnrollForMissingLakeData(thinResearch("^VIX")), false);
+    assert.equal(shouldEnrollForMissingLakeData(thinResearch("BTC-USD")), false);
   });
 
   it("POSTs to the loader enroll endpoint when LOADER_TOKEN is set", async () => {

@@ -2,7 +2,7 @@
 
 ## Scope
 
-This package (the `loader/` directory of the `lobster-market-pricing` monorepo) loads the merged 591-symbol universe (S&P 500 + Nasdaq-100 delta + major ETFs including VIX ETPs) from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). The loader itself is a Worker (fetch/normalize/publish in `src/run-symbols.ts`); `tools/load_sp500.py` is a Python driver for one-shot full loads.
+This package (the `loader/` directory of the `lobster-market-pricing` monorepo) loads the merged 610-symbol universe (S&P 500 + Nasdaq-100 delta + major ETFs including VIX ETPs and crypto ETFs) from CBOE into Cloudflare Pipelines and R2 Data Catalog tables. The frontend and R2-SQL screener Worker live at the repo root (`frontend/`, `worker/`). The loader itself is a Worker (fetch/normalize/publish in `src/run-symbols.ts`); `tools/load_sp500.py` is a Python driver for one-shot full loads.
 
 ## Current verified state
 
@@ -19,7 +19,9 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   daily; CBOE CFE settlement CSV + delayed monthals →
   `options.futures_settlements` / `options.futures_quotes`),
   `indices-ohlc-daily` (batch, daily; Yahoo CBOE vol indexes `^VIX` …
-  from `symbols/indices.json` → `options.ohlc` / `options.realized_vol`), and
+  from `symbols/indices.json` → `options.ohlc` / `options.realized_vol`),
+  `crypto-spot-ohlc-daily` (batch, daily; Yahoo spot crypto `BTC-USD` …
+  from `symbols/crypto-spot.json` → `options.ohlc` / `options.realized_vol`), and
   `research-briefs-daily` (item-scoped, daily; warms the API Worker D1
   `ticker_research` cache via `POST /api/research/warm` — no new lake table).
   Schedule ledger:
@@ -31,12 +33,12 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   (created by the sinks), streams `cboe_ohlc_v2` / `cboe_realized_vol_v2`,
   sinks `cboe_ohlc_sink` / `cboe_realized_vol_sink`, pipelines wired. Ingest
   verified in production (records committed → queryable via R2 SQL).
-- Manifest: `symbols/universe.json` — 591 unique symbols (503 S&P 500 + 15 Nasdaq-100 + 73 ETFs); `symbols/sp500.json` remains the S&P 500 source.
+- Manifest: `symbols/universe.json` — 610 unique symbols (503 S&P 500 + 15 Nasdaq-100 + 92 ETFs); `symbols/sp500.json` remains the S&P 500 source.
 
 ## Symbol universe (S&P 500 + major ETFs + Nasdaq-100 delta)
 
 The symbol universe is the union of three sources, merged into the single
-loader manifest **`symbols/universe.json`** (591 symbols as of 2026-08-17;
+loader manifest **`symbols/universe.json`** (610 symbols as of 2026-08-19;
 same `.symbols` string-array shape as `sp500.json`, plus a `constituents`
 symbol→{name, sector, source} map that enriches every symbol):
 
@@ -45,8 +47,12 @@ symbol→{name, sector, source} map that enriches every symbol):
    already in the S&P 500 (ASML, ARM, MSTR, SHOP, MELI, PDD, RKLB, ALNY, NBIS,
    CCEP, TRI, FER, ALAB, CRWV, SPCX).
 3. **Major ETFs** (`source: "etf"`) — the curated `symbols/etfs.json` manifest
-   (73 broad-market / sector / international / fixed-income / commodity / real-estate /
-   thematic / leveraged / volatility ETFs, each verified to have a CBOE option chain).
+   (92 broad-market / sector / international / fixed-income / commodity / real-estate /
+   thematic / leveraged / volatility / crypto ETFs, each verified to have a CBOE option chain).
+
+Spot cryptocurrencies (`BTC-USD`, …) and CME continuous futures (`BTC=F`, …)
+are **not** in this option-chain universe; they land in `options.ohlc` via
+`crypto-spot-ohlc-daily` / `futures-ohlc-daily` from their own manifests.
 
 **On-demand enrollment.** Tickers outside that bundled manifest (e.g. a Copilot
 question about SOFI when it is not in the lake) are written to D1

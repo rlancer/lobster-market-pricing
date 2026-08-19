@@ -16,7 +16,7 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 }
 
 // ETF fund profile + top holdings: batch-scoped, ungated, daily cadence.
-// Universe is symbols/etfs.json (the 73 optionable ETFs), not the full 591
+// Universe is symbols/etfs.json (the 92 optionable ETFs), not the full 610
 // equity+ETF merge — equities have no fundProfile. Yahoo quoteSummary needs a
 // crumb session opened once per pass and reused.
 //

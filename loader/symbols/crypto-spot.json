@@ -1,0 +1,15 @@
+{
+  "source": "curated major spot cryptocurrencies for Yahoo chart OHLC (crypto-spot-ohlc-daily)",
+  "updated": "2026-08-19",
+  "note": "Yahoo chart v8 CRYPTOCURRENCY symbols (BTC-USD, …). Spot history + realized vol land in options.ohlc / options.realized_vol via publishOhlc — same pipelines as equities/ETFs/futures/indexes. These are NOT OCC option underlyings; crypto exposure with CBOE option chains lives in symbols/etfs.json (asset_class Crypto). CME continuous futures (BTC=F, ETH=F, MBT=F, MET=F) stay in futures.json. Verified HTTP 200 on query1.finance.yahoo.com/v8/finance/chart/{symbol} 2026-08-19.",
+  "cryptos": [
+    { "symbol": "BTC-USD", "name": "Bitcoin", "asset_class": "Crypto" },
+    { "symbol": "ETH-USD", "name": "Ethereum", "asset_class": "Crypto" },
+    { "symbol": "SOL-USD", "name": "Solana", "asset_class": "Crypto" },
+    { "symbol": "XRP-USD", "name": "XRP", "asset_class": "Crypto" },
+    { "symbol": "DOGE-USD", "name": "Dogecoin", "asset_class": "Crypto" },
+    { "symbol": "ADA-USD", "name": "Cardano", "asset_class": "Crypto" },
+    { "symbol": "AVAX-USD", "name": "Avalanche", "asset_class": "Crypto" },
+    { "symbol": "LINK-USD", "name": "Chainlink", "asset_class": "Crypto" }
+  ]
+}

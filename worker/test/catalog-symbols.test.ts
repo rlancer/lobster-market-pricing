@@ -10,12 +10,15 @@ import {
 } from "../src/catalog-symbols";
 
 describe("catalog-symbols", () => {
-  it("loads VIX indexes and CME continuous futures from loader manifests", () => {
+  it("loads VIX indexes, CME continuous futures, and spot crypto from loader manifests", () => {
     const all = catalogSymbols();
     assert.ok(all.some((s) => s.symbol === "^VIX" && s.kind === "index"));
     assert.ok(all.some((s) => s.symbol === "ES=F" && s.kind === "future"));
+    assert.ok(all.some((s) => s.symbol === "BTC-USD" && s.kind === "crypto"));
+    assert.ok(all.some((s) => s.symbol === "MBT=F" && s.kind === "future"));
     assert.equal(catalogLookup("^vix")?.name?.includes("CBOE Volatility Index"), true);
     assert.equal(catalogLookup("es=f")?.sector, "Equity Index");
+    assert.equal(catalogLookup("btc-usd")?.name, "Bitcoin");
     assert.equal(continuousFuturesRoot("ES=F"), "ES");
   });
 
@@ -27,6 +30,7 @@ describe("catalog-symbols", () => {
     assert.ok(merged.some((s) => s.symbol === "AAPL"));
     assert.ok(merged.some((s) => s.symbol === "^VIX"));
     assert.ok(merged.some((s) => s.symbol === "ES=F"));
+    assert.ok(merged.some((s) => s.symbol === "BTC-USD"));
     assert.ok(merged.some((s) => s.symbol === "VXX" && s.name === "iPath VXX"));
   });
 
@@ -37,6 +41,12 @@ describe("catalog-symbols", () => {
       10,
     );
     assert.equal(ranked[0]?.symbol, "^VIX");
+  });
+
+  it("ranks BTC-USD ahead of BTC=F when querying BTC", () => {
+    const ranked = rankSymbolSuggestions(mergeSymbolUniverse([]), "BTC", 10);
+    assert.equal(ranked[0]?.symbol, "BTC-USD");
+    assert.ok(ranked.some((s) => s.symbol === "BTC=F"));
   });
 
   it("finds continuous futures by prefix", () => {

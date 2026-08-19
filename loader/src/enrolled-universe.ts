@@ -47,13 +47,15 @@ export function isBundledSymbol(symbol: string): boolean {
 }
 
 /**
- * Equity/ETF OCC roots only — indexes (^VIX) and continuous futures (ES=F)
- * use dedicated manifests and must not enter the equity ETL path.
+ * Equity/ETF OCC roots only — indexes (^VIX), continuous futures (ES=F), and
+ * spot crypto (BTC-USD) use dedicated manifests and must not enter the equity
+ * ETL path.
  */
 export function isEnrollableTicker(raw: string | null | undefined): boolean {
   if (!raw) return false;
   const t = String(raw).trim().toUpperCase();
   if (!t || t.startsWith("^") || t.includes("=") || t.startsWith("/")) return false;
+  if (t.endsWith("-USD")) return false;
   return /^[A-Z][A-Z0-9.\-]{0,11}$/.test(t);
 }
 

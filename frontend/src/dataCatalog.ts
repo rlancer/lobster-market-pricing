@@ -257,7 +257,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Yahoo Finance OHLC',
     summary: 'Daily bars, realized vol, dividends and splits',
     description:
-      'Daily OHLC (~1 year) plus dividend/split events for equities and ETFs. Realized volatility is computed off split-adjusted closes (30d / 90d, annualized). Chat compares implied vol from CBOE chains against this realized series on why-is-it-moving questions. Continuous futures (=F) and CBOE vol indexes (^VIX, …) reuse the same options.ohlc / realized_vol tables via futures-ohlc-daily and indices-ohlc-daily.',
+      'Daily OHLC (~1 year) plus dividend/split events for equities and ETFs. Realized volatility is computed off split-adjusted closes (30d / 90d, annualized). Chat compares implied vol from CBOE chains against this realized series on why-is-it-moving questions. Continuous futures (=F), CBOE vol indexes (^VIX, …), and spot crypto (BTC-USD, …) reuse the same options.ohlc / realized_vol tables via futures-ohlc-daily, indices-ohlc-daily, and crypto-spot-ohlc-daily.',
     provider: 'Yahoo Finance',
     cadence: 'Daily (ungated) + on-demand backfill',
     tables: ['ohlc', 'realized_vol', 'corporate_actions'],
@@ -269,7 +269,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Yahoo ETF profiles',
     summary: 'Expense ratio, AUM, yield, and top-10 holdings',
     description:
-      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe (including VIX ETPs such as VXX, UVXY, SVXY). Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
+      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe (including VIX ETPs such as VXX, UVXY, SVXY and crypto ETFs such as IBIT, ETHA, SOLZ). Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
     provider: 'Yahoo Finance',
     cadence: 'Daily (etf-daily job)',
     tables: ['etf_profiles', 'etf_holdings'],
@@ -286,6 +286,18 @@ export const FEEDS: CatalogItem[] = [
     cadence: 'Daily (indices-ohlc-daily job)',
     tables: ['ohlc', 'realized_vol'],
     tools: ['run_query'],
+  },
+  {
+    id: 'feed:yahoo-crypto',
+    kind: 'feed',
+    title: 'Yahoo spot cryptocurrencies',
+    summary: 'BTC-USD and other major spot crypto OHLC',
+    description:
+      'Daily OHLC for major spot cryptocurrencies (BTC-USD, ETH-USD, SOL-USD, XRP-USD, …) from symbols/crypto-spot.json via crypto-spot-ohlc-daily. Lands in options.ohlc / options.realized_vol alongside equities. Crypto ETFs with CBOE option chains (IBIT, ETHA, …) are in the equity/ETF universe; CME continuous futures (BTC=F, ETH=F, MBT=F, MET=F) stay on futures-ohlc-daily.',
+    provider: 'Yahoo Finance',
+    cadence: 'Daily (crypto-spot-ohlc-daily job)',
+    tables: ['ohlc', 'realized_vol'],
+    tools: ['run_query', 'research_ticker'],
   },
   {
     id: 'feed:cfe-futures',
