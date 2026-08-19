@@ -2,9 +2,11 @@ import type { ItemJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
 import type { OhlcEnv } from "../ohlc.js";
 import { publishOhlcRange } from "../ohlc.js";
 import { securityIdForTicker } from "../symbology.js";
-import universe from "../../symbols/universe.json";
-
-const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
+import {
+  bundledUniverse,
+  effectiveUniverse,
+  expectedUniverseSize,
+} from "../enrolled-universe.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
@@ -21,8 +23,9 @@ export function windowBounds(nowMs: number): { period1: number; period2: number 
   return { period1, period2 };
 }
 
-// Merged-universe 2y OHLC backfill: item-scoped (resumable per-symbol), ungated,
+// Effective-universe 2y OHLC backfill: item-scoped (resumable per-symbol), ungated,
 // run manually via POST /jobs/ohlc-backfill/trigger or by seeding the item store.
+// Includes on-demand enrolled_symbols so newly asked tickers get history too.
 // Item store `ohlc_backfill_state` mirrors symbol_state so a long run against
 // unauth Yahoo (which throttles) picks up where it left off.
 //
@@ -39,11 +42,12 @@ export function ohlcBackfillJob(env: SchedulerEnv): ItemJob {
     scope: "items",
     itemTable: "ohlc_backfill_state",
     itemIdColumn: "symbol",
-    seedSize: () => SYMBOLS.length,
+    seedSize: (db) => expectedUniverseSize(db),
     seedItems: async (db) => {
       const now = Date.now();
       const base = num(env, "LOADER_BACKOFF_BASE_SECONDS", 60);
-      for (const symbol of SYMBOLS) {
+      const symbols = await effectiveUniverse(db);
+      for (const symbol of symbols) {
         await db.prepare(
           `INSERT OR IGNORE INTO ohlc_backfill_state
              (symbol, security_id, enabled, last_success_at, last_attempt_at,
@@ -52,7 +56,11 @@ export function ohlcBackfillJob(env: SchedulerEnv): ItemJob {
            VALUES (?, ?, 1, NULL, NULL, 0, ?, ?, NULL, 0)`
         ).bind(symbol, securityIdForTicker(symbol), now, base).run();
       }
-      console.log(JSON.stringify({ event: "seeded_ohlc_backfill_state", symbols: SYMBOLS.length }));
+      console.log(JSON.stringify({
+        event: "seeded_ohlc_backfill_state",
+        symbols: symbols.length,
+        bundled: bundledUniverse().length,
+      }));
     },
     run: async (items, e) => {
       // Dry-run: with no Pipeline endpoint configured the pass is a no-op (no

@@ -1,19 +1,17 @@
-import type { BatchJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
+import type { BatchJob, JobRunFailure, SchedulerEnv, D1Database } from "../scheduler.js";
 import type { OhlcEnv } from "../ohlc.js";
 import { publishOhlc } from "../ohlc.js";
-import universe from "../../symbols/universe.json";
-
-const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
+import { effectiveUniverse } from "../enrolled-universe.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
   return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
-// OHLC + realized-vol enrichment: batch-scoped, ungated (daily), whole merged
-// universe (S&P 500 + Nasdaq-100 + ETFs). Each symbol is fetched/normalized/
-// published via publishOhlc; the job's daily cadence (job_state) governs how
-// often the pass runs.
+// OHLC + realized-vol enrichment: batch-scoped, ungated (daily), whole effective
+// universe (bundled manifest ∪ on-demand enrolled_symbols). Each symbol is
+// fetched/normalized/published via publishOhlc; the job's daily cadence
+// (job_state) governs how often the pass runs.
 //
 // Dry-run: when neither Pipeline endpoint is configured the pass short-circuits
 // to a no-op (no source fetches, no publishes). This keeps local dev and the
@@ -26,7 +24,7 @@ export function ohlcDailyJob(env: SchedulerEnv): BatchJob {
     marketGated: false,
     cadenceSeconds: Math.floor(num(env, "OHLC_CADENCE_SECONDS", 86400)),
     scope: "batch",
-    universe: () => SYMBOLS,
+    universe: (db: D1Database) => effectiveUniverse(db),
     run: async (items, e) => {
       if (!e.PIPELINE_OHLC_URL && !e.PIPELINE_REALIZED_VOL_URL) {
         return { runId: null, failures: [] };

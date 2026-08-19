@@ -87,6 +87,11 @@ import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
+import {
+  enrollTickerWithLoader,
+  maybeEnrollMissingTicker,
+  isEnrollableEquityTicker,
+} from "./enroll-symbol";
 
 
 // ---------------------------------------------------------------------------
@@ -94,6 +99,8 @@ import type { LakeSecurityRow } from "./figi";
 // ---------------------------------------------------------------------------
 export interface Env extends Cloudflare.Env {
   ADMIN_TOKEN?: string;
+  /** Bearer for loader /symbols/enroll and /run (same secret as cboe-to-r2). */
+  LOADER_TOKEN?: string;
   PIPELINE_CHAT_HISTORY_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   BETTER_AUTH_SECRET?: string;
@@ -2346,7 +2353,7 @@ async function researchTickerForAgent(
   env: Env,
   symbol: string,
   opts?: { force?: boolean; chatId?: string },
-): Promise<{ research?: TickerResearch; summary: string; error?: string }> {
+): Promise<{ research?: TickerResearch; summary: string; error?: string; enrolled?: boolean }> {
   try {
     const research = sanitizeResearchCommentary(
       await getOrComputeResearch(env, symbol, researchDepsFor(env), {
@@ -2356,7 +2363,17 @@ async function researchTickerForAgent(
         includeSecondary: true,
       }),
     );
-    return { research, summary: summarizeResearch(research) };
+    maybeEnrollMissingTicker(env, research, {
+      source: "copilot_research",
+      requestedBy: opts?.chatId || null,
+    });
+    let summary = summarizeResearch(research);
+    if (research.price.spot == null && isEnrollableEquityTicker(research.identity.ticker)) {
+      summary +=
+        "\n\nLake data is thin for this ticker — it has been queued for on-demand " +
+        "ingest (options chain, OHLC, fundamentals). Retry research shortly.";
+    }
+    return { research, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { summary: `Research failed: ${message}`, error: message };
@@ -2383,6 +2400,11 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
         waitUntil: (p) => ctx.waitUntil(p),
       }),
     );
+    maybeEnrollMissingTicker(env, research, {
+      source: "research_api",
+      requestedBy: chatId || null,
+      waitUntil: (p) => ctx.waitUntil(p),
+    });
     const dur = Date.now() - started;
     return new Response(JSON.stringify(research), {
       status: 200,
@@ -2448,6 +2470,46 @@ async function handleResearchWarm(env: Env, req: Request): Promise<Response> {
     const message = e instanceof Error ? e.message : String(e);
     return json(env, { error: message }, 502, "private");
   }
+}
+
+/**
+ * POST /api/symbols/enroll (Bearer ADMIN_TOKEN) — enroll a ticker into the
+ * loader's durable on-demand universe so ETL keeps refreshing it. Proxies to
+ * loader POST /symbols/enroll (requires LOADER_TOKEN on this Worker).
+ */
+async function handleSymbolsEnroll(
+  env: Env,
+  req: Request,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401, "private");
+  let body: { symbol?: unknown; source?: unknown; notes?: unknown; load_now?: unknown } = {};
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return json(env, { error: "invalid JSON body" }, 400, "private");
+  }
+  const raw = typeof body.symbol === "string" ? body.symbol : "";
+  if (!isEnrollableEquityTicker(raw)) {
+    return json(env, { error: `invalid enrollable ticker: ${raw || "(empty)"}` }, 400, "private");
+  }
+  if (!(env.LOADER_TOKEN || "").trim()) {
+    return json(env, { error: "LOADER_TOKEN is not configured on the API Worker" }, 503, "private");
+  }
+  const result = await enrollTickerWithLoader(env, raw, {
+    source: typeof body.source === "string" ? body.source : "admin",
+    notes: typeof body.notes === "string" ? body.notes : null,
+    loadNow: body.load_now !== false,
+  });
+  if (!result) {
+    return json(env, { error: "enroll unavailable" }, 503, "private");
+  }
+  if (result.error) {
+    return json(env, result, 502, "private");
+  }
+  // Arm is handled by the loader; nothing else to wait on here.
+  ctx.waitUntil(Promise.resolve());
+  return json(env, result, 200, "private");
 }
 
 async function handleResearchCommentaryGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
@@ -2895,6 +2957,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/sectors") return json(env, await sectors(env));
   if (path === "/api/symbols")
     return json(env, await symbols(env, q.get("q") ?? undefined, num(q.get("limit") ?? 50)));
+  if (path === "/api/symbols/enroll" && req.method === "POST") {
+    return handleSymbolsEnroll(env, req, ctx);
+  }
   if (path === "/api/news")
     return json(env, await news(env, q.get("symbol"), q.get("limit") ? num(q.get("limit")) : NEWS_DEFAULT_LIMIT));
   if (path === "/api/web_search")

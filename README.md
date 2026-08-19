@@ -92,8 +92,12 @@ R2_SQL_TOKEN=cfat_...
 
 The loader Worker (`loader/`, deployed as `cboe-to-r2`) protects its `/run`,
 `/symbols/enroll`, `/loop/trigger`, and `/jobs/*/trigger` endpoints with a
+<<<<<<< HEAD
 bearer token. Store the value in **GitHub Actions secrets** (source of truth)
 and on the loader Worker:
+=======
+bearer token. Set it once as a Worker secret:
+>>>>>>> edeb2db (Enroll out-of-universe tickers into continuous ETL on demand)
 
 ```bash
 # once — GitHub (CI + force-loader-pass workflow)
@@ -103,6 +107,7 @@ gh secret set LOADER_TOKEN
 cd loader && npx wrangler secret put LOADER_TOKEN
 ```
 
+<<<<<<< HEAD
 The **API Worker** (`screener-api` / `screener-api-dev`) needs the **same**
 value so Copilot/research can call `POST /symbols/enroll` when a ticker is
 missing from the lake. `Deploy` (`.github/workflows/deploy.yml`) syncs
@@ -113,6 +118,14 @@ missing from the lake. `Deploy` (`.github/workflows/deploy.yml`) syncs
 cd worker
 printf '%s' "$LOADER_TOKEN" | npx wrangler secret put LOADER_TOKEN --name screener-api
 printf '%s' "$LOADER_TOKEN" | npx wrangler secret put LOADER_TOKEN --name screener-api-dev
+=======
+Mirror the **same value** on the API Worker so Copilot/research can auto-enroll
+tickers that are missing from the lake (`POST /symbols/enroll` via
+`LOADER_BASE_URL`):
+
+```bash
+cd worker && npx wrangler secret put LOADER_TOKEN
+>>>>>>> edeb2db (Enroll out-of-universe tickers into continuous ETL on demand)
 ```
 
 For local dev, put the same value in `loader/.dev.vars` and

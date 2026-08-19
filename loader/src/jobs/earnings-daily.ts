@@ -1,13 +1,7 @@
-import type { BatchJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
+import type { BatchJob, JobRunFailure, SchedulerEnv, D1Database } from "../scheduler.js";
 import type { EarningsEnv } from "../earnings.js";
 import { earningsDateForOffset, publishEarningsDate } from "../earnings.js";
-import universe from "../../symbols/universe.json";
-
-const SYMBOLS = Array.isArray(universe.symbols) ? universe.symbols : [];
-// The Nasdaq calendar covers the whole market; the lake's universe is the merged
-// manifest (S&P 500 + Nasdaq-100 + ETFs), so only universe symbols are kept at
-// publish time. ETFs have no earnings, so they simply never match the calendar.
-const KEEP = new Set(SYMBOLS.map((s) => s.toUpperCase()));
+import { bundledUniverse, effectiveUniverse } from "../enrolled-universe.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
@@ -22,11 +16,16 @@ export function earningsDateList(now: number, lookahead = EARNINGS_LOOKAHEAD_DAY
   return Array.from({ length: lookahead }, (_, i) => earningsDateForOffset(now, i));
 }
 
+async function earningsKeepSet(db: D1Database): Promise<Set<string>> {
+  const symbols = await effectiveUniverse(db);
+  return new Set(symbols.map((s) => s.toUpperCase()));
+}
+
 // Earnings calendar: batch-scoped, ungated, daily cadence. Each pass fetches
 // the Nasdaq calendar for the next EARNINGS_LOOKAHEAD_DAYS dates (one request
-// per date), filters to the S&P 500 manifest, and publishes to
-// options.earnings via the PIPELINE_EARNINGS_URL stream. The lake is
-// append-only, so the Copilot/worker keep the newest run per (symbol,
+// per date), filters to the effective universe (bundled ∪ enrolled), and
+// publishes to options.earnings via the PIPELINE_EARNINGS_URL stream. The lake
+// is append-only, so the Copilot/worker keep the newest run per (symbol,
 // earnings_date) with QUALIFY — exactly the ohlc pattern.
 //
 // Dry-run: without PIPELINE_EARNINGS_URL the pass is a no-op (no source
@@ -38,6 +37,8 @@ export function earningsDailyJob(env: SchedulerEnv): BatchJob {
     marketGated: false,
     cadenceSeconds: Math.floor(num(env, "EARNINGS_CADENCE_SECONDS", 86400)),
     scope: "batch",
+    // Date list is the batch "universe"; KEEP filter is resolved inside run
+    // against D1 enrolled_symbols so on-demand tickers are included.
     universe: () => earningsDateList(Date.now()),
     run: async (items, e) => {
       if (!e.PIPELINE_EARNINGS_URL) {
@@ -48,6 +49,10 @@ export function earningsDailyJob(env: SchedulerEnv): BatchJob {
         ...(e as unknown as EarningsEnv),
         runId: () => runId,
       };
+      const db = e.LOADER_DB as D1Database | undefined;
+      const keep = db
+        ? await earningsKeepSet(db)
+        : new Set(bundledUniverse().map((s) => s.toUpperCase()));
       const failures: JobRunFailure[] = [];
       let next = 0;
       const worker = async () => {
@@ -56,7 +61,7 @@ export function earningsDailyJob(env: SchedulerEnv): BatchJob {
           if (index >= items.length) return;
           const date = items[index];
           try {
-            await publishEarningsDate(date, earningsEnv, KEEP);
+            await publishEarningsDate(date, earningsEnv, keep);
           } catch (error) {
             failures.push({
               symbol: date,
