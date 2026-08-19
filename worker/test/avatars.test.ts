@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertSafeSvg, resolveAvatarMime, sniffImageContentType } from "../src/avatars.ts";
+import {
+  AVATAR_D1_KEY,
+  assertSafeSvg,
+  avatarUrlFor,
+  resolveAvatarMime,
+  sniffImageContentType,
+} from "../src/avatars.ts";
 
 function bytes(text: string): ArrayBuffer {
   return new TextEncoder().encode(text).buffer;
@@ -37,4 +43,10 @@ test("sniffImageContentType recognizes common image magic bytes", () => {
     "image/svg+xml",
   );
   assert.equal(sniffImageContentType(Uint8Array.of(0x00, 0x01, 0x02)), null);
+});
+
+test("avatarUrlFor uses the D1 sentinel and version query", () => {
+  assert.equal(avatarUrlFor("u1", null), null);
+  assert.equal(avatarUrlFor("u1", AVATAR_D1_KEY), "/api/avatars/u1");
+  assert.equal(avatarUrlFor("u1", AVATAR_D1_KEY, 99), "/api/avatars/u1?v=99");
 });

@@ -445,11 +445,11 @@ export function AuthControls({
                 />
                 <FileInput
                   label="Profile photo"
-                  description="JPEG, PNG, WebP, or SVG — pan and zoom rasters to fill the circle; SVG stays vector. Stored in Cloudflare Images, up to 5 MB."
+                  description="JPEG, PNG, WebP, or SVG — pan and zoom rasters to fill the circle; SVG stays vector. Up to 2 MB."
                   value={avatarFile}
                   onChange={(files) => { void onAvatarChange(files); }}
                   accept="image/jpeg,image/png,image/webp,image/svg+xml,.svg"
-                  maxSize={5 * 1024 * 1024}
+                  maxSize={2 * 1024 * 1024}
                   mode="input"
                   placeholder="Upload photo"
                   isLoading={uploadingAvatar}
