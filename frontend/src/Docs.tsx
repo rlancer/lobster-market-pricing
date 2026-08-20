@@ -167,7 +167,7 @@ const SURFACES = [
   {
     route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. On desktop a companion column mirrors the timeline rail but follows tickers linked in the conversation (related news + session tape). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
   },
   {
     route: '/data',

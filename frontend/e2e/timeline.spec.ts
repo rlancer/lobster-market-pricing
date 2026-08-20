@@ -354,6 +354,24 @@ test.describe('Public timeline', () => {
 
   test('desktop chat shows a companion rail scoped to the conversation', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route((url) => /\/api\/chats\/[^/]+\/tickers$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          items: [{
+            chat_id: '11111111-1111-4111-8111-111111111111',
+            security_id: 'sec-nvda',
+            ticker: 'NVDA',
+            first_seen_at: 1,
+            last_seen_at: 2,
+            mention_count: 2,
+            name: 'NVIDIA',
+          }],
+        }),
+      });
+    });
     await page.route((url) => /\/api\/chats\/[^/]+\/rail$/.test(url.pathname), async (route) => {
       await route.fulfill({
         status: 200,
@@ -377,10 +395,21 @@ test.describe('Public timeline', () => {
     });
 
     await page.goto('/chat');
+    const head = page.getByRole('banner', { name: 'Chat controls' });
     const rail = page.getByRole('complementary', { name: 'Chat rail' });
     await expect(rail).toBeVisible();
-    await expect(rail.getByRole('heading', { name: 'In this chat' })).toBeVisible();
+    await expect(head).toBeVisible();
+    // Top bar spans the shell — rail sits under it, not beside it.
+    const headBox = await head.boundingBox();
+    const railBox = await rail.boundingBox();
+    expect(headBox && railBox).toBeTruthy();
+    expect(railBox!.y).toBeGreaterThan(headBox!.y + headBox!.height - 2);
+    expect(headBox!.x + headBox!.width).toBeGreaterThan(railBox!.x + railBox!.width / 2);
+
+    await expect(rail.getByRole('heading', { name: 'Sources' })).toBeVisible();
     await expect(rail.getByRole('link', { name: /NVDA/ })).toBeVisible();
+    // Sources live in the rail on desktop — not above the transcript.
+    await expect(page.locator('.ai-chat-main .chat-research')).toHaveCount(0);
     await expect(rail.getByRole('list', { name: 'Related news' })).toBeVisible();
     await expect(rail.getByText('NVDA chips bid')).toBeVisible();
     await expect(rail.getByRole('list', { name: 'Session tape' })).toBeVisible();
@@ -388,8 +417,53 @@ test.describe('Public timeline', () => {
     await expect(rail.getByText('+1.5%')).toBeVisible();
   });
 
+  test('chat rail stays hidden on an empty welcome chat', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route((url) => /\/api\/chats\/[^/]+\/tickers$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ chat_id: '11111111-1111-4111-8111-111111111111', items: [] }),
+      });
+    });
+    await page.route((url) => /\/api\/chats\/[^/]+\/rail$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          tags: [],
+          news: [{ title: 'Markets open', link: 'https://example.com/m', published: null, snippet: '', source: 'tavily' }],
+          highlights: [{ ticker: 'SPY', name: 'S&P 500', spot: 500, change_1d_pct: 0.1 }],
+          fetched_at: '2026-08-20T00:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+    await expect(page.getByRole('heading', { name: 'Ask the Lobster' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Chat rail' })).toHaveCount(0);
+  });
+
   test('chat rail is hidden on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => /\/api\/chats\/[^/]+\/tickers$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          items: [{
+            chat_id: '11111111-1111-4111-8111-111111111111',
+            security_id: 'sec-nvda',
+            ticker: 'NVDA',
+            first_seen_at: 1,
+            last_seen_at: 2,
+            mention_count: 1,
+          }],
+        }),
+      });
+    });
     await page.route((url) => /\/api\/chats\/[^/]+\/rail$/.test(url.pathname), async (route) => {
       await route.fulfill({
         status: 200,

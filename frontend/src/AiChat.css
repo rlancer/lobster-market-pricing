@@ -1,50 +1,80 @@
 /* Chat is the working surface, not a card inside the app. */
-.ai-chat-page {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  width: 100%;
-}
-
-.ai-chat-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--spacing-5);
-  align-items: stretch;
-  height: 100%;
-  min-height: 0;
-  width: 100%;
-}
-
 .ai-chat {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   min-width: 0;
+  width: 100%;
+  max-width: var(--chat-max);
+  margin-inline: auto;
   overflow: hidden;
   background: var(--panel);
+  transition: max-width var(--duration-medium) var(--ease-standard);
 }
 
-.ai-chat-page .companion-rail {
-  /* Chat fills the viewport — keep the rail in the same height budget. */
-  position: sticky;
-  top: var(--spacing-4);
-  align-self: start;
-  max-height: calc(100dvh - var(--topbar-h) - var(--spacing-8));
-  padding-block: var(--spacing-4);
-  padding-inline-end: var(--spacing-4);
+/* When the conversation attaches sources, the rail opens inside chat chrome
+   under the shared top bar — widen the shell to fit both columns. */
+.ai-chat:has(.chat-rail) {
+  max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
+}
+
+.ai-chat-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  width: 100%;
+  transition: grid-template-columns var(--duration-medium) var(--ease-standard);
 }
 
 @media (min-width: 56rem) {
-  .ai-chat-columns {
+  .ai-chat-body:has(.chat-rail) {
     grid-template-columns: minmax(0, 1fr) 22rem;
-    max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
-    margin-inline: auto;
+  }
+}
+
+.ai-chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ai-chat .chat-rail {
+  position: relative;
+  top: auto;
+  max-height: none;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-4);
+  border-inline-start: var(--border-width) solid var(--color-border);
+  background: var(--panel);
+  animation: chat-rail-in var(--duration-medium) var(--ease-standard) both;
+}
+
+@keyframes chat-rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--spacing-3));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-chat,
+  .ai-chat-body {
+    transition: none;
   }
 
-  .ai-chat-page .companion-rail {
-    padding-inline-end: var(--spacing-5);
+  .ai-chat .chat-rail {
+    animation: none;
   }
 }
 

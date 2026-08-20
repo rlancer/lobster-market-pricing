@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { HStack, IconButton, Spinner, Text, VStack } from '@astryxdesign/core';
+import { Heading, HStack, IconButton, Spinner, Text, VStack } from '@astryxdesign/core';
 import { X } from 'lucide-react';
 import { api, type ChatTickerLink } from './api';
 import { CopyButton } from './CopyButton';
@@ -20,16 +20,24 @@ type Active = { kind: 'frame'; name: string } | null;
  * Unified chat context strip — session frames and linked tickers as one row of
  * bubbles. Ticker chips link to the ticker detail page; frame chips expand a
  * panel (only one frame panel open at a time).
+ *
+ * `variant="rail"` stacks under a Sources heading for the desktop chat column;
+ * the default strip stays a compact row above the transcript (mobile).
  */
 export function ChatContextStrip({
   chatId,
   frames,
   refreshKey,
+  variant = 'strip',
+  onPresenceChange,
 }: {
   chatId: string;
   frames: FrameMetadata[];
   /** Bump when a research_ticker tool completes so the strip refreshes. */
   refreshKey: number;
+  variant?: 'strip' | 'rail';
+  /** Fires when the strip goes from empty ↔ non-empty (after links resolve). */
+  onPresenceChange?: (present: boolean) => void;
 }) {
   const navigate = useNavigate();
   const [links, setLinks] = useState<ChatTickerLink[]>([]);
@@ -62,6 +70,10 @@ export function ChatContextStrip({
     });
   }, [frames]);
 
+  useEffect(() => {
+    onPresenceChange?.(frames.length > 0 || links.length > 0);
+  }, [frames.length, links.length, onPresenceChange]);
+
   const activeFrame = active?.kind === 'frame'
     ? frames.find((frame) => frame.name === active.name) ?? null
     : null;
@@ -83,97 +95,112 @@ export function ChatContextStrip({
     return ageMin < 1 ? 'fresh' : `${ageMin}m ago`;
   };
 
+  const chips = (
+    <div className={`ai-frames chat-research-strip${variant === 'rail' ? ' is-rail' : ''}`}>
+      {frames.map((frame) => (
+        <button
+          key={`frame:${frame.name}`}
+          type="button"
+          className={`ai-frame-chip chat-context-chip${activeFrame?.name === frame.name ? ' active' : ''}`}
+          aria-pressed={activeFrame?.name === frame.name}
+          aria-label={`Session data ${frame.name}`}
+          onClick={() => toggleFrame(frame.name)}
+        >
+          <b>{frame.name}</b>
+        </button>
+      ))}
+      {loadingLinks && <Spinner size="sm" />}
+      {links.map((link) => (
+        <Link
+          key={`ticker:${link.security_id}`}
+          to="/research/$ticker"
+          params={{ ticker: link.ticker }}
+          className="ai-frame-chip chat-context-chip chat-ticker-link"
+          aria-label={`Open ${link.ticker} details`}
+          title={`${link.ticker} details`}
+        >
+          <b>{link.ticker}</b>
+        </Link>
+      ))}
+      {activeFrame && variant === 'strip' && (
+        <HStack gap={2} vAlign="center" className="chat-research-actions">
+          <button
+            type="button"
+            className="chat-research-open"
+            onClick={() => navigate({ to: '/data', search: { sql: activeFrame.sql, item: 'query' } })}
+          >
+            Open in Data ↗
+          </button>
+          <IconButton
+            variant="ghost"
+            size="sm"
+            label="Close session data"
+            icon={<X size={16} />}
+            tooltip="Close"
+            onClick={closePanel}
+          />
+        </HStack>
+      )}
+    </div>
+  );
+
+  const panel = activeFrame ? (
+    <div className="chat-research-panel">
+      <HStack gap={2} vAlign="center" className="chat-research-panel-bar">
+        <Text type="supporting" className="chat-research-panel-title">{activeFrame.name}</Text>
+        <IconButton
+          variant="ghost"
+          size="sm"
+          label="Close session data"
+          icon={<X size={16} />}
+          tooltip="Close"
+          onClick={closePanel}
+        />
+      </HStack>
+      <VStack gap={3} className="chat-frame-panel-body">
+        <Text type="supporting" className="chat-frame-meta">
+          {activeFrame.row_count.toLocaleString()} rows · {activeFrame.columns.length} cols · {frameAgeLabel(activeFrame.fetched_at)}
+        </Text>
+        {activeFrame.columns.length > 0 && (
+          <Text type="supporting" className="chat-frame-columns">
+            {activeFrame.columns.join(', ')}
+          </Text>
+        )}
+        {activeFrame.sql && (
+          <div className="ai-sql">
+            <div className="ai-sql-head">
+              <span>SQL</span>
+              <span className="ai-sql-actions">
+                <CopyButton text={activeFrame.sql} />
+                <button
+                  type="button"
+                  onClick={() => navigate({ to: '/data', search: { sql: activeFrame.sql, item: 'query' } })}
+                >
+                  Open in Data ↗
+                </button>
+              </span>
+            </div>
+            <pre>{activeFrame.sql}</pre>
+          </div>
+        )}
+      </VStack>
+    </div>
+  ) : null;
+
+  if (variant === 'rail') {
+    return (
+      <VStack className="chat-research chat-research-rail" gap={2}>
+        <Heading level={2} className="companion-rail-heading">Sources</Heading>
+        {chips}
+        {panel}
+      </VStack>
+    );
+  }
+
   return (
     <VStack className="chat-research" gap={0}>
-      <div className="ai-frames chat-research-strip">
-        {frames.map((frame) => (
-          <button
-            key={`frame:${frame.name}`}
-            type="button"
-            className={`ai-frame-chip chat-context-chip${activeFrame?.name === frame.name ? ' active' : ''}`}
-            aria-pressed={activeFrame?.name === frame.name}
-            aria-label={`Session data ${frame.name}`}
-            onClick={() => toggleFrame(frame.name)}
-          >
-            <b>{frame.name}</b>
-          </button>
-        ))}
-        {loadingLinks && <Spinner size="sm" />}
-        {links.map((link) => (
-          <Link
-            key={`ticker:${link.security_id}`}
-            to="/research/$ticker"
-            params={{ ticker: link.ticker }}
-            className="ai-frame-chip chat-context-chip chat-ticker-link"
-            aria-label={`Open ${link.ticker} details`}
-            title={`${link.ticker} details`}
-          >
-            <b>{link.ticker}</b>
-          </Link>
-        ))}
-        {activeFrame && (
-          <HStack gap={2} vAlign="center" className="chat-research-actions">
-            <button
-              type="button"
-              className="chat-research-open"
-              onClick={() => navigate({ to: '/data', search: { sql: activeFrame.sql, item: 'query' } })}
-            >
-              Open in Data ↗
-            </button>
-            <IconButton
-              variant="ghost"
-              size="sm"
-              label="Close session data"
-              icon={<X size={16} />}
-              tooltip="Close"
-              onClick={closePanel}
-            />
-          </HStack>
-        )}
-      </div>
-
-      {activeFrame && (
-        <div className="chat-research-panel">
-          <HStack gap={2} vAlign="center" className="chat-research-panel-bar">
-            <Text type="supporting" className="chat-research-panel-title">{activeFrame.name}</Text>
-            <IconButton
-              variant="ghost"
-              size="sm"
-              label="Close session data"
-              icon={<X size={16} />}
-              tooltip="Close"
-              onClick={closePanel}
-            />
-          </HStack>
-          <VStack gap={3} className="chat-frame-panel-body">
-            <Text type="supporting" className="chat-frame-meta">
-              {activeFrame.row_count.toLocaleString()} rows · {activeFrame.columns.length} cols · {frameAgeLabel(activeFrame.fetched_at)}
-            </Text>
-            {activeFrame.columns.length > 0 && (
-              <Text type="supporting" className="chat-frame-columns">
-                {activeFrame.columns.join(', ')}
-              </Text>
-            )}
-            {activeFrame.sql && (
-              <div className="ai-sql">
-                <div className="ai-sql-head">
-                  <span>SQL</span>
-                  <span className="ai-sql-actions">
-                    <CopyButton text={activeFrame.sql} />
-                    <button
-                      type="button"
-                      onClick={() => navigate({ to: '/data', search: { sql: activeFrame.sql, item: 'query' } })}
-                    >
-                      Open in Data ↗
-                    </button>
-                  </span>
-                </div>
-                <pre>{activeFrame.sql}</pre>
-              </div>
-            )}
-          </VStack>
-        </div>
-      )}
+      {chips}
+      {panel}
     </VStack>
   );
 }

@@ -506,6 +506,23 @@
   background: color-mix(in srgb, var(--panel) 92%, var(--accent));
 }
 
+.chat-research-rail {
+  border-bottom: none;
+  background: transparent;
+  width: 100%;
+}
+
+.chat-research-rail .chat-research-strip.is-rail {
+  padding: 0;
+}
+
+.chat-research-rail .chat-research-panel {
+  max-height: none;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: var(--panel);
+}
+
 .chat-research-strip {
   border-bottom: none;
   background: transparent;
