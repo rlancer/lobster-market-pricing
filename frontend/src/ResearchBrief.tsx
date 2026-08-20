@@ -59,6 +59,9 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** How many SEC filings / prospectuses show before "Show N more". */
+const FILINGS_PREVIEW = 3;
+
 export function ResearchBriefView({
   research,
   relatedChats,
@@ -97,7 +100,21 @@ export function ResearchBriefView({
 }) {
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
+  const [filingsExpanded, setFilingsExpanded] = useState(false);
   const { identity, price, technicals, fundamentals, shorting, earnings, news, filings = [], realized_vol, etf } = research;
+
+  useEffect(() => {
+    setFilingsExpanded(false);
+  }, [identity.ticker]);
+
+  // Newest first; collapse to a short preview so the rail stays skimable.
+  const filingsSorted = [...filings].sort((a, b) =>
+    (b.filed_at || '').localeCompare(a.filed_at || ''),
+  );
+  const filingsVisible = filingsExpanded
+    ? filingsSorted
+    : filingsSorted.slice(0, FILINGS_PREVIEW);
+  const filingsOverflow = filingsSorted.length > FILINGS_PREVIEW;
   const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const insufficientCommentary =
@@ -326,13 +343,13 @@ export function ResearchBriefView({
                       </List>
                     </VStack>
                   )}
-                  {filings.length > 0 && (
+                  {filingsSorted.length > 0 && (
                     <VStack gap={2}>
                       <Heading level={3}>
                         {etf ? 'Prospectus & filings' : 'SEC filings'}
                       </Heading>
                       <List density="compact" hasDividers className="research-news-list">
-                        {filings.map((item) => {
+                        {filingsVisible.map((item) => {
                           const label = [
                             item.form_type,
                             item.filed_at,
@@ -353,6 +370,19 @@ export function ResearchBriefView({
                           );
                         })}
                       </List>
+                      {filingsOverflow && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-expanded={filingsExpanded}
+                          label={
+                            filingsExpanded
+                              ? 'Show less'
+                              : `Show ${filingsSorted.length - FILINGS_PREVIEW} more`
+                          }
+                          onClick={() => setFilingsExpanded((value) => !value)}
+                        />
+                      )}
                     </VStack>
                   )}
                   {earnings.length > 0 && (
