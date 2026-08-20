@@ -313,8 +313,9 @@ settle on idle. Chat ticker chips (from `research_ticker`) link there.
 and trigger a chat from the UI; generate picks a prompt that
 has not already been used on a prior run (next unused seed, or an invented
 question). Sharing stamps the post onto the public timeline under that handle.
-Schedules (e.g. `@nowlobster` hourly market overview) run headless on the
-Worker cron during US market hours and auto-share without a browser.
+Schedules (e.g. `@nowlobster` hourly market overview, `@yololobster` hourly
+yolo scan) run headless on the Worker cron during US market hours and
+auto-share without a browser.
 **Admin** (`/admin`) is the left-nav hub for operator tools. **Users** (`/users`)
 and **Chats** (`/chats`) are admin directories — signed-up
 Google identities, and every lake Copilot conversation (profile when signed
