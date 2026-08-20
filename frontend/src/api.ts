@@ -493,6 +493,23 @@ export interface BotProfile {
   updated_at: number;
 }
 
+/** Admin directory row from GET /api/admin/users. */
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  image: string | null;
+  email_verified: boolean;
+  created_at: string;
+  handle: string | null;
+  display_name: string | null;
+  public_name: string;
+  avatar_url: string | null;
+  profile_created_at: number | null;
+  chat_count: number;
+  is_admin: boolean;
+}
+
 export interface BotRun {
   run_id: string;
   handle: string;
@@ -905,6 +922,8 @@ export const api = {
   unpublishTimeline: (shareId: string) =>
     // Owner of a human listing, or any admin (admins can also unlist bot shares).
     del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
+  adminUsers: (limit?: number) =>
+    get<{ items: AdminUser[] }>(`/api/admin/users${qs({ limit })}`),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
   adminCopilotCapabilities: (opts?: { schema?: 'live' | 'placeholder'; samples?: boolean }) =>
     get<CopilotCapabilities>(

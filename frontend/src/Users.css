@@ -1,0 +1,22 @@
+.users-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.users-handle {
+  color: var(--color-text-accent);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+}
+
+.users-handle:hover {
+  text-decoration: underline;
+}
+
+.users-error {
+  color: var(--color-error);
+}
+
+.users-table {
+  width: 100%;
+}

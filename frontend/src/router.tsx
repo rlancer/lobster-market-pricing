@@ -16,6 +16,7 @@ import ResearchPage from './ResearchPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 import BrandPage from './Brand';
 import BotsPage from './Bots';
+import UsersPage from './Users';
 import CopilotExplorePage from './CopilotExplore';
 import { parseChatId } from './chatSession';
 
@@ -151,6 +152,12 @@ const botsRoute = createRoute({
   component: BotsPage,
 });
 
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users',
+  component: UsersPage,
+});
+
 const copilotExploreRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/copilot',
@@ -243,6 +250,7 @@ const routeTree = rootRoute.addChildren([
   shareRoute,
   brandRoute,
   botsRoute,
+  usersRoute,
   copilotExploreRoute,
   docsRoute,
 ]);
