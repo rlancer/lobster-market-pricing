@@ -24,6 +24,7 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   assert.deepEqual(ids, [
     "copilot",
     "desk-analysts",
+    "suggest-trades",
     "bot-addon",
     "scope-classifier",
     "chat-meta",
@@ -34,6 +35,7 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   assert.ok(copilot);
   assert.match(copilot.body, /three-analyst/);
   assert.match(copilot.body, /publish_desk/);
+  assert.match(copilot.body, /suggest_trades/);
   assert.match(copilot.body, /BTC-USD/);
   assert.match(copilot.body, /spot crypto/i);
   assert.doesNotMatch(copilot.body, /ONLY answer US equities, ETF, options/);
@@ -42,11 +44,15 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   assert.ok(desk);
   assert.match(desk.body, /Fundamental analyst/);
   assert.match(desk.body, /BTC-USD/);
+  const trades = caps.prompts.find((prompt) => prompt.id === "suggest-trades");
+  assert.ok(trades);
+  assert.match(trades.body, /suggest_trades/);
   const scope = caps.prompts.find((prompt) => prompt.id === "scope-classifier");
   assert.ok(scope);
   assert.match(scope.body, /BTC-USD/);
   assert.match(scope.body, /spot crypto/i);
   assert.ok(caps.tools.some((tool) => tool.name === "publish_desk"));
+  assert.ok(caps.tools.some((tool) => tool.name === "suggest_trades"));
   const research = caps.tools.find((tool) => tool.name === "research_ticker");
   assert.ok(research);
   assert.match(research.description, /BTC-USD/);

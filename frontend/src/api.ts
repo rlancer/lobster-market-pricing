@@ -436,6 +436,26 @@ export interface SharedChatMessage extends ChatHistoryMessage {
     options: string;
     overview: string;
   };
+  /** Structured trade suggestions from suggest_trades (not prose-parsed). */
+  trades?: {
+    trades: {
+      ticker: string;
+      bias: 'bullish' | 'bearish' | 'neutral';
+      conviction: 'high' | 'medium' | 'low';
+      structure: string;
+      legs?: {
+        right: 'call' | 'put';
+        side: 'buy' | 'sell';
+        strike?: number;
+        strike_rel?: string;
+        expiration?: string;
+        dte?: number;
+      }[];
+      rationale: string;
+      liquidity?: string;
+    }[];
+    skip_reason?: string;
+  };
 }
 
 export type ShareChatMessage = SharedChatMessage;

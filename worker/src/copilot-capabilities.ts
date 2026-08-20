@@ -27,6 +27,7 @@ import {
   DESK_SPECIALIST_SUMMARIES,
   deskAnalystBlock,
 } from "./copilot-desk";
+import { tradesSuggestBlock } from "./copilot-trades";
 import { COMMENTARY_SYSTEM } from "./research-commentary";
 
 export type CopilotPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
@@ -120,6 +121,14 @@ export function describeCopilotCapabilities(opts?: {
         `- Overview: ${DESK_OVERVIEW_SUMMARY}`,
       ].join("\n"),
       used_by: "systemPrompt() desk block + publish_desk tool",
+    },
+    {
+      id: "suggest-trades",
+      kind: "system",
+      title: "Suggested trades",
+      summary: "Structured trade suggestions (bias, conviction, legs) via suggest_trades — UI does not parse prose.",
+      body: tradesSuggestBlock(),
+      used_by: "systemPrompt() trades block + suggest_trades tool",
     },
     {
       id: "bot-addon",

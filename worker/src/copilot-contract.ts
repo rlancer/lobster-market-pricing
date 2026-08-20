@@ -23,6 +23,7 @@ export const COPILOT_TOOL_LABELS = {
   web_search: "Web search",
   research_ticker: "Ticker research",
   publish_desk: "Desk viewpoints",
+  suggest_trades: "Suggested trades",
 } as const;
 
 /** Model-facing tool descriptions — single source for createTools + admin explore. */
@@ -49,9 +50,13 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Publish the three specialist takes (fundamental, technical, options) plus a weighed desk overview that shares the same tool evidence. " +
     "Call after research_ticker / SQL / news for ticker analysis and trade ideas. " +
     "The UI shows each viewpoint in its own panel; the final prose should be the overview, not a paste of all four fields.",
+  suggest_trades:
+    "Publish 0–3 structured trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity). " +
+    "Call after publish_desk on ticker/trade analysis so the UI can show trades without parsing prose. " +
+    "Use trades: [] with skip_reason when nothing is tradable. Absolute strikes must come from option_contracts evidence.",
 } as const;
 
-const deskViewpointText = z.string().trim().min(1).max(2_400);
+const deskViewpointText = z.string().trim().min(40).max(2_400);
 
 export const COPILOT_TOOL_INPUT_SCHEMAS = {
   run_query: z.object({ sql: z.string().min(1), save_as: z.string().trim().min(1).max(80).optional() }).strict(),
@@ -88,7 +93,27 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     fundamental: deskViewpointText.describe("Fundamental analyst take grounded in shared lake evidence."),
     technical: deskViewpointText.describe("Technical analyst take grounded in the same evidence."),
     options: deskViewpointText.describe("Options trader take (liquidity, IV, structure) grounded in the same evidence."),
-    overview: z.string().trim().min(1).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
+    overview: z.string().trim().min(40).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
+  }).strict(),
+  suggest_trades: z.object({
+    trades: z.array(z.object({
+      ticker: z.string().trim().min(1).max(16).describe("Underlying ticker, e.g. AAPL or BTC-USD."),
+      bias: z.enum(["bullish", "bearish", "neutral"]),
+      conviction: z.enum(["high", "medium", "low"]),
+      structure: z.string().trim().min(1).max(160).describe("Short structure label, e.g. bull call debit spread."),
+      legs: z.array(z.object({
+        right: z.enum(["call", "put"]),
+        side: z.enum(["buy", "sell"]),
+        strike: z.number().positive().optional().describe("Absolute strike from option_contracts when known."),
+        strike_rel: z.string().trim().min(1).max(40).optional().describe("Relative strike when absolute unknown, e.g. ATM or ~5% OTM."),
+        expiration: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("YYYY-MM-DD expiration."),
+        dte: z.number().int().min(0).max(730).optional(),
+      }).strict()).max(4).optional(),
+      rationale: z.string().trim().min(1).max(480).describe("Why this structure fits the shared evidence."),
+      liquidity: z.string().trim().min(1).max(240).optional().describe("Quote quality from lake (spread, volume/OI)."),
+    }).strict()).max(3),
+    skip_reason: z.string().trim().min(1).max(320).optional()
+      .describe("Optional when trades is empty — why no tradable lean. Defaults if omitted."),
   }).strict(),
 } as const;
 

@@ -33,12 +33,14 @@ import {
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
 import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
+import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 
 export type { BotPromptProfile } from "./copilot-prompt";
 export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
 export type { DeskBrief } from "./copilot-desk";
+export type { SuggestedTrades } from "./copilot-trades";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -103,6 +105,13 @@ interface Capture {
   result: QueryResult | null;
   chart: ChartSpec | null;
   desk: DeskBrief | null;
+  trades: SuggestedTrades | null;
+  /** In-turn counter: failed suggest_trades while forcing (persisted in capture_json). */
+  failed_trades_count?: number;
+  /** In-turn counter: failed publish_desk while forcing (stub rejection, etc.). */
+  failed_desk_count?: number;
+  /** Steps completed after the first successful lake query (desk gather window). */
+  steps_after_query?: number;
 }
 
 interface ToolOutput {
@@ -111,7 +120,7 @@ interface ToolOutput {
   issues?: string[];
   summary: string;
   // Bounded presentation data carried directly on the tool output parts — the
-  // frontend reads SQL/result/chart/frames/desk straight from the standard AI SDK
+  // frontend reads SQL/result/chart/frames/desk/trades straight from the standard AI SDK
   // tool-output parts instead of a bespoke bundle.
   sql?: string | null;
   result?: QueryResult | null;
@@ -119,6 +128,7 @@ interface ToolOutput {
   frames?: FrameMetadata[];
   research?: import("./research").TickerResearch | null;
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
 }
 
 interface CopilotMetadata {
@@ -131,6 +141,7 @@ interface CopilotMetadata {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
 }
 
 type CopilotData = Record<string, unknown> & {
@@ -384,7 +395,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   /**
-   * Latest turn-budget capture (sql/result/chart/desk). Interactive share and
+   * Latest turn-budget capture (sql/result/chart/desk/trades). Interactive share and
    * post-turn UI reconcile against this when message parts omit tool outputs
    * after recovery / stream abort.
    */
@@ -395,11 +406,13 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       const budget = this.readTurnBudget();
       const raw = JSON.parse(budget.capture_json) as ShareCapture;
       const desk = raw.desk ? normalizeDeskBrief(raw.desk) : null;
+      const trades = raw.trades ? normalizeSuggestedTrades(raw.trades) : null;
       return {
         sql: typeof raw.sql === "string" ? raw.sql : null,
         result: raw.result ?? null,
         chart: raw.chart ?? null,
         desk,
+        trades,
       };
     } catch {
       return null;
@@ -579,7 +592,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private resetTurnBudget(turnId: string, total: number): Capture {
-    const capture: Capture = { sql: null, result: null, chart: null, desk: null };
+    const capture: Capture = { sql: null, result: null, chart: null, desk: null, trades: null };
     this.sql`
       INSERT OR REPLACE INTO copilot_turn_budget
         (singleton, turn_id, used_output_tokens, total_output_tokens, successful_query, failed_query_count, capture_json, updated_at)
@@ -636,7 +649,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     }
   }
 
-  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research" | "desk"> = {}): ToolOutput {
+  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research" | "desk" | "trades"> = {}): ToolOutput {
     return {
       ok,
       summary: summary.slice(0, MAX_TOOL_SUMMARY_CHARS),
@@ -647,6 +660,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       ...(extra.chart !== undefined ? { chart: extra.chart } : {}),
       ...(extra.frames !== undefined ? { frames: extra.frames.slice(0, MAX_FRAMES) } : {}),
       ...(extra.desk !== undefined ? { desk: extra.desk } : {}),
+      ...(extra.trades !== undefined ? { trades: extra.trades } : {}),
     };
   }
 
@@ -702,11 +716,28 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     tables: LakeTable[],
     capture: Capture,
     status: (value: string) => void,
-    turn: { used: number; successfulQuery: boolean; failedQueryCount: number },
+    turn: {
+      used: number;
+      successfulQuery: boolean;
+      failedQueryCount: number;
+      failedTradesCount: number;
+      failedDeskCount: number;
+      stepsAfterQuery: number;
+    },
   ) {
     const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
     const noteQueryFailure = () => {
       turn.failedQueryCount += 1;
+      persist();
+    };
+    const noteTradesFailure = () => {
+      turn.failedTradesCount += 1;
+      capture.failed_trades_count = turn.failedTradesCount;
+      persist();
+    };
+    const noteDeskFailure = () => {
+      turn.failedDeskCount += 1;
+      capture.failed_desk_count = turn.failedDeskCount;
       persist();
     };
     return {
@@ -888,13 +919,35 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           status("Publishing desk viewpoints…");
           const desk = normalizeDeskBrief(args);
           if (!desk) {
-            return this.output(false, "publish_desk requires non-empty fundamental, technical, options, and overview fields.", {
-              error: "Desk viewpoints incomplete.",
+            noteDeskFailure();
+            return this.output(false, "publish_desk rejected: need real fundamental/technical/options/overview takes (no placeholders or tiny stubs).", {
+              error: "Desk viewpoints incomplete or stubbed.",
             });
           }
           capture.desk = desk;
+          capture.failed_desk_count = 0;
+          turn.failedDeskCount = 0;
           persist();
           return this.output(true, formatDeskToolSummary(desk), { error: null, desk });
+        }),
+      }),
+      suggest_trades: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.suggest_trades,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.suggest_trades,
+        execute: async (args) => this.safeTool("suggest_trades", TOOL_LABELS.suggest_trades, args, capture, () => {
+          status("Publishing suggested trades…");
+          const trades = normalizeSuggestedTrades(args);
+          if (!trades) {
+            noteTradesFailure();
+            return this.output(false, "suggest_trades requires a trades array (use [] when there is no lean).", {
+              error: "Suggested trades incomplete.",
+            });
+          }
+          capture.trades = trades;
+          capture.failed_trades_count = 0;
+          turn.failedTradesCount = 0;
+          persist();
+          return this.output(true, formatTradesToolSummary(trades), { error: null, trades });
         }),
       }),
     };
@@ -919,13 +972,18 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const budget = this.readTurnBudget();
     const capture = {
       desk: null as DeskBrief | null,
+      trades: null as SuggestedTrades | null,
       ...(JSON.parse(budget.capture_json) as Partial<Capture>),
     } as Capture;
     if (!capture.desk) capture.desk = null;
+    if (!capture.trades) capture.trades = null;
     const turn = {
       used: budget.used_output_tokens,
       successfulQuery: budget.successful_query === 1,
       failedQueryCount: budget.failed_query_count,
+      failedTradesCount: typeof capture.failed_trades_count === "number" ? capture.failed_trades_count : 0,
+      failedDeskCount: typeof capture.failed_desk_count === "number" ? capture.failed_desk_count : 0,
+      stepsAfterQuery: typeof capture.steps_after_query === "number" ? capture.steps_after_query : 0,
     };
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
 
@@ -1000,9 +1058,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
               // Timeline bots keep a single persona voice; interactive chat always
-              // publishes the three-analyst desk once lake evidence exists.
+              // publishes the three-analyst desk + structured trades once lake evidence exists.
               requireDesk: !bot,
               deskPublished: Boolean(capture.desk),
+              stepsAfterQuery: turn.stepsAfterQuery,
+              failedDeskCount: turn.failedDeskCount,
+              requireTrades: !bot,
+              tradesPublished: capture.trades != null,
+              failedTradesCount: turn.failedTradesCount,
             });
             return policy;
           },
@@ -1015,6 +1078,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           onStepFinish: (step) => {
             const outputTokens = step.usage.outputTokens ?? Math.max(1, Math.ceil(step.text.length / 4));
             turn.used = Math.min(budget.total_output_tokens, turn.used + outputTokens);
+            if (turn.successfulQuery) {
+              turn.stepsAfterQuery += 1;
+              capture.steps_after_query = turn.stepsAfterQuery;
+            }
             this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
           },
           onFinish: () => {
@@ -1039,6 +1106,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               ...(capture.result ? { result: boundedResult(capture.result) } : {}),
               ...(capture.chart ? { chart: capture.chart } : {}),
               ...(capture.desk ? { desk: capture.desk } : {}),
+              ...(capture.trades ? { trades: capture.trades } : {}),
             };
           },
         }));
@@ -1063,6 +1131,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             ...(output.chart !== undefined ? { chart: output.chart } : {}),
             ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
             ...(output.desk !== undefined ? { desk: output.desk } : {}),
+            ...(output.trades !== undefined ? { trades: output.trades } : {}),
           },
         };
       }),

@@ -256,16 +256,16 @@ test("applyCaptureToShareTurns stamps desk and prefers overview as content", () 
     {
       sql: "SELECT expiration, strike, bid FROM options.option_contracts WHERE symbol='SPY'",
       desk: {
-        fundamental: "SPY is broad collateral",
-        technical: "Tight range, ordered put wall",
-        options: "Sell 750 / buy 730 put spread",
-        overview: "Use a SPY bull put spread, not naked puts.",
+        fundamental: "SPY is broad collateral for a defined-risk credit put spread.",
+        technical: "Tight range with an ordered put wall just below spot.",
+        options: "Sell the 750 / buy the 730 put spread with two-sided quotes.",
+        overview: "Use a SPY bull put spread, not naked puts, while the wall holds.",
       },
     },
     "I can't go naked in SPY",
   );
-  assert.equal(turns[1].desk?.overview, "Use a SPY bull put spread, not naked puts.");
-  assert.equal(turns[1].content, "Use a SPY bull put spread, not naked puts.");
+  assert.equal(turns[1].desk?.overview, "Use a SPY bull put spread, not naked puts, while the wall holds.");
+  assert.equal(turns[1].content, "Use a SPY bull put spread, not naked puts, while the wall holds.");
   assert.equal(turns[1].sql, "SELECT expiration, strike, bid FROM options.option_contracts WHERE symbol='SPY'");
 });
 
@@ -323,18 +323,76 @@ test("extractShareTurns keeps publish_desk viewpoints", () => {
           toolCallId: "d1",
           state: "output-available",
           input: {
-            fundamental: "Services mix still expanding",
-            technical: "Range-bound above the 50d",
-            options: "Near-ATM calls have two-sided quotes",
-            overview: "Mildly constructive with defined-risk upside",
+            fundamental: "Services mix still expanding while hardware stays cash generative.",
+            technical: "Range-bound above the 50d with ordered volume on dips.",
+            options: "Near-ATM calls have two-sided quotes and usable open interest.",
+            overview: "Mildly constructive with defined-risk upside while liquidity holds.",
           },
           output: {
             ok: true,
             desk: {
-              fundamental: "Services mix still expanding",
-              technical: "Range-bound above the 50d",
-              options: "Near-ATM calls have two-sided quotes",
-              overview: "Mildly constructive with defined-risk upside",
+              fundamental: "Services mix still expanding while hardware stays cash generative.",
+              technical: "Range-bound above the 50d with ordered volume on dips.",
+              options: "Near-ATM calls have two-sided quotes and usable open interest.",
+              overview: "Mildly constructive with defined-risk upside while liquidity holds.",
+            },
+          },
+        },
+        { type: "text", text: "Mildly constructive with defined-risk upside while liquidity holds." },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns[1].desk?.fundamental, "Services mix still expanding while hardware stays cash generative.");
+  assert.equal(turns[1].desk?.technical, "Range-bound above the 50d with ordered volume on dips.");
+  assert.equal(turns[1].desk?.options, "Near-ATM calls have two-sided quotes and usable open interest.");
+  assert.equal(turns[1].desk?.overview, "Mildly constructive with defined-risk upside while liquidity holds.");
+});
+
+test("extractShareTurns keeps suggest_trades payload", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Trade idea on AAPL?" }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-suggest_trades",
+          toolCallId: "t1",
+          state: "output-available",
+          input: {
+            trades: [{
+              ticker: "AAPL",
+              bias: "bullish",
+              conviction: "medium",
+              structure: "bull call debit spread",
+              legs: [
+                { right: "call", side: "buy", strike: 200, expiration: "2026-09-18", dte: 30 },
+                { right: "call", side: "sell", strike: 210, expiration: "2026-09-18", dte: 30 },
+              ],
+              rationale: "Two-sided near-ATM quotes above the 50d",
+              liquidity: "spread ~6%",
+            }],
+          },
+          output: {
+            ok: true,
+            trades: {
+              trades: [{
+                ticker: "AAPL",
+                bias: "bullish",
+                conviction: "medium",
+                structure: "bull call debit spread",
+                legs: [
+                  { right: "call", side: "buy", strike: 200, expiration: "2026-09-18", dte: 30 },
+                  { right: "call", side: "sell", strike: 210, expiration: "2026-09-18", dte: 30 },
+                ],
+                rationale: "Two-sided near-ATM quotes above the 50d",
+                liquidity: "spread ~6%",
+              }],
             },
           },
         },
@@ -343,8 +401,8 @@ test("extractShareTurns keeps publish_desk viewpoints", () => {
     },
   ] as UIMessage[];
   const turns = extractShareTurns(messages);
-  assert.equal(turns[1].desk?.fundamental, "Services mix still expanding");
-  assert.equal(turns[1].desk?.technical, "Range-bound above the 50d");
-  assert.equal(turns[1].desk?.options, "Near-ATM calls have two-sided quotes");
-  assert.equal(turns[1].desk?.overview, "Mildly constructive with defined-risk upside");
+  assert.equal(turns[1].trades?.trades.length, 1);
+  assert.equal(turns[1].trades?.trades[0]?.ticker, "AAPL");
+  assert.equal(turns[1].trades?.trades[0]?.structure, "bull call debit spread");
+  assert.equal(turns[1].trades?.trades[0]?.legs?.length, 2);
 });

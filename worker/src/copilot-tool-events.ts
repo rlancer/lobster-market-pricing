@@ -29,6 +29,7 @@ const KNOWN_TOOLS = new Set([
   "eco_calendar",
   "research_ticker",
   "publish_desk",
+  "suggest_trades",
 ]);
 
 export interface ToolEventInput {

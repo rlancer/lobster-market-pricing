@@ -534,6 +534,116 @@
   }
 }
 
+/* ---- Suggested trades --------------------------------------------------- */
+.ai-trades {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: var(--spacing-3) 0 0;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: var(--spacing-3);
+}
+.ai-trades-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+.ai-trades-kicker {
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.ai-trades-note {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+.ai-trades-skip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+.ai-trades-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-element);
+  overflow: hidden;
+  background: var(--panel);
+}
+.ai-trade-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.ai-trade-row:last-child { border-bottom: none; }
+.ai-trade-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-2);
+}
+.ai-trade-ticker {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+.ai-trade-bias {
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ai-trade-bias-bullish { color: var(--color-success, var(--text)); }
+.ai-trade-bias-bearish { color: var(--color-error, var(--text)); }
+.ai-trade-bias-neutral { color: var(--muted); }
+.ai-trade-conviction {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+.ai-trade-structure {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  line-height: 1.4;
+}
+.ai-trade-legs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ai-trade-leg::before {
+  content: '';
+}
+.ai-trade-rationale {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  line-height: 1.5;
+}
+.ai-trade-liquidity {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .ai-tool-row.fail { opacity: 0.72; }
 .ai-err { color: var(--color-error); font-size: 13px; }
 .ai-scope-lock-hint {

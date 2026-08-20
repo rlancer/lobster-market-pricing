@@ -4,6 +4,7 @@
 import type { UIMessage } from "ai";
 import { chartFitsResult, inferChartSpec, wantsChart, type ChartSpec } from "./chart-spec";
 import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
+import { normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 
 export type ShareTurn = {
   role: "user" | "assistant";
@@ -12,6 +13,7 @@ export type ShareTurn = {
   sql?: string;
   chart?: ChartSpec;
   desk?: DeskBrief;
+  trades?: SuggestedTrades;
   ts?: number;
 };
 
@@ -20,6 +22,7 @@ export type ShareCapture = {
   result?: { columns?: string[]; rows?: Record<string, unknown>[]; error?: string } | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
 };
 
 type ToolPayload = {
@@ -27,6 +30,7 @@ type ToolPayload = {
   result?: { columns?: unknown; rows?: unknown } | null;
   chart?: unknown;
   desk?: unknown;
+  trades?: unknown;
 };
 
 function asChartSpec(value: unknown): ChartSpec | null {
@@ -66,8 +70,8 @@ function toolPartName(part: { type?: unknown }): string {
 /**
  * Stamp the last assistant turn with the DO turn-budget capture.
  * Message parts sometimes omit tool outputs after headless runs / mid-turn
- * recovery; capture_json is the authoritative sql/result/chart/desk from the
- * completed turn (publish_desk included).
+ * recovery; capture_json is the authoritative sql/result/chart/desk/trades from the
+ * completed turn (publish_desk / suggest_trades included).
  */
 export function applyCaptureToShareTurns(
   turns: ShareTurn[],
@@ -103,6 +107,10 @@ export function applyCaptureToShareTurns(
       if (desk.overview) turn.content = desk.overview;
     }
   }
+  if (!turn.trades && capture.trades) {
+    const trades = normalizeSuggestedTrades(capture.trades);
+    if (trades) turn.trades = trades;
+  }
   out[assistantIdx] = turn;
   return out;
 }
@@ -128,6 +136,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     let chart: ChartSpec | null = null;
     let result: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
     let desk: DeskBrief | null = null;
+    let trades: SuggestedTrades | null = null;
     for (const part of message.parts) {
       const name = toolPartName(part as { type?: unknown });
       const input = "input" in part ? (part as { input?: unknown }).input : undefined;
@@ -144,6 +153,10 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
           overview: string;
         });
         if (fromInput) desk = fromInput;
+      }
+      if (name === "suggest_trades" && input && typeof input === "object") {
+        const fromInput = normalizeSuggestedTrades(input as { trades?: unknown; skip_reason?: unknown });
+        if (fromInput) trades = fromInput;
       }
       if (!("output" in part) || !part.output || typeof part.output !== "object") continue;
       const output = part.output as ToolPayload;
@@ -167,6 +180,10 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         });
         if (fromOutput) desk = fromOutput;
       }
+      if (output.trades && typeof output.trades === "object") {
+        const fromOutput = normalizeSuggestedTrades(output.trades as { trades?: unknown; skip_reason?: unknown });
+        if (fromOutput) trades = fromOutput;
+      }
     }
 
     const meta = message.metadata as {
@@ -174,6 +191,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       sql?: string;
       chart?: unknown;
       desk?: unknown;
+      trades?: unknown;
     } | undefined;
     if (!sql && typeof meta?.sql === "string" && meta.sql.trim()) sql = meta.sql.trim();
     if (!chart) {
@@ -188,6 +206,10 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         overview: string;
       });
       if (fromMeta) desk = fromMeta;
+    }
+    if (!trades && meta?.trades && typeof meta.trades === "object") {
+      const fromMeta = normalizeSuggestedTrades(meta.trades as { trades?: unknown; skip_reason?: unknown });
+      if (fromMeta) trades = fromMeta;
     }
 
     // Live chat falls back to inferChartSpec when the model skips render_chart;
@@ -206,6 +228,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     if (sql) turn.sql = sql;
     if (chart) turn.chart = chart;
     if (desk) turn.desk = desk;
+    if (trades) turn.trades = trades;
     if (typeof meta?.createdAt === "number" && Number.isFinite(meta.createdAt)) turn.ts = meta.createdAt;
     out.push(turn);
   }
