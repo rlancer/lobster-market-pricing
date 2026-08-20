@@ -30,6 +30,7 @@ on:
           - futures-ohlc-daily
           - cfe-futures-daily
           - indices-ohlc-daily
+          - crypto-spot-ohlc-daily
           - research-briefs-daily
         default: cboe-options
       passes:
