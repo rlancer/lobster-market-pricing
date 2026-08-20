@@ -17,7 +17,7 @@ import {
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, Bot, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Palette, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Palette, Search, Sparkles, Users, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
@@ -55,7 +55,9 @@ const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'D
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
 const BOTS_HEADING: Section = { to: '/bots', label: 'Bots', heading: 'Bot profiles', icon: Bot };
-const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING, BOTS_HEADING];
+const USERS_HEADING: Section = { to: '/users', label: 'Users', heading: 'Signed-up users', icon: Users };
+const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING, BOTS_HEADING, USERS_HEADING];
+const ADMIN_HELP_PATHS = new Set(['/brand', '/bots', '/users']);
 
 /** Global ticker jump — desktop rail on wide viewports, header on mobile. */
 function ResearchSearch({ className }: { className: string }) {
@@ -245,7 +247,7 @@ function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
   const { isAdmin } = useIsAdmin();
   const sections = isAdmin
     ? HELP_SECTIONS
-    : HELP_SECTIONS.filter((section) => section.to !== '/brand' && section.to !== '/bots');
+    : HELP_SECTIONS.filter((section) => !ADMIN_HELP_PATHS.has(section.to));
 
   return (
     <>
@@ -258,7 +260,7 @@ function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
           icon={section.icon}
           isSelected={Boolean(activeTo?.startsWith(section.to))}
           endContent={
-            section.to === '/brand' || section.to === '/bots'
+            ADMIN_HELP_PATHS.has(section.to)
               ? <Lock size={14} aria-label="Admin only" />
               : undefined
           }

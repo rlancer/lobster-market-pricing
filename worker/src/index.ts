@@ -23,6 +23,7 @@
  */
 import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
+import { listAdminUsers } from "./admin-users";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import {
   inventBotPrompt,
@@ -3230,6 +3231,14 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const bots = await handleBots(env, req, path);
   if (bots) return bots;
+
+  // Signed-up users directory (session admin or ADMIN_TOKEN).
+  if (path === "/api/admin/users" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const limit = Number(q.get("limit") ?? 500);
+    return json(env, { items: await listAdminUsers(env.SCHEMA_DB, { limit }) }, 200, "private");
+  }
 
   // Copilot chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")

@@ -16,6 +16,7 @@ import ResearchPage from './ResearchPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 import BrandPage from './Brand';
 import BotsPage from './Bots';
+import UsersPage from './Users';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -150,6 +151,12 @@ const botsRoute = createRoute({
   component: BotsPage,
 });
 
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users',
+  component: UsersPage,
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -233,6 +240,7 @@ const routeTree = rootRoute.addChildren([
   shareRoute,
   brandRoute,
   botsRoute,
+  usersRoute,
   docsRoute,
 ]);
 

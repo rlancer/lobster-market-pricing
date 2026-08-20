@@ -203,6 +203,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/users') {
+    return {
+      title: pageTitle('Users'),
+      description:
+        'Admin-only directory of everyone who signed in with Google — email, handle, signup time, and chat count.',
+      path: '/users',
+    };
+  }
+
   if (path === '/docs' || path.startsWith('/docs/')) {
     const slug = path === '/docs' ? 'overview' : (segments[1] ?? 'overview');
     const doc = DOCS[slug] ?? DOCS.overview;

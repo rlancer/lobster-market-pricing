@@ -152,6 +152,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares to timeline' },
+  { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 
@@ -180,6 +181,11 @@ const SURFACES = [
     route: '/brand',
     title: 'Brand',
     body: 'Admin-only style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Marked with a lock in the left nav.',
+  },
+  {
+    route: '/users',
+    title: 'Users',
+    body: 'Admin-only directory of Google sign-ins: email, claimed handle, signup time, and Copilot chat count. Marked with a lock in the left nav.',
   },
 ];
 
