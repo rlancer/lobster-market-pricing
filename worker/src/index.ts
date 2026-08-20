@@ -23,6 +23,7 @@
  */
 import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
+import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminUsers } from "./admin-users";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import {
@@ -1355,7 +1356,7 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 // Access control. The table is PRIVATE: it is excluded from /api/tables (see
 // PRIVATE_LAKE_TABLES above) and /api/query refuses any SQL referencing it
 // unless the request carries the admin token. The only lake read path is
-// GET /api/admin/chat_history (Bearer ADMIN_TOKEN). Failed Copilot tool calls
+// GET /api/admin/chat_history (session admin or Bearer ADMIN_TOKEN). Failed Copilot tool calls
 // are NOT in the lake — they live in D1 `copilot_tool_events` and are read via
 // the public GET /api/tool_calls (capped args/errors/SQL only; no ip/user_id).
 // No admin UI; the endpoints are the admin/debug surface.
@@ -1642,7 +1643,11 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
   return json(env, { ok: true, stored: true });
 }
 
-/** GET /api/admin/chat_history — newest-first transcripts (Bearer ADMIN_TOKEN). */
+/**
+ * GET /api/admin/chat_history — newest-first transcripts (session admin or
+ * Bearer ADMIN_TOKEN). Joins lake user_id → Better Auth profile when present;
+ * anonymous rows get a visitor fingerprint from server-stamped IP + UA.
+ */
 async function adminChatHistory(
   env: Env,
   limitIn: number,
@@ -1651,7 +1656,8 @@ async function adminChatHistory(
   ok: boolean;
   limit: number;
   before: string | null;
-  items: { chat_id: string; mode: string; model: string | null; user_id: string | null; ip: string | null; user_agent: string | null; started_at: string; ended_at: string; source: string; fetched_at: string; messages: unknown }[];
+  items: Awaited<ReturnType<typeof enrichAdminChatItems>>;
+  next_before: string | null;
   as_of: string;
 }> {
   const limit = clamp(limitIn || 100, 1, CHAT_HISTORY_ADMIN_LIMIT_MAX);
@@ -1671,7 +1677,7 @@ async function adminChatHistory(
     `FROM options.chat_history ${where} ` +
     `QUALIFY ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY fetched_at DESC, ended_at DESC) = 1 ` +
     `ORDER BY fetched_at DESC, ended_at DESC LIMIT ${limit}`);
-  const items = rows.map((r) => {
+  const raw = rows.map((r) => {
     let messages: unknown = null;
     try {
       messages = JSON.parse(String(r.messages ?? "null"));
@@ -1692,7 +1698,9 @@ async function adminChatHistory(
       messages,
     };
   });
-  return { ok: true, limit, before, items, as_of: new Date().toISOString() };
+  const items = await enrichAdminChatItems(env.SCHEMA_DB, raw);
+  const next_before = items.length > 0 ? items[items.length - 1].fetched_at : null;
+  return { ok: true, limit, before, items, next_before, as_of: new Date().toISOString() };
 }
 
 
@@ -3265,8 +3273,14 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/chat/history" && req.method === "POST")
     return await saveChatHistory(env, ctx, req);
   if (path === "/api/admin/chat_history" && req.method === "GET") {
-    if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401);
-    return json(env, await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")));
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    return json(
+      env,
+      await adminChatHistory(env, num(q.get("limit") ?? 100), q.get("before")),
+      200,
+      "private",
+    );
   }
   // Copilot tool-call debug log (D1). Public — payloads are capped tool
   // args/errors/SQL, not transcripts or abuse metadata. Omitting ok defaults

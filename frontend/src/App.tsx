@@ -17,7 +17,7 @@ import {
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, Bot, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Palette, Search, Sparkles, Terminal, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronDown, ChevronRight, Database, LineChart, Lock, MessagesSquare, Newspaper, Palette, Search, Sparkles, Terminal, Users, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
@@ -56,9 +56,10 @@ const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform d
 const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
 const BOTS_HEADING: Section = { to: '/bots', label: 'Bots', heading: 'Bot profiles', icon: Bot };
 const USERS_HEADING: Section = { to: '/users', label: 'Users', heading: 'Signed-up users', icon: Users };
+const CHATS_HEADING: Section = { to: '/chats', label: 'Chats', heading: 'All chats', icon: MessagesSquare };
 const COPILOT_HEADING: Section = { to: '/copilot', label: 'Copilot', heading: 'Copilot internals', icon: Terminal };
-const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING, BOTS_HEADING, USERS_HEADING, COPILOT_HEADING];
-const ADMIN_HELP_PATHS = new Set(['/brand', '/bots', '/users', '/copilot']);
+const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING, BOTS_HEADING, USERS_HEADING, CHATS_HEADING, COPILOT_HEADING];
+const ADMIN_HELP_PATHS = new Set(['/brand', '/bots', '/users', '/chats', '/copilot']);
 
 /** Global ticker jump — desktop rail on wide viewports, header on mobile. */
 function ResearchSearch({ className }: { className: string }) {

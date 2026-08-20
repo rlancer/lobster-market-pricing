@@ -1,0 +1,59 @@
+.chats-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.chats-handle {
+  color: var(--color-text-accent);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+}
+
+.chats-handle:hover {
+  text-decoration: underline;
+}
+
+.chats-error {
+  color: var(--color-error);
+}
+
+.chats-table {
+  width: 100%;
+}
+
+.chats-title-btn {
+  justify-content: flex-start;
+  max-width: 100%;
+  padding-inline: 0;
+  height: auto;
+  font-weight: var(--font-weight-semibold);
+}
+
+.chats-detail {
+  overflow: auto;
+}
+
+.chats-transcript {
+  width: 100%;
+}
+
+.chats-turn {
+  width: 100%;
+  padding-block: var(--spacing-3);
+  border-block-start: 1px solid var(--color-border-muted);
+}
+
+.chats-turn-user {
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+  padding-inline: var(--spacing-3);
+}
+
+.chats-user-text {
+  white-space: pre-wrap;
+}
+
+.chats-sql {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}

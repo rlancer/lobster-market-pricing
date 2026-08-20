@@ -154,6 +154,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares to timeline' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
+  { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all Copilot chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 
@@ -187,6 +188,11 @@ const SURFACES = [
     route: '/users',
     title: 'Users',
     body: 'Admin-only directory of Google sign-ins: email, claimed handle, signup time, and Copilot chat count. Marked with a lock in the left nav.',
+  },
+  {
+    route: '/chats',
+    title: 'Chats',
+    body: 'Admin-only lake chat directory: every Copilot conversation, with signed-in profiles or anonymous visitor fingerprints (IP + browser). Marked with a lock in the left nav.',
   },
   {
     route: '/copilot',

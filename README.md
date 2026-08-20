@@ -258,7 +258,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
 | `DELETE /api/chats/{id}` | Soft-delete a saved chat (hidden from the list; ownership remains so the Durable Object stays locked). |
 | `POST /api/chat/history` | Best-effort capture of a completed Copilot turn into the lake (`options.chat_history`). Fire-and-forget from the browser; never blocks chat. |
-| `GET /api/admin/chat_history` | Admin-only newest-first transcripts from the lake (`Bearer ADMIN_TOKEN`). Strips tools/results — content + last SQL only. Holds ip/user_id — keep gated. |
+| `GET /api/admin/chat_history` | Admin session (or `ADMIN_TOKEN`) — newest-first transcripts from the lake. Joins `user_id` to the signed-in profile when present; anonymous rows include a visitor fingerprint from server-stamped IP + User-Agent. Optional `limit` (default 100, max 500) and `before` (`fetched_at` cursor). Holds ip/user_id — keep gated. |
 | `GET /api/tool_calls` | Public Copilot tool-call debug log from D1 (no token). Defaults to failures (`ok=false`); filter with `chat_id`, `share_id`, `tool`, `ok=true\|false\|all`, `limit`, `before` (ISO). Each item has tool name, capped args, error, summary, sql, duration, turn/chat ids. `/api/admin/tool_calls` is an alias. |
 | `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name, avatar_url?}`. Bot shares also include `bot_handle` / `bot: {handle, display_name, persona}`. |
@@ -308,6 +308,9 @@ has not already been used on a prior run (next unused seed, or an invented
 question). Sharing stamps the post onto the public timeline under that handle.
 Schedules (e.g. `@nowlobster` hourly market overview) run headless on the
 Worker cron during US market hours and auto-share without a browser.
+**Users** (`/users`) and **Chats** (`/chats`) are admin directories — signed-up
+Google identities, and every lake Copilot conversation (profile when signed
+in, visitor fingerprint from IP + UA when anonymous).
 **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
