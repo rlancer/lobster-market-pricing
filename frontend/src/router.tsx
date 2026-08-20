@@ -18,6 +18,7 @@ import BrandPage from './Brand';
 import BotsPage from './Bots';
 import UsersPage from './Users';
 import ChatsPage from './Chats';
+import TradesPage from './Trades';
 import CopilotExplorePage from './CopilotExplore';
 import AdminPage from './Admin';
 import { parseChatId } from './chatSession';
@@ -166,6 +167,12 @@ const chatsRoute = createRoute({
   component: ChatsPage,
 });
 
+const tradesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/trades',
+  component: TradesPage,
+});
+
 const copilotExploreRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/copilot',
@@ -266,6 +273,7 @@ const routeTree = rootRoute.addChildren([
   botsRoute,
   usersRoute,
   chatsRoute,
+  tradesRoute,
   copilotExploreRoute,
   adminRoute,
   docsRoute,

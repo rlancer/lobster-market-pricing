@@ -24,6 +24,7 @@
 import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
 import { enrichAdminChatItems } from "./admin-chats";
+import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
 import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
 import {
@@ -3410,6 +3411,22 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     const limit = Number(q.get("limit") ?? 500);
     return json(env, { items: await listAdminUsers(env.SCHEMA_DB, { limit }) }, 200, "private");
+  }
+
+  // Suggested trades from successful suggest_trades tool events (~30d retention).
+  if (path === "/api/admin/trades" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    ctx.waitUntil(purgeExpiredToolEvents(env.SCHEMA_DB));
+    return json(
+      env,
+      await listAdminSuggestedTrades(env.SCHEMA_DB, {
+        limit: num(q.get("limit") ?? 100),
+        before: q.get("before"),
+      }),
+      200,
+      "private",
+    );
   }
 
   // Copilot chat history: capture (open, best-effort) + admin-only read.

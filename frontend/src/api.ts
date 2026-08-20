@@ -597,6 +597,41 @@ export interface AdminChatHistoryResponse {
   as_of: string;
 }
 
+/** Flattened trade idea from GET /api/admin/trades (suggest_trades tool events). */
+export interface AdminSuggestedTrade {
+  id: string;
+  event_id: string;
+  chat_id: string;
+  share_id: string | null;
+  bot_handle: string | null;
+  created_at: number;
+  created_at_iso: string;
+  model: string | null;
+  ticker: string;
+  bias: 'bullish' | 'bearish' | 'neutral';
+  conviction: 'high' | 'medium' | 'low';
+  structure: string;
+  legs: {
+    right: 'call' | 'put';
+    side: 'buy' | 'sell';
+    strike?: number;
+    strike_rel?: string;
+    expiration?: string;
+    dte?: number;
+  }[] | null;
+  rationale: string;
+  liquidity: string | null;
+}
+
+export interface AdminSuggestedTradesResponse {
+  ok: boolean;
+  limit: number;
+  before: string | null;
+  items: AdminSuggestedTrade[];
+  next_before: string | null;
+  as_of: string;
+}
+
 export interface BotRun {
   run_id: string;
   handle: string;
@@ -1028,6 +1063,10 @@ export const api = {
   adminChatHistory: (opts?: { limit?: number; before?: string }) =>
     get<AdminChatHistoryResponse>(
       `/api/admin/chat_history${qs({ limit: opts?.limit, before: opts?.before })}`,
+    ),
+  adminTrades: (opts?: { limit?: number; before?: string }) =>
+    get<AdminSuggestedTradesResponse>(
+      `/api/admin/trades${qs({ limit: opts?.limit, before: opts?.before })}`,
     ),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
   adminCopilotCapabilities: (opts?: { schema?: 'live' | 'placeholder'; samples?: boolean }) =>
