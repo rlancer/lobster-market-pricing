@@ -19,6 +19,11 @@
   width: 100%;
 }
 
+.timeline-main {
+  max-width: var(--chat-max);
+  margin-inline: auto;
+}
+
 .timeline-rail {
   position: sticky;
   top: var(--spacing-4);
@@ -349,7 +354,7 @@
 
 @media (min-width: 56rem) {
   .timeline.content-column {
-    max-width: calc(var(--content-max) + 22rem + var(--spacing-5));
+    max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
   }
 
   .timeline-columns {
