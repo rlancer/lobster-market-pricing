@@ -34,11 +34,22 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   assert.ok(copilot);
   assert.match(copilot.body, /three-analyst/);
   assert.match(copilot.body, /publish_desk/);
+  assert.match(copilot.body, /BTC-USD/);
+  assert.match(copilot.body, /spot crypto/i);
+  assert.doesNotMatch(copilot.body, /ONLY answer US equities, ETF, options/);
   assert.ok(copilot.body.includes(SCHEMA_PLACEHOLDER));
   const desk = caps.prompts.find((prompt) => prompt.id === "desk-analysts");
   assert.ok(desk);
   assert.match(desk.body, /Fundamental analyst/);
+  assert.match(desk.body, /BTC-USD/);
+  const scope = caps.prompts.find((prompt) => prompt.id === "scope-classifier");
+  assert.ok(scope);
+  assert.match(scope.body, /BTC-USD/);
+  assert.match(scope.body, /spot crypto/i);
   assert.ok(caps.tools.some((tool) => tool.name === "publish_desk"));
+  const research = caps.tools.find((tool) => tool.name === "research_ticker");
+  assert.ok(research);
+  assert.match(research.description, /BTC-USD/);
 });
 
 test("describeCopilotCapabilities can embed a live lake schema without samples", () => {

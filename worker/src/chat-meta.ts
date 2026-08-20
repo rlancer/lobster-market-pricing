@@ -14,11 +14,11 @@ import { parseTickerParam } from "./research";
 import { clipTitle, firstUserContent, isAutoDerivedTitle, TITLE_MAX } from "./user-chats";
 
 export const CHAT_META_SYSTEM = [
-  "You label one Lobster MP Copilot transcript (US equities & ETF options).",
+  "You label one Lobster MP Copilot transcript (US equities, ETFs, options, indexes, futures, spot crypto).",
   "Return a JSON object with keys title and tickers.",
   'Example: {"title":"TLT leads as SPY chops into FOMC minutes","tickers":["TLT","SPY","HYG"]}',
   "title: a short display headline (max 80 characters). Capture the topic or desk takeaway — not prompt instructions, not a verbatim paste of the user message.",
-  "tickers: OCC equity/ETF roots clearly discussed in the transcript (e.g. SPY, QQQ, IWM, NVDA, TLT, HYG). These become public tags. Include index forms like ^VIX when relevant. Max 8. Empty array only when no underlyings are named.",
+  "tickers: lake symbols clearly discussed (e.g. SPY, QQQ, IWM, NVDA, TLT, HYG, BTC-USD, ^VIX, ES=F). These become public tags. Prefer spot crypto BTC-USD over IBIT when the chat is about Bitcoin spot. Max 8. Empty array only when no underlyings are named.",
   "Prefer liquid underlyings over strikes or option symbols. Do not invent tickers.",
 ].join("\n");
 
