@@ -149,6 +149,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
+  { method: 'GET', path: '/api/admin/copilot/capabilities', desc: 'Admin — live Copilot system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares to timeline' },
@@ -186,6 +187,11 @@ const SURFACES = [
     route: '/users',
     title: 'Users',
     body: 'Admin-only directory of Google sign-ins: email, claimed handle, signup time, and Copilot chat count. Marked with a lock in the left nav.',
+  },
+  {
+    route: '/copilot',
+    title: 'Copilot',
+    body: 'Admin-only explorer for the live Worker system prompts (chat, scope classifier, chat meta, bot invent, research commentary) and Copilot tool descriptions plus JSON input schemas.',
   },
 ];
 

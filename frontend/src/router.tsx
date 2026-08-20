@@ -17,6 +17,7 @@ import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, D
 import BrandPage from './Brand';
 import BotsPage from './Bots';
 import UsersPage from './Users';
+import CopilotExplorePage from './CopilotExplore';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -157,6 +158,15 @@ const usersRoute = createRoute({
   component: UsersPage,
 });
 
+const copilotExploreRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/copilot',
+  validateSearch: (search: Record<string, unknown>) => ({
+    item: typeof search.item === 'string' ? search.item : undefined,
+  }),
+  component: CopilotExplorePage,
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -241,6 +251,7 @@ const routeTree = rootRoute.addChildren([
   brandRoute,
   botsRoute,
   usersRoute,
+  copilotExploreRoute,
   docsRoute,
 ]);
 

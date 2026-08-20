@@ -38,10 +38,16 @@
   margin-block-end: 0;
 }
 
-.profile-handle-row,
+.profile-identity,
+.profile-about,
+.profile-meta,
 .profile-joined {
-  flex-wrap: wrap;
   min-width: 0;
+}
+
+.profile-meta-sep {
+  flex-shrink: 0;
+  user-select: none;
 }
 
 .profile-back {

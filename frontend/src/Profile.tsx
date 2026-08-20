@@ -23,12 +23,23 @@ function ProfileHeaderSkeleton() {
   return (
     <HStack as="header" gap={4} vAlign="start" className="profile-header" aria-hidden="true">
       <Skeleton width="var(--size-element-xl, 56px)" height="var(--size-element-xl, 56px)" radius="rounded" index={0} />
-      <VStack gap={2} className="profile-header-copy">
-        <Skeleton width="42%" height="var(--spacing-6)" index={0} />
-        <Skeleton width="28%" height="var(--spacing-4)" index={0} />
-        <Skeleton width="64%" height="var(--spacing-4)" index={0} />
+      <VStack gap={3} className="profile-header-copy">
+        <VStack gap={1}>
+          <Skeleton width="42%" height="var(--spacing-6)" index={0} />
+          <Skeleton width="56%" height="var(--spacing-4)" index={0} />
+        </VStack>
+        <VStack gap={1}>
+          <Skeleton width="38%" height="var(--spacing-4)" index={0} />
+          <Skeleton width="72%" height="var(--spacing-4)" index={0} />
+        </VStack>
       </VStack>
     </HStack>
+  );
+}
+
+function ProfileMetaSep() {
+  return (
+    <Text type="supporting" className="profile-meta-sep" aria-hidden="true">·</Text>
   );
 }
 
@@ -42,29 +53,43 @@ function ProfileHeader({
   const joinedAt = typeof profile.created_at === 'number' && profile.created_at > 0
     ? profile.created_at
     : null;
+  const persona = profile.is_bot ? profile.persona?.trim() || null : null;
+  const bio = profile.is_bot ? profile.bio?.trim() || null : null;
 
   return (
     <HStack as="header" gap={4} vAlign="start" className="profile-header">
       <UserAvatar avatarUrl={profile.avatar_url} className="profile-avatar" alt="" />
-      <VStack gap={2} className="profile-header-copy">
-        <VStack gap={1}>
+      <VStack gap={3} className="profile-header-copy">
+        <VStack gap={1} className="profile-identity">
           <Heading level={1} maxLines={2}>{profile.name}</Heading>
-          <HStack gap={2} vAlign="center" className="profile-handle-row">
+          <HStack gap={2} vAlign="center" wrap="wrap" className="profile-meta">
             <Text type="supporting" weight="semibold">@{profile.handle}</Text>
-            {profile.is_bot && <Token label="bot" color="teal" />}
+            {profile.is_bot && <Token label="bot" color="teal" size="sm" />}
+            {joinedAt != null && (
+              <>
+                <ProfileMetaSep />
+                <HStack gap={1} vAlign="center" className="profile-joined">
+                  <Text type="supporting">Joined</Text>
+                  <Timestamp value={joinedAt / 1000} format="date_long" />
+                </HStack>
+              </>
+            )}
           </HStack>
         </VStack>
-        {profile.is_bot && profile.persona && (
-          <Text type="supporting">{profile.persona}</Text>
-        )}
-        {profile.is_bot && profile.bio && (
-          <Text type="supporting">{profile.bio}</Text>
-        )}
-        {joinedAt != null && (
-          <HStack gap={1} vAlign="center" className="profile-joined">
-            <Text type="supporting">Joined</Text>
-            <Timestamp value={joinedAt / 1000} format="date_long" />
-          </HStack>
+
+        {(persona || bio) && (
+          <VStack gap={1} className="profile-about">
+            {persona && (
+              <Text type="body" weight="semibold" className="profile-persona">
+                {persona}
+              </Text>
+            )}
+            {bio && (
+              <Text type="supporting" className="profile-bio">
+                {bio}
+              </Text>
+            )}
+          </VStack>
         )}
       </VStack>
       <Button

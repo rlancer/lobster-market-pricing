@@ -92,12 +92,8 @@ R2_SQL_TOKEN=cfat_...
 
 The loader Worker (`loader/`, deployed as `cboe-to-r2`) protects its `/run`,
 `/symbols/enroll`, `/loop/trigger`, and `/jobs/*/trigger` endpoints with a
-<<<<<<< HEAD
 bearer token. Store the value in **GitHub Actions secrets** (source of truth)
 and on the loader Worker:
-=======
-bearer token. Set it once as a Worker secret:
->>>>>>> edeb2db (Enroll out-of-universe tickers into continuous ETL on demand)
 
 ```bash
 # once — GitHub (CI + force-loader-pass workflow)
@@ -107,7 +103,6 @@ gh secret set LOADER_TOKEN
 cd loader && npx wrangler secret put LOADER_TOKEN
 ```
 
-<<<<<<< HEAD
 The **API Worker** (`screener-api` / `screener-api-dev`) needs the **same**
 value so Copilot/research can call `POST /symbols/enroll` when a ticker is
 missing from the lake. `Deploy` (`.github/workflows/deploy.yml`) syncs
@@ -118,14 +113,6 @@ missing from the lake. `Deploy` (`.github/workflows/deploy.yml`) syncs
 cd worker
 printf '%s' "$LOADER_TOKEN" | npx wrangler secret put LOADER_TOKEN --name screener-api
 printf '%s' "$LOADER_TOKEN" | npx wrangler secret put LOADER_TOKEN --name screener-api-dev
-=======
-Mirror the **same value** on the API Worker so Copilot/research can auto-enroll
-tickers that are missing from the lake (`POST /symbols/enroll` via
-`LOADER_BASE_URL`):
-
-```bash
-cd worker && npx wrangler secret put LOADER_TOKEN
->>>>>>> edeb2db (Enroll out-of-universe tickers into continuous ETL on demand)
 ```
 
 For local dev, put the same value in `loader/.dev.vars` and
@@ -282,6 +269,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
+| `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
 | `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Copilot under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |

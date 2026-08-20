@@ -54,6 +54,7 @@ import {
 } from "./bots";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
+import { describeCopilotCapabilities } from "./copilot-capabilities";
 import { CopilotAgentBase } from "./copilot";
 import { applyColumnSynonyms } from "./copilot-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
@@ -2788,7 +2789,7 @@ async function handleAvatarGet(env: Env, req: Request, path: string): Promise<Re
  * Copilot as that persona and auto-sends. Sharing with bot_handle stamps the
  * public timeline attribution.
  */
-async function handleBots(env: Env, req: Request, path: string): Promise<Response | null> {
+async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionContext): Promise<Response | null> {
   if (path === "/api/bots" && req.method === "GET") {
     const items = await listBotProfiles(env.SCHEMA_DB, { enabledOnly: true });
     return json(env, {
@@ -2817,6 +2818,26 @@ async function handleBots(env: Env, req: Request, path: string): Promise<Respons
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     return json(env, { items: await listBotProfiles(env.SCHEMA_DB) }, 200, "private");
+  }
+
+  if (path === "/api/admin/copilot/capabilities" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const q = new URL(req.url).searchParams;
+    const schemaMode = (q.get("schema") ?? "live").toLowerCase();
+    const includeSamples = q.get("samples") === "1" || q.get("samples") === "true";
+    const tables = schemaMode === "placeholder"
+      ? []
+      : await schemaTables(env, ctx, false);
+    return json(
+      env,
+      describeCopilotCapabilities({
+        tables,
+        includeSamples,
+      }),
+      200,
+      "private",
+    );
   }
 
   if (path === "/api/admin/bots" && req.method === "POST") {
@@ -3229,7 +3250,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   const timeline = await handleTimeline(env, req, path, ctx, (sql, key) => r2sql(env, sql, key));
   if (timeline) return timeline;
 
-  const bots = await handleBots(env, req, path);
+  const bots = await handleBots(env, req, path, ctx);
   if (bots) return bots;
 
   // Signed-up users directory (session admin or ADMIN_TOKEN).
