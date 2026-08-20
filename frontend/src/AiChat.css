@@ -1,4 +1,6 @@
-/* Chat is the working surface, not a card inside the app. */
+/* Chat is the working surface, not a card inside the app.
+   Chrome (top bar, connection banner, body) is full-bleed in the content
+   pane; the transcript column keeps a readable --chat-max measure. */
 .ai-chat {
   display: flex;
   flex-direction: column;
@@ -6,17 +8,8 @@
   min-height: 0;
   min-width: 0;
   width: 100%;
-  max-width: var(--chat-max);
-  margin-inline: auto;
   overflow: hidden;
   background: var(--panel);
-  transition: max-width var(--duration-medium) var(--ease-standard);
-}
-
-/* When the conversation attaches sources, the rail opens inside chat chrome
-   under the shared top bar — widen the shell to fit both columns. */
-.ai-chat:has(.chat-rail) {
-  max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
 }
 
 .ai-chat-body {
@@ -26,7 +19,6 @@
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   width: 100%;
-  transition: grid-template-columns var(--duration-medium) var(--ease-standard);
 }
 
 @media (min-width: 56rem) {
@@ -68,11 +60,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ai-chat,
-  .ai-chat-body {
-    transition: none;
-  }
-
   .ai-chat .chat-rail {
     animation: none;
   }
@@ -87,6 +74,7 @@
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
   gap: var(--spacing-2);
+  width: 100%;
 }
 .ai-bot-banner {
   margin: 0;

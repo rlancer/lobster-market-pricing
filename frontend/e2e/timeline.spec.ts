@@ -399,12 +399,15 @@ test.describe('Public timeline', () => {
     const rail = page.getByRole('complementary', { name: 'Chat rail' });
     await expect(rail).toBeVisible();
     await expect(head).toBeVisible();
-    // Top bar spans the shell — rail sits under it, not beside it.
+    // Top bar is full-bleed chrome — it spans across the rail, not just the
+    // transcript column.
     const headBox = await head.boundingBox();
     const railBox = await rail.boundingBox();
-    expect(headBox && railBox).toBeTruthy();
+    const chatBox = await page.locator('section.ai-chat').boundingBox();
+    expect(headBox && railBox && chatBox).toBeTruthy();
     expect(railBox!.y).toBeGreaterThan(headBox!.y + headBox!.height - 2);
-    expect(headBox!.x + headBox!.width).toBeGreaterThan(railBox!.x + railBox!.width / 2);
+    expect(Math.abs(headBox!.width - chatBox!.width)).toBeLessThan(2);
+    expect(headBox!.x + headBox!.width).toBeGreaterThanOrEqual(railBox!.x + railBox!.width - 2);
 
     await expect(rail.getByRole('heading', { name: 'Sources' })).toBeVisible();
     await expect(rail.getByRole('link', { name: /NVDA/ })).toBeVisible();
