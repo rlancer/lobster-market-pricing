@@ -10,9 +10,9 @@
   --call: var(--color-success);
   --put: var(--color-error);
   --topbar-h: var(--size-element-lg);
-  /* Shared reading/working column for research, timeline, share, docs. */
+  /* Shared reading/working column for research, timeline shell, share, docs. */
   --content-max: 72rem;
-  /* Chat turns + composer — narrower than the data pages so line length stays readable. */
+  /* Conversation column on /chat and the desktop timeline feed (composer + posts). */
   --chat-max: 48rem;
   font-family: var(--font-family-body);
 }
