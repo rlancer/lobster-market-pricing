@@ -287,33 +287,33 @@ export function ResearchBriefView({
           <aside className="research-rail" aria-label="The Lobster's Take and headlines">
             <VStack gap={4} className="research-section">
               <VStack gap={3} className="research-commentary-chat" id={commentaryId}>
-                <Heading level={3}>The Lobster's Take</Heading>
-                <HStack gap={3} vAlign="start" className="research-chat-msg">
+                <HStack gap={2} vAlign="center" className="research-take-title">
                   <AssistantMark className="research-chat-avatar" />
-                  <VStack gap={2} className="research-chat-bubble-wrap">
-                    {commentaryLoading && !resolvedCommentary && (
-                      <HStack gap={2} vAlign="center" className="research-chat-bubble">
-                        <Spinner size="sm" />
-                        <Text type="supporting">Writing the take…</Text>
-                      </HStack>
-                    )}
-                    {resolvedCommentary && insufficientCommentary && (
-                      <Text type="supporting" className="research-chat-bubble">
-                        {resolvedCommentary}
-                      </Text>
-                    )}
-                    {resolvedCommentary && !insufficientCommentary && (
-                      <div className="research-chat-bubble">
-                        <div className="ai-text"><Markdown>{resolvedCommentary}</Markdown></div>
-                      </div>
-                    )}
-                    {!commentaryLoading && !resolvedCommentary && (
-                      <Text type="supporting" className="research-chat-bubble">
-                        The take for {identity.ticker} loads when this column is in view.
-                      </Text>
-                    )}
-                  </VStack>
+                  <Heading level={3}>The Lobster's Take</Heading>
                 </HStack>
+                <VStack gap={2} className="research-chat-msg">
+                  {commentaryLoading && !resolvedCommentary && (
+                    <HStack gap={2} vAlign="center" className="research-chat-bubble">
+                      <Spinner size="sm" />
+                      <Text type="supporting">Writing the take…</Text>
+                    </HStack>
+                  )}
+                  {resolvedCommentary && insufficientCommentary && (
+                    <Text type="supporting" className="research-chat-bubble">
+                      {resolvedCommentary}
+                    </Text>
+                  )}
+                  {resolvedCommentary && !insufficientCommentary && (
+                    <div className="research-chat-bubble">
+                      <div className="ai-text"><Markdown>{resolvedCommentary}</Markdown></div>
+                    </div>
+                  )}
+                  {!commentaryLoading && !resolvedCommentary && (
+                    <Text type="supporting" className="research-chat-bubble">
+                      The take for {identity.ticker} loads when this column is in view.
+                    </Text>
+                  )}
+                </VStack>
                 <ChatComposer
                   value={followUp}
                   onChange={setFollowUp}

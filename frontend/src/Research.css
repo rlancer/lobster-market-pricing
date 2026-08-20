@@ -204,17 +204,25 @@
   max-width: none;
 }
 
+.research-take-title {
+  min-width: 0;
+}
+
+.research-take-title > :where(h3) {
+  min-width: 0;
+}
+
 .research-chat-msg {
   width: 100%;
+  min-width: 0;
 }
 
 .research-chat-avatar {
-  width: var(--size-element-lg);
-  height: var(--size-element-lg);
+  width: var(--size-element-md);
+  height: var(--size-element-md);
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  margin-block-start: var(--spacing-1);
   color: var(--accent);
   border: var(--border-width) solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: var(--radius-element);
@@ -223,20 +231,14 @@
 
 .research-chat-avatar .ai-msg-mark-glasses {
   display: block;
-  width: 1.375rem;
+  width: 1.125rem;
   height: auto;
-}
-
-.research-chat-bubble-wrap {
-  min-width: 0;
-  flex: 1;
 }
 
 .research-chat-bubble {
   max-width: 100%;
   padding: var(--spacing-3) var(--spacing-4);
   border-radius: var(--radius-container);
-  border-bottom-left-radius: var(--radius-inner);
   background: var(--panel);
   border: var(--border-width) solid var(--color-border);
   line-height: var(--line-height-relaxed);
