@@ -153,23 +153,8 @@ jobs:
         working-directory: loader
         run: |
           set -euo pipefail
-          # Same code path as the job — proves the pipe before waiting on the DO.
-          node --experimental-strip-types <<'JS'
-          import { loadCikMap, publishSecFilings } from "./src/sec.ts";
-          const env = {
-            PIPELINE_SEC_FILINGS_URL: process.env.PIPELINE_SEC_FILINGS_URL,
-            PIPELINE_AUTH_TOKEN: process.env.PIPELINE_AUTH_TOKEN,
-            runId: () => crypto.randomUUID(),
-          };
-          const cikMap = await loadCikMap(env);
-          for (const [ticker, isEtf] of [["AAPL", false], ["SPY", true], ["IBIT", true]]) {
-            const r = await publishSecFilings(ticker, env, { isEtf, cikMap });
-            console.log(JSON.stringify({ ticker, ...r, cik: r.cik ? "set" : null }));
-            if (!r.published && r.cik) {
-              console.warn("no rows for", ticker);
-            }
-          }
-          JS
+          # Self-contained probe (no .ts imports) — same pattern as fundamentals_probe_publish.mjs.
+          node tools/sec_filings_probe_publish.mjs AAPL SPY IBIT
 
       - name: Force sec-filings-daily (Worker path)
         run: |
