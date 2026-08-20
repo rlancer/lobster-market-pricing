@@ -83,18 +83,16 @@ export function AssistantMessageBody({
   return (
     <>
       {message.desk && <DeskViewpoints desk={message.desk} showOverview={false} />}
-      {message.content && (
-        <div className="ai-text">
-          {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
-          <Markdown>{message.content}</Markdown>
-        </div>
-      )}
-      {!message.content && message.desk?.overview && (
-        <div className="ai-text">
-          <span className="ai-desk-overview-label">Overview</span>
-          <Markdown>{message.desk.overview}</Markdown>
-        </div>
-      )}
+      {(() => {
+        const overview = message.desk?.overview?.trim() || message.content?.trim() || '';
+        if (!overview) return null;
+        return (
+          <div className="ai-text">
+            {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
+            <Markdown>{overview}</Markdown>
+          </div>
+        );
+      })()}
       {message.reasoning && (
         <details className="ai-thinking ai-thinking-done">
           <summary>Thinking</summary>

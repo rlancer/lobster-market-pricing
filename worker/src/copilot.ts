@@ -102,6 +102,7 @@ interface Capture {
   sql: string | null;
   result: QueryResult | null;
   chart: ChartSpec | null;
+  desk: DeskBrief | null;
 }
 
 interface ToolOutput {
@@ -550,7 +551,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private resetTurnBudget(turnId: string, total: number): Capture {
-    const capture: Capture = { sql: null, result: null, chart: null };
+    const capture: Capture = { sql: null, result: null, chart: null, desk: null };
     this.sql`
       INSERT OR REPLACE INTO copilot_turn_budget
         (singleton, turn_id, used_output_tokens, total_output_tokens, successful_query, failed_query_count, capture_json, updated_at)
@@ -863,6 +864,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               error: "Desk viewpoints incomplete.",
             });
           }
+          capture.desk = desk;
+          persist();
           return this.output(true, formatDeskToolSummary(desk), { error: null, desk });
         }),
       }),
@@ -886,7 +889,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const totalBudget = positiveInt(this.env.COPILOT_MAX_OUTPUT_TOKENS, OUTPUT_TOKENS_DEFAULT, OUTPUT_TOKENS_MAX);
     if (!options.continuation) this.resetTurnBudget(options.requestId, totalBudget);
     const budget = this.readTurnBudget();
-    const capture = JSON.parse(budget.capture_json) as Capture;
+    const capture = {
+      desk: null as DeskBrief | null,
+      ...(JSON.parse(budget.capture_json) as Partial<Capture>),
+    } as Capture;
+    if (!capture.desk) capture.desk = null;
     const turn = {
       used: budget.used_output_tokens,
       successfulQuery: budget.successful_query === 1,
@@ -964,6 +971,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               preferFilterFrame: Boolean(requestedFrame),
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
+              // Timeline bots keep a single persona voice; interactive chat always
+              // publishes the three-analyst desk once lake evidence exists.
+              requireDesk: !bot,
+              deskPublished: Boolean(capture.desk),
             });
             return policy;
           },

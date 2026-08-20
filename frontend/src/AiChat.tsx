@@ -1025,32 +1025,33 @@ function AiChatSession({
                             {message.role === 'assistant' && message.desk && (
                               <DeskViewpoints desk={message.desk} showOverview={false} />
                             )}
-                            {message.content && (
-                              message.role === 'assistant'
-                                ? (isScopeRejectedMessage(message)
-                                  ? (
-                                    <>
-                                      <div className="ai-err">{message.content}</div>
-                                      <div className="ai-scope-lock-hint">
-                                        <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
-                                        <Button variant="secondary" label="New chat" onClick={onNewChat} />
-                                      </div>
-                                    </>
-                                  )
-                                  : (
-                                    <div className="ai-text">
-                                      {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
-                                      <Markdown>{message.content}</Markdown>
+                            {(() => {
+                              const overview = message.role === 'assistant' && message.desk
+                                ? message.desk.overview
+                                : message.content;
+                              const showOverview = Boolean(overview?.trim());
+                              if (!showOverview) return null;
+                              if (message.role !== 'assistant') {
+                                return <div className="ai-text">{message.content}</div>;
+                              }
+                              if (isScopeRejectedMessage(message)) {
+                                return (
+                                  <>
+                                    <div className="ai-err">{message.content}</div>
+                                    <div className="ai-scope-lock-hint">
+                                      <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
+                                      <Button variant="secondary" label="New chat" onClick={onNewChat} />
                                     </div>
-                                  ))
-                                : <div className="ai-text">{message.content}</div>
-                            )}
-                            {message.role === 'assistant' && !message.content && message.desk?.overview && (
-                              <div className="ai-text">
-                                <span className="ai-desk-overview-label">Overview</span>
-                                <Markdown>{message.desk.overview}</Markdown>
-                              </div>
-                            )}
+                                  </>
+                                );
+                              }
+                              return (
+                                <div className="ai-text">
+                                  {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
+                                  <Markdown>{overview}</Markdown>
+                                </div>
+                              );
+                            })()}
                             {message.role === 'assistant' && message.reasoning && !isLive && (
                               <details className="ai-thinking ai-thinking-done">
                                 <summary>Thinking</summary>
