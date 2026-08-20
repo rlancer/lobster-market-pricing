@@ -42,6 +42,8 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
   research_ticker:
     "Link a ticker to this chat and return a cached research brief " +
     "(recent price/volume moves, consolidation/accumulation, lake fundamentals, earnings, news). " +
+    "Accepts equities/ETFs, indexes (^VIX), continuous futures (ES=F, BTC=F), and spot crypto (BTC-USD). " +
+    "For Bitcoin spot use BTC-USD — not IBIT unless the user asked for the ETF. " +
     "Call whenever you suggest a trade or deep-dive a specific underlying.",
   publish_desk:
     "Publish the three specialist takes (fundamental, technical, options) plus a weighed desk overview that shares the same tool evidence. " +

@@ -9,9 +9,9 @@ import { generateText, type LanguageModel } from "ai";
 import type { BotProfile } from "./bots";
 
 export const BOT_PROMPT_INVENT_SYSTEM = [
-  "You write one fresh user question for Lobster MP, a US equities & ETF options market-data Copilot.",
+  "You write one fresh user question for Lobster MP, a US market-data Copilot (equities, ETFs, options, indexes, futures, spot crypto OHLC).",
   "Output ONLY the question text — no quotes, labels, markdown, or preamble.",
-  "Keep it to 1–3 sentences. It must be answerable with options/market data tools (volume, OI, IV, greeks, earnings, catalysts).",
+  "Keep it to 1–3 sentences. It must be answerable with lake/market tools (OHLC, volume, OI, IV, greeks, earnings, catalysts, spot crypto like BTC-USD, futures like ES=F).",
   "Match the bot persona's voice and risk appetite.",
   "The question must be clearly different from every prior prompt listed — not a paraphrase, synonym swap, or mild rewording.",
   "Vary ticker universe, structure (calls vs puts, spreads, lotteries), horizon, and angle so a human would say it is a new chat topic.",

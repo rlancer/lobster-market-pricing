@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  SCOPE_CLASSIFIER_SYSTEM,
   SCOPE_REJECTED_ERROR,
   latestUserText,
   parseScopeLabel,
@@ -8,6 +9,16 @@ import {
 
 test('scope rejected error is the stable client contract', () => {
   assert.equal(SCOPE_REJECTED_ERROR, 'No data to answer.');
+});
+
+test('scope classifier treats spot crypto as in-scope market data', () => {
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /BTC-USD/);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /spot crypto/i);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /Bitcoin/);
+  assert.doesNotMatch(
+    SCOPE_CLASSIFIER_SYSTEM,
+    /US equities & ETF options market-data Copilot/,
+  );
 });
 
 test('parseScopeLabel accepts exact and padded labels', () => {
