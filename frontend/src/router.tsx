@@ -19,6 +19,7 @@ import BotsPage from './Bots';
 import UsersPage from './Users';
 import ChatsPage from './Chats';
 import CopilotExplorePage from './CopilotExplore';
+import AdminPage from './Admin';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -174,6 +175,12 @@ const copilotExploreRoute = createRoute({
   component: CopilotExplorePage,
 });
 
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  component: AdminPage,
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -260,6 +267,7 @@ const routeTree = rootRoute.addChildren([
   usersRoute,
   chatsRoute,
   copilotExploreRoute,
+  adminRoute,
   docsRoute,
 ]);
 

@@ -17,8 +17,9 @@ import {
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, Bot, ChevronDown, ChevronRight, Database, LineChart, Lock, MessagesSquare, Newspaper, Palette, Search, Sparkles, Terminal, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
+import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -50,16 +51,10 @@ const SECTIONS: Section[] = [
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 
-// Monitor stays in the header chip; Docs / Brand sit under a divider in the left nav.
+// Monitor stays in the header chip; Docs + Admin sit under a divider in the left nav.
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
-const BRAND_HEADING: Section = { to: '/brand', label: 'Brand', heading: 'Brand style guide', icon: Palette };
-const BOTS_HEADING: Section = { to: '/bots', label: 'Bots', heading: 'Bot profiles', icon: Bot };
-const USERS_HEADING: Section = { to: '/users', label: 'Users', heading: 'Signed-up users', icon: Users };
-const CHATS_HEADING: Section = { to: '/chats', label: 'Chats', heading: 'All chats', icon: MessagesSquare };
-const COPILOT_HEADING: Section = { to: '/copilot', label: 'Copilot', heading: 'Copilot internals', icon: Terminal };
-const HELP_SECTIONS: Section[] = [DOCS_HEADING, BRAND_HEADING, BOTS_HEADING, USERS_HEADING, CHATS_HEADING, COPILOT_HEADING];
-const ADMIN_HELP_PATHS = new Set(['/brand', '/bots', '/users', '/chats', '/copilot']);
+const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
 
 /** Global ticker jump — desktop rail on wide viewports, header on mobile. */
 function ResearchSearch({ className }: { className: string }) {
@@ -244,53 +239,68 @@ function WorkspaceNavItems({
   );
 }
 
-function WorkspaceHelpNavItems({ activeTo }: { activeTo?: string }) {
+function WorkspaceHelpNavItems({
+  activeTo,
+  pathname,
+}: {
+  activeTo?: string;
+  pathname: string;
+}) {
   const { closeMobileNav } = useAppShellMobile();
   const { isAdmin } = useIsAdmin();
-  const sections = isAdmin
-    ? HELP_SECTIONS
-    : HELP_SECTIONS.filter((section) => !ADMIN_HELP_PATHS.has(section.to));
+  const adminSelected = isAdminNavPath(pathname);
 
   return (
     <>
-      {sections.map((section) => (
+      <SideNavItem
+        as={RouterLink}
+        href="/docs"
+        label={DOCS_HEADING.label}
+        icon={DOCS_HEADING.icon}
+        isSelected={Boolean(activeTo?.startsWith('/docs'))}
+        onClick={closeMobileNav}
+      />
+      {isAdmin ? (
         <SideNavItem
-          key={section.to}
           as={RouterLink}
-          href={section.to}
-          label={section.label}
-          icon={section.icon}
-          isSelected={Boolean(activeTo?.startsWith(section.to))}
-          endContent={
-            ADMIN_HELP_PATHS.has(section.to)
-              ? <Lock size={14} aria-label="Admin only" />
-              : undefined
-          }
+          href="/admin"
+          label={ADMIN_HEADING.label}
+          icon={ADMIN_HEADING.icon}
+          isSelected={adminSelected}
+          endContent={<Lock size={14} aria-label="Admin only" />}
           onClick={closeMobileNav}
         />
-      ))}
+      ) : null}
     </>
   );
 }
 
-function WorkspaceHelpNav({ activeTo }: { activeTo?: string }) {
+function WorkspaceHelpNav({
+  activeTo,
+  pathname,
+}: {
+  activeTo?: string;
+  pathname: string;
+}) {
   return (
     <>
       <VStack paddingBlock={3} width="100%">
         <Divider isFullBleed variant="strong" />
       </VStack>
-      <WorkspaceHelpNavItems activeTo={activeTo} />
+      <WorkspaceHelpNavItems activeTo={activeTo} pathname={pathname} />
     </>
   );
 }
 
 function WorkspaceNavigation({
   activeTo,
+  pathname,
   isChat,
   activeChatId,
   showSearch = false,
 }: {
   activeTo?: string;
+  pathname: string;
   isChat: boolean;
   activeChatId: string | null;
   showSearch?: boolean;
@@ -300,7 +310,7 @@ function WorkspaceNavigation({
       className="workspace-nav"
       header={<WorkspaceBrand />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
-      footer={<WorkspaceHelpNav activeTo={activeTo} />}
+      footer={<WorkspaceHelpNav activeTo={activeTo} pathname={pathname} />}
     >
       <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
@@ -340,9 +350,11 @@ function WorkspaceLayout() {
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const active = isTimeline
     ? SECTIONS[0]
-    : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING, BRAND_HEADING, BOTS_HEADING, COPILOT_HEADING].find((s) =>
-      s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
-    );
+    : isAdminNavPath(location.pathname)
+      ? ADMIN_HEADING
+      : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
+        s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
+      );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
   const isCopilot = Boolean(activeChatId) || location.pathname === '/chat' || location.pathname === '/ai';
 
@@ -359,7 +371,12 @@ function WorkspaceLayout() {
   }
 
   const value: WorkspaceValue = { stats, updatedAt };
-  const navProps = { activeTo: active?.to, isChat: isCopilot, activeChatId };
+  const navProps = {
+    activeTo: active?.to,
+    pathname: location.pathname,
+    isChat: isCopilot,
+    activeChatId,
+  };
 
   // Responsive contract:
   //   > 768px  SideNav spans the viewport; the header sits in a nested Layout
@@ -379,8 +396,12 @@ function WorkspaceLayout() {
           content: (
             <MobileNav side="start" label="Lobster">
               <WorkspaceBrand />
-              <WorkspaceNavItems {...navProps} />
-              <WorkspaceHelpNav activeTo={navProps.activeTo} />
+              <WorkspaceNavItems
+                activeTo={navProps.activeTo}
+                isChat={navProps.isChat}
+                activeChatId={navProps.activeChatId}
+              />
+              <WorkspaceHelpNav activeTo={navProps.activeTo} pathname={navProps.pathname} />
             </MobileNav>
           ),
         }}

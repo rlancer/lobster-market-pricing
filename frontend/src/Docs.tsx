@@ -181,24 +181,9 @@ const SURFACES = [
     body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The header chip jumps here.',
   },
   {
-    route: '/brand',
-    title: 'Brand',
-    body: 'Admin-only style guide and asset shelf: mascot, sunglasses mark, avatar, palette, type, motion, Copilot voice, and the public/ OG files. Marked with a lock in the left nav.',
-  },
-  {
-    route: '/users',
-    title: 'Users',
-    body: 'Admin-only directory of Google sign-ins: email, claimed handle, signup time, and Copilot chat count. Marked with a lock in the left nav.',
-  },
-  {
-    route: '/chats',
-    title: 'Chats',
-    body: 'Admin-only lake chat directory: every Copilot conversation, with signed-in profiles or anonymous visitor fingerprints (IP + browser). Marked with a lock in the left nav.',
-  },
-  {
-    route: '/copilot',
-    title: 'Copilot',
-    body: 'Admin-only explorer for the live Worker system prompts (chat, scope classifier, chat meta, bot invent, research commentary) and Copilot tool descriptions plus JSON input schemas.',
+    route: '/admin',
+    title: 'Admin',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Copilot internals, and brand. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
   },
 ];
 
@@ -485,7 +470,8 @@ export function DocsFrontend() {
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
         /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation plus a
-        header with dataset status. The left nav links here and to the brand guide under a divider.
+        header with dataset status. The left nav links here and (for admins) to the Admin hub
+        under a divider.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>

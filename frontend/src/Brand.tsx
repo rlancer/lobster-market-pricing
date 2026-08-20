@@ -10,8 +10,8 @@ import './Brand.css';
 // ---------------------------------------------------------------------------
 // Brand style guide — logos, palette, type, voice, and shareable assets.
 // Source of truth for the visual system lives in theme.ts + the SVG marks;
-// this page is the living reference. Admin-only — gated in the workspace
-// left nav (lock icon) and redirected for non-admin sessions.
+// this page is the living reference. Admin-only — linked from the Admin hub
+// (/admin) and redirected for non-admin sessions.
 // ---------------------------------------------------------------------------
 
 const BRAND_PAGES = [

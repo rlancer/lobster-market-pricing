@@ -185,6 +185,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/admin') {
+    return {
+      title: pageTitle('Admin'),
+      description:
+        'Admin hub for bots, users, chats, Copilot internals, and brand — operator tools behind one left-nav entry.',
+      path: '/admin',
+    };
+  }
+
   if (path === '/brand') {
     return {
       title: pageTitle('Brand'),

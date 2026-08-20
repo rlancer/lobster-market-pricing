@@ -64,9 +64,11 @@ test('docs pages name the topic', () => {
   assert.equal(meta.title, `Data pipeline – Docs · ${SITE_NAME}`);
 });
 
-test('chat, monitor, brand, bots, users, chats, and share have route titles', () => {
+test('chat, monitor, admin, brand, bots, users, chats, and share have route titles', () => {
   assert.equal(pageMetaForUrl('/chat').title, `Chat · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/monitor').title, `Dataset monitor · ${SITE_NAME}`);
+  assert.equal(pageMetaForUrl('/admin').title, `Admin · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/admin').description ?? '', /Admin hub/);
   assert.equal(pageMetaForUrl('/brand').title, `Brand · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/bots').title, `Bots · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/users').title, `Users · ${SITE_NAME}`);
