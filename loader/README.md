@@ -24,9 +24,11 @@ Infrastructure:
 - Jobs (D1 `job_state` ledger): `cboe-options` (continuous, market-gated, item
   store `symbol_state`), `ohlc-daily` (daily, ungated, whole universe),
   `ohlc-backfill` (item-scoped, resumable via the `ohlc_backfill_state` D1 item
-  store; run `POST /jobs/ohlc-backfill/trigger`), and `earnings-daily` (daily,
+  store; run `POST /jobs/ohlc-backfill/trigger`), `earnings-daily` (daily,
   ungated; ~2-week Nasdaq earnings-calendar window filtered to the S&P 500
-  universe → `options.earnings`)
+  universe → `options.earnings`), and `short-interest-daily` (daily, ungated;
+  FINRA consolidated short interest on bi-monthly settlement dates →
+  `options.short_interest`)
 - Scheduler observability: `GET /jobs`, `GET /jobs/{id}`,
   `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`); `/loop/*` stay as
   cboe-options back-compat aliases for the monitor
@@ -164,6 +166,33 @@ Dry-run unless `PIPELINE_FUNDAMENTALS_URL` is set. Provisioning recipe matches
 the earnings block with names `cboe_fundamentals_v2` / `cboe_fundamentals_sink` /
 `cboe_fundamentals_pipeline` and `schemas/fundamentals.json`.
 
+### Equity short interest (`short-interest-daily`)
+
+FINRA Rule 4560 consolidated short interest (all exchange-listed + OTC equities)
+lands in `options.short_interest`. Source is the keyless FINRA Data API:
+
+`POST https://api.finra.org/data/group/otcMarket/name/consolidatedShortInterest`
+
+Partitioned by `settlementDate` (bi-monthly: mid-month ~15th and month-end,
+holiday/weekend walk-back). FINRA publishes on the 7th business day after
+settlement. Each loader pass:
+
+1. Builds candidate settlement dates for the last ~3 months (mid + EOM + walk-backs).
+2. Pages each date (5k rows/page; empty dates return HTTP 204 and are skipped).
+3. Keeps only the effective universe (bundled ∪ enrolled). Share-class dots are
+   mapped for FINRA (`BRK.B` → `BRKB`) and published back as the lake symbol.
+4. Appends rows: `symbol`, `settlement_date`, `short_interest`,
+   `prev_short_interest`, `short_interest_change`, `short_interest_change_pct`,
+   `avg_daily_volume`, `days_to_cover`, `market_class`, `issue_name`,
+   `revision_flag`, `stock_split_flag`, `source` (`finra`), `run_id`, `fetched_at`.
+
+Batch, ungated, daily cadence (most days only probe 204s; new cycles land when
+FINRA publishes). Consumers keep latest-wins per `(symbol, settlement_date)`
+with `QUALIFY`. FINRA is redistributable — safe for `/api/query`. Dry-run unless
+`PIPELINE_SHORT_INTEREST_URL` is set. Provisioning recipe matches the earnings
+block with names `cboe_short_interest_v2` / `cboe_short_interest_sink` /
+`cboe_short_interest_pipeline` and `schemas/short_interest.json`.
+
 ### Continuous futures OHLC (`futures-ohlc-daily`)
 
 Yahoo chart v8 continuous front-month contracts (`ES=F`, `NQ=F`, `CL=F`, …)
@@ -242,14 +271,15 @@ curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `research-briefs-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `research-briefs-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
+- `src/short-interest.ts` — FINRA consolidated short interest fetch/normalize/publish
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, …)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure
