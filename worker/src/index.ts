@@ -57,6 +57,7 @@ import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
 import { describeCopilotCapabilities } from "./copilot-capabilities";
 import { CopilotAgentBase } from "./copilot";
+import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
 import { applyColumnSynonyms } from "./copilot-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
@@ -1853,6 +1854,18 @@ function capShareChart(raw: unknown, columns?: string[]): ChartSpec | undefined 
   return spec;
 }
 
+function capShareDesk(raw: unknown): DeskBrief | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const desk = normalizeDeskBrief({
+    fundamental: typeof rec.fundamental === "string" ? rec.fundamental : "",
+    technical: typeof rec.technical === "string" ? rec.technical : "",
+    options: typeof rec.options === "string" ? rec.options : "",
+    overview: typeof rec.overview === "string" ? rec.overview : "",
+  });
+  return desk ?? undefined;
+}
+
 /**
  * Pass 2 — share-only tightening on top of the lake normalizer's output.
  * The shipped caps (20k chars, no byte budget) are looser than the D1 row
@@ -1890,6 +1903,8 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     if (result) out.result = result;
     const chart = capShareChart(original.chart, Array.isArray(result?.columns) ? result.columns as string[] : undefined);
     if (chart) out.chart = chart;
+    const desk = capShareDesk(original.desk ?? rec.desk);
+    if (desk) out.desk = desk;
     if (Array.isArray(rec.tools)) {
       // The schema tolerates tools (future ToolRow capture); v1 client never
       // sends them, so this is a defensive cap, not a UI feature.
@@ -1926,6 +1941,9 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
   }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
     for (const m of [...messages].reverse()) delete m.chart;
+  }
+  if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
+    for (const m of [...messages].reverse()) delete m.desk;
   }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
     for (const m of [...messages].reverse()) delete m.sql; // newest last to lose sql

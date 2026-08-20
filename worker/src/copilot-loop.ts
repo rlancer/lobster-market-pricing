@@ -18,10 +18,23 @@ export type CopilotToolChoice =
   | "none"
   | { type: "tool"; toolName: "run_query" | "filter_frame" };
 
+export type CopilotActiveToolName =
+  | "run_query"
+  | "filter_frame"
+  | "check_schema"
+  | "list_frames"
+  | "refresh_frame"
+  | "render_chart"
+  | "get_news"
+  | "web_search"
+  | "eco_calendar"
+  | "research_ticker"
+  | "publish_desk";
+
 export interface CopilotStepPolicy {
   toolChoice: CopilotToolChoice;
   /** When set, restricts which tools the model may call this step. */
-  activeTools?: Array<"run_query" | "filter_frame" | "check_schema" | "list_frames" | "refresh_frame" | "render_chart" | "get_news" | "web_search" | "eco_calendar" | "research_ticker">;
+  activeTools?: CopilotActiveToolName[];
   maxOutputTokens: number;
 }
 

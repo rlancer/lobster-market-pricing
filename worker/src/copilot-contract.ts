@@ -22,6 +22,7 @@ export const COPILOT_TOOL_LABELS = {
   eco_calendar: "Eco calendar",
   web_search: "Web search",
   research_ticker: "Ticker research",
+  publish_desk: "Desk viewpoints",
 } as const;
 
 /** Model-facing tool descriptions — single source for createTools + admin explore. */
@@ -42,7 +43,13 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Link a ticker to this chat and return a cached research brief " +
     "(recent price/volume moves, consolidation/accumulation, lake fundamentals, earnings, news). " +
     "Call whenever you suggest a trade or deep-dive a specific underlying.",
+  publish_desk:
+    "Publish the three specialist takes (fundamental, technical, options) plus a weighed desk overview that shares the same tool evidence. " +
+    "Call after research_ticker / SQL / news for ticker analysis and trade ideas. " +
+    "The UI shows each viewpoint in its own panel; the final prose should be the overview, not a paste of all four fields.",
 } as const;
+
+const deskViewpointText = z.string().trim().min(1).max(2_400);
 
 export const COPILOT_TOOL_INPUT_SCHEMAS = {
   run_query: z.object({ sql: z.string().min(1), save_as: z.string().trim().min(1).max(80).optional() }).strict(),
@@ -74,6 +81,12 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   research_ticker: z.object({
     symbol: z.string().trim().min(1).max(16),
     force: z.boolean().optional(),
+  }).strict(),
+  publish_desk: z.object({
+    fundamental: deskViewpointText.describe("Fundamental analyst take grounded in shared lake evidence."),
+    technical: deskViewpointText.describe("Technical analyst take grounded in the same evidence."),
+    options: deskViewpointText.describe("Options trader take (liquidity, IV, structure) grounded in the same evidence."),
+    overview: z.string().trim().min(1).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
   }).strict(),
 } as const;
 

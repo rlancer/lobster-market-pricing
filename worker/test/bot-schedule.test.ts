@@ -280,3 +280,45 @@ test("extractShareTurns infers a chart when the prompt asked and the model skipp
   assert.equal(turns[1].chart?.y, "implied_vol");
   assert.equal(turns[1].chart?.series, "type");
 });
+
+test("extractShareTurns keeps publish_desk viewpoints", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "What is the desk take on AAPL?" }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-publish_desk",
+          toolCallId: "d1",
+          state: "output-available",
+          input: {
+            fundamental: "Services mix still expanding",
+            technical: "Range-bound above the 50d",
+            options: "Near-ATM calls have two-sided quotes",
+            overview: "Mildly constructive with defined-risk upside",
+          },
+          output: {
+            ok: true,
+            desk: {
+              fundamental: "Services mix still expanding",
+              technical: "Range-bound above the 50d",
+              options: "Near-ATM calls have two-sided quotes",
+              overview: "Mildly constructive with defined-risk upside",
+            },
+          },
+        },
+        { type: "text", text: "Mildly constructive with defined-risk upside" },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns[1].desk?.fundamental, "Services mix still expanding");
+  assert.equal(turns[1].desk?.technical, "Range-bound above the 50d");
+  assert.equal(turns[1].desk?.options, "Near-ATM calls have two-sided quotes");
+  assert.equal(turns[1].desk?.overview, "Mildly constructive with defined-risk upside");
+});

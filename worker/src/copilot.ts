@@ -32,11 +32,13 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
+import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 
 export type { BotPromptProfile } from "./copilot-prompt";
 export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
+export type { DeskBrief } from "./copilot-desk";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -108,13 +110,14 @@ interface ToolOutput {
   issues?: string[];
   summary: string;
   // Bounded presentation data carried directly on the tool output parts — the
-  // frontend reads SQL/result/chart/frames straight from the standard AI SDK
+  // frontend reads SQL/result/chart/frames/desk straight from the standard AI SDK
   // tool-output parts instead of a bespoke bundle.
   sql?: string | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   frames?: FrameMetadata[];
   research?: import("./research").TickerResearch | null;
+  desk?: DeskBrief | null;
 }
 
 interface CopilotMetadata {
@@ -604,7 +607,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     }
   }
 
-  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research"> = {}): ToolOutput {
+  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research" | "desk"> = {}): ToolOutput {
     return {
       ok,
       summary: summary.slice(0, MAX_TOOL_SUMMARY_CHARS),
@@ -614,6 +617,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       ...(extra.result !== undefined ? { result: boundedResult(extra.result) } : {}),
       ...(extra.chart !== undefined ? { chart: extra.chart } : {}),
       ...(extra.frames !== undefined ? { frames: extra.frames.slice(0, MAX_FRAMES) } : {}),
+      ...(extra.desk !== undefined ? { desk: extra.desk } : {}),
     };
   }
 
@@ -848,6 +852,20 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           });
         }),
       }),
+      publish_desk: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.publish_desk,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk,
+        execute: async (args) => this.safeTool("publish_desk", TOOL_LABELS.publish_desk, args, capture, () => {
+          status("Publishing desk viewpoints…");
+          const desk = normalizeDeskBrief(args);
+          if (!desk) {
+            return this.output(false, "publish_desk requires non-empty fundamental, technical, options, and overview fields.", {
+              error: "Desk viewpoints incomplete.",
+            });
+          }
+          return this.output(true, formatDeskToolSummary(desk), { error: null, desk });
+        }),
+      }),
     };
   }
 
@@ -995,6 +1013,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             ...(output.result !== undefined ? { result: boundedResult(output.result) } : {}),
             ...(output.chart !== undefined ? { chart: output.chart } : {}),
             ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
+            ...(output.desk !== undefined ? { desk: output.desk } : {}),
           },
         };
       }),

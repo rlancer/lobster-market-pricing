@@ -36,6 +36,7 @@ import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 import { ChatRail } from './ChatRail';
+import { DeskViewpoints, isDeskBrief, type DeskBrief } from './DeskViewpoints';
 
 /** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
 function nearestScrollRoot(node: HTMLElement | null): HTMLElement | null {
@@ -70,6 +71,7 @@ const TOOL_LABELS: Record<string, string> = {
   eco_calendar: 'Eco calendar',
   web_search: 'Web search',
   research_ticker: 'Ticker research',
+  publish_desk: 'Desk viewpoints',
 };
 
 interface Presentation {
@@ -78,6 +80,7 @@ interface Presentation {
   chart: ChartSpec | null;
   model: string;
   frames: FrameMetadata[];
+  desk: DeskBrief | null;
 }
 
 interface CopilotMetadata {
@@ -87,6 +90,7 @@ interface CopilotMetadata {
   sql?: string | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
+  desk?: DeskBrief | null;
   /** Set by the Worker when the finance scope gate rejects the turn. */
   scopeRejected?: boolean;
 }
@@ -105,6 +109,7 @@ interface Msg {
   sql?: string | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
+  desk?: DeskBrief | null;
   error?: string;
   ts?: number;
   model?: string;
@@ -119,6 +124,7 @@ interface ToolOutput {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   frames?: FrameMetadata[];
+  desk?: DeskBrief | null;
 }
 
 interface ToolRow {
@@ -136,9 +142,13 @@ function presentationFromMessage(message: CopilotMessage): Presentation | null {
   let result: QueryResult | null = null;
   let chart: ChartSpec | null = null;
   let frames: FrameMetadata[] = [];
+  let desk: DeskBrief | null = null;
   let found = false;
   for (const part of message.parts) {
     if (!isToolUIPart(part)) continue;
+    const name = getToolName(part);
+    const input = getToolInput(part);
+    if (name === 'publish_desk' && isDeskBrief(input)) desk = input;
     const output = getToolOutput(part);
     if (!output || typeof output !== 'object') continue;
     const candidate = output as ToolOutput;
@@ -149,11 +159,12 @@ function presentationFromMessage(message: CopilotMessage): Presentation | null {
     }
     if (candidate.chart) chart = candidate.chart;
     if (candidate.frames?.length) frames = candidate.frames;
-    if (candidate.sql || candidate.result || candidate.chart || candidate.frames) found = true;
+    if (isDeskBrief(candidate.desk)) desk = candidate.desk;
+    if (candidate.sql || candidate.result || candidate.chart || candidate.frames || candidate.desk) found = true;
   }
-  if (!found) return null;
+  if (!found && !desk) return null;
   if (chart && result?.columns && !chartFitsResult(chart, result.columns)) chart = null;
-  return { sql, result, chart, model, frames };
+  return { sql, result, chart, model, frames, desk };
 }
 
 function withChartFallback(message: Msg, question: string): Msg {
@@ -189,6 +200,8 @@ function formatToolArgs(name: string, input: unknown): string {
       return String(o.symbol ?? '').toUpperCase();
     case 'research_ticker':
       return String(o.symbol ?? '').toUpperCase();
+    case 'publish_desk':
+      return 'fundamental · technical · options · overview';
     case 'web_search':
       return squeeze(o.query).slice(0, 120);
     case 'eco_calendar':
@@ -224,6 +237,7 @@ function projectMessage(message: CopilotMessage): Msg | null {
     sql: presentation?.sql ?? meta?.sql ?? null,
     result: presentation?.result ?? meta?.result ?? null,
     chart: presentation?.chart ?? meta?.chart ?? null,
+    desk: presentation?.desk ?? meta?.desk ?? null,
     ...(presentation?.model || meta?.model ? { model: presentation?.model || meta?.model } : {}),
     ...(meta?.createdAt ? { ts: meta.createdAt } : {}),
   };
@@ -243,6 +257,7 @@ function backupToCopilotMessages(rows: ShareChatMessage[]): CopilotMessage[] {
       ...(row.sql ? { sql: row.sql } : {}),
       ...(row.result ? { result: row.result } : {}),
       ...(row.chart ? { chart: row.chart as ChartSpec } : {}),
+      ...(row.desk ? { desk: row.desk } : {}),
     },
   }));
 }
@@ -730,7 +745,7 @@ function AiChatSession({
     sendMessage({ text: question });
   }, [busy, paused, scopeLocked, sendMessage]);
 
-  const canShare = projectedMessages.some((message) => message.role === 'assistant' && message.content);
+  const canShare = projectedMessages.some((message) => message.role === 'assistant' && (message.content || message.desk));
   const botHandle = peekBotHandle();
 
   const buildSharePayload = useCallback((handle: string | null, runId: string | null) => {
@@ -749,6 +764,7 @@ function AiChatSession({
         },
       } : {}),
       ...(message.chart ? { chart: message.chart } : {}),
+      ...(message.desk ? { desk: message.desk } : {}),
     })).slice(-100);
     const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
     return {
@@ -1006,6 +1022,9 @@ function AiChatSession({
                                 thinkingRef={thinkingRef}
                               />
                             )}
+                            {message.role === 'assistant' && message.desk && (
+                              <DeskViewpoints desk={message.desk} showOverview={false} />
+                            )}
                             {message.content && (
                               message.role === 'assistant'
                                 ? (isScopeRejectedMessage(message)
@@ -1018,8 +1037,19 @@ function AiChatSession({
                                       </div>
                                     </>
                                   )
-                                  : <div className="ai-text"><Markdown>{message.content}</Markdown></div>)
+                                  : (
+                                    <div className="ai-text">
+                                      {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
+                                      <Markdown>{message.content}</Markdown>
+                                    </div>
+                                  ))
                                 : <div className="ai-text">{message.content}</div>
+                            )}
+                            {message.role === 'assistant' && !message.content && message.desk?.overview && (
+                              <div className="ai-text">
+                                <span className="ai-desk-overview-label">Overview</span>
+                                <Markdown>{message.desk.overview}</Markdown>
+                              </div>
                             )}
                             {message.role === 'assistant' && message.reasoning && !isLive && (
                               <details className="ai-thinking ai-thinking-done">

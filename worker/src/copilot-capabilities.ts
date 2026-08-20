@@ -22,6 +22,11 @@ import {
   systemPrompt,
   type BotPromptProfile,
 } from "./copilot-prompt";
+import {
+  DESK_OVERVIEW_SUMMARY,
+  DESK_SPECIALIST_SUMMARIES,
+  deskAnalystBlock,
+} from "./copilot-desk";
 import { COMMENTARY_SYSTEM } from "./research-commentary";
 
 export type CopilotPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
@@ -96,9 +101,25 @@ export function describeCopilotCapabilities(opts?: {
       id: "copilot",
       kind: "system",
       title: "Copilot chat",
-      summary: "Main agent system prompt on every Copilot turn (plus optional bot persona addon).",
+      summary: "Main desk system prompt on every Copilot turn (three specialists + overview, plus optional bot persona addon).",
       body: systemPrompt(schemaText, opts?.bot ?? null),
       used_by: "CopilotAgentBase.onChatMessage → streamText/generate ({ system })",
+    },
+    {
+      id: "desk-analysts",
+      kind: "system",
+      title: "Multi-analyst desk",
+      summary: "Fundamental, technical, and options specialists share lake evidence; overview weighs all three. Enforced via publish_desk.",
+      body: [
+        deskAnalystBlock(),
+        "",
+        "Specialist focus (reference):",
+        `- Fundamental: ${DESK_SPECIALIST_SUMMARIES.fundamental}`,
+        `- Technical: ${DESK_SPECIALIST_SUMMARIES.technical}`,
+        `- Options: ${DESK_SPECIALIST_SUMMARIES.options}`,
+        `- Overview: ${DESK_OVERVIEW_SUMMARY}`,
+      ].join("\n"),
+      used_by: "systemPrompt() desk block + publish_desk tool",
     },
     {
       id: "bot-addon",

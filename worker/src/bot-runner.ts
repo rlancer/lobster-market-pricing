@@ -68,6 +68,7 @@ function capShareMessages(messages: ShareTurn[], titleOverride?: string | null):
     if (m.reasoning) out.reasoning = m.reasoning.slice(0, SHARE_MAX_REASONING);
     if (m.sql) out.sql = m.sql.slice(0, SHARE_MAX_SQL);
     if (m.chart) out.chart = m.chart;
+    if (m.desk) out.desk = m.desk;
     if (typeof m.ts === "number") out.ts = m.ts;
     return out;
   });

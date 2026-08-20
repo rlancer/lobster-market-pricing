@@ -3,6 +3,7 @@
  */
 import type { UIMessage } from "ai";
 import { chartFitsResult, inferChartSpec, wantsChart, type ChartSpec } from "./chart-spec";
+import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
 
 export type ShareTurn = {
   role: "user" | "assistant";
@@ -10,6 +11,7 @@ export type ShareTurn = {
   reasoning?: string;
   sql?: string;
   chart?: ChartSpec;
+  desk?: DeskBrief;
   ts?: number;
 };
 
@@ -23,6 +25,7 @@ type ToolPayload = {
   sql?: unknown;
   result?: { columns?: unknown; rows?: unknown } | null;
   chart?: unknown;
+  desk?: unknown;
 };
 
 function asChartSpec(value: unknown): ChartSpec | null {
@@ -113,6 +116,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     let sql: string | undefined;
     let chart: ChartSpec | null = null;
     let result: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
+    let desk: DeskBrief | null = null;
     for (const part of message.parts) {
       const name = toolPartName(part as { type?: unknown });
       const input = "input" in part ? (part as { input?: unknown }).input : undefined;
@@ -120,6 +124,15 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       if (name === "render_chart") {
         const fromInput = asChartSpec(input);
         if (fromInput) chart = fromInput;
+      }
+      if (name === "publish_desk" && input && typeof input === "object") {
+        const fromInput = normalizeDeskBrief(input as {
+          fundamental: string;
+          technical: string;
+          options: string;
+          overview: string;
+        });
+        if (fromInput) desk = fromInput;
       }
       if (!("output" in part) || !part.output || typeof part.output !== "object") continue;
       const output = part.output as ToolPayload;
@@ -133,6 +146,15 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       if (nextChart) {
         chart = nextChart;
         if (result && !chartFitsResult(chart, result.columns)) chart = null;
+      }
+      if (output.desk && typeof output.desk === "object") {
+        const fromOutput = normalizeDeskBrief(output.desk as {
+          fundamental: string;
+          technical: string;
+          options: string;
+          overview: string;
+        });
+        if (fromOutput) desk = fromOutput;
       }
     }
 
@@ -162,6 +184,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     if (reasoning) turn.reasoning = reasoning;
     if (sql) turn.sql = sql;
     if (chart) turn.chart = chart;
+    if (desk) turn.desk = desk;
     if (typeof meta?.createdAt === "number" && Number.isFinite(meta.createdAt)) turn.ts = meta.createdAt;
     out.push(turn);
   }
