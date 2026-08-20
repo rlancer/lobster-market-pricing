@@ -3,9 +3,10 @@ import { expect, test, type Page } from '@playwright/test';
 // ---------------------------------------------------------------------------
 // Share-chat e2e: turn a real Copilot conversation into a public unlisted
 // link and read it back exactly as a recipient would.
-//   - Before any turn the Share button is disabled (aria-disabled).
-//   - After a completed turn, Share → dialog shows the copyable URL; "View
-//     share" navigates to /share/:shareId, where the transcript renders
+//   - Before any user message the Share button is disabled (aria-disabled).
+//   - After the first user message is submitted, Share enables (answer not
+//     required). Share → dialog shows the copyable URL; "View share"
+//     navigates to /share/:shareId, where the transcript renders
 //     read-only (user + assistant bubbles, SQL block) with NO key loaded.
 //   - The recipient API (GET /api/share/:id) works keyless and never leaks
 //     the server-side abuse columns (ip / user_agent).
@@ -49,16 +50,16 @@ test.describe('Share chat (public unlisted transcripts)', () => {
   test('share button → dialog → read-only /share/:id page', async ({ page, request }) => {
     test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
 
-    // Fresh chat: the Share button exists but is disabled until a turn lands.
+    // Fresh chat: the Share button exists but is disabled until a user message.
     await openChat(page);
     const shareBtn = page.getByRole('button', { name: 'Share chat' });
     await expect(shareBtn).toBeVisible();
     // Astryx IconButton signals disabled via aria-disabled, not the attribute.
     await expect(shareBtn).toHaveAttribute('aria-disabled', 'true');
 
-    // One completed turn → Share becomes enabled (Astryx removes the
-    // aria-disabled attribute when the button is enabled).
+    // First submitted user message → Share enables (does not wait for the answer).
     await ask(page, 'Which sector has the most open interest? Answer in one line.');
+    await expect(shareBtn).not.toHaveAttribute('aria-disabled', 'true');
     const text = await lastAnswer(page, 300_000);
     await expect(shareBtn).not.toHaveAttribute('aria-disabled', 'true');
 
