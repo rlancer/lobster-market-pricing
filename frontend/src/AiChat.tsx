@@ -848,7 +848,8 @@ function AiChatSession({
     sendMessage({ text: question });
   }, [busy, paused, scopeLocked, sendMessage]);
 
-  const canShare = projectedMessages.some((message) => message.role === 'assistant' && (message.content || message.desk));
+  // Share as soon as the user has submitted a turn — empty new chats stay locked.
+  const canShare = projectedMessages.some((message) => message.role === 'user' && message.content.trim());
   const botHandle = peekBotHandle();
 
   // After a turn settles, rehydrate desk/sql from the DO turn-budget capture when
@@ -1028,12 +1029,12 @@ function AiChatSession({
                     icon={<Share2 size={16} />}
                     tooltip={
                       !canShare
-                        ? 'Share available after the first answer'
+                        ? 'Share available after you send a message'
                         : botHandle
                           ? `Share publicly as @${botHandle}`
                           : 'Share chat'
                     }
-                    isDisabled={!canShare || busy || accessBlocked}
+                    isDisabled={!canShare || accessBlocked}
                     isLoading={shareBusy}
                     onClick={shareChat}
                   />
