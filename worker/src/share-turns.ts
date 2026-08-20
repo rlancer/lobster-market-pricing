@@ -19,6 +19,7 @@ export type ShareCapture = {
   sql?: string | null;
   result?: { columns?: string[]; rows?: Record<string, unknown>[]; error?: string } | null;
   chart?: ChartSpec | null;
+  desk?: DeskBrief | null;
 };
 
 type ToolPayload = {
@@ -64,8 +65,9 @@ function toolPartName(part: { type?: unknown }): string {
 
 /**
  * Stamp the last assistant turn with the DO turn-budget capture.
- * Message parts sometimes omit tool outputs after headless runs; capture_json
- * is the authoritative sql/result/chart from the completed turn.
+ * Message parts sometimes omit tool outputs after headless runs / mid-turn
+ * recovery; capture_json is the authoritative sql/result/chart/desk from the
+ * completed turn (publish_desk included).
  */
 export function applyCaptureToShareTurns(
   turns: ShareTurn[],
@@ -92,6 +94,15 @@ export function applyCaptureToShareTurns(
     chart = inferChartSpec(result.columns, result.rows);
   }
   if (chart) turn.chart = chart;
+  if (!turn.desk && capture.desk) {
+    const desk = normalizeDeskBrief(capture.desk);
+    if (desk) {
+      turn.desk = desk;
+      // Desk overview is the canonical visible answer; mid-turn "Let me…"
+      // narration must not win when capture recovered the desk.
+      if (desk.overview) turn.content = desk.overview;
+    }
+  }
   out[assistantIdx] = turn;
   return out;
 }
@@ -162,11 +173,21 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       createdAt?: number;
       sql?: string;
       chart?: unknown;
+      desk?: unknown;
     } | undefined;
     if (!sql && typeof meta?.sql === "string" && meta.sql.trim()) sql = meta.sql.trim();
     if (!chart) {
       const metaChart = asChartSpec(meta?.chart);
       if (metaChart && (!result || chartFitsResult(metaChart, result.columns))) chart = metaChart;
+    }
+    if (!desk && meta?.desk && typeof meta.desk === "object") {
+      const fromMeta = normalizeDeskBrief(meta.desk as {
+        fundamental: string;
+        technical: string;
+        options: string;
+        overview: string;
+      });
+      if (fromMeta) desk = fromMeta;
     }
 
     // Live chat falls back to inferChartSpec when the model skips render_chart;
