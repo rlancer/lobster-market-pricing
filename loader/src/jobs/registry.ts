@@ -12,6 +12,7 @@ import { indicesOhlcDailyJob } from "./indices-ohlc-daily.js";
 import { cryptoSpotOhlcDailyJob } from "./crypto-spot-ohlc-daily.js";
 import { researchBriefsDailyJob } from "./research-briefs-daily.js";
 import { shortInterestDailyJob } from "./short-interest-daily.js";
+import { regShoDailyJob } from "./reg-sho-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -40,6 +41,8 @@ import { shortInterestDailyJob } from "./short-interest-daily.js";
 //     (BTC-USD, …) from symbols/crypto-spot.json → options.ohlc / realized_vol.
 //   - short-interest-daily — batch, ungated, daily; FINRA consolidated equity
 //     short interest (bi-monthly settlement dates) → options.short_interest.
+//   - reg-sho-daily — batch, ungated, daily; FINRA Reg SHO short-sale volume
+//     (facility rollup → short_ratio) → options.reg_sho_daily.
 //   - research-briefs-daily — item-scoped, ungated, daily; warms API Worker
 //     D1 `ticker_research` via POST /api/research/warm (no new lake table).
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
@@ -56,6 +59,7 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     indicesOhlcDailyJob(env),
     cryptoSpotOhlcDailyJob(env),
     shortInterestDailyJob(env),
+    regShoDailyJob(env),
     researchBriefsDailyJob(env),
   ];
 }

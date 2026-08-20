@@ -26,9 +26,10 @@ Infrastructure:
   `ohlc-backfill` (item-scoped, resumable via the `ohlc_backfill_state` D1 item
   store; run `POST /jobs/ohlc-backfill/trigger`), `earnings-daily` (daily,
   ungated; ~2-week Nasdaq earnings-calendar window filtered to the S&P 500
-  universe → `options.earnings`), and `short-interest-daily` (daily, ungated;
+  universe → `options.earnings`), `short-interest-daily` (daily, ungated;
   FINRA consolidated short interest on bi-monthly settlement dates →
-  `options.short_interest`)
+  `options.short_interest`), and `reg-sho-daily` (daily, ungated; FINRA Reg SHO
+  short-sale volume rollup → `options.reg_sho_daily`)
 - Scheduler observability: `GET /jobs`, `GET /jobs/{id}`,
   `POST /jobs/{id}/trigger` (Bearer `LOADER_TOKEN`); `/loop/*` stay as
   cboe-options back-compat aliases for the monitor
@@ -193,6 +194,29 @@ with `QUALIFY`. FINRA is redistributable — safe for `/api/query`. Dry-run unle
 block with names `cboe_short_interest_v2` / `cboe_short_interest_sink` /
 `cboe_short_interest_pipeline` and `schemas/short_interest.json`.
 
+### Reg SHO daily short volume (`reg-sho-daily`)
+
+Daily FINRA **Regulation SHO short-sale volume** (all TRF-reported shorts)
+lands in `options.reg_sho_daily`. Source:
+
+`POST https://api.finra.org/data/group/otcMarket/name/regShoDaily`
+
+Partitioned by `tradeReportDate`. Each session is ~28k facility-level rows
+(NQTRF / NYTRF / NCTRF / ORF); the loader pages at 5k, keeps the effective
+universe, and **rolls facilities up** to one row per `(symbol, trade_date)`:
+
+`short_volume`, `short_exempt_volume`, `total_volume`,
+`short_ratio` (= short / total), `facility_count`, plus `source` / `run_id` /
+`fetched_at`. SIP share-class codes use slashes (`BRK/B`); published rows keep
+the lake symbol (`BRK.B`).
+
+Complements bi-monthly `options.short_interest` with a daily shorting-flow
+signal. Weekends/holidays return HTTP 204 and are skipped. Batch, ungated,
+daily; each pass re-syncs the last ~14 calendar days. Dry-run unless
+`PIPELINE_REG_SHO_URL` is set. Provisioning recipe matches earnings with names
+`cboe_reg_sho_daily_v2` / `cboe_reg_sho_daily_sink` /
+`cboe_reg_sho_daily_pipeline` and `schemas/reg_sho_daily.json`.
+
 ### Continuous futures OHLC (`futures-ohlc-daily`)
 
 Yahoo chart v8 continuous front-month contracts (`ES=F`, `NQ=F`, `CL=F`, …)
@@ -271,15 +295,16 @@ curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `research-briefs-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `reg-sho-daily.ts`, `research-briefs-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
 - `src/short-interest.ts` — FINRA consolidated short interest fetch/normalize/publish
+- `src/reg-sho.ts` — FINRA Reg SHO daily short-sale volume fetch/normalize/publish
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, …)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, `reg_sho_daily`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure

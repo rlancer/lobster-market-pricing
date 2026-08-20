@@ -23,7 +23,8 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   `crypto-spot-ohlc-daily` (batch, daily; Yahoo spot crypto `BTC-USD` …
   from `symbols/crypto-spot.json` → `options.ohlc` / `options.realized_vol`),
   `short-interest-daily` (batch, daily; FINRA consolidated equity short interest
-  → `options.short_interest`), and
+  → `options.short_interest`), `reg-sho-daily` (batch, daily; FINRA Reg SHO
+  short-sale volume → `options.reg_sho_daily`), and
   `research-briefs-daily` (item-scoped, daily; warms the API Worker D1
   `ticker_research` cache via `POST /api/research/warm` — no new lake table).
   Schedule ledger:
@@ -198,24 +199,25 @@ Fundamentals:      <PIPELINE_FUNDAMENTALS_URL secret — stream cboe_fundamental
 FuturesSettlements:<PIPELINE_FUTURES_SETTLEMENTS_URL secret — stream cboe_futures_settlements_v2>
 FuturesQuotes:     <PIPELINE_FUTURES_QUOTES_URL secret — stream cboe_futures_quotes_v2>
 ShortInterest:     <PIPELINE_SHORT_INTEREST_URL secret — stream cboe_short_interest_v2>
+RegShoDaily:       <PIPELINE_REG_SHO_URL secret — stream cboe_reg_sho_daily_v2>
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
          cboe_etf_profiles_v2, cboe_etf_holdings_v2, cboe_fundamentals_v2,
          cboe_futures_settlements_v2, cboe_futures_quotes_v2,
-         cboe_short_interest_v2
+         cboe_short_interest_v2, cboe_reg_sho_daily_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
          cboe_etf_profiles_sink, cboe_etf_holdings_sink, cboe_fundamentals_sink,
          cboe_futures_settlements_sink, cboe_futures_quotes_sink,
-         cboe_short_interest_sink
+         cboe_short_interest_sink, cboe_reg_sho_daily_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots,
         options.etf_profiles, options.etf_holdings, options.fundamentals,
         options.futures_settlements, options.futures_quotes,
-        options.short_interest
+        options.short_interest, options.reg_sho_daily
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline
