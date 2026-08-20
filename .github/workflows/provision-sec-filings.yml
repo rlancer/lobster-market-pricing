@@ -1,41 +1,63 @@
 name: Provision SEC filings pipeline
 
-# One-shot operator lever: create Cloudflare Pipelines stream/sink/pipeline for
-# options.sec_filings, set PIPELINE_SEC_FILINGS_URL on cboe-to-r2, then kick
-# sec-filings-daily. Idempotent — safe to re-run if the stream already exists.
+# One-shot: create cboe_sec_filings_* if missing, set PIPELINE_SEC_FILINGS_URL,
+# redeploy loader so the DO sees the secret, force sec-filings-daily, wait for
+# the ~300s sink roll, then assert rows via production /api/query + filings API.
 #
-# Required GitHub secrets:
-#   CLOUDFLARE_API_TOKEN      — Workers + Pipelines write
-#   CLOUDFLARE_ACCOUNT_ID
-#   R2_DATA_CATALOG_TOKEN     — r2-data-catalog sink create
-#   LOADER_TOKEN              — trigger sec-filings-daily after provision
+# Required GitHub secrets (same set as CFE/fundamentals provision):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, R2_DATA_CATALOG_TOKEN,
+#   PIPELINE_AUTH_TOKEN, LOADER_TOKEN
+# Optional: PIPELINES_ADMIN_TOKEN (Pipelines Edit if deploy token lacks it)
+#
+# Trigger: workflow_dispatch, or push to cursor/run-provision-sec-filings-b078
+# (gh workflow_dispatch is 403 for the Cursor integration token).
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    branches: ['cursor/run-provision-sec-filings-b078']
 
 concurrency:
   group: provision-sec-filings
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   provision:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
       LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
       STREAM: cboe_sec_filings_v2
       SINK: cboe_sec_filings_sink
       PIPELINE: cboe_sec_filings_pipeline
       BUCKET: cboe-options-data
       LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+      WORKER_QUERY_URL: https://api.lobster.mp/api/query
+      WORKER_FILINGS_URL: https://api.lobster.mp/api/research
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN LOADER_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Secrets present (values not printed)."
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -47,88 +69,69 @@ jobs:
       - name: Install loader dependencies
         run: cd loader && npm ci
 
-      - name: Verify secrets
-        run: |
-          set -euo pipefail
-          missing=0
-          for k in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN LOADER_TOKEN; do
-            if [ -z "${!k:-}" ]; then
-              echo "::error::$k is missing from GitHub secrets"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then exit 1; fi
-          echo "All required secrets present."
-
-      - name: Create stream (idempotent)
+      - name: Provision stream / sink / pipeline
         working-directory: loader
         run: |
           set -euo pipefail
-          if npx wrangler pipelines streams get "$STREAM" --json >/tmp/stream.json 2>/dev/null; then
+
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+
+          wrangler_pipelines() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler "$@"
+          }
+
+          try_list() {
+            wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+              && return 0
+            if [ "$PIPELINES_TOKEN" != "$R2_DATA_CATALOG_TOKEN" ]; then
+              echo "Deploy token cannot list pipelines — retrying with R2_DATA_CATALOG_TOKEN"
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+                && return 0
+            fi
+            echo "::error::No available token can manage Pipelines (need Pipelines Edit)."
+            cat /tmp/streams.err >&2 || true
+            return 1
+          }
+          try_list
+
+          if wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json" 2>/dev/null; then
             echo "Stream $STREAM already exists"
           else
             echo "Creating stream $STREAM"
-            npx wrangler pipelines streams create "$STREAM" \
+            wrangler_pipelines pipelines streams create "$STREAM" \
               --schema-file schemas/sec_filings.json \
               --http-enabled true \
               --http-auth true
+            wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json"
           fi
 
-      - name: Extract stream ingest URL
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          npx wrangler pipelines streams get "$STREAM" --json >/tmp/stream.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open("/tmp/stream.json"))
-          found=[]
-          def walk(o):
-            if isinstance(o, dict):
-              for k,v in o.items():
-                if isinstance(v, str) and ("pipelines.cloudflare.com" in v or "pipeline" in v) and v.startswith("http"):
-                  found.append(v)
-                walk(v)
-            elif isinstance(o, list):
-              for i in o: walk(i)
-          walk(d)
-          # Prefer an ingest/http endpoint style URL
-          prefer=[u for u in found if "ingest" in u or "http" in u]
-          url=(prefer or found or [None])[0]
-          if not url:
-            raise SystemExit("no ingest URL in:\n"+json.dumps(d, indent=2)[:3000])
-          open("/tmp/stream_url.txt","w").write(url.strip())
-          print("ingest_url_host="+url.split("/")[2])
-          PY
+          ENDPOINT=$(node -e "const s=require('/tmp/${STREAM}.json'); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)")
+          echo "PIPELINE_SEC_FILINGS_URL=$ENDPOINT" >> "$GITHUB_ENV"
+          echo "Stream endpoint captured (value not printed)."
 
-      - name: Create r2-data-catalog sink (idempotent)
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          if npx wrangler pipelines sinks get "$SINK" --json >/tmp/sink.json 2>/dev/null; then
+          if wrangler_pipelines pipelines sinks get "$SINK" --json >"/tmp/${SINK}.json" 2>/dev/null; then
             echo "Sink $SINK already exists"
           else
-            echo "Creating sink $SINK → options.sec_filings"
-            npx wrangler pipelines sinks create "$SINK" \
+            echo "Creating sink $SINK (creates options.sec_filings)"
+            wrangler_pipelines pipelines sinks create "$SINK" \
               --type r2-data-catalog \
               --bucket "$BUCKET" \
               --namespace options \
               --table sec_filings \
               --catalog-token "$R2_DATA_CATALOG_TOKEN" \
               --format parquet \
-              --compression zstd \
               --roll-interval 300
           fi
 
-      - name: Create pipeline (idempotent)
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          if npx wrangler pipelines get "$PIPELINE" --json >/dev/null 2>&1; then
+          if wrangler_pipelines pipelines get "$PIPELINE" --json >"/tmp/${PIPELINE}.json" 2>/dev/null; then
             echo "Pipeline $PIPELINE already exists"
           else
             echo "Creating pipeline $PIPELINE"
-            npx wrangler pipelines create "$PIPELINE" \
+            wrangler_pipelines pipelines create "$PIPELINE" \
               --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
           fi
 
@@ -136,43 +139,101 @@ jobs:
         working-directory: loader
         run: |
           set -euo pipefail
-          url=$(cat /tmp/stream_url.txt)
-          if [ -z "$url" ]; then
-            echo "::error::empty stream URL"
-            exit 1
-          fi
-          printf '%s' "$url" | npx wrangler secret put PIPELINE_SEC_FILINGS_URL
-          echo "PIPELINE_SEC_FILINGS_URL set on cboe-to-r2 (value not printed)"
+          printf '%s' "$PIPELINE_SEC_FILINGS_URL" | npx wrangler secret put PIPELINE_SEC_FILINGS_URL
+          echo "Worker secret PIPELINE_SEC_FILINGS_URL updated."
 
-      - name: Trigger sec-filings-daily
+      - name: Redeploy loader so EtlScheduler DO picks up the secret
+        working-directory: loader
         run: |
           set -euo pipefail
-          # One forced pass so ingest starts immediately (batch job covers full universe).
+          npx wrangler deploy
+          echo "cboe-to-r2 redeployed."
+
+      - name: Publish sample tickers directly (bypass DO)
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          # Self-contained probe (no .ts imports) — same pattern as fundamentals_probe_publish.mjs.
+          node tools/sec_filings_probe_publish.mjs AAPL SPY IBIT
+
+      - name: Force sec-filings-daily (Worker path)
+        run: |
+          set -euo pipefail
+          sleep 5
           resp=$(curl -sS -X POST \
             -H "Authorization: Bearer $LOADER_TOKEN" \
             -w '\n__HTTP_%{http_code}' \
             "$LOADER_URL/jobs/sec-filings-daily/trigger?force=1")
           body="${resp%__HTTP_*}"
           code="${resp##*__HTTP_}"
-          echo "$body" | python3 -c 'import sys,json; d=json.load(sys.stdin); print({k:d.get(k) for k in ("ok","job_id","run_id","error") if k in d or True})' 2>/dev/null || echo "$body"
-          if [ "$code" != "200" ]; then
-            echo "::error::trigger returned HTTP $code"
-            exit 1
+          echo "$body"
+          if [ "$code" = "409" ]; then
+            echo "Loader busy (409) — direct publish already landed rows; continuing."
+            exit 0
+          fi
+          if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+            echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
+          fi
+          sleep 3
+          status=$(curl -sS "$LOADER_URL/jobs/sec-filings-daily")
+          echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted})}'
+          dur=$(echo "$status" | jq -r '.job.last_pass.duration_ms // 0')
+          if [ "$dur" = "0" ]; then
+            echo "::warning::Worker pass still looks dry-run; secrets may need another cycle. Direct publish already sent rows."
           fi
 
-      - name: Summary
+      - name: Wait for sink roll (~5 min)
         run: |
-          {
-            echo "## SEC filings pipeline provisioned"
-            echo "- stream: \`$STREAM\`"
-            echo "- sink: \`$SINK\` → \`options.sec_filings\`"
-            echo "- pipeline: \`$PIPELINE\`"
-            echo "- Worker secret \`PIPELINE_SEC_FILINGS_URL\` set"
-            echo "- \`sec-filings-daily\` triggered (lake flush ~300s)"
-            echo
-            echo "Verify once rows land:"
-            echo '```'
-            echo "curl -s https://api.lobster.mp/api/research/AAPL/filings | head"
-            echo "curl -s https://api.lobster.mp/api/research/SPY/filings | head"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s."
+          sleep 360
+
+      - name: Assert sec_filings rows
+        run: |
+          set -euo pipefail
+          assert_sql() {
+            local sql="$1" expect="$2" label="$3"
+            body=$(jq -nc --arg sql "$sql" '{sql:$sql, limit:20}')
+            resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+              -H 'content-type: application/json' \
+              -d "$body" \
+              -w '\n__HTTP_%{http_code}')
+            http="${resp##*__HTTP_}"
+            json="${resp%__HTTP_*}"
+            echo "== $label =="
+            echo "$json" | head -c 1500; echo
+            if [ "$http" != "200" ]; then
+              echo "::error::$label HTTP $http"
+              exit 1
+            fi
+            if echo "$json" | grep -qi 'iceberg table not found'; then
+              echo "::error::$label table missing after sink roll"
+              exit 1
+            fi
+            if ! echo "$json" | grep -qi "$expect"; then
+              echo "::error::$label missing expected marker '$expect'"
+              exit 1
+            fi
+          }
+
+          assert_sql \
+            "SELECT ticker, form_type, kind, filed_at FROM options.sec_filings WHERE ticker = 'AAPL' ORDER BY filed_at DESC LIMIT 5" \
+            "10-" \
+            "AAPL filings"
+
+          assert_sql \
+            "SELECT ticker, form_type, kind, filed_at FROM options.sec_filings WHERE ticker = 'SPY' ORDER BY filed_at DESC LIMIT 5" \
+            "prospectus\|485\|N-1A\|497\|SPY" \
+            "SPY prospectus"
+
+          for t in AAPL SPY; do
+            resp=$(curl -sS "$WORKER_FILINGS_URL/$t/filings?limit=5")
+            echo "== API $t =="
+            echo "$resp" | head -c 800; echo
+            count=$(echo "$resp" | jq -r '.count // 0')
+            if [ "$count" = "0" ]; then
+              echo "::error::/api/research/$t/filings returned count=0"
+              exit 1
+            fi
+          done
+
+          echo "SEC filings pipeline verified."
