@@ -283,6 +283,107 @@ function projectTools(message: CopilotMessage | undefined): ToolRow[] {
   });
 }
 
+/** DO turn-budget capture — source of truth when tool parts omit outputs. */
+type TurnCapture = {
+  sql?: string | null;
+  result?: QueryResult | null;
+  chart?: ChartSpec | null;
+  desk?: DeskBrief | null;
+};
+
+/**
+ * Stamp missing desk/sql/result/chart from turn-budget capture onto the last
+ * assistant message. Returns null when nothing changed.
+ */
+function mergeCaptureIntoLastAssistant(
+  messages: CopilotMessage[],
+  capture: TurnCapture | null | undefined,
+): CopilotMessage[] | null {
+  if (!capture || messages.length === 0) return null;
+  const desk = isDeskBrief(capture.desk) ? capture.desk : null;
+  const sql = typeof capture.sql === 'string' && capture.sql.trim() ? capture.sql.trim() : null;
+  const result = capture.result && !capture.result.error ? capture.result : null;
+  const chart = capture.chart ?? null;
+  if (!desk && !sql && !result && !chart) return null;
+
+  let idx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return null;
+
+  const message = messages[idx];
+  const presentation = presentationFromMessage(message);
+  const meta = message.metadata ?? { model: '', createdAt: Date.now() };
+  const hasDesk = Boolean(presentation?.desk || isDeskBrief(meta.desk));
+  const hasSql = Boolean(presentation?.sql || meta.sql);
+  const needsDesk = Boolean(desk && !hasDesk);
+  const needsSql = Boolean(sql && !hasSql);
+  const needsResult = Boolean(result && !presentation?.result && !meta.result);
+  const needsChart = Boolean(chart && !presentation?.chart && !meta.chart);
+  if (!needsDesk && !needsSql && !needsResult && !needsChart) return null;
+
+  const nextMeta: CopilotMetadata = {
+    ...meta,
+    ...(needsDesk && desk ? { desk } : {}),
+    ...(needsSql && sql ? { sql } : {}),
+    ...(needsResult && result ? { result } : {}),
+    ...(needsChart && chart ? { chart } : {}),
+  };
+  // When desk was missing from parts, mid-turn narration is still the text —
+  // replace with the overview so share/UI match publish_desk.
+  const nextParts = needsDesk && desk
+    ? [
+      ...message.parts.filter((part) => part.type !== 'text'),
+      { type: 'text' as const, text: desk.overview },
+    ]
+    : message.parts;
+
+  const next = messages.slice();
+  next[idx] = { ...message, parts: nextParts, metadata: nextMeta };
+  return next;
+}
+
+/** Apply turn-budget capture onto share turns (last assistant). */
+function applyCaptureToShareMessages(
+  turns: ShareChatMessage[],
+  capture: TurnCapture | null | undefined,
+): ShareChatMessage[] {
+  if (!capture || turns.length === 0) return turns;
+  const desk = isDeskBrief(capture.desk) ? capture.desk : null;
+  const sql = typeof capture.sql === 'string' && capture.sql.trim() ? capture.sql.trim() : null;
+  if (!desk && !sql && !capture.chart && !capture.result) return turns;
+  const out = turns.map((turn) => ({ ...turn }));
+  let idx = -1;
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role === 'assistant') {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return turns;
+  const turn = out[idx];
+  if (sql) turn.sql = sql;
+  if (desk) {
+    turn.desk = desk;
+    turn.content = desk.overview;
+  }
+  if (capture.chart && !turn.chart) turn.chart = capture.chart;
+  if (capture.result && !capture.result.error && !turn.result) {
+    turn.result = {
+      columns: capture.result.columns,
+      rows: capture.result.rows.slice(0, MAX_RENDER_ROWS),
+      row_count: capture.result.row_count,
+      ...(capture.result.truncated ? { truncated: true, limit: capture.result.limit } : {}),
+    };
+  }
+  out[idx] = turn;
+  return out;
+}
+
 function ChatDeleteControl({
   chatId,
   onNewChat,
@@ -415,6 +516,8 @@ function AiChatSession({
   /** Prevents double auto-share for the same bot run (keyed by run_id or chat_id). */
   const autoSharedKeyRef = useRef<string | null>(null);
   const wasBusyRef = useRef(false);
+  /** Last assistant message id we already tried to reconcile against turn-budget capture. */
+  const captureReconciledRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -748,8 +851,35 @@ function AiChatSession({
   const canShare = projectedMessages.some((message) => message.role === 'assistant' && (message.content || message.desk));
   const botHandle = peekBotHandle();
 
-  const buildSharePayload = useCallback((handle: string | null, runId: string | null) => {
-    const turns: ShareChatMessage[] = projectedMessages.map((message) => ({
+  // After a turn settles, rehydrate desk/sql from the DO turn-budget capture when
+  // message parts omitted tool outputs (recovery / stream abort mid-publish_desk).
+  useEffect(() => {
+    if (busy) return;
+    const latest = [...messages].reverse().find((message) => message.role === 'assistant');
+    if (!latest) return;
+    if (captureReconciledRef.current === latest.id) return;
+    const presentation = presentationFromMessage(latest);
+    if (presentation?.desk || isDeskBrief(latest.metadata?.desk)) {
+      captureReconciledRef.current = latest.id;
+      return;
+    }
+    let alive = true;
+    captureReconciledRef.current = latest.id;
+    void agent.ready
+      .then(() => agent.call<TurnCapture | null>('getTurnCapture', []))
+      .then((capture) => {
+        if (!alive || !capture) return;
+        const merged = mergeCaptureIntoLastAssistant(messages, capture);
+        if (merged) setMessages(merged);
+      })
+      .catch(() => {
+        // Capture reconcile is best-effort; share still retries below.
+      });
+    return () => { alive = false; };
+  }, [busy, agent, messages, setMessages]);
+
+  const buildSharePayload = useCallback((handle: string | null, runId: string | null, capture?: TurnCapture | null) => {
+    const baseTurns: ShareChatMessage[] = projectedMessages.map((message) => ({
       role: message.role,
       content: message.content,
       ...(message.reasoning ? { reasoning: message.reasoning } : {}),
@@ -766,6 +896,7 @@ function AiChatSession({
       ...(message.chart ? { chart: message.chart } : {}),
       ...(message.desk ? { desk: message.desk } : {}),
     })).slice(-100);
+    const turns = applyCaptureToShareMessages(baseTurns, capture);
     const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
     return {
       chat_id: chatId,
@@ -785,7 +916,14 @@ function AiChatSession({
     try {
       const handle = peekBotHandle();
       const runId = peekBotRunId();
-      const response = await api.shareChat(buildSharePayload(handle, runId));
+      let capture: TurnCapture | null = null;
+      try {
+        await agent.ready;
+        capture = await agent.call<TurnCapture | null>('getTurnCapture', []);
+      } catch {
+        capture = null;
+      }
+      const response = await api.shareChat(buildSharePayload(handle, runId, capture));
       setShareResult(response);
       setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
@@ -803,7 +941,7 @@ function AiChatSession({
     } finally {
       setShareBusy(false);
     }
-  }, [buildSharePayload]);
+  }, [buildSharePayload, agent]);
 
   // Bot generate flow: when Copilot finishes a successful answer, auto-share to
   // the public timeline as the bot (same payload as the Share button). Full

@@ -78,6 +78,12 @@ export function nextCopilotStepPolicy(opts: {
         toolChoice: { type: "tool", toolName: "publish_desk" },
       };
     }
+    // Desk is the answer — seal with prose only. Extra tool rounds after
+    // publish_desk widen the abort window and leave mid-turn narration as the
+    // visible text when the final tool parts never land on the message.
+    if (opts.requireDesk && opts.deskPublished) {
+      return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+    }
     return { toolChoice: "auto", maxOutputTokens: toolBudget };
   }
 

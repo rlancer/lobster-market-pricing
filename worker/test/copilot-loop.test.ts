@@ -43,7 +43,7 @@ test('forces publish_desk after a successful query when the desk is required', (
   assert.ok((policy.maxOutputTokens ?? 0) >= 2_048);
 });
 
-test('returns to auto after publish_desk has been published', () => {
+test('seals with tools off after publish_desk has been published', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
     stepNumber: 3,
@@ -51,7 +51,8 @@ test('returns to auto after publish_desk has been published', () => {
     requireDesk: true,
     deskPublished: true,
   });
-  assert.equal(policy.toolChoice, 'auto');
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
 });
 
 test('does not force publish_desk for bot / timeline turns', () => {

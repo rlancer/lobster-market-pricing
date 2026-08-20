@@ -243,6 +243,32 @@ test("applyCaptureToShareTurns stamps chart and sql from the turn budget", () =>
   assert.deepEqual(turns[1].chart, { kind: "line", x: "date", y: "close", title: "SPY closes" });
 });
 
+test("applyCaptureToShareTurns stamps desk and prefers overview as content", () => {
+  const turns = applyCaptureToShareTurns(
+    [
+      { role: "user", content: "I can't go naked in SPY" },
+      {
+        role: "assistant",
+        content: "Let me build a concrete SPY spread chain.\n\n",
+        sql: "SELECT strike FROM options.option_contracts WHERE symbol='SPY' LIMIT 1",
+      },
+    ],
+    {
+      sql: "SELECT expiration, strike, bid FROM options.option_contracts WHERE symbol='SPY'",
+      desk: {
+        fundamental: "SPY is broad collateral",
+        technical: "Tight range, ordered put wall",
+        options: "Sell 750 / buy 730 put spread",
+        overview: "Use a SPY bull put spread, not naked puts.",
+      },
+    },
+    "I can't go naked in SPY",
+  );
+  assert.equal(turns[1].desk?.overview, "Use a SPY bull put spread, not naked puts.");
+  assert.equal(turns[1].content, "Use a SPY bull put spread, not naked puts.");
+  assert.equal(turns[1].sql, "SELECT expiration, strike, bid FROM options.option_contracts WHERE symbol='SPY'");
+});
+
 test("extractShareTurns infers a chart when the prompt asked and the model skipped render_chart", () => {
   const messages = [
     {

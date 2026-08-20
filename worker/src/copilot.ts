@@ -126,6 +126,11 @@ interface CopilotMetadata {
   createdAt: number;
   /** True when this assistant turn is the finance-scope gate rejection (not model prose). */
   scopeRejected?: boolean;
+  /** Turn-budget capture mirrored onto finish metadata when tool parts omit outputs. */
+  sql?: string | null;
+  result?: QueryResult | null;
+  chart?: ChartSpec | null;
+  desk?: DeskBrief | null;
 }
 
 type CopilotData = Record<string, unknown> & {
@@ -376,6 +381,29 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   async getFrameMetadata(): Promise<FrameMetadata[]> {
     this.ensureCopilotSchema();
     return this.frameMetadata();
+  }
+
+  /**
+   * Latest turn-budget capture (sql/result/chart/desk). Interactive share and
+   * post-turn UI reconcile against this when message parts omit tool outputs
+   * after recovery / stream abort.
+   */
+  @callable()
+  async getTurnCapture(): Promise<ShareCapture | null> {
+    this.ensureCopilotSchema();
+    try {
+      const budget = this.readTurnBudget();
+      const raw = JSON.parse(budget.capture_json) as ShareCapture;
+      const desk = raw.desk ? normalizeDeskBrief(raw.desk) : null;
+      return {
+        sql: typeof raw.sql === "string" ? raw.sql : null,
+        result: raw.result ?? null,
+        chart: raw.chart ?? null,
+        desk,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** Bind this conversation to an enabled bot persona (admin generate / trigger). */
@@ -1002,7 +1030,17 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         });
         writer.merge(result.toUIMessageStream<CopilotMessage>({
           sendReasoning: true,
-          messageMetadata: ({ part }) => part.type === "finish" ? { model: activeModel, createdAt: Date.now() } : undefined,
+          messageMetadata: ({ part }) => {
+            if (part.type !== "finish") return undefined;
+            return {
+              model: activeModel,
+              createdAt: Date.now(),
+              ...(capture.sql ? { sql: capture.sql } : {}),
+              ...(capture.result ? { result: boundedResult(capture.result) } : {}),
+              ...(capture.chart ? { chart: capture.chart } : {}),
+              ...(capture.desk ? { desk: capture.desk } : {}),
+            };
+          },
         }));
       },
     });
