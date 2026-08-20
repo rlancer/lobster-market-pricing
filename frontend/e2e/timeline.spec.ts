@@ -423,6 +423,11 @@ test.describe('Public timeline', () => {
     await expect(rail.getByRole('list', { name: 'Session tape' })).toBeVisible();
     await expect(rail.getByText('NVIDIA')).toBeVisible();
     await expect(rail.getByText('+1.5%')).toBeVisible();
+    // Page scroll — messages must not nest their own scrollbar.
+    const messagesOverflow = await page.locator('.ai-messages').evaluate(
+      (el) => getComputedStyle(el).overflowY,
+    );
+    expect(['visible', 'clip', '']).toContain(messagesOverflow);
   });
 
   test('chat rail stays hidden on an empty welcome chat', async ({ page }) => {

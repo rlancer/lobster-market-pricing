@@ -37,6 +37,18 @@ import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 import { ChatRail } from './ChatRail';
 
+/** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
+function nearestScrollRoot(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const { overflowY } = getComputedStyle(current);
+    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
+      return current instanceof HTMLElement ? current : null;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
   'Which sectors have the richest put premiums?',
@@ -373,7 +385,13 @@ function AiChatSession({
   );
   const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
   const thinkingRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const [scrollRootReady, setScrollRootReady] = useState(false);
+  const bindMessagesScrollRoot = useCallback((node: HTMLElement | null) => {
+    const root = nearestScrollRoot(node) ?? node;
+    scrollRef.current = root;
+    setScrollRootReady(Boolean(root));
+  }, []);
   const startedAtRef = useRef<number | null>(null);
   const restoredIdsRef = useRef<Set<string> | null>(null);
   const claimedRef = useRef(false);
@@ -668,7 +686,10 @@ function AiChatSession({
     }
   }, [busy, chatId, projectedMessages]);
 
-  const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
+  const { scrollIfLocked } = useChatStreamScroll({
+    scrollRef,
+    enabled: scrollRootReady,
+  });
   useEffect(() => {
     scrollIfLocked();
   }, [scrollIfLocked, projectedMessages, busy, status, reasoning]);
@@ -882,7 +903,7 @@ function AiChatSession({
           {!accessBlocked && !isDesktop && (
             <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
           )}
-          <section className="ai-messages" ref={scrollRef}>
+          <section className="ai-messages" ref={bindMessagesScrollRoot}>
                     {showSavedLoading && (
                       <section className="ai-welcome ai-chat-gate" aria-busy="true">
                         <div className="ai-chat-loading-body">

@@ -1,28 +1,27 @@
 /* Chat chrome is full-bleed (top bar / connection banner). Below that, the
    transcript + composer sit in a --chat-max column with the companion rail
-   to the right — same pairing as the timeline feed. */
+   to the right — same pairing as the timeline feed. The AppShell content
+   pane owns the only page scrollbar; head/composer/rail stick while it moves. */
 .ai-chat {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  min-height: 100%;
   min-width: 0;
   width: 100%;
-  overflow: hidden;
   background: var(--panel);
 }
 
 .ai-chat-body {
-  flex: 1;
-  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--spacing-5);
-  align-items: stretch;
+  align-items: start;
   width: 100%;
   max-width: var(--chat-max);
   margin-inline: auto;
   padding-inline: var(--spacing-4);
+  padding-block-end: var(--spacing-4);
+  flex: 1;
 }
 
 @media (min-width: 56rem) {
@@ -36,18 +35,19 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 0;
   max-width: var(--chat-max);
   width: 100%;
-  overflow: hidden;
+  /* Short chats still pin the composer to the bottom of the viewport. */
+  min-height: calc(100dvh - var(--topbar-h) - var(--size-element-lg));
 }
 
 .ai-chat .chat-rail {
-  position: relative;
-  top: auto;
-  max-height: none;
-  height: 100%;
-  min-height: 0;
+  /* Match timeline CompanionRail: sticky in the page scroll, capped height. */
+  position: sticky;
+  top: var(--spacing-4);
+  align-self: start;
+  height: auto;
+  max-height: calc(100dvh - var(--topbar-h) - var(--spacing-8));
   width: 100%;
   overflow: auto;
   padding-block: var(--spacing-4);
@@ -84,6 +84,10 @@
   flex-shrink: 0;
   gap: var(--spacing-2);
   width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel);
 }
 .ai-bot-banner {
   margin: 0;
@@ -171,16 +175,11 @@
 /* ---- messages ------------------------------------------------------------ */
 .ai-messages {
   flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-4);
   padding: var(--spacing-5) var(--spacing-5) var(--spacing-2);
-  /* No scroll-behavior: smooth here — useChatStreamScroll drives follow-  *
-   * scrolling imperatively at 60fps, and CSS-smoothing every scrollTop    *
-   * assignment (spec: scrollTop honors computed scroll-behavior) makes     *
-   * programmatic and wheel scrolling lag and rubber-band against the hook. */
+  /* Page scroll lives on the AppShell content pane — do not nest overflow. */
 }
 .ai-welcome {
   margin: auto;
@@ -603,7 +602,11 @@
   width: 100%;
   padding: var(--spacing-3) var(--spacing-4);
   border-top: var(--border-width) solid var(--color-border-emphasized);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
 }
 .ai-composer-wrap > * {
   width: 100%;
