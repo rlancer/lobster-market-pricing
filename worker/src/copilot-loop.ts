@@ -13,6 +13,9 @@ export const AGENT_ITERATIONS_MAX = 10;
 /** Forced run_query attempts before the loop releases the model to answer. */
 export const QUERY_FORCE_FAILURES_MAX = 3;
 
+/** Forced suggest_trades attempts before sealing without structured trades. */
+export const TRADES_FORCE_FAILURES_MAX = 2;
+
 export type CopilotToolChoice =
   | "auto"
   | "none"
@@ -55,9 +58,13 @@ export function nextCopilotStepPolicy(opts: {
   /** When true (with requireDesk), force suggest_trades after the desk before sealing. */
   requireTrades?: boolean;
   tradesPublished?: boolean;
+  /** Failed suggest_trades attempts this turn (incomplete payload, etc.). */
+  failedTradesCount?: number;
+  tradesForceFailuresMax?: number;
 }): CopilotStepPolicy {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
+  const tradesForceFailuresMax = opts.tradesForceFailuresMax ?? TRADES_FORCE_FAILURES_MAX;
   const remaining = opts.remainingTokens;
   if (remaining < 256) {
     throw new Error("Copilot output-token budget exhausted before a final answer");
@@ -83,7 +90,15 @@ export function nextCopilotStepPolicy(opts: {
       };
     }
     // Structured trades next — UI renders from suggest_trades, not prose parsing.
-    if (opts.requireDesk && opts.deskPublished && opts.requireTrades && !opts.tradesPublished) {
+    // Stop forcing after repeated incomplete payloads so the turn can seal.
+    const failedTrades = opts.failedTradesCount ?? 0;
+    if (
+      opts.requireDesk
+      && opts.deskPublished
+      && opts.requireTrades
+      && !opts.tradesPublished
+      && failedTrades < tradesForceFailuresMax
+    ) {
       return {
         maxOutputTokens: toolBudget,
         toolChoice: { type: "tool", toolName: "suggest_trades" },

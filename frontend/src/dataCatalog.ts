@@ -166,7 +166,7 @@ export const TOOLS: CatalogItem[] = [
     tools: ['research_ticker', 'run_query', 'publish_desk'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
-      { name: 'skip_reason', type: 'string?', note: 'Required when trades is empty' },
+      { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
     ],
   },
   {

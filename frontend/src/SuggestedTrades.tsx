@@ -92,7 +92,9 @@ export function isSuggestedTrades(value: unknown): value is SuggestedTrades {
   const rec = value as Record<string, unknown>;
   if (!Array.isArray(rec.trades)) return false;
   if (rec.trades.length === 0) {
-    return typeof rec.skip_reason === 'string' && rec.skip_reason.trim().length > 0;
+    // Empty list is a valid no-lean; skip_reason is optional (worker defaults it).
+    return rec.skip_reason === undefined
+      || (typeof rec.skip_reason === 'string' && rec.skip_reason.trim().length > 0);
   }
   return rec.trades.every((trade) => {
     if (!trade || typeof trade !== 'object' || Array.isArray(trade)) return false;

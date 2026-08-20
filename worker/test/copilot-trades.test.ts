@@ -39,11 +39,26 @@ test("normalizeSuggestedTrades allows empty trades with skip_reason", () => {
   });
 });
 
-test("normalizeSuggestedTrades rejects empty trades without skip_reason", () => {
-  assert.equal(normalizeSuggestedTrades({ trades: [] }), null);
-  assert.equal(normalizeSuggestedTrades({
+test("normalizeSuggestedTrades defaults skip_reason when trades is empty", () => {
+  // Regression: share 1KJpGTK37GDr9SlDCaJxd3aa — model sent trades:[] without
+  // skip_reason; rejecting it forced suggest_trades in a loop until the turn died.
+  const payload = normalizeSuggestedTrades({ trades: [] });
+  assert.ok(payload);
+  assert.deepEqual(payload.trades, []);
+  assert.match(payload.skip_reason ?? "", /No tradable lean/);
+});
+
+test("normalizeSuggestedTrades rejects missing trades array", () => {
+  assert.equal(normalizeSuggestedTrades({}), null);
+});
+
+test("normalizeSuggestedTrades treats all-invalid trades as empty lean", () => {
+  const payload = normalizeSuggestedTrades({
     trades: [{ ticker: "X", bias: "bullish", conviction: "high", structure: "", rationale: "x" }],
-  }), null);
+  });
+  assert.ok(payload);
+  assert.deepEqual(payload.trades, []);
+  assert.match(payload.skip_reason ?? "", /No tradable lean/);
 });
 
 test("normalizeSuggestedTrades drops legs missing strike and strike_rel", () => {

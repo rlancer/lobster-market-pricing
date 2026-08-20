@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   AGENT_ITERATIONS_MAX,
   QUERY_FORCE_FAILURES_MAX,
+  TRADES_FORCE_FAILURES_MAX,
   nextCopilotStepPolicy,
 } from '../src/copilot-loop.ts';
 
@@ -77,6 +78,21 @@ test('seals with tools off after suggest_trades has been published', () => {
     deskPublished: true,
     requireTrades: true,
     tradesPublished: true,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
+});
+
+test('stops forcing suggest_trades after TRADES_FORCE_FAILURES_MAX failures', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 5,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: true,
+    requireTrades: true,
+    tradesPublished: false,
+    failedTradesCount: TRADES_FORCE_FAILURES_MAX,
   });
   assert.equal(policy.toolChoice, 'none');
   assert.deepEqual(policy.activeTools, []);

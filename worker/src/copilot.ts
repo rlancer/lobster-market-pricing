@@ -106,6 +106,8 @@ interface Capture {
   chart: ChartSpec | null;
   desk: DeskBrief | null;
   trades: SuggestedTrades | null;
+  /** In-turn counter: failed suggest_trades while forcing (persisted in capture_json). */
+  failed_trades_count?: number;
 }
 
 interface ToolOutput {
@@ -710,11 +712,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     tables: LakeTable[],
     capture: Capture,
     status: (value: string) => void,
-    turn: { used: number; successfulQuery: boolean; failedQueryCount: number },
+    turn: { used: number; successfulQuery: boolean; failedQueryCount: number; failedTradesCount: number },
   ) {
     const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
     const noteQueryFailure = () => {
       turn.failedQueryCount += 1;
+      persist();
+    };
+    const noteTradesFailure = () => {
+      turn.failedTradesCount += 1;
+      capture.failed_trades_count = turn.failedTradesCount;
       persist();
     };
     return {
@@ -912,11 +919,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           status("Publishing suggested trades…");
           const trades = normalizeSuggestedTrades(args);
           if (!trades) {
-            return this.output(false, "suggest_trades requires 1–3 trades, or trades: [] with skip_reason.", {
+            noteTradesFailure();
+            return this.output(false, "suggest_trades requires a trades array (use [] when there is no lean).", {
               error: "Suggested trades incomplete.",
             });
           }
           capture.trades = trades;
+          capture.failed_trades_count = 0;
+          turn.failedTradesCount = 0;
           persist();
           return this.output(true, formatTradesToolSummary(trades), { error: null, trades });
         }),
@@ -952,6 +962,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       used: budget.used_output_tokens,
       successfulQuery: budget.successful_query === 1,
       failedQueryCount: budget.failed_query_count,
+      failedTradesCount: typeof capture.failed_trades_count === "number" ? capture.failed_trades_count : 0,
     };
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
 
@@ -1031,6 +1042,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               deskPublished: Boolean(capture.desk),
               requireTrades: !bot,
               tradesPublished: capture.trades != null,
+              failedTradesCount: turn.failedTradesCount,
             });
             return policy;
           },

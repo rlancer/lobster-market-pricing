@@ -113,7 +113,7 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
       liquidity: z.string().trim().min(1).max(240).optional().describe("Quote quality from lake (spread, volume/OI)."),
     }).strict()).max(3),
     skip_reason: z.string().trim().min(1).max(320).optional()
-      .describe("Required when trades is empty — why no tradable lean."),
+      .describe("Optional when trades is empty — why no tradable lean. Defaults if omitted."),
   }).strict(),
 } as const;
 

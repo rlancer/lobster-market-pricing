@@ -141,15 +141,22 @@ export function normalizeSuggestedTrades(input: {
   skip_reason?: unknown;
 } | null | undefined): SuggestedTrades | null {
   if (!input || typeof input !== "object") return null;
-  const tradesRaw = Array.isArray(input.trades) ? input.trades.slice(0, TRADES_MAX) : [];
+  // Require an explicit trades array — missing key is incomplete, not "no lean".
+  if (!Array.isArray(input.trades)) return null;
+  const tradesRaw = input.trades.slice(0, TRADES_MAX);
   const trades = tradesRaw.map(normalizeTrade).filter((t): t is SuggestedTrade => t != null);
   const skip_reason = typeof input.skip_reason === "string" && input.skip_reason.trim()
     ? clip(input.skip_reason, SKIP_REASON_MAX)
     : undefined;
 
   if (trades.length === 0) {
-    if (!skip_reason) return null;
-    return { trades: [], skip_reason };
+    // Empty list is a valid "no lean" — do not reject missing skip_reason.
+    // Models often omit it under forced toolChoice; rejecting it spun the loop
+    // until the turn budget burned (share 1KJpGTK37GDr9SlDCaJxd3aa).
+    return {
+      trades: [],
+      skip_reason: skip_reason ?? "No tradable lean from the shared evidence",
+    };
   }
   return { trades, ...(skip_reason ? { skip_reason } : {}) };
 }
@@ -173,7 +180,7 @@ export function tradesSuggestBlock(): string {
     "- Each trade needs ticker, bias (bullish|bearish|neutral), conviction (high|medium|low), structure label, and rationale grounded in shared evidence.",
     "- Prefer 1–2 defined-risk ideas. Include legs (buy/sell + call/put + strike or strike_rel + expiration/dte) when option_contracts quotes support them.",
     "- Absolute strikes/expiries MUST come from a prior option_contracts query with two-sided quotes (bid>0, ask>=bid), tight-ish spread, and volume/OI interest. Put that quote quality in liquidity.",
-    "- If liquidity is too thin or there is no tradable lean, pass trades: [] with skip_reason — never invent fills or far-OTM lottery tickets.",
+    "- If nothing is tradable, pass trades: [] (skip_reason optional). Never invent fills or far-OTM lottery tickets.",
     "- After suggest_trades, final message text stays the desk overview only (1–4 sentences). Do not re-list the trades in prose.",
   ].join("\n");
 }
