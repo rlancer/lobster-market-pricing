@@ -97,7 +97,7 @@ export function ResearchBriefView({
 }) {
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
-  const { identity, price, technicals, fundamentals, earnings, news, filings = [], realized_vol, etf } = research;
+  const { identity, price, technicals, fundamentals, shorting, earnings, news, filings = [], realized_vol, etf } = research;
   const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const insufficientCommentary =
@@ -176,6 +176,15 @@ export function ResearchBriefView({
               label="Margins"
               value={fundamentals.profit_margins != null ? fmtPct(fundamentals.profit_margins * 100) : '—'}
             />
+            {shorting?.short_interest != null ? (
+              <Stat label="Short int" value={fmtNum(shorting.short_interest)} />
+            ) : null}
+            {shorting?.days_to_cover != null ? (
+              <Stat label="Days to cover" value={fmtNum(shorting.days_to_cover, 2)} />
+            ) : null}
+            {shorting?.short_ratio != null ? (
+              <Stat label="Short vol %" value={fmtPct(shorting.short_ratio * 100)} />
+            ) : null}
           </>
         )}
         <Stat

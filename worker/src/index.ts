@@ -89,6 +89,7 @@ import { listChatTickers, listSecurityChats } from "./chat-tickers";
 import { loadChatRail } from "./timeline-rail";
 import {
   emptyFundamentals,
+  emptyShorting,
   getOrComputeResearch,
   parseTickerParam,
   RESEARCH_OHLC_LIMIT,
@@ -99,6 +100,7 @@ import {
   type OhlcBar,
   type RealizedVolBrief,
   type ResearchDeps,
+  type ShortingBrief,
   type TickerResearch,
 } from "./research";
 import { securityIdForTicker } from "./symbology";
@@ -2367,6 +2369,43 @@ async function loadResearchFundamentals(env: Env, ticker: string): Promise<Funda
   }
 }
 
+async function loadResearchShorting(env: Env, ticker: string): Promise<ShortingBrief> {
+  const empty = emptyShorting();
+  try {
+    const [siRows, rsRows] = await Promise.all([
+      r2sql(
+        env,
+        `SELECT settlement_date, short_interest, short_interest_change_pct, days_to_cover, source` +
+          ` FROM options.short_interest WHERE symbol = ${lit(ticker)}` +
+          ` ORDER BY settlement_date DESC, fetched_at DESC LIMIT 1`,
+        "si_" + ticker,
+        QUERY_TTL_MS,
+      ).catch(() => [] as Row[]),
+      r2sql(
+        env,
+        `SELECT trade_date, short_ratio, source FROM options.reg_sho_daily WHERE symbol = ${lit(ticker)}` +
+          ` ORDER BY trade_date DESC, fetched_at DESC LIMIT 1`,
+        "regsho_" + ticker,
+        QUERY_TTL_MS,
+      ).catch(() => [] as Row[]),
+    ]);
+    const si = siRows[0];
+    const rs = rsRows[0];
+    if (!si && !rs) return empty;
+    return {
+      settlement_date: si ? strOrNull(si.settlement_date) : null,
+      short_interest: si ? numOrNull(si.short_interest) : null,
+      short_interest_change_pct: si ? numOrNull(si.short_interest_change_pct) : null,
+      days_to_cover: si ? numOrNull(si.days_to_cover) : null,
+      short_ratio: rs ? numOrNull(rs.short_ratio) : null,
+      short_ratio_date: rs ? strOrNull(rs.trade_date) : null,
+      source: strOrNull(si?.source ?? rs?.source) ?? "finra",
+    };
+  } catch {
+    return empty;
+  }
+}
+
 async function loadResearchOhlc(env: Env, ticker: string): Promise<OhlcBar[]> {
   try {
     // Bound the scan: technicals need ~90 sessions (~SMA50). Do not window
@@ -2485,6 +2524,7 @@ function researchDepsFor(env: Env): ResearchDeps {
     },
     loadEtfProfile: (ticker) => loadResearchEtfProfile(env, ticker),
     loadFundamentals: (ticker) => loadResearchFundamentals(env, ticker),
+    loadShorting: (ticker) => loadResearchShorting(env, ticker),
   };
 }
 

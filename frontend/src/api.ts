@@ -796,6 +796,16 @@ export interface TickerResearch {
     revenue_growth: number | null;
     source: string | null;
   };
+  /** FINRA short interest + Reg SHO short-volume ratio. Absent on older cache rows. */
+  shorting?: {
+    settlement_date: string | null;
+    short_interest: number | null;
+    short_interest_change_pct: number | null;
+    days_to_cover: number | null;
+    short_ratio: number | null;
+    short_ratio_date: string | null;
+    source: string | null;
+  };
   earnings: Array<{
     earnings_date: string;
     time: string | null;
