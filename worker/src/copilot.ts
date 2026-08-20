@@ -32,11 +32,13 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
+import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 
 export type { BotPromptProfile } from "./copilot-prompt";
 export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
+export type { DeskBrief } from "./copilot-desk";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -100,6 +102,7 @@ interface Capture {
   sql: string | null;
   result: QueryResult | null;
   chart: ChartSpec | null;
+  desk: DeskBrief | null;
 }
 
 interface ToolOutput {
@@ -108,13 +111,14 @@ interface ToolOutput {
   issues?: string[];
   summary: string;
   // Bounded presentation data carried directly on the tool output parts — the
-  // frontend reads SQL/result/chart/frames straight from the standard AI SDK
+  // frontend reads SQL/result/chart/frames/desk straight from the standard AI SDK
   // tool-output parts instead of a bespoke bundle.
   sql?: string | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   frames?: FrameMetadata[];
   research?: import("./research").TickerResearch | null;
+  desk?: DeskBrief | null;
 }
 
 interface CopilotMetadata {
@@ -547,7 +551,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private resetTurnBudget(turnId: string, total: number): Capture {
-    const capture: Capture = { sql: null, result: null, chart: null };
+    const capture: Capture = { sql: null, result: null, chart: null, desk: null };
     this.sql`
       INSERT OR REPLACE INTO copilot_turn_budget
         (singleton, turn_id, used_output_tokens, total_output_tokens, successful_query, failed_query_count, capture_json, updated_at)
@@ -604,7 +608,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     }
   }
 
-  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research"> = {}): ToolOutput {
+  private output(ok: boolean, summary: string, extra: Pick<ToolOutput, "error" | "issues" | "sql" | "result" | "chart" | "frames" | "research" | "desk"> = {}): ToolOutput {
     return {
       ok,
       summary: summary.slice(0, MAX_TOOL_SUMMARY_CHARS),
@@ -614,6 +618,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       ...(extra.result !== undefined ? { result: boundedResult(extra.result) } : {}),
       ...(extra.chart !== undefined ? { chart: extra.chart } : {}),
       ...(extra.frames !== undefined ? { frames: extra.frames.slice(0, MAX_FRAMES) } : {}),
+      ...(extra.desk !== undefined ? { desk: extra.desk } : {}),
     };
   }
 
@@ -848,6 +853,22 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           });
         }),
       }),
+      publish_desk: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.publish_desk,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk,
+        execute: async (args) => this.safeTool("publish_desk", TOOL_LABELS.publish_desk, args, capture, () => {
+          status("Publishing desk viewpoints…");
+          const desk = normalizeDeskBrief(args);
+          if (!desk) {
+            return this.output(false, "publish_desk requires non-empty fundamental, technical, options, and overview fields.", {
+              error: "Desk viewpoints incomplete.",
+            });
+          }
+          capture.desk = desk;
+          persist();
+          return this.output(true, formatDeskToolSummary(desk), { error: null, desk });
+        }),
+      }),
     };
   }
 
@@ -868,7 +889,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const totalBudget = positiveInt(this.env.COPILOT_MAX_OUTPUT_TOKENS, OUTPUT_TOKENS_DEFAULT, OUTPUT_TOKENS_MAX);
     if (!options.continuation) this.resetTurnBudget(options.requestId, totalBudget);
     const budget = this.readTurnBudget();
-    const capture = JSON.parse(budget.capture_json) as Capture;
+    const capture = {
+      desk: null as DeskBrief | null,
+      ...(JSON.parse(budget.capture_json) as Partial<Capture>),
+    } as Capture;
+    if (!capture.desk) capture.desk = null;
     const turn = {
       used: budget.used_output_tokens,
       successfulQuery: budget.successful_query === 1,
@@ -946,6 +971,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               preferFilterFrame: Boolean(requestedFrame),
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
+              // Timeline bots keep a single persona voice; interactive chat always
+              // publishes the three-analyst desk once lake evidence exists.
+              requireDesk: !bot,
+              deskPublished: Boolean(capture.desk),
             });
             return policy;
           },
@@ -995,6 +1024,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             ...(output.result !== undefined ? { result: boundedResult(output.result) } : {}),
             ...(output.chart !== undefined ? { chart: output.chart } : {}),
             ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
+            ...(output.desk !== undefined ? { desk: output.desk } : {}),
           },
         };
       }),

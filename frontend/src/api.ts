@@ -429,6 +429,13 @@ export interface SharedChatMessage extends ChatHistoryMessage {
     xLabel?: string;
     yLabel?: string;
   };
+  /** Three-analyst desk viewpoints published via publish_desk. */
+  desk?: {
+    fundamental: string;
+    technical: string;
+    options: string;
+    overview: string;
+  };
 }
 
 export type ShareChatMessage = SharedChatMessage;

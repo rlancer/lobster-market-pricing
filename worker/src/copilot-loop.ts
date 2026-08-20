@@ -16,12 +16,25 @@ export const QUERY_FORCE_FAILURES_MAX = 3;
 export type CopilotToolChoice =
   | "auto"
   | "none"
-  | { type: "tool"; toolName: "run_query" | "filter_frame" };
+  | { type: "tool"; toolName: "run_query" | "filter_frame" | "publish_desk" };
+
+export type CopilotActiveToolName =
+  | "run_query"
+  | "filter_frame"
+  | "check_schema"
+  | "list_frames"
+  | "refresh_frame"
+  | "render_chart"
+  | "get_news"
+  | "web_search"
+  | "eco_calendar"
+  | "research_ticker"
+  | "publish_desk";
 
 export interface CopilotStepPolicy {
   toolChoice: CopilotToolChoice;
   /** When set, restricts which tools the model may call this step. */
-  activeTools?: Array<"run_query" | "filter_frame" | "check_schema" | "list_frames" | "refresh_frame" | "render_chart" | "get_news" | "web_search" | "eco_calendar" | "research_ticker">;
+  activeTools?: CopilotActiveToolName[];
   maxOutputTokens: number;
 }
 
@@ -35,6 +48,9 @@ export function nextCopilotStepPolicy(opts: {
   finalTokenReserve: number;
   maxSteps?: number;
   forceFailuresMax?: number;
+  /** When true, force publish_desk once evidence exists and the desk is not yet published. */
+  requireDesk?: boolean;
+  deskPublished?: boolean;
 }): CopilotStepPolicy {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
@@ -51,6 +67,17 @@ export function nextCopilotStepPolicy(opts: {
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
 
   if (opts.successfulQuery) {
+    // After lake evidence lands, force the three-analyst desk once so the UI
+    // always gets Fundamental / Technical / Options panels (not TA-only prose).
+    if (opts.requireDesk && !opts.deskPublished) {
+      // publish_desk packs four viewpoint strings into one tool call — give it
+      // more headroom than a typical SQL round.
+      const deskBudget = Math.max(toolBudget, Math.min(4_096, remaining - opts.finalTokenReserve));
+      return {
+        maxOutputTokens: Math.max(256, deskBudget),
+        toolChoice: { type: "tool", toolName: "publish_desk" },
+      };
+    }
     return { toolChoice: "auto", maxOutputTokens: toolBudget };
   }
 

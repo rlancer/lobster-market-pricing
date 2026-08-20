@@ -7,11 +7,12 @@ import { ResultTable } from './QueryResultView';
 import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChatMessage } from './api';
 import { AssistantMark } from './Sunglasses';
+import { DeskViewpoints } from './DeskViewpoints';
 
 /**
  * Read-only assistant turn body shared by /share/:id and the public timeline.
- * Mirrors the finished-message layout in AiChat: markdown, collapsible
- * Thinking, chart, SQL block, and query result (details when a chart is up).
+ * Mirrors the finished-message layout in AiChat: desk viewpoints, markdown,
+ * collapsible Thinking, chart, SQL block, and query result (details when a chart is up).
  */
 export function AssistantMessageBody({
   message,
@@ -81,7 +82,17 @@ export function AssistantMessageBody({
 
   return (
     <>
-      {message.content && <div className="ai-text"><Markdown>{message.content}</Markdown></div>}
+      {message.desk && <DeskViewpoints desk={message.desk} showOverview={false} />}
+      {(() => {
+        const overview = message.desk?.overview?.trim() || message.content?.trim() || '';
+        if (!overview) return null;
+        return (
+          <div className="ai-text">
+            {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
+            <Markdown>{overview}</Markdown>
+          </div>
+        );
+      })()}
       {message.reasoning && (
         <details className="ai-thinking ai-thinking-done">
           <summary>Thinking</summary>

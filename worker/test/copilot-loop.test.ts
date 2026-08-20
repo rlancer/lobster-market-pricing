@@ -31,6 +31,40 @@ test('switches to auto after a successful query', () => {
   assert.equal(policy.activeTools, undefined);
 });
 
+test('forces publish_desk after a successful query when the desk is required', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 2,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
+  assert.ok((policy.maxOutputTokens ?? 0) >= 2_048);
+});
+
+test('returns to auto after publish_desk has been published', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: true,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('does not force publish_desk for bot / timeline turns', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 2,
+    successfulQuery: true,
+    requireDesk: false,
+    deskPublished: false,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
 test('stops forcing tools after QUERY_FORCE_FAILURES_MAX failures', () => {
   // Regression: chat c7d67546… burned 9 forced run_query probes (SELECT 1 /
   // SELECT 'test' AS t) because toolChoice stayed forced until success.

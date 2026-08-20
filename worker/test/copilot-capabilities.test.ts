@@ -23,6 +23,7 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   const ids = caps.prompts.map((prompt) => prompt.id);
   assert.deepEqual(ids, [
     "copilot",
+    "desk-analysts",
     "bot-addon",
     "scope-classifier",
     "chat-meta",
@@ -31,8 +32,13 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   ]);
   const copilot = caps.prompts.find((prompt) => prompt.id === "copilot");
   assert.ok(copilot);
-  assert.match(copilot.body, /senior quant developer/);
+  assert.match(copilot.body, /three-analyst/);
+  assert.match(copilot.body, /publish_desk/);
   assert.ok(copilot.body.includes(SCHEMA_PLACEHOLDER));
+  const desk = caps.prompts.find((prompt) => prompt.id === "desk-analysts");
+  assert.ok(desk);
+  assert.match(desk.body, /Fundamental analyst/);
+  assert.ok(caps.tools.some((tool) => tool.name === "publish_desk"));
 });
 
 test("describeCopilotCapabilities can embed a live lake schema without samples", () => {
