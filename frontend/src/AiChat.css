@@ -601,7 +601,6 @@
   justify-content: center;
   width: 100%;
   padding: var(--spacing-3) var(--spacing-4);
-  border-top: var(--border-width) solid var(--color-border-emphasized);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   backdrop-filter: blur(10px);
   position: sticky;
