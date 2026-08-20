@@ -399,15 +399,20 @@ test.describe('Public timeline', () => {
     const rail = page.getByRole('complementary', { name: 'Chat rail' });
     await expect(rail).toBeVisible();
     await expect(head).toBeVisible();
-    // Top bar is full-bleed chrome — it spans across the rail, not just the
-    // transcript column.
+    // Top bar is full-bleed chrome; transcript + composer stay in a chat-max
+    // column with the rail beside them (timeline pairing).
     const headBox = await head.boundingBox();
     const railBox = await rail.boundingBox();
     const chatBox = await page.locator('section.ai-chat').boundingBox();
-    expect(headBox && railBox && chatBox).toBeTruthy();
+    const mainBox = await page.locator('.ai-chat-main').boundingBox();
+    const composerBox = await page.locator('.ai-composer-wrap').boundingBox();
+    expect(headBox && railBox && chatBox && mainBox && composerBox).toBeTruthy();
     expect(railBox!.y).toBeGreaterThan(headBox!.y + headBox!.height - 2);
     expect(Math.abs(headBox!.width - chatBox!.width)).toBeLessThan(2);
     expect(headBox!.x + headBox!.width).toBeGreaterThanOrEqual(railBox!.x + railBox!.width - 2);
+    expect(mainBox!.x + mainBox!.width).toBeLessThanOrEqual(railBox!.x + 2);
+    expect(Math.abs(composerBox!.width - mainBox!.width)).toBeLessThan(4);
+    expect(composerBox!.width).toBeLessThan(headBox!.width - 80);
 
     await expect(rail.getByRole('heading', { name: 'Sources' })).toBeVisible();
     await expect(rail.getByRole('link', { name: /NVDA/ })).toBeVisible();

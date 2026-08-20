@@ -600,12 +600,13 @@
   flex-shrink: 0;
   display: flex;
   justify-content: center;
+  width: 100%;
   padding: var(--spacing-3) var(--spacing-4);
   border-top: var(--border-width) solid var(--color-border-emphasized);
   background: var(--panel);
 }
 .ai-composer-wrap > * {
-  width: min(100%, var(--chat-max));
+  width: 100%;
 }
 
 /* ---- responsive ---------------------------------------------------------- */
