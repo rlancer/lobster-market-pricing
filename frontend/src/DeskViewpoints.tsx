@@ -59,10 +59,11 @@ export function DeskViewpoints({
 export function isDeskBrief(value: unknown): value is DeskBrief {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const rec = value as Record<string, unknown>;
-  return (
-    typeof rec.fundamental === 'string' && rec.fundamental.trim().length > 0
-    && typeof rec.technical === 'string' && rec.technical.trim().length > 0
-    && typeof rec.options === 'string' && rec.options.trim().length > 0
-    && typeof rec.overview === 'string' && rec.overview.trim().length > 0
-  );
+  const fields = [rec.fundamental, rec.technical, rec.options, rec.overview];
+  if (!fields.every((field) => typeof field === 'string' && field.trim().length > 0)) return false;
+  // Hide stub desks from broken mid-turn shares (literal "placeholder").
+  const stub = /^(placeholder|tbd|todo|n\/?a|none|null|undefined|\.{1,3}|x+|-+)$/i;
+  if (fields.some((field) => stub.test(String(field).replace(/\s+/g, ' ').trim()))) return false;
+  if (fields.some((field) => String(field).trim().length < 40)) return false;
+  return true;
 }

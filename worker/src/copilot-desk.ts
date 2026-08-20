@@ -41,11 +41,22 @@ export const DESK_OVERVIEW_SUMMARY =
 
 const VIEWPOINT_MAX_CHARS = 2_400;
 const OVERVIEW_MAX_CHARS = 3_200;
+/** Specialist takes should be real sentences — not "placeholder" stubs. */
+const VIEWPOINT_MIN_CHARS = 40;
+const OVERVIEW_MIN_CHARS = 40;
 
 function clip(text: string, max: number): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** True for empty / tiny / explicit stub strings models emit under forced toolChoice. */
+export function isDeskStubText(text: string): boolean {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (!trimmed) return true;
+  if (/^(placeholder|tbd|todo|n\/?a|none|null|undefined|\.{1,3}|x+|-+)$/i.test(trimmed)) return true;
+  return false;
 }
 
 /** Normalize / bound a publish_desk payload for tool output + UI. */
@@ -60,6 +71,22 @@ export function normalizeDeskBrief(input: {
   const options = clip(String(input.options ?? ""), VIEWPOINT_MAX_CHARS);
   const overview = clip(String(input.overview ?? ""), OVERVIEW_MAX_CHARS);
   if (!fundamental || !technical || !options || !overview) return null;
+  // Reject forced-tool stubs so capture.desk stays unset and the loop can retry
+  // with real evidence (GME share ynQcuupDNBG04fcaYleY01hi).
+  if (
+    isDeskStubText(fundamental)
+    || isDeskStubText(technical)
+    || isDeskStubText(options)
+    || isDeskStubText(overview)
+    || fundamental.length < VIEWPOINT_MIN_CHARS
+    || technical.length < VIEWPOINT_MIN_CHARS
+    || options.length < VIEWPOINT_MIN_CHARS
+    || overview.length < OVERVIEW_MIN_CHARS
+  ) {
+    return null;
+  }
+  // Identical copy-pasted fields are not three specialist takes.
+  if (fundamental === technical && technical === options) return null;
   return { fundamental, technical, options, overview };
 }
 
@@ -94,6 +121,7 @@ export function deskAnalystBlock(): string {
     "",
     "Desk publishing:",
     "- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill all four fields with distinct angles grounded in the shared evidence.",
+    "- Never put stub text (\"placeholder\", \"TBD\", \"TODO\") in publish_desk — incomplete desks are rejected and the turn stalls. Gather research_ticker / SQL / news first, then publish real takes.",
     "- Emit NO assistant prose (no status lines, no \"let me…\", no partial takes) until publish_desk has succeeded. Tool calls only until then.",
     "- Keep each specialist take to roughly 2–5 sentences. The overview weighs where they agree or conflict and states the net take.",
     "- After publish_desk, call suggest_trades (structured trades or empty + skip_reason), then the final message text must be ONLY the desk overview (1–4 sentences) — identical in substance to the overview field. Do not re-paste the three specialist takes or the trade list into the prose; the UI already shows them from the tools.",

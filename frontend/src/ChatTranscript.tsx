@@ -7,7 +7,7 @@ import { ResultTable } from './QueryResultView';
 import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChatMessage } from './api';
 import { AssistantMark } from './Sunglasses';
-import { DeskViewpoints } from './DeskViewpoints';
+import { DeskViewpoints, isDeskBrief } from './DeskViewpoints';
 import { SuggestedTradesView } from './SuggestedTrades';
 
 /**
@@ -81,15 +81,18 @@ export function AssistantMessageBody({
     </>
   ) : null;
 
+  const desk = message.desk && isDeskBrief(message.desk) ? message.desk : null;
+  const overviewRaw = (desk?.overview || message.content || '').trim();
+  const overview = /^(placeholder|tbd|todo|n\/?a|none|\.{1,3})$/i.test(overviewRaw) ? '' : overviewRaw;
+
   return (
     <>
-      {message.desk && <DeskViewpoints desk={message.desk} showOverview={false} />}
+      {desk && <DeskViewpoints desk={desk} showOverview={false} />}
       {(() => {
-        const overview = message.desk?.overview?.trim() || message.content?.trim() || '';
         if (!overview) return null;
         return (
           <div className="ai-text">
-            {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
+            {desk ? <span className="ai-desk-overview-label">Overview</span> : null}
             <Markdown>{overview}</Markdown>
           </div>
         );

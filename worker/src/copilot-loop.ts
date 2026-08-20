@@ -16,6 +16,17 @@ export const QUERY_FORCE_FAILURES_MAX = 3;
 /** Forced suggest_trades attempts before sealing without structured trades. */
 export const TRADES_FORCE_FAILURES_MAX = 2;
 
+/** Forced publish_desk attempts before sealing without a desk. */
+export const DESK_FORCE_FAILURES_MAX = 2;
+
+/**
+ * Auto tool rounds after the first successful lake query before we force
+ * publish_desk. Without this, models under forced toolChoice emit stub
+ * "placeholder" desks before research_ticker / chain SQL land
+ * (share ynQcuupDNBG04fcaYleY01hi).
+ */
+export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 3;
+
 export type CopilotToolChoice =
   | "auto"
   | "none"
@@ -55,6 +66,11 @@ export function nextCopilotStepPolicy(opts: {
   /** When true, force publish_desk once evidence exists and the desk is not yet published. */
   requireDesk?: boolean;
   deskPublished?: boolean;
+  /** Auto steps completed after the first successful query (desk gather window). */
+  stepsAfterQuery?: number;
+  autoStepsBeforeDesk?: number;
+  failedDeskCount?: number;
+  deskForceFailuresMax?: number;
   /** When true (with requireDesk), force suggest_trades after the desk before sealing. */
   requireTrades?: boolean;
   tradesPublished?: boolean;
@@ -65,6 +81,8 @@ export function nextCopilotStepPolicy(opts: {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
   const tradesForceFailuresMax = opts.tradesForceFailuresMax ?? TRADES_FORCE_FAILURES_MAX;
+  const deskForceFailuresMax = opts.deskForceFailuresMax ?? DESK_FORCE_FAILURES_MAX;
+  const autoBeforeDesk = opts.autoStepsBeforeDesk ?? AUTO_STEPS_AFTER_QUERY_BEFORE_DESK;
   const remaining = opts.remainingTokens;
   if (remaining < 256) {
     throw new Error("Copilot output-token budget exhausted before a final answer");
@@ -80,14 +98,25 @@ export function nextCopilotStepPolicy(opts: {
   if (opts.successfulQuery) {
     // After lake evidence lands, force the three-analyst desk once so the UI
     // always gets Fundamental / Technical / Options panels (not TA-only prose).
+    // Give a short auto window first so research_ticker / chain SQL can run —
+    // forcing desk on the next step produced literal "placeholder" stubs.
     if (opts.requireDesk && !opts.deskPublished) {
-      // publish_desk packs four viewpoint strings into one tool call — give it
-      // more headroom than a typical SQL round.
-      const deskBudget = Math.max(toolBudget, Math.min(4_096, remaining - opts.finalTokenReserve));
-      return {
-        maxOutputTokens: Math.max(256, deskBudget),
-        toolChoice: { type: "tool", toolName: "publish_desk" },
-      };
+      const stepsAfterQuery = opts.stepsAfterQuery ?? 0;
+      const nearEnd = opts.stepNumber >= maxSteps - 3;
+      const gatherDone = stepsAfterQuery >= autoBeforeDesk || nearEnd;
+      const failedDesk = opts.failedDeskCount ?? 0;
+      if (!gatherDone) {
+        return { toolChoice: "auto", maxOutputTokens: toolBudget };
+      }
+      if (failedDesk < deskForceFailuresMax) {
+        const deskBudget = Math.max(toolBudget, Math.min(4_096, remaining - opts.finalTokenReserve));
+        return {
+          maxOutputTokens: Math.max(256, deskBudget),
+          toolChoice: { type: "tool", toolName: "publish_desk" },
+        };
+      }
+      // Stub/incomplete desk exhausted retries — seal so the turn does not spin.
+      return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
     }
     // Structured trades next — UI renders from suggest_trades, not prose parsing.
     // Stop forcing after repeated incomplete payloads so the turn can seal.

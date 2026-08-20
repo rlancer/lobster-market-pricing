@@ -108,6 +108,10 @@ interface Capture {
   trades: SuggestedTrades | null;
   /** In-turn counter: failed suggest_trades while forcing (persisted in capture_json). */
   failed_trades_count?: number;
+  /** In-turn counter: failed publish_desk while forcing (stub rejection, etc.). */
+  failed_desk_count?: number;
+  /** Steps completed after the first successful lake query (desk gather window). */
+  steps_after_query?: number;
 }
 
 interface ToolOutput {
@@ -712,7 +716,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     tables: LakeTable[],
     capture: Capture,
     status: (value: string) => void,
-    turn: { used: number; successfulQuery: boolean; failedQueryCount: number; failedTradesCount: number },
+    turn: {
+      used: number;
+      successfulQuery: boolean;
+      failedQueryCount: number;
+      failedTradesCount: number;
+      failedDeskCount: number;
+      stepsAfterQuery: number;
+    },
   ) {
     const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
     const noteQueryFailure = () => {
@@ -722,6 +733,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const noteTradesFailure = () => {
       turn.failedTradesCount += 1;
       capture.failed_trades_count = turn.failedTradesCount;
+      persist();
+    };
+    const noteDeskFailure = () => {
+      turn.failedDeskCount += 1;
+      capture.failed_desk_count = turn.failedDeskCount;
       persist();
     };
     return {
@@ -903,11 +919,14 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           status("Publishing desk viewpoints…");
           const desk = normalizeDeskBrief(args);
           if (!desk) {
-            return this.output(false, "publish_desk requires non-empty fundamental, technical, options, and overview fields.", {
-              error: "Desk viewpoints incomplete.",
+            noteDeskFailure();
+            return this.output(false, "publish_desk rejected: need real fundamental/technical/options/overview takes (no placeholders or tiny stubs).", {
+              error: "Desk viewpoints incomplete or stubbed.",
             });
           }
           capture.desk = desk;
+          capture.failed_desk_count = 0;
+          turn.failedDeskCount = 0;
           persist();
           return this.output(true, formatDeskToolSummary(desk), { error: null, desk });
         }),
@@ -963,6 +982,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       successfulQuery: budget.successful_query === 1,
       failedQueryCount: budget.failed_query_count,
       failedTradesCount: typeof capture.failed_trades_count === "number" ? capture.failed_trades_count : 0,
+      failedDeskCount: typeof capture.failed_desk_count === "number" ? capture.failed_desk_count : 0,
+      stepsAfterQuery: typeof capture.steps_after_query === "number" ? capture.steps_after_query : 0,
     };
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
 
@@ -1040,6 +1061,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               // publishes the three-analyst desk + structured trades once lake evidence exists.
               requireDesk: !bot,
               deskPublished: Boolean(capture.desk),
+              stepsAfterQuery: turn.stepsAfterQuery,
+              failedDeskCount: turn.failedDeskCount,
               requireTrades: !bot,
               tradesPublished: capture.trades != null,
               failedTradesCount: turn.failedTradesCount,
@@ -1055,6 +1078,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           onStepFinish: (step) => {
             const outputTokens = step.usage.outputTokens ?? Math.max(1, Math.ceil(step.text.length / 4));
             turn.used = Math.min(budget.total_output_tokens, turn.used + outputTokens);
+            if (turn.successfulQuery) {
+              turn.stepsAfterQuery += 1;
+              capture.steps_after_query = turn.stepsAfterQuery;
+            }
             this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
           },
           onFinish: () => {

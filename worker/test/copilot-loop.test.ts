@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AGENT_ITERATIONS_MAX,
+  DESK_FORCE_FAILURES_MAX,
   QUERY_FORCE_FAILURES_MAX,
   TRADES_FORCE_FAILURES_MAX,
   nextCopilotStepPolicy,
@@ -32,16 +33,55 @@ test('switches to auto after a successful query', () => {
   assert.equal(policy.activeTools, undefined);
 });
 
-test('forces publish_desk after a successful query when the desk is required', () => {
+test('keeps auto after a successful query until the desk gather window ends', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
     stepNumber: 2,
     successfulQuery: true,
     requireDesk: true,
     deskPublished: false,
+    stepsAfterQuery: 1,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('forces publish_desk after the gather window when the desk is required', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 4,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 3,
   });
   assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
   assert.ok((policy.maxOutputTokens ?? 0) >= 2_048);
+});
+
+test('forces publish_desk near the end even if the gather window is open', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: AGENT_ITERATIONS_MAX - 3,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 0,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
+});
+
+test('stops forcing publish_desk after DESK_FORCE_FAILURES_MAX failures', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 5,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 3,
+    failedDeskCount: DESK_FORCE_FAILURES_MAX,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
 });
 
 test('seals with tools off after publish_desk when trades are not required', () => {

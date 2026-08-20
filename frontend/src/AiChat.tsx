@@ -1191,13 +1191,19 @@ function AiChatSession({
                                 thinkingRef={thinkingRef}
                               />
                             )}
-                            {message.role === 'assistant' && message.desk && (
+                            {message.role === 'assistant' && message.desk && isDeskBrief(message.desk) && (
                               <DeskViewpoints desk={message.desk} showOverview={false} />
                             )}
                             {(() => {
-                              const overview = message.role === 'assistant' && message.desk
-                                ? message.desk.overview
+                              const desk = message.role === 'assistant' && message.desk && isDeskBrief(message.desk)
+                                ? message.desk
+                                : null;
+                              const overviewRaw = desk
+                                ? desk.overview
                                 : message.content;
+                              const overview = /^(placeholder|tbd|todo|n\/?a|none|\.{1,3})$/i.test((overviewRaw || '').trim())
+                                ? ''
+                                : overviewRaw;
                               const showOverview = Boolean(overview?.trim());
                               if (!showOverview) return null;
                               if (message.role !== 'assistant') {
@@ -1216,7 +1222,7 @@ function AiChatSession({
                               }
                               return (
                                 <div className="ai-text">
-                                  {message.desk ? <span className="ai-desk-overview-label">Overview</span> : null}
+                                  {desk ? <span className="ai-desk-overview-label">Overview</span> : null}
                                   <Markdown>{overview}</Markdown>
                                 </div>
                               );
