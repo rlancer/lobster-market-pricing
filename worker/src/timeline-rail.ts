@@ -1,13 +1,19 @@
 /**
- * Desktop timeline rail: tags from public posts, breaking news, and a
- * market-highlights tape. Failures degrade per-section so the feed still
- * loads; never 500 on a Tavily or lake outage.
+ * Desktop companion rail shared by the home timeline and /chat: tags,
+ * headlines, and a tape. Timeline scopes tags to public posts and the tape
+ * to the index watchlist; chat scopes all three to tickers linked on that
+ * conversation. Failures degrade per-section so the page still loads;
+ * never 500 on a Tavily or lake outage.
  */
+import { listChatTickers } from "./chat-tickers";
+
 export const TIMELINE_RAIL_TAGS_LIMIT = 16;
 export const TIMELINE_RAIL_NEWS_LIMIT = 6;
 export const TIMELINE_RAIL_NEWS_TTL_MS = 10 * 60 * 1000;
 export const TIMELINE_RAIL_NEWS_DAYS = 2;
 export const TIMELINE_RAIL_NEWS_QUERY = "US stock market breaking news";
+/** Cap how many chat-linked tickers drive news + tape. */
+export const CHAT_RAIL_TICKER_LIMIT = 8;
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const NEWS_SNIPPET_MAX = 240;
 /** Calendar window wide enough for two sessions around a long weekend. */
@@ -130,8 +136,11 @@ export function parseTavilyNewsResults(
     .slice(0, Math.max(1, Math.min(20, limit)));
 }
 
-export function marketHighlightSql(since: string): string {
-  const symbols = MARKET_HIGHLIGHT_WATCHLIST.map((item) => lit(item.ticker)).join(", ");
+export function marketHighlightSql(
+  since: string,
+  watchlist: ReadonlyArray<{ ticker: string; name: string }> = MARKET_HIGHLIGHT_WATCHLIST,
+): string {
+  const symbols = watchlist.map((item) => lit(item.ticker)).join(", ");
   return (
     "WITH latest_bars AS (\n" +
     "  SELECT symbol, date, close,\n" +
@@ -154,15 +163,50 @@ export function marketHighlightSql(since: string): string {
   );
 }
 
+/** Build a Tavily news query from chat-linked tickers (capped). */
+export function chatNewsQuery(tickers: string[]): string {
+  const clean = tickers
+    .map((ticker) => ticker.trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, CHAT_RAIL_TICKER_LIMIT);
+  if (clean.length === 0) return TIMELINE_RAIL_NEWS_QUERY;
+  if (clean.length === 1) return `${clean[0]} stock news`;
+  return `${clean.join(" ")} stock news`;
+}
+
+/** Map chat_tickers rows onto the shared rail tag shape (posts = mentions). */
+export function tagsFromChatTickers(
+  links: { ticker: string; mention_count: number; name?: string | null }[],
+  limit = CHAT_RAIL_TICKER_LIMIT,
+): { tags: TimelineRailTag[]; watchlist: { ticker: string; name: string }[] } {
+  const tags: TimelineRailTag[] = [];
+  const watchlist: { ticker: string; name: string }[] = [];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const ticker = link.ticker.trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    tags.push({ ticker, posts: Math.max(1, Number(link.mention_count) || 1) });
+    watchlist.push({
+      ticker,
+      name: (link.name ?? "").trim() || ticker,
+    });
+    if (tags.length >= limit) break;
+  }
+  return { tags, watchlist };
+}
+
 export async function loadTimelineRail(deps: TimelineRailDeps): Promise<TimelineRail> {
   const now = deps.now ?? Date.now();
   const fetched_at = new Date(now).toISOString();
   const [tags, newsResult, highlightsResult] = await Promise.all([
     loadTags(deps.env.SCHEMA_DB, now).catch(() => [] as TimelineRailTag[]),
-    loadBreakingNews(deps).catch((error): { items: TimelineRailNewsItem[]; error?: string } => ({
-      items: [],
-      error: String((error && (error as Error).message) || error),
-    })),
+    loadNews(deps, TIMELINE_RAIL_NEWS_QUERY, "breaking").catch(
+      (error): { items: TimelineRailNewsItem[]; error?: string } => ({
+        items: [],
+        error: String((error && (error as Error).message) || error),
+      }),
+    ),
     loadHighlights(deps, now).catch((error): { items: TimelineRailHighlight[]; error?: string } => ({
       items: [],
       error: String((error && (error as Error).message) || error),
@@ -170,6 +214,53 @@ export async function loadTimelineRail(deps: TimelineRailDeps): Promise<Timeline
   ]);
 
   const rail: TimelineRail = {
+    tags,
+    news: newsResult.items,
+    highlights: highlightsResult.items,
+    fetched_at,
+  };
+  if (newsResult.error) rail.news_error = newsResult.error;
+  if (highlightsResult.error) rail.highlights_error = highlightsResult.error;
+  return rail;
+}
+
+/**
+ * Chat-scoped rail. When the conversation has linked tickers, tags / news /
+ * tape follow those symbols; otherwise fall back to the market timeline rail
+ * so a fresh chat still has useful context.
+ */
+export async function loadChatRail(
+  deps: TimelineRailDeps,
+  chatId: string,
+): Promise<TimelineRail & { chat_id: string }> {
+  const links = await listChatTickers(deps.env.SCHEMA_DB, chatId).catch(() => []);
+  const { tags, watchlist } = tagsFromChatTickers(links);
+  if (watchlist.length === 0) {
+    const market = await loadTimelineRail(deps);
+    return { ...market, chat_id: chatId, tags: [] };
+  }
+
+  const now = deps.now ?? Date.now();
+  const fetched_at = new Date(now).toISOString();
+  const newsQuery = chatNewsQuery(watchlist.map((item) => item.ticker));
+  const cacheKey = `chat:${watchlist.map((item) => item.ticker).join(",")}`;
+  const [newsResult, highlightsResult] = await Promise.all([
+    loadNews(deps, newsQuery, cacheKey).catch(
+      (error): { items: TimelineRailNewsItem[]; error?: string } => ({
+        items: [],
+        error: String((error && (error as Error).message) || error),
+      }),
+    ),
+    loadHighlights(deps, now, watchlist).catch(
+      (error): { items: TimelineRailHighlight[]; error?: string } => ({
+        items: [],
+        error: String((error && (error as Error).message) || error),
+      }),
+    ),
+  ]);
+
+  const rail: TimelineRail & { chat_id: string } = {
+    chat_id: chatId,
     tags,
     news: newsResult.items,
     highlights: highlightsResult.items,
@@ -204,12 +295,13 @@ async function loadTags(db: D1Database, now: number): Promise<TimelineRailTag[]>
   return rankTimelineTags(rows.results ?? []);
 }
 
-async function loadBreakingNews(
+async function loadNews(
   deps: TimelineRailDeps,
+  query: string,
+  cacheKey: string,
 ): Promise<{ items: TimelineRailNewsItem[]; error?: string }> {
   const key = deps.env.TAVILY_API_KEY?.trim();
   if (!key) return { items: [], error: "news unavailable" };
-  const cacheKey = "breaking";
   const hit = newsCache.get(cacheKey);
   const now = deps.now ?? Date.now();
   if (hit && now - hit.ts < TIMELINE_RAIL_NEWS_TTL_MS) {
@@ -223,7 +315,7 @@ async function loadBreakingNews(
       authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
-      query: TIMELINE_RAIL_NEWS_QUERY,
+      query,
       topic: "news",
       search_depth: "basic",
       max_results: TIMELINE_RAIL_NEWS_LIMIT,
@@ -246,13 +338,18 @@ async function loadBreakingNews(
 async function loadHighlights(
   deps: TimelineRailDeps,
   now: number,
+  watchlist: ReadonlyArray<{ ticker: string; name: string }> = MARKET_HIGHLIGHT_WATCHLIST,
 ): Promise<{ items: TimelineRailHighlight[]; error?: string }> {
   if (!deps.queryLake) return { items: [], error: "lake unavailable" };
+  if (watchlist.length === 0) return { items: [], error: "no symbols" };
   const since = new Date(now - HIGHLIGHT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
-  const rows = await deps.queryLake(marketHighlightSql(since), "timeline_rail_hl_v1");
-  const items = highlightsFromOhlcRows(rows);
+  const cacheKey = watchlist === MARKET_HIGHLIGHT_WATCHLIST
+    ? "timeline_rail_hl_v1"
+    : `chat_rail_hl_v1_${watchlist.map((item) => item.ticker).join("_")}`;
+  const rows = await deps.queryLake(marketHighlightSql(since, watchlist), cacheKey);
+  const items = highlightsFromOhlcRows(rows, watchlist);
   const missing = items.every((item) => item.spot == null);
   if (missing && rows.length === 0) return { items, error: "no highlight bars" };
   return { items };

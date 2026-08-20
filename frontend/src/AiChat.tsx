@@ -34,6 +34,7 @@ import { ChartView, type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
+import { ChatRail } from './ChatRail';
 
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
@@ -834,7 +835,9 @@ function AiChatSession({
   }, [accessBlocked, agent]);
 
   return (
-    <section className="ai-chat">
+    <section className="ai-chat-page">
+      <section className="ai-chat-columns">
+        <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
         {botHandle && (
           <p className="ai-bot-banner" role="status">
@@ -1164,6 +1167,11 @@ function AiChatSession({
           </>
         )}
       </Dialog>
+        </section>
+        {!accessBlocked && (
+          <ChatRail chatId={chatId} refreshKey={researchRefreshKey} />
+        )}
+      </section>
     </section>
   );
 }

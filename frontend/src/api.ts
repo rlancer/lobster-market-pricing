@@ -917,6 +917,9 @@ export const api = {
       cache: 'no-store',
     }),
   timelineRail: () => get<TimelineRail>('/api/timeline/rail'),
+  /** Desktop chat companion column — tags/news/tape scoped to this chat's tickers. */
+  chatRail: (chatId: string) =>
+    get<TimelineRail & { chat_id: string }>(`/api/chats/${encodeURIComponent(chatId)}/rail`),
   publishTimeline: (share_id: string) =>
     post<{ ok: boolean; share_id: string; published_at: number }>('/api/timeline', { share_id }),
   unpublishTimeline: (shareId: string) =>

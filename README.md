@@ -264,6 +264,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name, avatar_url?}`. Bot shares also include `bot_handle` / `bot: {handle, display_name, persona}`. |
 | `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `name`, optional `avatar_url` (custom photo path, else null / brand face), `tickers`, and optional `is_bot`; when `handle` is set, `profile` includes `name`, `avatar_url`, `created_at`, and for bots `persona`/`bio`. 404 if `handle` is set and unknown. |
 | `GET /api/timeline/rail` | Desktop timeline column: trending public tags (`chat_tickers` on listed posts), breaking market headlines (Tavily), and an index tape (SPY/QQQ/IWM/DIA/^VIX 1d from `options.ohlc`). `{tags, news, highlights, fetched_at}` — section failures land as empty lists plus `news_error` / `highlights_error`, never a 500. |
+| `GET /api/chats/{id}/rail` | Desktop chat companion column (same envelope as `/api/timeline/rail`, plus `chat_id`). When the chat has linked tickers, tags / related news / session tape follow those symbols; otherwise tags stay empty and news+tape fall back to the market rail. |
 | `POST /api/timeline` | List a share on the public timeline (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. |
 | `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
@@ -295,7 +296,10 @@ in-memory.
 
 The **timeline** is the home surface (`/`). On desktop it adds a companion
 column (tags from public posts, breaking news, index tape) and hides that
-rail below `56rem` until there is a mobile surface. Chat lives at `/chat`. **Research**
+rail below `56rem` until there is a mobile surface. Chat lives at `/chat` and
+reuses the same companion shell, scoped to tickers linked in the conversation
+(related news + session tape; market fallback when nothing is linked yet).
+**Research**
 (`/research`, `/research/{ticker}`) is the ticker detail page — the brief
 (spot + compact fundamentals) paints first from D1/lake; chart and Lobster
 commentary arm when those sections near the viewport; the options chain is

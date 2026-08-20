@@ -1,11 +1,51 @@
 /* Chat is the working surface, not a card inside the app. */
+.ai-chat-page {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.ai-chat-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-5);
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
 .ai-chat {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   background: var(--panel);
+}
+
+.ai-chat-page .companion-rail {
+  /* Chat fills the viewport — keep the rail in the same height budget. */
+  position: sticky;
+  top: var(--spacing-4);
+  align-self: start;
+  max-height: calc(100dvh - var(--topbar-h) - var(--spacing-8));
+  padding-block: var(--spacing-4);
+  padding-inline-end: var(--spacing-4);
+}
+
+@media (min-width: 56rem) {
+  .ai-chat-columns {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
+    margin-inline: auto;
+  }
+
+  .ai-chat-page .companion-rail {
+    padding-inline-end: var(--spacing-5);
+  }
 }
 
 .ai-head {
