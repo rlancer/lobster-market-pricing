@@ -1,6 +1,6 @@
-/* Chat is the working surface, not a card inside the app.
-   Chrome (top bar, connection banner, body) is full-bleed in the content
-   pane; the transcript column keeps a readable --chat-max measure. */
+/* Chat chrome is full-bleed (top bar / connection banner). Below that, the
+   transcript + composer sit in a --chat-max column with the companion rail
+   to the right — same pairing as the timeline feed. */
 .ai-chat {
   display: flex;
   flex-direction: column;
@@ -17,12 +17,17 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-5);
   align-items: stretch;
   width: 100%;
+  max-width: var(--chat-max);
+  margin-inline: auto;
+  padding-inline: var(--spacing-4);
 }
 
 @media (min-width: 56rem) {
   .ai-chat-body:has(.chat-rail) {
+    max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
     grid-template-columns: minmax(0, 1fr) 22rem;
   }
 }
@@ -32,6 +37,8 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  max-width: var(--chat-max);
+  width: 100%;
   overflow: hidden;
 }
 
@@ -41,10 +48,12 @@
   max-height: none;
   height: 100%;
   min-height: 0;
+  width: 100%;
   overflow: auto;
-  padding: var(--spacing-4);
-  border-inline-start: var(--border-width) solid var(--color-border);
-  background: var(--panel);
+  padding-block: var(--spacing-4);
+  padding-inline: 0;
+  border-inline-start: none;
+  background: transparent;
   animation: chat-rail-in var(--duration-medium) var(--ease-standard) both;
 }
 
