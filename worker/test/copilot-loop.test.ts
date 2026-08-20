@@ -48,11 +48,11 @@ test('keeps auto after a successful query until the desk gather window ends', ()
 test('forces publish_desk after the gather window when the desk is required', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
-    stepNumber: 4,
+    stepNumber: 6,
     successfulQuery: true,
     requireDesk: true,
     deskPublished: false,
-    stepsAfterQuery: 3,
+    stepsAfterQuery: 5,
   });
   assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
   assert.ok((policy.maxOutputTokens ?? 0) >= 2_048);
@@ -61,7 +61,7 @@ test('forces publish_desk after the gather window when the desk is required', ()
 test('forces publish_desk near the end even if the gather window is open', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
-    stepNumber: AGENT_ITERATIONS_MAX - 3,
+    stepNumber: AGENT_ITERATIONS_MAX - 4,
     successfulQuery: true,
     requireDesk: true,
     deskPublished: false,
@@ -70,18 +70,30 @@ test('forces publish_desk near the end even if the gather window is open', () =>
   assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
 });
 
-test('stops forcing publish_desk after DESK_FORCE_FAILURES_MAX failures', () => {
+test('returns to auto after an odd desk failure so the model can gather more', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
-    stepNumber: 5,
+    stepNumber: 6,
     successfulQuery: true,
     requireDesk: true,
     deskPublished: false,
-    stepsAfterQuery: 3,
+    stepsAfterQuery: 5,
+    failedDeskCount: 1,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('stays on auto after DESK_FORCE_FAILURES_MAX so a voluntary desk can still land', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 6,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 5,
     failedDeskCount: DESK_FORCE_FAILURES_MAX,
   });
-  assert.equal(policy.toolChoice, 'none');
-  assert.deepEqual(policy.activeTools, []);
+  assert.equal(policy.toolChoice, 'auto');
 });
 
 test('seals with tools off after publish_desk when trades are not required', () => {

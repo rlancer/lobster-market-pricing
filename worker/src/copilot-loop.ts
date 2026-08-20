@@ -16,8 +16,8 @@ export const QUERY_FORCE_FAILURES_MAX = 3;
 /** Forced suggest_trades attempts before sealing without structured trades. */
 export const TRADES_FORCE_FAILURES_MAX = 2;
 
-/** Forced publish_desk attempts before sealing without a desk. */
-export const DESK_FORCE_FAILURES_MAX = 2;
+/** Forced publish_desk attempts before we stop forcing (still allow auto). */
+export const DESK_FORCE_FAILURES_MAX = 4;
 
 /**
  * Auto tool rounds after the first successful lake query before we force
@@ -25,7 +25,7 @@ export const DESK_FORCE_FAILURES_MAX = 2;
  * "placeholder" desks before research_ticker / chain SQL land
  * (share ynQcuupDNBG04fcaYleY01hi).
  */
-export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 3;
+export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 5;
 
 export type CopilotToolChoice =
   | "auto"
@@ -102,10 +102,20 @@ export function nextCopilotStepPolicy(opts: {
     // forcing desk on the next step produced literal "placeholder" stubs.
     if (opts.requireDesk && !opts.deskPublished) {
       const stepsAfterQuery = opts.stepsAfterQuery ?? 0;
-      const nearEnd = opts.stepNumber >= maxSteps - 3;
+      // Reserve final steps for suggest_trades + prose.
+      const mustSealSoon = opts.stepNumber >= maxSteps - 2;
+      if (mustSealSoon) {
+        return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      }
+      const nearEnd = opts.stepNumber >= maxSteps - 4;
       const gatherDone = stepsAfterQuery >= autoBeforeDesk || nearEnd;
       const failedDesk = opts.failedDeskCount ?? 0;
       if (!gatherDone) {
+        return { toolChoice: "auto", maxOutputTokens: toolBudget };
+      }
+      // After a stub rejection, give one auto step so the model can dig more
+      // evidence instead of immediately re-emitting "placeholder".
+      if (failedDesk > 0 && failedDesk % 2 === 1 && failedDesk < deskForceFailuresMax) {
         return { toolChoice: "auto", maxOutputTokens: toolBudget };
       }
       if (failedDesk < deskForceFailuresMax) {
@@ -115,8 +125,9 @@ export function nextCopilotStepPolicy(opts: {
           toolChoice: { type: "tool", toolName: "publish_desk" },
         };
       }
-      // Stub/incomplete desk exhausted retries — seal so the turn does not spin.
-      return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      // Exhausted desk retries — leave tools on auto so a voluntary real desk
+      // can still land; do not hard-seal empty (that produced "no written answer").
+      return { toolChoice: "auto", maxOutputTokens: toolBudget };
     }
     // Structured trades next — UI renders from suggest_trades, not prose parsing.
     // Stop forcing after repeated incomplete payloads so the turn can seal.

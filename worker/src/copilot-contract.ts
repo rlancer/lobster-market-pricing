@@ -56,7 +56,7 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Use trades: [] with skip_reason when nothing is tradable. Absolute strikes must come from option_contracts evidence.",
 } as const;
 
-const deskViewpointText = z.string().trim().min(1).max(2_400);
+const deskViewpointText = z.string().trim().min(40).max(2_400);
 
 export const COPILOT_TOOL_INPUT_SCHEMAS = {
   run_query: z.object({ sql: z.string().min(1), save_as: z.string().trim().min(1).max(80).optional() }).strict(),
@@ -93,7 +93,7 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     fundamental: deskViewpointText.describe("Fundamental analyst take grounded in shared lake evidence."),
     technical: deskViewpointText.describe("Technical analyst take grounded in the same evidence."),
     options: deskViewpointText.describe("Options trader take (liquidity, IV, structure) grounded in the same evidence."),
-    overview: z.string().trim().min(1).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
+    overview: z.string().trim().min(40).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
   }).strict(),
   suggest_trades: z.object({
     trades: z.array(z.object({
