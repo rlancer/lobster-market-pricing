@@ -520,6 +520,34 @@ export interface BotSchedule {
   updated_at: number;
 }
 
+export interface CopilotPromptCapability {
+  id: string;
+  kind: 'system' | 'classifier' | 'meta' | 'invent' | 'addon';
+  title: string;
+  summary: string;
+  body: string;
+  used_by: string;
+}
+
+export interface CopilotToolCapability {
+  name: string;
+  label: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface CopilotCapabilities {
+  prompts: CopilotPromptCapability[];
+  tools: CopilotToolCapability[];
+  meta: {
+    agent_iterations_max: number;
+    query_force_failures_max: number;
+    schema_mode: 'live' | 'placeholder';
+    table_count: number;
+    schema_include_samples: boolean;
+  };
+}
+
 export interface BotGenerateResponse {
   ok: true;
   run_id: string;
@@ -878,6 +906,13 @@ export const api = {
     // Owner of a human listing, or any admin (admins can also unlist bot shares).
     del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
+  adminCopilotCapabilities: (opts?: { schema?: 'live' | 'placeholder'; samples?: boolean }) =>
+    get<CopilotCapabilities>(
+      `/api/admin/copilot/capabilities${qs({
+        schema: opts?.schema,
+        samples: opts?.samples ? '1' : undefined,
+      })}`,
+    ),
   adminBot: (handle: string) =>
     get<{ bot: BotProfile; runs: BotRun[]; schedule: BotSchedule | null }>(
       `/api/admin/bots/${encodeURIComponent(handle)}`,

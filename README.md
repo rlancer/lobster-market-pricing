@@ -282,6 +282,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
+| `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
 | `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Copilot under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |

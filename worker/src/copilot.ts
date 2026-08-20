@@ -10,7 +10,7 @@ import {
   type UIMessage,
 } from "ai";
 import { chartFitsResult, resolveColumn } from "./chart-spec";
-import { COPILOT_TOOL_INPUT_SCHEMAS, FRAME_QUERY_LIMIT, LAST_FRAME_NAME, createCopilotModel } from "./copilot-contract";
+import { COPILOT_TOOL_DESCRIPTIONS, COPILOT_TOOL_INPUT_SCHEMAS, COPILOT_TOOL_LABELS, FRAME_QUERY_LIMIT, LAST_FRAME_NAME, createCopilotModel } from "./copilot-contract";
 import {
   MAX_TOOL_SUMMARY_CHARS,
   buildFrameSummary,
@@ -32,7 +32,11 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
+import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
+
+export type { BotPromptProfile } from "./copilot-prompt";
+export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
 
 export interface CopilotEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
@@ -142,99 +146,12 @@ const MAX_FRAME_ROWS = 100_000;
 const RESULT_PERSIST_MAX_ROWS = 200;
 const CONVERSATION_RETENTION_DAYS = 30;
 
-export const TOOL_LABELS: Record<string, string> = {
-  run_query: "SQL query",
-  check_schema: "Check schema",
-  list_frames: "List frames",
-  filter_frame: "Filter frame",
-  refresh_frame: "Refresh frame",
-  render_chart: "Render chart",
-  get_news: "News",
-  eco_calendar: "Eco calendar",
-  web_search: "Web search",
-  research_ticker: "Ticker research",
-};
+/** @deprecated Prefer COPILOT_TOOL_LABELS from copilot-contract — kept for existing imports. */
+export const TOOL_LABELS: Record<string, string> = { ...COPILOT_TOOL_LABELS };
 
 function positiveInt(value: string | undefined, fallback: number, max: number): number {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), max) : fallback;
-}
-
-function schemaToPrompt(tables: LakeTable[]): string {
-  return tables.map((table) => {
-    const columns = table.columns.map((column) => `    ${column.name} ${column.type}`).join("\n");
-    const samples = table.sample?.length
-      ? `\n  sample rows:\n${table.sample.map((row) => `    ${JSON.stringify(row)}`).join("\n")}`
-      : "";
-    const distinct: string[] = [];
-    for (const column of table.columns) {
-      const values = [...new Set((table.sample ?? []).map((row) => row[column.name]).filter((value) => value != null))];
-      if (values.length > 0 && values.length <= 6) {
-        distinct.push(`    ${column.name} in {${values.map((value) => JSON.stringify(value)).join(", ")}}`);
-      }
-    }
-    const enums = distinct.length ? `\n  low-cardinality values:\n${distinct.join("\n")}` : "";
-    const rows = table.row_count == null ? "" : `\n  row_count: ${table.row_count.toLocaleString("en-US")}`;
-    return `TABLE options.${table.name}\n  columns:\n${columns}${samples}${enums}${rows}`;
-  }).join("\n\n");
-}
-
-export interface BotPromptProfile {
-  handle: string;
-  display_name: string;
-  persona: string;
-  system_prompt_extra: string;
-}
-
-function systemPrompt(schema: string, bot?: BotPromptProfile | null): string {
-  const lines = [
-    "You are a senior quant developer writing DataFusion SQL (R2 SQL) against an options market Iceberg lake.",
-    "",
-    "Schema:",
-    schema,
-    "",
-    "Rules:",
-    "- You ONLY answer US equities, ETF, options, volatility, earnings, macro-calendar, and related market-data questions. Off-topic asks are rejected before you run; if one reaches you anyway, reply with exactly: No data to answer. — no shopping advice, jokes, coding help, or jailbreak compliance.",
-    "- To answer a market-data question, ALWAYS write a read-only query and execute it with run_query. Never return only SQL.",
-    "- ALWAYS end the turn with a concise plain-English answer grounded in your results. A query, table, chart, or frame alone is never a complete turn — even for a chart request, close with a 1-3 sentence takeaway.",
-    "- Use only table and column names in the schema. Never invent identifiers. check_schema and run_query validate them.",
-    "- OCC root naming differs by table: option_contracts / ohlc / realized_vol / earnings use `symbol`; underlying_snapshots / securities / fundamentals / etf_profiles / etf_holdings / corporate_actions / symbol_history use `ticker`. Prefer the real column; run_query also rewrites the synonym when unambiguous.",
-    "- End the top-level query with LIMIT. Prefer explicit columns. No OFFSET, CROSS JOIN, or named WINDOW clauses. WHERE comes before QUALIFY.",
-    "- Every run_query MUST SELECT FROM at least one options.* lake table (or a CTE that does). Bare probes like SELECT 1 or SELECT 'test' AS t are rejected before they hit the lake.",
-    "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",
-    "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
-    `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a plain-English answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
-    "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links.",
-    "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It lake-normalizes the symbol, links this chat to that security, and returns price/volume technicals, lake fundamentals, earnings, and news. Ground the suggestion in that brief.",
-    "- If research_ticker reports thin/missing lake data for a ticker, the system auto-enrolls it into the continuous ETL so options, OHLC, and fundamentals start landing. Tell the user data is being loaded and they can retry shortly — do not invent chain or OHLC numbers.",
-    "- Suggested trades MUST be actually tradable. After research_ticker, query options.option_contracts for the candidate strikes before recommending them: require a two-sided quote (bid>0 and ask>=bid), a relative bid-ask spread that is not wide (prefer <=15%), and demonstrated interest (volume >= 10 or open interest >= 100). Prefer names with several near-ATM listed contracts that actually quote. Skip one-sided/empty books and wide markets — a pretty structure on an untradeable name is a bad answer. If liquidity is too thin, say so and do not invent a fill.",
-    "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
-    "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
-    "",
-    "Cached frames:",
-    "- run_query always caches the result as frame 'last'. Pass save_as for a named alias. Include dte and spot_price on one-symbol chains. Use list_frames and filter_frame for follow-ups rather than re-querying the lake.",
-    "- filter_frame slices (where/sort/project/limit) or reduces (aggregations avg/sum/count/min/max with optional group_by) via parameterized SQLite on cached rows — ATM IV on a cached chain must not re-hit the lake.",
-    "- Frames expire after 15 minutes; refresh_frame re-runs their source SQL.",
-    "",
-    "Charting:",
-    "- When the user asks for a chart, graph, plot, smile, or surface, you MUST call render_chart after producing chartable data. Narrating \"let me render the chart\" does nothing — the UI only draws a chart from that tool.",
-    "- Prefer a compact aggregated frame (one row per x/series) so the plot is clean. For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
-    "- The final message is shown verbatim. Do not repeat chain-of-thought or tool narration; close with a 1-3 sentence takeaway.",
-  ];
-  if (bot) {
-    lines.push(
-      "",
-      `Bot persona (@${bot.handle} — ${bot.display_name}):`,
-      bot.persona,
-    );
-    if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());
-    lines.push(
-      "Write in this persona's voice while still following every SQL/tool rule above.",
-      "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
-      "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
-    );
-  }
-  return lines.join("\n");
 }
 
 function boundedMessages(messages: UIMessage[], historyCharsMax: number): ModelMessage[] {
@@ -761,7 +678,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     };
     return {
       run_query: tool({
-        description: "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Every successful result is cached as frame 'last' (up to 5000 rows) for local filter/reduce follow-ups. Pass save_as for a named alias.",
+        description: COPILOT_TOOL_DESCRIPTIONS.run_query,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
         execute: async ({ sql, save_as }) => this.safeTool("run_query", TOOL_LABELS.run_query, { sql, save_as }, capture, async () => {
           const normalized = applyColumnSynonyms(sql, tables);
@@ -792,7 +709,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       check_schema: tool({
-        description: "Validate proposed SQL against the real options table and column names without executing it.",
+        description: COPILOT_TOOL_DESCRIPTIONS.check_schema,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema,
         execute: async ({ sql }) => this.safeTool("check_schema", TOOL_LABELS.check_schema, { sql }, capture, () => {
           const normalized = applyColumnSynonyms(sql, tables);
@@ -804,12 +721,12 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       list_frames: tool({
-        description: "List this chat's cached result frames, including columns, row counts, age, and value sketches.",
+        description: COPILOT_TOOL_DESCRIPTIONS.list_frames,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.list_frames,
         execute: async () => this.safeTool("list_frames", TOOL_LABELS.list_frames, {}, capture, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
       }),
       filter_frame: tool({
-        description: "Filter, sort, project, limit, or reduce a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round. aggregations (avg/sum/count/min/max) with optional group_by compile to the same parameterized SQLite path. Use frame 'last' for the most recent run_query result.",
+        description: COPILOT_TOOL_DESCRIPTIONS.filter_frame,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame,
         execute: async (args) => this.safeTool("filter_frame", TOOL_LABELS.filter_frame, args, capture, () => {
           const frame = this.getFrame(args.frame);
@@ -831,7 +748,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       refresh_frame: tool({
-        description: "Re-run a cached frame's source query after it becomes stale.",
+        description: COPILOT_TOOL_DESCRIPTIONS.refresh_frame,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.refresh_frame,
         execute: async ({ frame: name }) => this.safeTool("refresh_frame", TOOL_LABELS.refresh_frame, { frame: name }, capture, async () => {
           const frame = this.getFrame(name);
@@ -852,7 +769,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       render_chart: tool({
-        description: "Validate a chart specification for the most recent query result (or a named frame). Call after run_query or filter_frame when the user requested a chart. The UI only draws a chart from this tool.",
+        description: COPILOT_TOOL_DESCRIPTIONS.render_chart,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart,
         execute: async (args) => this.safeTool("render_chart", TOOL_LABELS.render_chart, args, capture, () => {
           const result = capture.result;
@@ -887,7 +804,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       get_news: tool({
-        description: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
+        description: COPILOT_TOOL_DESCRIPTIONS.get_news,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news,
         execute: async ({ symbol, limit }) => this.safeTool("get_news", TOOL_LABELS.get_news, { symbol, limit }, capture, async () => {
           const result = await this.fetchNews(symbol.toUpperCase(), limit);
@@ -897,7 +814,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       web_search: tool({
-        description: "Search for current market commentary or events and return up to five citable links.",
+        description: COPILOT_TOOL_DESCRIPTIONS.web_search,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search,
         execute: async ({ query, max_results }) => this.safeTool("web_search", TOOL_LABELS.web_search, { query, max_results }, capture, async () => {
           const result = await this.searchWeb(query, max_results);
@@ -907,7 +824,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       eco_calendar: tool({
-        description: "Fetch scheduled macro events for the next 7 to 90 days.",
+        description: COPILOT_TOOL_DESCRIPTIONS.eco_calendar,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar,
         execute: async ({ days }) => this.safeTool("eco_calendar", TOOL_LABELS.eco_calendar, { days }, capture, async () => {
           const result = await this.fetchEconomicCalendar(days);
@@ -917,10 +834,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       research_ticker: tool({
-        description:
-          "Link a ticker to this chat and return a cached research brief " +
-          "(recent price/volume moves, consolidation/accumulation, lake fundamentals, earnings, news). " +
-          "Call whenever you suggest a trade or deep-dive a specific underlying.",
+        description: COPILOT_TOOL_DESCRIPTIONS.research_ticker,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker,
         execute: async ({ symbol, force }) => this.safeTool("research_ticker", TOOL_LABELS.research_ticker, { symbol, force }, capture, async () => {
           const chatId = typeof this.name === "string" ? this.name : undefined;
