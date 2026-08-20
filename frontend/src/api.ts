@@ -163,6 +163,24 @@ export interface NewsResponse {
   fetched_at: string;
 }
 
+/** One SEC EDGAR filing / ETF prospectus from /api/research/{ticker}/filings. */
+export interface SecFilingItem {
+  form_type: string;
+  accession: string;
+  filed_at: string;
+  report_date: string | null;
+  description: string | null;
+  edgar_url: string;
+  kind: 'filing' | 'prospectus' | string;
+}
+
+/** Response of /api/research/{ticker}/filings — empty when lake table missing. */
+export interface SecFilingsResponse {
+  ticker: string;
+  items: SecFilingItem[];
+  count: number;
+}
+
 /** One result from the Worker's /api/web_search proxy (Tavily general search). */
 export interface WebSearchResult {
   title: string;
@@ -787,6 +805,7 @@ export interface TickerResearch {
     name: string | null;
   }>;
   news: Array<{ title: string; link: string }>;
+  filings?: SecFilingItem[];
   etf: {
     name: string | null;
     family: string | null;
@@ -1101,6 +1120,10 @@ export const api = {
   researchChats: (ticker: string, limit?: number) =>
     get<ResearchChatsResponse>(
       `/api/research/${encodeURIComponent(ticker.toUpperCase())}/chats${qs({ limit })}`,
+    ),
+  researchFilings: (ticker: string, limit?: number) =>
+    get<SecFilingsResponse>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}/filings${qs({ limit })}`,
     ),
   chatTickers: (chatId: string) =>
     get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),

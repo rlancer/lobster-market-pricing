@@ -2295,6 +2295,47 @@ async function loadResearchEarnings(env: Env, ticker: string): Promise<EarningsB
   }
 }
 
+export interface SecFilingBrief {
+  form_type: string;
+  accession: string;
+  filed_at: string;
+  report_date: string | null;
+  description: string | null;
+  edgar_url: string;
+  kind: "filing" | "prospectus" | string;
+}
+
+async function loadResearchFilings(
+  env: Env,
+  ticker: string,
+  limit = 20,
+): Promise<SecFilingBrief[]> {
+  const lim = Math.max(1, Math.min(50, Math.floor(limit)));
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT form_type, accession, filed_at, report_date, description, edgar_url, kind FROM (` +
+        `  SELECT form_type, accession, filed_at, report_date, description, edgar_url, kind,` +
+        `    ROW_NUMBER() OVER (PARTITION BY accession ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.sec_filings WHERE ticker = ${lit(ticker)}` +
+        `) WHERE rn = 1 ORDER BY filed_at DESC LIMIT ${lim}`,
+      "filings_" + ticker + "_" + lim,
+      QUERY_TTL_MS,
+    );
+    return rows.map((r) => ({
+      form_type: String(r.form_type || ""),
+      accession: String(r.accession || ""),
+      filed_at: String(r.filed_at || ""),
+      report_date: strOrNull(r.report_date),
+      description: strOrNull(r.description),
+      edgar_url: String(r.edgar_url || ""),
+      kind: String(r.kind || "filing"),
+    })).filter((r) => r.edgar_url && r.form_type);
+  } catch {
+    return [];
+  }
+}
+
 async function loadResearchFundamentals(env: Env, ticker: string): Promise<FundamentalsBrief> {
   try {
     const rows = await r2sql(
@@ -2516,6 +2557,20 @@ async function handleResearchGet(env: Env, req: Request, tickerRaw: string, ctx:
     const message = e instanceof Error ? e.message : String(e);
     return json(env, { error: message }, 502, "private");
   }
+}
+
+async function handleResearchFilingsGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
+  const ticker = parseTickerParam(tickerRaw);
+  if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+  const url = new URL(req.url);
+  const limit = num(url.searchParams.get("limit") ?? 20);
+  const items = await loadResearchFilings(env, ticker, limit);
+  return json(
+    env,
+    { ticker, items, count: items.length },
+    200,
+    "private",
+  );
 }
 
 /** Cap warm batch size so a single admin/loader call cannot OOM the isolate. */
@@ -3211,6 +3266,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     }
     if (sub === "commentary" && req.method === "GET") {
       return handleResearchCommentaryGet(env, req, tickerPart);
+    }
+    if (sub === "filings" && req.method === "GET") {
+      return handleResearchFilingsGet(env, req, tickerPart);
     }
     if (!sub && (req.method === "GET" || req.method === "POST")) {
       return handleResearchGet(env, req, tickerPart, ctx);
