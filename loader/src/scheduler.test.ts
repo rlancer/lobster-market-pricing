@@ -54,6 +54,16 @@ class FakeDb {
     if (sql.includes("FROM job_state WHERE job_id = ?")) {
       return this.jobState.get(String(args[0])) ?? null;
     }
+    if (
+      sql.includes("FROM job_state") &&
+      sql.includes("market_gated = 0") &&
+      sql.includes("ORDER BY next_attempt_after ASC")
+    ) {
+      const rows = [...this.jobState.values()]
+        .filter((r) => r.enabled === 1 && Number(r.market_gated) === 0)
+        .sort((a, b) => Number(a.next_attempt_after) - Number(b.next_attempt_after));
+      return rows[0] ? { next_attempt_after: rows[0].next_attempt_after } : null;
+    }
     if (sql.includes("SELECT value FROM loader_meta")) {
       return { value: this.meta.get(String(args[0])) ?? null };
     }
@@ -591,6 +601,80 @@ describe("EtlScheduler — per-job market_gated", () => {
 
     expect(res.status).toBe(409);
     expect(rec.ran).toBe(false);
+  });
+});
+
+describe("EtlScheduler — overnight wake for ungated jobs", () => {
+  it("polls while market closed when an ungated job is already due", async () => {
+    vi.useFakeTimers();
+    // Sunday — equity session closed; next open is Monday 09:30 ET.
+    vi.setSystemTime(new Date("2026-01-04T12:00:00Z"));
+    const db = new FakeDb();
+    db.jobState.set("crypto-spot-ohlc-daily", rowFrom({
+      job_id: "crypto-spot-ohlc-daily",
+      handler: "crypto-spot-ohlc-daily",
+      market_gated: 0,
+      next_attempt_after: 0,
+    }));
+    db.jobState.set("cboe-options", rowFrom({
+      job_id: "cboe-options",
+      handler: "cboe-options",
+      market_gated: 1,
+      next_attempt_after: 0,
+    }));
+    const scheduler = new EtlScheduler(
+      ctx(makeStorage()),
+      env(db, { MARKET_HOURS_ENABLED: "true", LOADER_POLL_INTERVAL_SECONDS: 60 }) as never,
+      [],
+    );
+    const now = Date.now();
+    const wake = await scheduler.computeNextWakeMs(now);
+    expect(wake).toBe(now + 60_000);
+  });
+
+  it("sleeps until next open when no ungated job is due before then", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-04T12:00:00Z")); // Sunday
+    const db = new FakeDb();
+    // Ungated job already succeeded; next attempt is far past Monday open.
+    db.jobState.set("ohlc-daily", rowFrom({
+      job_id: "ohlc-daily",
+      handler: "ohlc-daily",
+      market_gated: 0,
+      next_attempt_after: Date.parse("2026-01-06T12:00:00Z"),
+    }));
+    const scheduler = new EtlScheduler(
+      ctx(makeStorage()),
+      env(db, { MARKET_HOURS_ENABLED: "true", LOADER_POLL_INTERVAL_SECONDS: 60 }) as never,
+      [],
+    );
+    const wake = await scheduler.computeNextWakeMs(Date.now());
+    // Monday 2026-01-05 09:30 America/New_York = 14:30 UTC (EST).
+    expect(wake).toBe(Date.parse("2026-01-05T14:30:00Z"));
+  });
+
+  it("ensureArmed pulls a far-out alarm earlier when an ungated job is due", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-04T12:00:00Z"));
+    const storage = makeStorage();
+    const farOpen = Date.parse("2026-01-05T14:30:00Z");
+    await storage.setAlarm(farOpen);
+    const db = new FakeDb();
+    db.jobState.set("crypto-spot-ohlc-daily", rowFrom({
+      job_id: "crypto-spot-ohlc-daily",
+      handler: "crypto-spot-ohlc-daily",
+      market_gated: 0,
+      next_attempt_after: 0,
+    }));
+    const scheduler = new EtlScheduler(
+      ctx(storage),
+      env(db, { MARKET_HOURS_ENABLED: "true", LOADER_POLL_INTERVAL_SECONDS: 60 }) as never,
+      [],
+    );
+    await scheduler.ensureArmed();
+    const armed = await storage.getAlarm();
+    expect(armed).toBe(Date.now() + 60_000);
+    expect(armed!).toBeLessThan(farOpen);
   });
 });
 
