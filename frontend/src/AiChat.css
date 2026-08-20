@@ -718,7 +718,13 @@
 
 /* ---- responsive ---------------------------------------------------------- */
 @media (max-width: 760px) {
+  /* One horizontal gutter only — head / messages / composer / frames.
+     Body padding is for the desktop rail pairing; stacking it on mobile
+     left empty side margins against the full-bleed chrome. */
+  .ai-chat-body { padding-inline: 0; }
   .ai-head { padding-inline: var(--spacing-3); }
+  .ai-conn { padding-inline: var(--spacing-3); }
+  .ai-frames { padding-inline: var(--spacing-3); }
   .ai-messages { padding: var(--spacing-4) var(--spacing-3) var(--spacing-2); }
   .ai-welcome { gap: var(--spacing-5); padding-block: var(--spacing-4); }
   .ai-welcome-title { font-size: var(--font-size-2xl); }
