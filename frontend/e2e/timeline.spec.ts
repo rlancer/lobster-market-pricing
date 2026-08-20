@@ -352,6 +352,150 @@ test.describe('Public timeline', () => {
     expect(typeof body.fetched_at).toBe('string');
   });
 
+  test('desktop chat shows a companion rail scoped to the conversation', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route((url) => /\/api\/chats\/[^/]+\/tickers$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          items: [{
+            chat_id: '11111111-1111-4111-8111-111111111111',
+            security_id: 'sec-nvda',
+            ticker: 'NVDA',
+            first_seen_at: 1,
+            last_seen_at: 2,
+            mention_count: 2,
+            name: 'NVIDIA',
+          }],
+        }),
+      });
+    });
+    await page.route((url) => /\/api\/chats\/[^/]+\/rail$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          tags: [{ ticker: 'NVDA', posts: 2 }],
+          news: [{
+            title: 'NVDA chips bid',
+            link: 'https://example.com/nvda',
+            published: null,
+            snippet: 'Semiconductor strength.',
+            source: 'tavily',
+          }],
+          highlights: [
+            { ticker: 'NVDA', name: 'NVIDIA', spot: 120.5, change_1d_pct: 1.5 },
+          ],
+          fetched_at: '2026-08-20T00:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+    const head = page.getByRole('banner', { name: 'Chat controls' });
+    const rail = page.getByRole('complementary', { name: 'Chat rail' });
+    await expect(rail).toBeVisible();
+    await expect(head).toBeVisible();
+    // Top bar is full-bleed chrome; transcript + composer stay in a chat-max
+    // column with the rail beside them (timeline pairing).
+    const headBox = await head.boundingBox();
+    const railBox = await rail.boundingBox();
+    const chatBox = await page.locator('section.ai-chat').boundingBox();
+    const mainBox = await page.locator('.ai-chat-main').boundingBox();
+    const composerBox = await page.locator('.ai-composer-wrap').boundingBox();
+    expect(headBox && railBox && chatBox && mainBox && composerBox).toBeTruthy();
+    expect(railBox!.y).toBeGreaterThan(headBox!.y + headBox!.height - 2);
+    expect(Math.abs(headBox!.width - chatBox!.width)).toBeLessThan(2);
+    expect(headBox!.x + headBox!.width).toBeGreaterThanOrEqual(railBox!.x + railBox!.width - 2);
+    expect(mainBox!.x + mainBox!.width).toBeLessThanOrEqual(railBox!.x + 2);
+    expect(Math.abs(composerBox!.width - mainBox!.width)).toBeLessThan(4);
+    expect(composerBox!.width).toBeLessThan(headBox!.width - 80);
+
+    await expect(rail.getByRole('heading', { name: 'Sources' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: /NVDA/ })).toBeVisible();
+    // Sources live in the rail on desktop — not above the transcript.
+    await expect(page.locator('.ai-chat-main .chat-research')).toHaveCount(0);
+    await expect(rail.getByRole('list', { name: 'Related news' })).toBeVisible();
+    await expect(rail.getByText('NVDA chips bid')).toBeVisible();
+    await expect(rail.getByRole('list', { name: 'Session tape' })).toBeVisible();
+    await expect(rail.getByText('NVIDIA')).toBeVisible();
+    await expect(rail.getByText('+1.5%')).toBeVisible();
+    // Page scroll — messages must not nest their own scrollbar.
+    const messagesOverflow = await page.locator('.ai-messages').evaluate(
+      (el) => getComputedStyle(el).overflowY,
+    );
+    expect(['visible', 'clip', '']).toContain(messagesOverflow);
+  });
+
+  test('chat rail stays hidden on an empty welcome chat', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route((url) => /\/api\/chats\/[^/]+\/tickers$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ chat_id: '11111111-1111-4111-8111-111111111111', items: [] }),
+      });
+    });
+    await page.route((url) => /\/api\/chats\/[^/]+\/rail$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          tags: [],
+          news: [{ title: 'Markets open', link: 'https://example.com/m', published: null, snippet: '', source: 'tavily' }],
+          highlights: [{ ticker: 'SPY', name: 'S&P 500', spot: 500, change_1d_pct: 0.1 }],
+          fetched_at: '2026-08-20T00:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+    await expect(page.getByRole('heading', { name: 'Ask the Lobster' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Chat rail' })).toHaveCount(0);
+  });
+
+  test('chat rail is hidden on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => /\/api\/chats\/[^/]+\/tickers$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          items: [{
+            chat_id: '11111111-1111-4111-8111-111111111111',
+            security_id: 'sec-nvda',
+            ticker: 'NVDA',
+            first_seen_at: 1,
+            last_seen_at: 2,
+            mention_count: 1,
+          }],
+        }),
+      });
+    });
+    await page.route((url) => /\/api\/chats\/[^/]+\/rail$/.test(url.pathname), async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          chat_id: '11111111-1111-4111-8111-111111111111',
+          tags: [{ ticker: 'NVDA', posts: 1 }],
+          news: [],
+          highlights: [],
+          fetched_at: '2026-08-20T00:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/chat');
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Chat rail' })).toHaveCount(0);
+  });
+
   test('GET /api/timeline is public and returns a feed envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline`);
     expect(res.status()).toBe(200);

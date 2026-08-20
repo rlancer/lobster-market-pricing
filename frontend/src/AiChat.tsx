@@ -19,6 +19,7 @@ import {
   Timestamp,
   Tooltip,
   useChatStreamScroll,
+  useMediaQuery,
 } from '@astryxdesign/core';
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
@@ -34,7 +35,20 @@ import { ChartView, type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
+import { ChatRail } from './ChatRail';
 
+/** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
+function nearestScrollRoot(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const { overflowY } = getComputedStyle(current);
+    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
+      return current instanceof HTMLElement ? current : null;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
 const EXAMPLES = [
   'Find the most liquid calls expiring within 30 days',
   'Which sectors have the richest put premiums?',
@@ -371,7 +385,13 @@ function AiChatSession({
   );
   const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
   const thinkingRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const [scrollRootReady, setScrollRootReady] = useState(false);
+  const bindMessagesScrollRoot = useCallback((node: HTMLElement | null) => {
+    const root = nearestScrollRoot(node) ?? node;
+    scrollRef.current = root;
+    setScrollRootReady(Boolean(root));
+  }, []);
   const startedAtRef = useRef<number | null>(null);
   const restoredIdsRef = useRef<Set<string> | null>(null);
   const claimedRef = useRef(false);
@@ -666,7 +686,10 @@ function AiChatSession({
     }
   }, [busy, chatId, projectedMessages]);
 
-  const { scrollIfLocked } = useChatStreamScroll({ scrollRef });
+  const { scrollIfLocked } = useChatStreamScroll({
+    scrollRef,
+    enabled: scrollRootReady,
+  });
   useEffect(() => {
     scrollIfLocked();
   }, [scrollIfLocked, projectedMessages, busy, status, reasoning]);
@@ -794,6 +817,7 @@ function AiChatSession({
   };
 
   const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
+  const isDesktop = useMediaQuery('(min-width: 56rem)');
   const composerBlocked = accessBlocked || scopeLocked;
   const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat && !scopeLocked;
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
@@ -836,334 +860,342 @@ function AiChatSession({
   return (
     <section className="ai-chat">
       <header className="ai-head" aria-label="Chat controls">
-        {botHandle && (
-          <p className="ai-bot-banner" role="status">
-            Generating as <b>@{botHandle}</b> — when the answer completes it auto-shares to the public timeline as that bot.
-          </p>
-        )}
-        <section className="ai-head-actions">
-          <ChatDeleteControl chatId={chatId} onNewChat={onNewChat} />
-          <IconButton
-            variant="ghost"
-            size="sm"
-            label={botHandle ? `Share as @${botHandle}` : 'Share chat'}
-            icon={<Share2 size={16} />}
-            tooltip={
-              !canShare
-                ? 'Share available after the first answer'
-                : botHandle
-                  ? `Share publicly as @${botHandle}`
-                  : 'Share chat'
-            }
-            isDisabled={!canShare || busy || accessBlocked}
-            isLoading={shareBusy}
-            onClick={shareChat}
-          />
-          <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
-        </section>
-      </header>
+                {botHandle && (
+                  <p className="ai-bot-banner" role="status">
+                    Generating as <b>@{botHandle}</b> — when the answer completes it auto-shares to the public timeline as that bot.
+                  </p>
+                )}
+                <section className="ai-head-actions">
+                  <ChatDeleteControl chatId={chatId} onNewChat={onNewChat} />
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    label={botHandle ? `Share as @${botHandle}` : 'Share chat'}
+                    icon={<Share2 size={16} />}
+                    tooltip={
+                      !canShare
+                        ? 'Share available after the first answer'
+                        : botHandle
+                          ? `Share publicly as @${botHandle}`
+                          : 'Share chat'
+                    }
+                    isDisabled={!canShare || busy || accessBlocked}
+                    isLoading={shareBusy}
+                    onClick={shareChat}
+                  />
+                  <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
+                </section>
+              </header>
 
-      {disconnected && !accessBlocked && (
-        <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
-          <StatusDot
-            variant={socketState === 'offline' ? 'warning' : 'accent'}
-            label={socketState === 'offline' ? 'Offline' : 'Reconnecting'}
-            isPulsing
-          />
-          <span>{socketState === 'offline' ? 'Offline — reconnecting when you are back online.' : 'Connection lost — reconnecting…'}</span>
-        </div>
-      )}
-
-      {!accessBlocked && <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />}
-
-      <section className="ai-messages" ref={scrollRef}>
-        {showSavedLoading && (
-          <section className="ai-welcome ai-chat-gate" aria-busy="true">
-            <div className="ai-chat-loading-body">
-              <Spinner size="md" />
-              <span>Opening chat…</span>
-            </div>
-          </section>
-        )}
-
-        {chatAccess === 'unauthorized' && (
-          <section className="ai-welcome ai-chat-gate">
-            <header className="ai-welcome-hero">
-              <h1 className="ai-welcome-title">Sign in to view this chat</h1>
-              <p className="ai-welcome-data">
-                This conversation is saved to an account. Sign in with the same Google account to load the transcript.
-              </p>
-              <Button
-                variant="primary"
-                label="Sign in"
-                onClick={() => {
-                  void signInWithGoogle().catch((err) => {
-                    console.error('Google sign-in failed', err);
-                  });
-                }}
-              />
-            </header>
-          </section>
-        )}
-
-        {chatAccess === 'forbidden' && (
-          <section className="ai-welcome ai-chat-gate">
-            <header className="ai-welcome-hero">
-              <h1 className="ai-welcome-title">Chat unavailable</h1>
-              <p className="ai-welcome-data">
-                This saved chat belongs to another account. Start a new chat or open one from your history.
-              </p>
-              <Button variant="secondary" label="New chat" onClick={onNewChat} />
-            </header>
-          </section>
-        )}
-
-        {showSavedEmpty && (
-          <section className="ai-welcome ai-chat-gate">
-            <header className="ai-welcome-hero">
-              <h1 className="ai-welcome-title">
-                {isPreviewApi ? 'Transcript not in this preview' : 'Empty chat'}
-              </h1>
-              <p className="ai-welcome-data">
-                {isPreviewApi
-                  ? 'Preview and production share account ownership, but each keeps its own live chat storage. Open this chat on production to see the transcript, or ask a follow-up here to continue in preview.'
-                  : 'This saved chat has no messages yet. Ask a question below to continue it.'}
-              </p>
-              {isPreviewApi && (
-                <Button
-                  variant="primary"
-                  label="Open on production"
-                  onClick={() => { window.location.href = prodChatUrl; }}
-                />
+              {disconnected && !accessBlocked && (
+                <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
+                  <StatusDot
+                    variant={socketState === 'offline' ? 'warning' : 'accent'}
+                    label={socketState === 'offline' ? 'Offline' : 'Reconnecting'}
+                    isPulsing
+                  />
+                  <span>{socketState === 'offline' ? 'Offline — reconnecting when you are back online.' : 'Connection lost — reconnecting…'}</span>
+                </div>
               )}
-            </header>
-          </section>
-        )}
 
-        {showWelcome && (
-          <section className="ai-welcome">
-            <header className="ai-welcome-hero">
-              <BlueLobsterLogo className="ai-welcome-mascot" />
-              <h1 className="ai-welcome-title">Ask the Lobster</h1>
-              <p className="ai-welcome-data">
-                Live options chains for US equities and the major ETFs — calls &amp; puts, strikes,
-                implied vol, open interest, volume, greeks — plus spot quotes, IV rank,
-                realized vol, earnings, corporate actions, news, web search, and the macro calendar.
-              </p>
-            </header>
-            <nav className="ai-examples" aria-label="Suggested questions">
-              {EXAMPLES.map((example) => (
-                <button key={example} className="ai-example-card" onClick={() => send(example)} disabled={busy || disconnected}>
-                  <span>{example}</span>
-                  <span className="ai-example-arrow" aria-hidden="true">↗</span>
-                </button>
-              ))}
-            </nav>
-          </section>
-        )}
+      <section className="ai-chat-body">
+        <section className="ai-chat-main">
+          {!accessBlocked && !isDesktop && (
+            <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
+          )}
+          <section className="ai-messages" ref={bindMessagesScrollRoot}>
+                    {showSavedLoading && (
+                      <section className="ai-welcome ai-chat-gate" aria-busy="true">
+                        <div className="ai-chat-loading-body">
+                          <Spinner size="md" />
+                          <span>Opening chat…</span>
+                        </div>
+                      </section>
+                    )}
 
-        {projectedMessages.map((message) => {
-          const isLive = message.role === 'assistant' && message.id === liveAssistantId;
-          return (
-            <div key={message.id} className={`ai-msg ai-${message.role}`}>
-              {message.role === 'assistant' && <AssistantMark />}
-              <div className="ai-bubble">
-                {isLive && (
-                  <TurnProgress
-                    status={status}
-                    reasoning={reasoning}
-                    tools={tools}
-                    writing={writing && !message.content}
-                    onAction={paused ? startTurn : pauseTurn}
-                    action={paused ? 'start' : 'stop'}
-                    thinkingRef={thinkingRef}
-                  />
-                )}
-                {message.content && (
-                  message.role === 'assistant'
-                    ? (isScopeRejectedMessage(message)
-                      ? (
-                        <>
-                          <div className="ai-err">{message.content}</div>
-                          <div className="ai-scope-lock-hint">
-                            <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
-                            <Button variant="secondary" label="New chat" onClick={onNewChat} />
+                    {chatAccess === 'unauthorized' && (
+                      <section className="ai-welcome ai-chat-gate">
+                        <header className="ai-welcome-hero">
+                          <h1 className="ai-welcome-title">Sign in to view this chat</h1>
+                          <p className="ai-welcome-data">
+                            This conversation is saved to an account. Sign in with the same Google account to load the transcript.
+                          </p>
+                          <Button
+                            variant="primary"
+                            label="Sign in"
+                            onClick={() => {
+                              void signInWithGoogle().catch((err) => {
+                                console.error('Google sign-in failed', err);
+                              });
+                            }}
+                          />
+                        </header>
+                      </section>
+                    )}
+
+                    {chatAccess === 'forbidden' && (
+                      <section className="ai-welcome ai-chat-gate">
+                        <header className="ai-welcome-hero">
+                          <h1 className="ai-welcome-title">Chat unavailable</h1>
+                          <p className="ai-welcome-data">
+                            This saved chat belongs to another account. Start a new chat or open one from your history.
+                          </p>
+                          <Button variant="secondary" label="New chat" onClick={onNewChat} />
+                        </header>
+                      </section>
+                    )}
+
+                    {showSavedEmpty && (
+                      <section className="ai-welcome ai-chat-gate">
+                        <header className="ai-welcome-hero">
+                          <h1 className="ai-welcome-title">
+                            {isPreviewApi ? 'Transcript not in this preview' : 'Empty chat'}
+                          </h1>
+                          <p className="ai-welcome-data">
+                            {isPreviewApi
+                              ? 'Preview and production share account ownership, but each keeps its own live chat storage. Open this chat on production to see the transcript, or ask a follow-up here to continue in preview.'
+                              : 'This saved chat has no messages yet. Ask a question below to continue it.'}
+                          </p>
+                          {isPreviewApi && (
+                            <Button
+                              variant="primary"
+                              label="Open on production"
+                              onClick={() => { window.location.href = prodChatUrl; }}
+                            />
+                          )}
+                        </header>
+                      </section>
+                    )}
+
+                    {showWelcome && (
+                      <section className="ai-welcome">
+                        <header className="ai-welcome-hero">
+                          <BlueLobsterLogo className="ai-welcome-mascot" />
+                          <h1 className="ai-welcome-title">Ask the Lobster</h1>
+                          <p className="ai-welcome-data">
+                            Live options chains for US equities and the major ETFs — calls &amp; puts, strikes,
+                            implied vol, open interest, volume, greeks — plus spot quotes, IV rank,
+                            realized vol, earnings, corporate actions, news, web search, and the macro calendar.
+                          </p>
+                        </header>
+                        <nav className="ai-examples" aria-label="Suggested questions">
+                          {EXAMPLES.map((example) => (
+                            <button key={example} className="ai-example-card" onClick={() => send(example)} disabled={busy || disconnected}>
+                              <span>{example}</span>
+                              <span className="ai-example-arrow" aria-hidden="true">↗</span>
+                            </button>
+                          ))}
+                        </nav>
+                      </section>
+                    )}
+
+                    {projectedMessages.map((message) => {
+                      const isLive = message.role === 'assistant' && message.id === liveAssistantId;
+                      return (
+                        <div key={message.id} className={`ai-msg ai-${message.role}`}>
+                          {message.role === 'assistant' && <AssistantMark />}
+                          <div className="ai-bubble">
+                            {isLive && (
+                              <TurnProgress
+                                status={status}
+                                reasoning={reasoning}
+                                tools={tools}
+                                writing={writing && !message.content}
+                                onAction={paused ? startTurn : pauseTurn}
+                                action={paused ? 'start' : 'stop'}
+                                thinkingRef={thinkingRef}
+                              />
+                            )}
+                            {message.content && (
+                              message.role === 'assistant'
+                                ? (isScopeRejectedMessage(message)
+                                  ? (
+                                    <>
+                                      <div className="ai-err">{message.content}</div>
+                                      <div className="ai-scope-lock-hint">
+                                        <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
+                                        <Button variant="secondary" label="New chat" onClick={onNewChat} />
+                                      </div>
+                                    </>
+                                  )
+                                  : <div className="ai-text"><Markdown>{message.content}</Markdown></div>)
+                                : <div className="ai-text">{message.content}</div>
+                            )}
+                            {message.role === 'assistant' && message.reasoning && !isLive && (
+                              <details className="ai-thinking ai-thinking-done">
+                                <summary>Thinking</summary>
+                                <div className="ai-thinking-body">{message.reasoning}</div>
+                              </details>
+                            )}
+                            {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
+                            {message.sql && (
+                              isLive ? (
+                                <div className="ai-sql">
+                                  <div className="ai-sql-head">
+                                    <span>SQL</span>
+                                    <span className="ai-sql-actions">
+                                      <CopyButton text={message.sql} />
+                                      <Tooltip content="Open in Data" hasHoverIndication={false}>
+                                        <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
+                                      </Tooltip>
+                                    </span>
+                                  </div>
+                                  <pre>{message.sql}</pre>
+                                </div>
+                              ) : (
+                                <details className="ai-sql ai-sql-collapsible">
+                                  <summary className="ai-sql-head">
+                                    <span>SQL</span>
+                                    <span
+                                      className="ai-sql-actions"
+                                      onClick={(event) => event.stopPropagation()}
+                                      onKeyDown={(event) => event.stopPropagation()}
+                                    >
+                                      <CopyButton text={message.sql} />
+                                      <Tooltip content="Open in Data" hasHoverIndication={false}>
+                                        <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
+                                      </Tooltip>
+                                    </span>
+                                  </summary>
+                                  <pre>{message.sql}</pre>
+                                </details>
+                              )
+                            )}
+                            {message.result && (
+                              message.chart ? (
+                                <details className="ai-result-details">
+                                  <summary>Query result ({message.result.row_count.toLocaleString()} rows)</summary>
+                                  <ResultTable result={message.result} />
+                                </details>
+                              ) : (
+                                <ResultTable result={message.result} />
+                              )
+                            )}
+                            {message.role === 'assistant' && !isLive && !message.content && (message.sql || message.result || message.chart) && (
+                              <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
+                            )}
+                            {message.role === 'assistant' && !isLive && (message.ts !== undefined || message.model) && (
+                              <ChatMessageMetadata
+                                timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
+                                footer={message.model}
+                              />
+                            )}
                           </div>
-                        </>
-                      )
-                      : <div className="ai-text"><Markdown>{message.content}</Markdown></div>)
-                    : <div className="ai-text">{message.content}</div>
-                )}
-                {message.role === 'assistant' && message.reasoning && !isLive && (
-                  <details className="ai-thinking ai-thinking-done">
-                    <summary>Thinking</summary>
-                    <div className="ai-thinking-body">{message.reasoning}</div>
-                  </details>
-                )}
-                {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
-                {message.sql && (
-                  isLive ? (
-                    <div className="ai-sql">
-                      <div className="ai-sql-head">
-                        <span>SQL</span>
-                        <span className="ai-sql-actions">
-                          <CopyButton text={message.sql} />
-                          <Tooltip content="Open in Data" hasHoverIndication={false}>
-                            <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
-                          </Tooltip>
-                        </span>
+                        </div>
+                      );
+                    })}
+
+                    {visibleError && !busy && !paused && (
+                      <div className="ai-msg ai-assistant">
+                        <AssistantMark />
+                        <div className="ai-bubble"><div className="ai-err">{visibleError}</div></div>
                       </div>
-                      <pre>{message.sql}</pre>
-                    </div>
-                  ) : (
-                    <details className="ai-sql ai-sql-collapsible">
-                      <summary className="ai-sql-head">
-                        <span>SQL</span>
-                        <span
-                          className="ai-sql-actions"
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          <CopyButton text={message.sql} />
-                          <Tooltip content="Open in Data" hasHoverIndication={false}>
-                            <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
-                          </Tooltip>
-                        </span>
-                      </summary>
-                      <pre>{message.sql}</pre>
-                    </details>
-                  )
-                )}
-                {message.result && (
-                  message.chart ? (
-                    <details className="ai-result-details">
-                      <summary>Query result ({message.result.row_count.toLocaleString()} rows)</summary>
-                      <ResultTable result={message.result} />
-                    </details>
-                  ) : (
-                    <ResultTable result={message.result} />
-                  )
-                )}
-                {message.role === 'assistant' && !isLive && !message.content && (message.sql || message.result || message.chart) && (
-                  <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
-                )}
-                {message.role === 'assistant' && !isLive && (message.ts !== undefined || message.model) && (
-                  <ChatMessageMetadata
-                    timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
-                    footer={message.model}
-                  />
-                )}
-              </div>
-            </div>
-          );
-        })}
+                    )}
 
-        {visibleError && !busy && !paused && (
-          <div className="ai-msg ai-assistant">
-            <AssistantMark />
-            <div className="ai-bubble"><div className="ai-err">{visibleError}</div></div>
-          </div>
-        )}
+                    {(busy || paused) && !liveAssistantId && (
+                      <div className="ai-msg ai-assistant">
+                        <AssistantMark />
+                        <div className="ai-bubble">
+                          <TurnProgress
+                            status={status}
+                            reasoning={reasoning}
+                            tools={tools}
+                            writing={writing}
+                            action={paused ? 'start' : 'stop'}
+                            onAction={paused ? startTurn : pauseTurn}
+                            thinkingRef={thinkingRef}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </section>
 
-        {(busy || paused) && !liveAssistantId && (
-          <div className="ai-msg ai-assistant">
-            <AssistantMark />
-            <div className="ai-bubble">
-              <TurnProgress
-                status={status}
-                reasoning={reasoning}
-                tools={tools}
-                writing={writing}
-                action={paused ? 'start' : 'stop'}
-                onAction={paused ? startTurn : pauseTurn}
-                thinkingRef={thinkingRef}
-              />
-            </div>
-          </div>
+                  <footer className="ai-composer-wrap">
+                    <ChatComposer
+                      value={input}
+                      onChange={setInput}
+                      onSubmit={send}
+                      isDisabled={busy || disconnected || composerBlocked}
+                      placeholder={
+                        scopeLocked
+                          ? 'No data to answer — start a new chat'
+                          : accessBlocked
+                            ? (chatAccess === 'forbidden' ? 'Chat unavailable' : 'Sign in to continue this chat…')
+                            : socketState === 'offline'
+                              ? 'Waiting for network…'
+                              : socketState === 'reconnecting'
+                                ? 'Reconnecting…'
+                                : paused
+                                  ? 'Start to resume, or ask a follow-up…'
+                                  : 'Ask about liquidity, volatility, or a ticker…'
+                      }
+                      sendButton={<ChatSendButton />}
+                    />
+                  </footer>
+
+        </section>
+        {!accessBlocked && (
+          <ChatRail chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
         )}
       </section>
-
-      <footer className="ai-composer-wrap">
-        <ChatComposer
-          value={input}
-          onChange={setInput}
-          onSubmit={send}
-          isDisabled={busy || disconnected || composerBlocked}
-          placeholder={
-            scopeLocked
-              ? 'No data to answer — start a new chat'
-              : accessBlocked
-                ? (chatAccess === 'forbidden' ? 'Chat unavailable' : 'Sign in to continue this chat…')
-                : socketState === 'offline'
-                  ? 'Waiting for network…'
-                  : socketState === 'reconnecting'
-                    ? 'Reconnecting…'
-                    : paused
-                      ? 'Start to resume, or ask a follow-up…'
-                      : 'Ask about liquidity, volatility, or a ticker…'
-          }
-          sendButton={<ChatSendButton />}
-        />
-      </footer>
-
       <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={480}>
-        <DialogHeader
-          title={shareError ? 'Share failed' : shareResult ? (shareResult.bot_handle ? 'Auto-shared to timeline' : 'Chat shared') : 'Share chat'}
-          subtitle={
-            shareResult
-              ? shareResult.bot_handle
-                ? `Posted publicly as @${shareResult.bot_handle}. Anyone with this link can view the transcript.`
-                : 'Anyone with this link can view the transcript — no account needed.'
-              : undefined
-          }
-          onOpenChange={closeShareDialog}
-        />
-        {shareBusy && <div className="ai-share-body ai-share-busy"><Spinner size="md" /><span>Creating share…</span></div>}
-        {!shareBusy && shareError && <div className="ai-share-body ai-share-error">{shareError}</div>}
-        {!shareBusy && shareResult && (
-          <>
-            <div className="ai-share-body">
-              <label className="ai-share-label" htmlFor="ai-share-url">Share URL</label>
-              <div className="ai-share-row">
-                <input id="ai-share-url" className="ai-share-url" value={new URL(shareResult.url, window.location.href).toString()} readOnly onFocus={(event) => event.currentTarget.select()} />
-                <CopyButton text={new URL(shareResult.url, window.location.href).toString()} tooltip="Copy link" />
-              </div>
-              <Switch
-                className="ai-share-publish"
-                label="Post to public timeline"
-                description={shareResult.can_publish
-                  ? 'Anyone visiting the site will see this chat on the home feed, attributed to your handle.'
-                  : 'Sign in with a public handle before sharing to post chats on the timeline. The link still works for anyone you send it to.'}
-                value={onTimeline}
-                onChange={setOnTimeline}
-                isDisabled={!shareResult.can_publish}
-                disabledMessage={shareResult.can_publish
-                  ? undefined
-                  : 'Sign in with a public handle, then share again to post this chat on the timeline.'}
-                changeAction={async (checked) => {
-                  if (!shareResult.can_publish) return;
-                  if (checked) await api.publishTimeline(shareResult.share_id);
-                  else await api.unpublishTimeline(shareResult.share_id);
-                }}
-                labelSpacing="spread"
-                width="100%"
-              />
-            </div>
-            <div className="ai-share-actions">
-              <Button variant="secondary" label="Done" onClick={closeShareDialog} />
-              <Button
-                variant="primary"
-                label="View share"
-                onClick={() => {
-                  const shareId = shareResult.share_id;
-                  closeShareDialog();
-                  navigate({ to: '/share/$shareId', params: { shareId } });
-                }}
-              />
-            </div>
-          </>
-        )}
-      </Dialog>
+                <DialogHeader
+                  title={shareError ? 'Share failed' : shareResult ? (shareResult.bot_handle ? 'Auto-shared to timeline' : 'Chat shared') : 'Share chat'}
+                  subtitle={
+                    shareResult
+                      ? shareResult.bot_handle
+                        ? `Posted publicly as @${shareResult.bot_handle}. Anyone with this link can view the transcript.`
+                        : 'Anyone with this link can view the transcript — no account needed.'
+                      : undefined
+                  }
+                  onOpenChange={closeShareDialog}
+                />
+                {shareBusy && <div className="ai-share-body ai-share-busy"><Spinner size="md" /><span>Creating share…</span></div>}
+                {!shareBusy && shareError && <div className="ai-share-body ai-share-error">{shareError}</div>}
+                {!shareBusy && shareResult && (
+                  <>
+                    <div className="ai-share-body">
+                      <label className="ai-share-label" htmlFor="ai-share-url">Share URL</label>
+                      <div className="ai-share-row">
+                        <input id="ai-share-url" className="ai-share-url" value={new URL(shareResult.url, window.location.href).toString()} readOnly onFocus={(event) => event.currentTarget.select()} />
+                        <CopyButton text={new URL(shareResult.url, window.location.href).toString()} tooltip="Copy link" />
+                      </div>
+                      <Switch
+                        className="ai-share-publish"
+                        label="Post to public timeline"
+                        description={shareResult.can_publish
+                          ? 'Anyone visiting the site will see this chat on the home feed, attributed to your handle.'
+                          : 'Sign in with a public handle before sharing to post chats on the timeline. The link still works for anyone you send it to.'}
+                        value={onTimeline}
+                        onChange={setOnTimeline}
+                        isDisabled={!shareResult.can_publish}
+                        disabledMessage={shareResult.can_publish
+                          ? undefined
+                          : 'Sign in with a public handle, then share again to post this chat on the timeline.'}
+                        changeAction={async (checked) => {
+                          if (!shareResult.can_publish) return;
+                          if (checked) await api.publishTimeline(shareResult.share_id);
+                          else await api.unpublishTimeline(shareResult.share_id);
+                        }}
+                        labelSpacing="spread"
+                        width="100%"
+                      />
+                    </div>
+                    <div className="ai-share-actions">
+                      <Button variant="secondary" label="Done" onClick={closeShareDialog} />
+                      <Button
+                        variant="primary"
+                        label="View share"
+                        onClick={() => {
+                          const shareId = shareResult.share_id;
+                          closeShareDialog();
+                          navigate({ to: '/share/$shareId', params: { shareId } });
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </Dialog>
     </section>
   );
 }

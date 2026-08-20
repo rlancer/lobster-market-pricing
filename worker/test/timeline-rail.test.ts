@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  chatNewsQuery,
   highlightsFromOhlcRows,
+  loadChatRail,
   loadTimelineRail,
   marketHighlightSql,
   parseTavilyNewsResults,
   pctChange,
   rankTimelineTags,
   resetTimelineRailCache,
+  tagsFromChatTickers,
   TIMELINE_RAIL_NEWS_QUERY,
   type TimelineRailEnv,
 } from "../src/timeline-rail.ts";
@@ -75,6 +78,37 @@ test("marketHighlightSql pins the tape symbols and a date bound", () => {
   assert.match(sql, /FROM options\.ohlc/);
 });
 
+test("marketHighlightSql accepts a custom watchlist", () => {
+  const sql = marketHighlightSql("2026-08-05", [
+    { ticker: "NVDA", name: "NVIDIA" },
+    { ticker: "AAPL", name: "Apple" },
+  ]);
+  assert.match(sql, /symbol IN \('NVDA', 'AAPL'\)/);
+  assert.doesNotMatch(sql, /SPY/);
+});
+
+test("chatNewsQuery scopes the Tavily query to chat tickers", () => {
+  assert.equal(chatNewsQuery([]), TIMELINE_RAIL_NEWS_QUERY);
+  assert.equal(chatNewsQuery(["nvda"]), "NVDA stock news");
+  assert.equal(chatNewsQuery(["nvda", "aapl"]), "NVDA AAPL stock news");
+});
+
+test("tagsFromChatTickers maps mentions onto the shared tag shape", () => {
+  const { tags, watchlist } = tagsFromChatTickers([
+    { ticker: "nvda", mention_count: 3, name: "NVIDIA" },
+    { ticker: "NVDA", mention_count: 1, name: "dup" },
+    { ticker: "aapl", mention_count: 0, name: null },
+  ]);
+  assert.deepEqual(tags, [
+    { ticker: "NVDA", posts: 3 },
+    { ticker: "AAPL", posts: 1 },
+  ]);
+  assert.deepEqual(watchlist, [
+    { ticker: "NVDA", name: "NVIDIA" },
+    { ticker: "AAPL", name: "AAPL" },
+  ]);
+});
+
 test("loadTimelineRail composes tags, news, and highlights without failing closed", async () => {
   resetTimelineRailCache();
   const env: TimelineRailEnv = {
@@ -133,4 +167,87 @@ test("loadTimelineRail degrades news and highlights independently", async () => 
   assert.deepEqual(rail.highlights, []);
   assert.equal(rail.highlights_error, "lake down");
   assert.equal(TIMELINE_RAIL_NEWS_QUERY.includes("breaking"), true);
+});
+
+test("loadChatRail scopes tags, news, and tape to linked tickers", async () => {
+  resetTimelineRailCache();
+  const env: TimelineRailEnv = {
+    SCHEMA_DB: {
+      prepare() {
+        return {
+          bind() { return this; },
+          async all() {
+            return {
+              results: [{
+                chat_id: "11111111-1111-4111-8111-111111111111",
+                security_id: "sec-nvda",
+                ticker: "NVDA",
+                first_seen_at: 1,
+                last_seen_at: 2,
+                mention_count: 2,
+                name: "NVIDIA",
+                figi: null,
+                composite_figi: null,
+              }],
+            };
+          },
+        };
+      },
+    } as unknown as D1Database,
+    TAVILY_API_KEY: "test-key",
+  };
+  let newsQuery = "";
+  const rail = await loadChatRail({
+    env,
+    now: Date.UTC(2026, 7, 19),
+    queryLake: async (sql) => {
+      assert.match(sql, /symbol IN \('NVDA'\)/);
+      return [{ symbol: "NVDA", spot: 120, prev_close: 100 }];
+    },
+    fetchImpl: async (_url, init) => {
+      newsQuery = JSON.parse(String(init?.body ?? "{}")).query;
+      return new Response(JSON.stringify({
+        results: [{ title: "NVDA rallies", url: "https://example.com/nvda", content: "Chips bid." }],
+      }), { status: 200 });
+    },
+  }, "11111111-1111-4111-8111-111111111111");
+  assert.equal(rail.chat_id, "11111111-1111-4111-8111-111111111111");
+  assert.deepEqual(rail.tags, [{ ticker: "NVDA", posts: 2 }]);
+  assert.equal(newsQuery, "NVDA stock news");
+  assert.equal(rail.news[0]?.title, "NVDA rallies");
+  assert.equal(rail.highlights[0]?.ticker, "NVDA");
+  assert.equal(rail.highlights[0]?.name, "NVIDIA");
+  assert.equal(rail.highlights[0]?.change_1d_pct, 20);
+});
+
+test("loadChatRail falls back to market news and tape when no tickers are linked", async () => {
+  resetTimelineRailCache();
+  const env: TimelineRailEnv = {
+    SCHEMA_DB: {
+      prepare() {
+        return {
+          bind() { return this; },
+          async all() { return { results: [] }; },
+        };
+      },
+    } as unknown as D1Database,
+    TAVILY_API_KEY: "test-key",
+  };
+  let newsQuery = "";
+  const rail = await loadChatRail({
+    env,
+    now: Date.UTC(2026, 7, 19),
+    queryLake: async () => [{ symbol: "SPY", spot: 500, prev_close: 490 }],
+    fetchImpl: async (_url, init) => {
+      newsQuery = JSON.parse(String(init?.body ?? "{}")).query;
+      return new Response(JSON.stringify({
+        results: [{ title: "Markets open", url: "https://example.com/m", content: "Mixed." }],
+      }), { status: 200 });
+    },
+  }, "22222222-2222-4222-8222-222222222222");
+  assert.equal(rail.chat_id, "22222222-2222-4222-8222-222222222222");
+  assert.deepEqual(rail.tags, []);
+  assert.equal(newsQuery, TIMELINE_RAIL_NEWS_QUERY);
+  assert.equal(rail.news[0]?.title, "Markets open");
+  assert.equal(rail.highlights[0]?.ticker, "SPY");
 });

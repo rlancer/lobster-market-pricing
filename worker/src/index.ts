@@ -85,6 +85,7 @@ import {
   purgeExpiredToolEvents,
 } from "./copilot-tool-events";
 import { listChatTickers, listSecurityChats } from "./chat-tickers";
+import { loadChatRail } from "./timeline-rail";
 import {
   emptyFundamentals,
   getOrComputeResearch,
@@ -3071,6 +3072,20 @@ async function handleUserChats(env: Env, req: Request, path: string): Promise<Re
     if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
     const items = await listChatTickers(env.SCHEMA_DB, chatId);
     return json(env, { chat_id: chatId, items }, 200, "private");
+  }
+  const railMatch = path.match(/^\/api\/chats\/([^/]+)\/rail$/);
+  if (railMatch && req.method === "GET") {
+    const chatId = parseChatId(decodeURIComponent(railMatch[1]));
+    if (!chatId) return json(env, { error: "chat_id must be a UUID" }, 400, "private");
+    return json(
+      env,
+      await loadChatRail(
+        { env, queryLake: (sql, key) => r2sql(env, sql, key) },
+        chatId,
+      ),
+      200,
+      "private",
+    );
   }
   const transcriptMatch = path.match(/^\/api\/chats\/([^/]+)\/transcript$/);
   if (transcriptMatch && req.method === "GET") {
