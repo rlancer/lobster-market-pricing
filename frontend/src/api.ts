@@ -510,6 +510,48 @@ export interface AdminUser {
   is_admin: boolean;
 }
 
+/** Profile snippet nested on GET /api/admin/chat_history items. */
+export interface AdminChatUser {
+  id: string;
+  email: string;
+  name: string;
+  image: string | null;
+  handle: string | null;
+  display_name: string | null;
+  public_name: string;
+  avatar_url: string | null;
+  is_admin: boolean;
+}
+
+/** One conversation from GET /api/admin/chat_history (latest lake row per chat_id). */
+export interface AdminChat {
+  chat_id: string;
+  mode: string;
+  model: string | null;
+  user_id: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  started_at: string;
+  ended_at: string;
+  source: string;
+  fetched_at: string;
+  messages: ChatHistoryMessage[] | null;
+  title: string | null;
+  message_count: number;
+  visitor_fingerprint: string | null;
+  user_agent_summary: string | null;
+  user: AdminChatUser | null;
+}
+
+export interface AdminChatHistoryResponse {
+  ok: boolean;
+  limit: number;
+  before: string | null;
+  items: AdminChat[];
+  next_before: string | null;
+  as_of: string;
+}
+
 export interface BotRun {
   run_id: string;
   handle: string;
@@ -927,6 +969,10 @@ export const api = {
     del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
   adminUsers: (limit?: number) =>
     get<{ items: AdminUser[] }>(`/api/admin/users${qs({ limit })}`),
+  adminChatHistory: (opts?: { limit?: number; before?: string }) =>
+    get<AdminChatHistoryResponse>(
+      `/api/admin/chat_history${qs({ limit: opts?.limit, before: opts?.before })}`,
+    ),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
   adminCopilotCapabilities: (opts?: { schema?: 'live' | 'placeholder'; samples?: boolean }) =>
     get<CopilotCapabilities>(

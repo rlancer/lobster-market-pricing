@@ -212,6 +212,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/chats') {
+    return {
+      title: pageTitle('Chats'),
+      description:
+        'Admin-only directory of Copilot conversations — signed-in profiles or anonymous visitor fingerprints from IP and browser.',
+      path: '/chats',
+    };
+  }
+
   if (path === '/copilot') {
     return {
       title: pageTitle('Copilot internals'),
