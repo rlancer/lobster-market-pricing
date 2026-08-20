@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"trade_date","type":"string","required":true},
+    {"name":"short_volume","type":"float64","required":true},
+    {"name":"short_exempt_volume","type":"float64","required":false},
+    {"name":"total_volume","type":"float64","required":true},
+    {"name":"short_ratio","type":"float64","required":false},
+    {"name":"facility_count","type":"int64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

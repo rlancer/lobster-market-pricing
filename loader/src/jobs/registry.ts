@@ -11,6 +11,8 @@ import { cfeFuturesDailyJob } from "./cfe-futures-daily.js";
 import { indicesOhlcDailyJob } from "./indices-ohlc-daily.js";
 import { cryptoSpotOhlcDailyJob } from "./crypto-spot-ohlc-daily.js";
 import { researchBriefsDailyJob } from "./research-briefs-daily.js";
+import { shortInterestDailyJob } from "./short-interest-daily.js";
+import { regShoDailyJob } from "./reg-sho-daily.js";
 import { secFilingsDailyJob } from "./sec-filings-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
@@ -38,6 +40,10 @@ import { secFilingsDailyJob } from "./sec-filings-daily.js";
 //     (^VIX, …) from symbols/indices.json → options.ohlc / realized_vol.
 //   - crypto-spot-ohlc-daily — batch, ungated, daily; Yahoo spot crypto
 //     (BTC-USD, …) from symbols/crypto-spot.json → options.ohlc / realized_vol.
+//   - short-interest-daily — batch, ungated, daily; FINRA consolidated equity
+//     short interest (bi-monthly settlement dates) → options.short_interest.
+//   - reg-sho-daily — batch, ungated, daily; FINRA Reg SHO short-sale volume
+//     (facility rollup → short_ratio) → options.reg_sho_daily.
 //   - research-briefs-daily — item-scoped, ungated, daily; warms API Worker
 //     D1 `ticker_research` via POST /api/research/warm (no new lake table).
 //   - sec-filings-daily — batch, ungated, daily; SEC EDGAR submissions →
@@ -55,6 +61,8 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     cfeFuturesDailyJob(env),
     indicesOhlcDailyJob(env),
     cryptoSpotOhlcDailyJob(env),
+    shortInterestDailyJob(env),
+    regShoDailyJob(env),
     researchBriefsDailyJob(env),
     secFilingsDailyJob(env),
   ];

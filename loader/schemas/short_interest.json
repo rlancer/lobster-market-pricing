@@ -1,0 +1,19 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"settlement_date","type":"string","required":true},
+    {"name":"short_interest","type":"int64","required":true},
+    {"name":"prev_short_interest","type":"int64","required":false},
+    {"name":"short_interest_change","type":"int64","required":false},
+    {"name":"short_interest_change_pct","type":"float64","required":false},
+    {"name":"avg_daily_volume","type":"int64","required":false},
+    {"name":"days_to_cover","type":"float64","required":false},
+    {"name":"market_class","type":"string","required":false},
+    {"name":"issue_name","type":"string","required":false},
+    {"name":"revision_flag","type":"string","required":false},
+    {"name":"stock_split_flag","type":"string","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

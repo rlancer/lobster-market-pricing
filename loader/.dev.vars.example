@@ -28,6 +28,8 @@
 #   npx wrangler secret put PIPELINE_ETF_PROFILES_URL   # stream cboe_etf_profiles_v2 (etf-daily job)
 #   npx wrangler secret put PIPELINE_ETF_HOLDINGS_URL   # stream cboe_etf_holdings_v2 (etf-daily job)
 #   npx wrangler secret put PIPELINE_FUNDAMENTALS_URL   # stream cboe_fundamentals_v2 (fundamentals-daily job)
+#   npx wrangler secret put PIPELINE_SHORT_INTEREST_URL # stream cboe_short_interest_v2 (short-interest-daily job)
+#   npx wrangler secret put PIPELINE_REG_SHO_URL        # stream cboe_reg_sho_daily_v2 (reg-sho-daily job)
 #   npx wrangler secret put PIPELINE_FUTURES_SETTLEMENTS_URL  # stream cboe_futures_settlements_v2 (cfe-futures-daily)
 #   npx wrangler secret put PIPELINE_FUTURES_QUOTES_URL       # stream cboe_futures_quotes_v2 (cfe-futures-daily)
 #   npx wrangler secret put PIPELINE_SEC_FILINGS_URL          # stream cboe_sec_filings_v2 (sec-filings-daily)
@@ -55,6 +57,8 @@ PIPELINE_ECON_URL=
 PIPELINE_ETF_PROFILES_URL=
 PIPELINE_ETF_HOLDINGS_URL=
 PIPELINE_FUNDAMENTALS_URL=
+PIPELINE_SHORT_INTEREST_URL=
+PIPELINE_REG_SHO_URL=
 PIPELINE_FUTURES_SETTLEMENTS_URL=
 PIPELINE_FUTURES_QUOTES_URL=
 PIPELINE_SEC_FILINGS_URL=
