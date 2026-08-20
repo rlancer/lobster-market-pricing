@@ -32,5 +32,6 @@ test("deskAnalystBlock names all three specialists and publish_desk", () => {
   assert.match(block, /Technical analyst/);
   assert.match(block, /Options trader/);
   assert.match(block, /publish_desk/);
+  assert.match(block, /suggest_trades/);
   assert.match(block, /Never overweight technical analysis/);
 });

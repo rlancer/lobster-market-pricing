@@ -8,6 +8,7 @@ import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChatMessage } from './api';
 import { AssistantMark } from './Sunglasses';
 import { DeskViewpoints } from './DeskViewpoints';
+import { SuggestedTradesView } from './SuggestedTrades';
 
 /**
  * Read-only assistant turn body shared by /share/:id and the public timeline.
@@ -93,6 +94,7 @@ export function AssistantMessageBody({
           </div>
         );
       })()}
+      {message.trades && <SuggestedTradesView trades={message.trades} />}
       {message.reasoning && (
         <details className="ai-thinking ai-thinking-done">
           <summary>Thinking</summary>

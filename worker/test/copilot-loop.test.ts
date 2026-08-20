@@ -43,13 +43,40 @@ test('forces publish_desk after a successful query when the desk is required', (
   assert.ok((policy.maxOutputTokens ?? 0) >= 2_048);
 });
 
-test('seals with tools off after publish_desk has been published', () => {
+test('seals with tools off after publish_desk when trades are not required', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
     stepNumber: 3,
     successfulQuery: true,
     requireDesk: true,
     deskPublished: true,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
+});
+
+test('forces suggest_trades after publish_desk when trades are required', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: true,
+    requireTrades: true,
+    tradesPublished: false,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'suggest_trades' });
+});
+
+test('seals with tools off after suggest_trades has been published', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 4,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: true,
+    requireTrades: true,
+    tradesPublished: true,
   });
   assert.equal(policy.toolChoice, 'none');
   assert.deepEqual(policy.activeTools, []);

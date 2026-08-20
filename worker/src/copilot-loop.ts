@@ -16,7 +16,7 @@ export const QUERY_FORCE_FAILURES_MAX = 3;
 export type CopilotToolChoice =
   | "auto"
   | "none"
-  | { type: "tool"; toolName: "run_query" | "filter_frame" | "publish_desk" };
+  | { type: "tool"; toolName: "run_query" | "filter_frame" | "publish_desk" | "suggest_trades" };
 
 export type CopilotActiveToolName =
   | "run_query"
@@ -29,7 +29,8 @@ export type CopilotActiveToolName =
   | "web_search"
   | "eco_calendar"
   | "research_ticker"
-  | "publish_desk";
+  | "publish_desk"
+  | "suggest_trades";
 
 export interface CopilotStepPolicy {
   toolChoice: CopilotToolChoice;
@@ -51,6 +52,9 @@ export function nextCopilotStepPolicy(opts: {
   /** When true, force publish_desk once evidence exists and the desk is not yet published. */
   requireDesk?: boolean;
   deskPublished?: boolean;
+  /** When true (with requireDesk), force suggest_trades after the desk before sealing. */
+  requireTrades?: boolean;
+  tradesPublished?: boolean;
 }): CopilotStepPolicy {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
@@ -78,9 +82,16 @@ export function nextCopilotStepPolicy(opts: {
         toolChoice: { type: "tool", toolName: "publish_desk" },
       };
     }
-    // Desk is the answer — seal with prose only. Extra tool rounds after
-    // publish_desk widen the abort window and leave mid-turn narration as the
-    // visible text when the final tool parts never land on the message.
+    // Structured trades next — UI renders from suggest_trades, not prose parsing.
+    if (opts.requireDesk && opts.deskPublished && opts.requireTrades && !opts.tradesPublished) {
+      return {
+        maxOutputTokens: toolBudget,
+        toolChoice: { type: "tool", toolName: "suggest_trades" },
+      };
+    }
+    // Desk (+ trades when required) is the answer — seal with prose only. Extra
+    // tool rounds after publish_desk widen the abort window and leave mid-turn
+    // narration as the visible text when the final tool parts never land.
     if (opts.requireDesk && opts.deskPublished) {
       return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
     }

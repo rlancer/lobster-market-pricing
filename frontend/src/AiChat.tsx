@@ -37,6 +37,7 @@ import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 import { ChatRail } from './ChatRail';
 import { DeskViewpoints, isDeskBrief, type DeskBrief } from './DeskViewpoints';
+import { SuggestedTradesView, isSuggestedTrades, type SuggestedTrades } from './SuggestedTrades';
 
 /** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
 function nearestScrollRoot(node: HTMLElement | null): HTMLElement | null {
@@ -72,6 +73,7 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: 'Web search',
   research_ticker: 'Ticker research',
   publish_desk: 'Desk viewpoints',
+  suggest_trades: 'Suggested trades',
 };
 
 interface Presentation {
@@ -81,6 +83,7 @@ interface Presentation {
   model: string;
   frames: FrameMetadata[];
   desk: DeskBrief | null;
+  trades: SuggestedTrades | null;
 }
 
 interface CopilotMetadata {
@@ -91,6 +94,7 @@ interface CopilotMetadata {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
   /** Set by the Worker when the finance scope gate rejects the turn. */
   scopeRejected?: boolean;
 }
@@ -110,6 +114,7 @@ interface Msg {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
   error?: string;
   ts?: number;
   model?: string;
@@ -125,6 +130,7 @@ interface ToolOutput {
   chart?: ChartSpec | null;
   frames?: FrameMetadata[];
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
 }
 
 interface ToolRow {
@@ -143,12 +149,14 @@ function presentationFromMessage(message: CopilotMessage): Presentation | null {
   let chart: ChartSpec | null = null;
   let frames: FrameMetadata[] = [];
   let desk: DeskBrief | null = null;
+  let trades: SuggestedTrades | null = null;
   let found = false;
   for (const part of message.parts) {
     if (!isToolUIPart(part)) continue;
     const name = getToolName(part);
     const input = getToolInput(part);
     if (name === 'publish_desk' && isDeskBrief(input)) desk = input;
+    if (name === 'suggest_trades' && isSuggestedTrades(input)) trades = input;
     const output = getToolOutput(part);
     if (!output || typeof output !== 'object') continue;
     const candidate = output as ToolOutput;
@@ -160,11 +168,12 @@ function presentationFromMessage(message: CopilotMessage): Presentation | null {
     if (candidate.chart) chart = candidate.chart;
     if (candidate.frames?.length) frames = candidate.frames;
     if (isDeskBrief(candidate.desk)) desk = candidate.desk;
-    if (candidate.sql || candidate.result || candidate.chart || candidate.frames || candidate.desk) found = true;
+    if (isSuggestedTrades(candidate.trades)) trades = candidate.trades;
+    if (candidate.sql || candidate.result || candidate.chart || candidate.frames || candidate.desk || candidate.trades) found = true;
   }
-  if (!found && !desk) return null;
+  if (!found && !desk && !trades) return null;
   if (chart && result?.columns && !chartFitsResult(chart, result.columns)) chart = null;
-  return { sql, result, chart, model, frames, desk };
+  return { sql, result, chart, model, frames, desk, trades };
 }
 
 function withChartFallback(message: Msg, question: string): Msg {
@@ -202,6 +211,15 @@ function formatToolArgs(name: string, input: unknown): string {
       return String(o.symbol ?? '').toUpperCase();
     case 'publish_desk':
       return 'fundamental · technical · options · overview';
+    case 'suggest_trades': {
+      const list = Array.isArray(o.trades) ? o.trades : [];
+      if (!list.length) return o.skip_reason ? 'none' : '';
+      const tickers = list
+        .map((trade) => (trade && typeof trade === 'object' ? String((trade as { ticker?: unknown }).ticker ?? '') : ''))
+        .filter(Boolean)
+        .slice(0, 3);
+      return tickers.join(', ').slice(0, 120) || `${list.length} trade${list.length === 1 ? '' : 's'}`;
+    }
     case 'web_search':
       return squeeze(o.query).slice(0, 120);
     case 'eco_calendar':
@@ -238,6 +256,7 @@ function projectMessage(message: CopilotMessage): Msg | null {
     result: presentation?.result ?? meta?.result ?? null,
     chart: presentation?.chart ?? meta?.chart ?? null,
     desk: presentation?.desk ?? meta?.desk ?? null,
+    trades: presentation?.trades ?? meta?.trades ?? null,
     ...(presentation?.model || meta?.model ? { model: presentation?.model || meta?.model } : {}),
     ...(meta?.createdAt ? { ts: meta.createdAt } : {}),
   };
@@ -258,6 +277,7 @@ function backupToCopilotMessages(rows: ShareChatMessage[]): CopilotMessage[] {
       ...(row.result ? { result: row.result } : {}),
       ...(row.chart ? { chart: row.chart as ChartSpec } : {}),
       ...(row.desk ? { desk: row.desk } : {}),
+      ...(row.trades ? { trades: row.trades } : {}),
     },
   }));
 }
@@ -289,10 +309,11 @@ type TurnCapture = {
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
+  trades?: SuggestedTrades | null;
 };
 
 /**
- * Stamp missing desk/sql/result/chart from turn-budget capture onto the last
+ * Stamp missing desk/sql/result/chart/trades from turn-budget capture onto the last
  * assistant message. Returns null when nothing changed.
  */
 function mergeCaptureIntoLastAssistant(
@@ -301,10 +322,11 @@ function mergeCaptureIntoLastAssistant(
 ): CopilotMessage[] | null {
   if (!capture || messages.length === 0) return null;
   const desk = isDeskBrief(capture.desk) ? capture.desk : null;
+  const trades = isSuggestedTrades(capture.trades) ? capture.trades : null;
   const sql = typeof capture.sql === 'string' && capture.sql.trim() ? capture.sql.trim() : null;
   const result = capture.result && !capture.result.error ? capture.result : null;
   const chart = capture.chart ?? null;
-  if (!desk && !sql && !result && !chart) return null;
+  if (!desk && !trades && !sql && !result && !chart) return null;
 
   let idx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -319,16 +341,19 @@ function mergeCaptureIntoLastAssistant(
   const presentation = presentationFromMessage(message);
   const meta = message.metadata ?? { model: '', createdAt: Date.now() };
   const hasDesk = Boolean(presentation?.desk || isDeskBrief(meta.desk));
+  const hasTrades = Boolean(presentation?.trades || isSuggestedTrades(meta.trades));
   const hasSql = Boolean(presentation?.sql || meta.sql);
   const needsDesk = Boolean(desk && !hasDesk);
+  const needsTrades = Boolean(trades && !hasTrades);
   const needsSql = Boolean(sql && !hasSql);
   const needsResult = Boolean(result && !presentation?.result && !meta.result);
   const needsChart = Boolean(chart && !presentation?.chart && !meta.chart);
-  if (!needsDesk && !needsSql && !needsResult && !needsChart) return null;
+  if (!needsDesk && !needsTrades && !needsSql && !needsResult && !needsChart) return null;
 
   const nextMeta: CopilotMetadata = {
     ...meta,
     ...(needsDesk && desk ? { desk } : {}),
+    ...(needsTrades && trades ? { trades } : {}),
     ...(needsSql && sql ? { sql } : {}),
     ...(needsResult && result ? { result } : {}),
     ...(needsChart && chart ? { chart } : {}),
@@ -354,8 +379,9 @@ function applyCaptureToShareMessages(
 ): ShareChatMessage[] {
   if (!capture || turns.length === 0) return turns;
   const desk = isDeskBrief(capture.desk) ? capture.desk : null;
+  const trades = isSuggestedTrades(capture.trades) ? capture.trades : null;
   const sql = typeof capture.sql === 'string' && capture.sql.trim() ? capture.sql.trim() : null;
-  if (!desk && !sql && !capture.chart && !capture.result) return turns;
+  if (!desk && !trades && !sql && !capture.chart && !capture.result) return turns;
   const out = turns.map((turn) => ({ ...turn }));
   let idx = -1;
   for (let i = out.length - 1; i >= 0; i--) {
@@ -371,6 +397,7 @@ function applyCaptureToShareMessages(
     turn.desk = desk;
     turn.content = desk.overview;
   }
+  if (trades) turn.trades = trades;
   if (capture.chart && !turn.chart) turn.chart = capture.chart;
   if (capture.result && !capture.result.error && !turn.result) {
     turn.result = {
@@ -852,7 +879,7 @@ function AiChatSession({
   const canShare = projectedMessages.some((message) => message.role === 'user' && message.content.trim());
   const botHandle = peekBotHandle();
 
-  // After a turn settles, rehydrate desk/sql from the DO turn-budget capture when
+  // After a turn settles, rehydrate desk/trades/sql from the DO turn-budget capture when
   // message parts omitted tool outputs (recovery / stream abort mid-publish_desk).
   useEffect(() => {
     if (busy) return;
@@ -860,7 +887,9 @@ function AiChatSession({
     if (!latest) return;
     if (captureReconciledRef.current === latest.id) return;
     const presentation = presentationFromMessage(latest);
-    if (presentation?.desk || isDeskBrief(latest.metadata?.desk)) {
+    const hasDesk = Boolean(presentation?.desk || isDeskBrief(latest.metadata?.desk));
+    const hasTrades = Boolean(presentation?.trades || isSuggestedTrades(latest.metadata?.trades));
+    if (hasDesk && hasTrades) {
       captureReconciledRef.current = latest.id;
       return;
     }
@@ -896,6 +925,7 @@ function AiChatSession({
       } : {}),
       ...(message.chart ? { chart: message.chart } : {}),
       ...(message.desk ? { desk: message.desk } : {}),
+      ...(message.trades ? { trades: message.trades } : {}),
     })).slice(-100);
     const turns = applyCaptureToShareMessages(baseTurns, capture);
     const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
@@ -1191,6 +1221,9 @@ function AiChatSession({
                                 </div>
                               );
                             })()}
+                            {message.role === 'assistant' && message.trades && (
+                              <SuggestedTradesView trades={message.trades} />
+                            )}
                             {message.role === 'assistant' && message.reasoning && !isLive && (
                               <details className="ai-thinking ai-thinking-done">
                                 <summary>Thinking</summary>

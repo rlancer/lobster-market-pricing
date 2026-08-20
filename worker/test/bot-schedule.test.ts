@@ -348,3 +348,61 @@ test("extractShareTurns keeps publish_desk viewpoints", () => {
   assert.equal(turns[1].desk?.options, "Near-ATM calls have two-sided quotes");
   assert.equal(turns[1].desk?.overview, "Mildly constructive with defined-risk upside");
 });
+
+test("extractShareTurns keeps suggest_trades payload", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Trade idea on AAPL?" }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-suggest_trades",
+          toolCallId: "t1",
+          state: "output-available",
+          input: {
+            trades: [{
+              ticker: "AAPL",
+              bias: "bullish",
+              conviction: "medium",
+              structure: "bull call debit spread",
+              legs: [
+                { right: "call", side: "buy", strike: 200, expiration: "2026-09-18", dte: 30 },
+                { right: "call", side: "sell", strike: 210, expiration: "2026-09-18", dte: 30 },
+              ],
+              rationale: "Two-sided near-ATM quotes above the 50d",
+              liquidity: "spread ~6%",
+            }],
+          },
+          output: {
+            ok: true,
+            trades: {
+              trades: [{
+                ticker: "AAPL",
+                bias: "bullish",
+                conviction: "medium",
+                structure: "bull call debit spread",
+                legs: [
+                  { right: "call", side: "buy", strike: 200, expiration: "2026-09-18", dte: 30 },
+                  { right: "call", side: "sell", strike: 210, expiration: "2026-09-18", dte: 30 },
+                ],
+                rationale: "Two-sided near-ATM quotes above the 50d",
+                liquidity: "spread ~6%",
+              }],
+            },
+          },
+        },
+        { type: "text", text: "Mildly constructive with defined-risk upside" },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns[1].trades?.trades.length, 1);
+  assert.equal(turns[1].trades?.trades[0]?.ticker, "AAPL");
+  assert.equal(turns[1].trades?.trades[0]?.structure, "bull call debit spread");
+  assert.equal(turns[1].trades?.trades[0]?.legs?.length, 2);
+});

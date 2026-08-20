@@ -153,6 +153,21 @@ export const TOOLS: CatalogItem[] = [
       { name: 'symbol', type: 'string', note: 'Ticker to normalize and research' },
       { name: 'force', type: 'boolean?', note: 'Bypass the 1h D1 research cache' },
     ],
+    tools: ['suggest_trades'],
+  },
+  {
+    id: 'tool:suggest_trades',
+    kind: 'tool',
+    title: 'suggest_trades',
+    summary: 'Structured end-of-turn trade ideas',
+    description:
+      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence.',
+    tables: ['option_contracts'],
+    tools: ['research_ticker', 'run_query', 'publish_desk'],
+    params: [
+      { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
+      { name: 'skip_reason', type: 'string?', note: 'Required when trades is empty' },
+    ],
   },
   {
     id: 'tool:web_search',

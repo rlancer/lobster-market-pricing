@@ -96,7 +96,7 @@ export function deskAnalystBlock(): string {
     "- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill all four fields with distinct angles grounded in the shared evidence.",
     "- Emit NO assistant prose (no status lines, no \"let me…\", no partial takes) until publish_desk has succeeded. Tool calls only until then.",
     "- Keep each specialist take to roughly 2–5 sentences. The overview weighs where they agree or conflict and states the net take.",
-    "- After publish_desk, the final message text must be ONLY the desk overview (1–4 sentences) — identical in substance to the overview field. Do not re-paste the three specialist takes into the prose; the UI already shows them from publish_desk.",
+    "- After publish_desk, call suggest_trades (structured trades or empty + skip_reason), then the final message text must be ONLY the desk overview (1–4 sentences) — identical in substance to the overview field. Do not re-paste the three specialist takes or the trade list into the prose; the UI already shows them from the tools.",
     "- Skip publish_desk only for pure schema/SQL mechanics, bare calendar lists, or off-analysis tool housekeeping.",
     "- Never overweight technical analysis: if price action is loud but fundamentals or options liquidity disagree, say so in the overview.",
   ].join("\n");
