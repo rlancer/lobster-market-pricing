@@ -5,8 +5,19 @@
  */
 export const ADMIN_EMAILS = ['robert.lancer@gmail.com'] as const;
 
+/** Admin-only page paths (hub is `/admin`; tools stay at these URLs). */
+export const ADMIN_TOOL_PATHS = ['/bots', '/users', '/chats', '/copilot', '/brand'] as const;
+
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
   return (ADMIN_EMAILS as readonly string[]).includes(normalized);
+}
+
+/** True for `/admin` or any admin tool route (used for left-nav selection). */
+export function isAdminNavPath(pathname: string): boolean {
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return true;
+  return ADMIN_TOOL_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
 }

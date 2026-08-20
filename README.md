@@ -308,14 +308,15 @@ not open an empty welcome rail.
 commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News and related chats
 settle on idle. Chat ticker chips (from `research_ticker`) link there.
-**Bots** (`/bots`, admin-only) edit Copilot personas (handles like
+**Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that
 has not already been used on a prior run (next unused seed, or an invented
 question). Sharing stamps the post onto the public timeline under that handle.
 Schedules (e.g. `@nowlobster` hourly market overview) run headless on the
 Worker cron during US market hours and auto-share without a browser.
-**Users** (`/users`) and **Chats** (`/chats`) are admin directories — signed-up
+**Admin** (`/admin`) is the left-nav hub for operator tools. **Users** (`/users`)
+and **Chats** (`/chats`) are admin directories — signed-up
 Google identities, and every lake Copilot conversation (profile when signed
 in, visitor fingerprint from IP + UA when anonymous).
 **Data**
