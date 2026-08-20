@@ -13,6 +13,7 @@ import { cryptoSpotOhlcDailyJob } from "./crypto-spot-ohlc-daily.js";
 import { researchBriefsDailyJob } from "./research-briefs-daily.js";
 import { shortInterestDailyJob } from "./short-interest-daily.js";
 import { regShoDailyJob } from "./reg-sho-daily.js";
+import { secFilingsDailyJob } from "./sec-filings-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -45,6 +46,8 @@ import { regShoDailyJob } from "./reg-sho-daily.js";
 //     (facility rollup → short_ratio) → options.reg_sho_daily.
 //   - research-briefs-daily — item-scoped, ungated, daily; warms API Worker
 //     D1 `ticker_research` via POST /api/research/warm (no new lake table).
+//   - sec-filings-daily — batch, ungated, daily; SEC EDGAR submissions →
+//     options.sec_filings (equity 10-K/Q/8-K + ETF prospectus family).
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -61,5 +64,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     shortInterestDailyJob(env),
     regShoDailyJob(env),
     researchBriefsDailyJob(env),
+    secFilingsDailyJob(env),
   ];
 }

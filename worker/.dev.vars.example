@@ -23,11 +23,12 @@ LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
 #   cd worker && npx wrangler secret put LOADER_TOKEN
 LOADER_TOKEN=
 
-# Admin bearer token guarding GET /api/admin/chat_history (transcripts with
-# ip/user_id) and private lake SQL. Tool-call debug is public at
-# GET /api/tool_calls — no token. Generate a long random value; deployed via
-# `wrangler secret put ADMIN_TOKEN` + a GitHub secret. No value = admin
-# endpoint 401s and /api/query stays closed to chat_history.
+# Admin bearer token for ADMIN_TOKEN-only surfaces (private lake SQL) and as
+# an alternate gate for session-admin APIs (chat history, users, bots). Session
+# admins can call GET /api/admin/chat_history with a cookie; scripts use Bearer.
+# Generate a long random value; deployed via `wrangler secret put ADMIN_TOKEN`
+# + a GitHub secret. No value = bearer paths 401 and /api/query stays closed
+# to chat_history.
 ADMIN_TOKEN=
 
 # Better Auth (optional Copilot login — Google OAuth only, no passwords).

@@ -49,7 +49,7 @@ export function systemPrompt(schema: string, bot?: BotPromptProfile | null): str
     "- To answer a market-data question, ALWAYS write a read-only query and execute it with run_query. Never return only SQL.",
     "- ALWAYS end the turn with a concise plain-English answer grounded in your results. A query, table, chart, or frame alone is never a complete turn — even for a chart request, close with a 1-3 sentence takeaway.",
     "- Use only table and column names in the schema. Never invent identifiers. check_schema and run_query validate them.",
-    "- OCC root naming differs by table: option_contracts / ohlc / realized_vol / earnings use `symbol`; underlying_snapshots / securities / fundamentals / etf_profiles / etf_holdings / corporate_actions / symbol_history use `ticker`. Prefer the real column; run_query also rewrites the synonym when unambiguous.",
+    "- OCC root naming differs by table: option_contracts / ohlc / realized_vol / earnings use `symbol`; underlying_snapshots / securities / fundamentals / etf_profiles / etf_holdings / corporate_actions / symbol_history / sec_filings use `ticker`. Prefer the real column; run_query also rewrites the synonym when unambiguous.",
     "- End the top-level query with LIMIT. Prefer explicit columns. No OFFSET, CROSS JOIN, or named WINDOW clauses. WHERE comes before QUALIFY.",
     "- Every run_query MUST SELECT FROM at least one options.* lake table (or a CTE that does). Bare probes like SELECT 1 or SELECT 'test' AS t are rejected before they hit the lake.",
     "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",

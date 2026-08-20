@@ -1,0 +1,18 @@
+{
+  "fields": [
+    {"name":"ticker","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"cik","type":"string","required":true},
+    {"name":"form_type","type":"string","required":true},
+    {"name":"accession","type":"string","required":true},
+    {"name":"filed_at","type":"string","required":true},
+    {"name":"report_date","type":"string","required":false},
+    {"name":"primary_document","type":"string","required":false},
+    {"name":"description","type":"string","required":false},
+    {"name":"edgar_url","type":"string","required":true},
+    {"name":"kind","type":"string","required":true},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

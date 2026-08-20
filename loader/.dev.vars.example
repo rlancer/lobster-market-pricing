@@ -32,6 +32,7 @@
 #   npx wrangler secret put PIPELINE_REG_SHO_URL        # stream cboe_reg_sho_daily_v2 (reg-sho-daily job)
 #   npx wrangler secret put PIPELINE_FUTURES_SETTLEMENTS_URL  # stream cboe_futures_settlements_v2 (cfe-futures-daily)
 #   npx wrangler secret put PIPELINE_FUTURES_QUOTES_URL       # stream cboe_futures_quotes_v2 (cfe-futures-daily)
+#   npx wrangler secret put PIPELINE_SEC_FILINGS_URL          # stream cboe_sec_filings_v2 (sec-filings-daily)
 #   npx wrangler secret put RESEARCH_API_BASE               # e.g. https://api.lobster.mp (research-briefs-daily)
 #   npx wrangler secret put ADMIN_TOKEN                     # same Bearer as Worker POST /api/research/warm
 #   npx wrangler secret put FRED_API_KEY                # St. Louis Fed key for the econ calendar (fred-econ-daily)
@@ -60,6 +61,7 @@ PIPELINE_SHORT_INTEREST_URL=
 PIPELINE_REG_SHO_URL=
 PIPELINE_FUTURES_SETTLEMENTS_URL=
 PIPELINE_FUTURES_QUOTES_URL=
+PIPELINE_SEC_FILINGS_URL=
 FRED_API_KEY=
 PIPELINE_AUTH_TOKEN=
 # research-briefs-daily: warm API Worker D1 ticker_research (no-op if unset)

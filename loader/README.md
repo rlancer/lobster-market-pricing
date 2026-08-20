@@ -286,6 +286,28 @@ curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
   'https://cboe-to-r2.robertlancer.workers.dev/jobs/research-briefs-daily/trigger'
 ```
 
+### SEC filings + ETF prospectuses (`sec-filings-daily`)
+
+Pulls company submissions from `data.sec.gov` for the equity sleeve ∪ curated
+ETFs (plus enrolled symbols) and publishes metadata rows to
+`options.sec_filings`:
+
+- Equities — `10-K` / `10-Q` / `8-K` (+ amendments)
+- ETFs — prospectus family `N-1A`, `485BPOS`, `485APOS`, `497`, `497K` (+ amendments),
+  and equity forms when the trust files them
+
+Each row carries `accession`, `form_type`, `filed_at`, `kind`
+(`filing` | `prospectus`), and a stable `edgar_url` to the primary document on
+sec.gov. Documents stay on EDGAR; the lake is append-only so filings pile up
+historically (consumers latest-wins on `accession`). Research exposes them at
+`GET /api/research/{ticker}/filings` and on the research page rail.
+
+Batch, ungated, daily. Dry-run unless `PIPELINE_SEC_FILINGS_URL` is set.
+CIK map comes from `https://www.sec.gov/files/company_tickers.json` once per
+pass. Provisioning recipe matches the earnings block with names
+`cboe_sec_filings_v2` / `cboe_sec_filings_sink` / `cboe_sec_filings_pipeline`
+(`schemas/sec_filings.json`).
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
@@ -295,8 +317,9 @@ curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `reg-sho-daily.ts`, `research-briefs-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `reg-sho-daily.ts`, `research-briefs-daily.ts`, `sec-filings-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
+- `src/sec.ts` — SEC EDGAR submissions fetch/normalize/publish → `options.sec_filings`
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
 - `src/short-interest.ts` — FINRA consolidated short interest fetch/normalize/publish
@@ -304,7 +327,7 @@ curl -s -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, `reg_sho_daily`, …)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, `reg_sho_daily`, `sec_filings`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure
