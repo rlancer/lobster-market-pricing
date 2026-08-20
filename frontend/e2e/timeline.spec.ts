@@ -431,6 +431,54 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('button', { name: 'All posts' })).toBeVisible();
   });
 
+  test('bot profile header ranks persona above bio in one meta line', async ({ page }) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('handle') !== 'nowlobster') {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'not found' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [],
+          next_before: null,
+          profile: {
+            handle: 'nowlobster',
+            name: 'Now Lobster',
+            is_bot: true,
+            persona: "What's happening now",
+            bio: 'Live desk commentary on the session.',
+            created_at: Date.UTC(2026, 0, 15),
+          },
+        }),
+      });
+    });
+
+    await page.goto('/u/nowlobster');
+    const header = page.locator('header.profile-header');
+    await expect(header.getByRole('heading', { name: 'Now Lobster' })).toBeVisible();
+    await expect(header.getByText('@nowlobster')).toBeVisible();
+    await expect(header.getByText('bot', { exact: true })).toBeVisible();
+    await expect(header.getByText('Joined')).toBeVisible();
+    await expect(header.getByText("What's happening now")).toBeVisible();
+    await expect(header.getByText('Live desk commentary on the session.')).toBeVisible();
+
+    // Meta stays one scan line; persona sits above bio as the tagline.
+    const metaBox = await header.locator('.profile-meta').boundingBox();
+    const personaBox = await header.locator('.profile-persona').boundingBox();
+    const bioBox = await header.locator('.profile-bio').boundingBox();
+    expect(metaBox && personaBox && bioBox).toBeTruthy();
+    expect(metaBox!.y).toBeLessThan(personaBox!.y);
+    expect(personaBox!.y).toBeLessThan(bioBox!.y);
+    expect(Math.abs(metaBox!.y - (await header.getByText('Joined').boundingBox())!.y)).toBeLessThan(8);
+  });
+
   test('unknown profile handle shows not found', async ({ page }) => {
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
