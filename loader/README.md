@@ -363,7 +363,7 @@ CBOE data refreshes ~every 15 min intraday. All are `vars` in `wrangler.jsonc`:
 | `LOADER_BACKOFF_CAP_SECONDS` | 1800 | max backoff (30 min) |
 | `LOADER_RUN_TIMEOUT_SECONDS` | 600 | safety net for a stuck pass; the batch backs off and retries |
 | `SYMBOL_CONCURRENCY` | 8 | symbols fetched/normalized in parallel per pass (runSymbols) |
-| `MARKET_HOURS_ENABLED` | true | skip passes + sleep until open when the US regular session is closed |
+| `MARKET_HOURS_ENABLED` | true | skip **market-gated** passes while the US regular session is closed; alarm sleeps until open unless an ungated job is due |
 | `MARKET_OPEN_MINUTES` | 570 (09:30 ET) | market open, minutes-since-midnight ET |
 | `MARKET_CLOSE_MINUTES` | 960 (16:00 ET) | market close, minutes-since-midnight ET |
 | `MARKET_EARLY_CLOSE_MINUTES` | 780 (13:00 ET) | early-close time (Christmas Eve, Black Friday) |
@@ -389,11 +389,13 @@ Verified: an 8-symbol fixture with stubbed CBOE/Pipeline produces byte-identical
 pipeline output at C=1 and C=8 (same contracts, underlying snapshots, run/error records).
 
 Outside regular US market hours (weekends, US holidays, overnight/after-hours)
-there is no new CBOE data, so the loop sleeps one far-out alarm until the next
-open and skips passes entirely — no container waking, no Pipeline/R2 writes.
-Set `MARKET_HOURS_ENABLED=false` to always run (e.g. for backfills). Note the
-monitor surfaces a symbol as "stale" only during a live session; while the
-market is closed a loaded symbol reads "Fresh" (it cannot be refreshed until
+there is no new CBOE data, so **market-gated** jobs skip and the alarm would
+otherwise sleep until the next open. Ungated jobs (Yahoo OHLC, spot crypto,
+futures, indexes, earnings, …) still wake the loop when their cadence says
+they are due — so a job seeded after hours is not stranded until Monday.
+Set `MARKET_HOURS_ENABLED=false` to always run everything (e.g. for backfills).
+Note the monitor surfaces a symbol as "stale" only during a live session; while
+the market is closed a loaded symbol reads "Fresh" (it cannot be refreshed until
 the open).
 
 

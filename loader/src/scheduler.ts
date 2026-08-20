@@ -16,9 +16,10 @@
 // the `finally`, so two passes can never overlap. A `passing` storage flag
 // additionally guards any manual /loop/trigger against an in-flight pass.
 //
-// Market-hours gating is now a per-job policy flag read from `job_state`
-// (`market_gated`), not hard-wired loop logic. The date/holiday helpers are
-// unchanged from the original driver.
+// Market-hours gating is a per-job policy flag read from `job_state`
+// (`market_gated`), not hard-wired loop logic. The alarm still sleeps until
+// the next equity open when only gated work remains; due ungated jobs (Yahoo
+// OHLC / crypto / …) pull the wake earlier so they are not stranded overnight.
 
 import { buildJobs } from "./jobs/registry.js";
 
@@ -280,9 +281,11 @@ function nextOpenMs(nowMs: number, env: SchedulerEnv | undefined): number {
   return nowMs + 24 * HOUR;
 }
 
-// When the next alarm should fire: poll cadence while open, otherwise sleep
-// until the next market open.
-function nextWakeMs(env: SchedulerEnv | undefined, nowMs: number): number {
+// Market-hours wake only (ignores ungated job cadence). While the US session is
+// open — or MARKET_HOURS_ENABLED=false — poll at LOADER_POLL_INTERVAL_SECONDS.
+// While closed, sleep until the next open. Callers that also honor ungated
+// Yahoo/crypto/daily jobs use EtlScheduler.computeNextWakeMs instead.
+function marketNextWakeMs(env: SchedulerEnv | undefined, nowMs: number): number {
   const pollMs = Math.floor(num(env, "LOADER_POLL_INTERVAL_SECONDS", 60) * 1000);
   if (!marketHoursEnabled(env)) return nowMs + pollMs;
   const st = marketState(nowMs, env);
@@ -402,13 +405,54 @@ export class EtlScheduler {
     return json({ ok: true });
   }
 
+  /**
+   * Soonest `next_attempt_after` among enabled ungated jobs (market_gated=0).
+   * Null when none exist. Ledger miss falls back to the registry: registered
+   * ungated jobs seed as due-now (`next_attempt_after=0`).
+   */
+  protected async earliestUngatedAttemptMs(): Promise<number | null> {
+    const row = await this.db()
+      .prepare(
+        `SELECT next_attempt_after FROM job_state
+         WHERE enabled = 1 AND market_gated = 0
+         ORDER BY next_attempt_after ASC
+         LIMIT 1`,
+      )
+      .first();
+    if (row && row.next_attempt_after != null) {
+      return Number(row.next_attempt_after);
+    }
+    return this.jobs.some((j) => !j.marketGated) ? 0 : null;
+  }
+
+  /**
+   * When the next alarm should fire.
+   * - Market open (or MARKET_HOURS_ENABLED=false): poll cadence.
+   * - Market closed: wake at the earlier of (a) next market open and (b) the
+   *   soonest ungated job attempt. Already-due ungated jobs (Yahoo OHLC,
+   *   spot crypto, futures, indexes, …) wake at poll cadence so they are not
+   *   stuck until the equity session opens — that was stranding
+   *   `crypto-spot-ohlc-daily` after an after-hours deploy.
+   */
+  async computeNextWakeMs(nowMs: number = Date.now()): Promise<number> {
+    const pollMs = Math.floor(num(this.env, "LOADER_POLL_INTERVAL_SECONDS", 60) * 1000);
+    const marketWake = marketNextWakeMs(this.env, nowMs);
+    if (!marketHoursEnabled(this.env) || marketState(nowMs, this.env).open) {
+      return marketWake;
+    }
+    const ungatedAt = await this.earliestUngatedAttemptMs();
+    if (ungatedAt == null) return marketWake;
+    const ungatedWake = ungatedAt <= nowMs ? nowMs + pollMs : ungatedAt;
+    return Math.min(marketWake, ungatedWake);
+  }
+
   // Re-arm to the earlier of the currently-armed alarm and the wake time implied
-  // by the CURRENT market/config state. The min is the safe direction: it never
-  // delays a pending pass-cycle but pulls the alarm EARLIER when the
-  // market/config toggle changes. One storage write/request.
+  // by the CURRENT market/config + ungated-job state. The min is the safe
+  // direction: it never delays a pending pass-cycle but pulls the alarm EARLIER
+  // when the market/config toggle changes or an ungated job becomes due.
   async ensureArmed(): Promise<void> {
     const existing = await this.ctx.storage.getAlarm();
-    const target = nextWakeMs(this.env, Date.now());
+    const target = await this.computeNextWakeMs(Date.now());
     const next = existing == null ? target : Math.min(existing, target);
     await this.ctx.storage.setAlarm(next);
   }
@@ -421,7 +465,7 @@ export class EtlScheduler {
       console.log(JSON.stringify({ event: "pass_error", error: String((error && (error as Error).message) || error) }));
     } finally {
       // Re-arm unconditionally so the loop is self-sustaining.
-      await this.ctx.storage.setAlarm(nextWakeMs(this.env, Date.now()));
+      await this.ctx.storage.setAlarm(await this.computeNextWakeMs(Date.now()));
     }
   }
 

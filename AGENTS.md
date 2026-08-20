@@ -93,11 +93,15 @@ site and SameSite=Lax will not send it.
   becomes `click` with no selector ("Missing arguments" / "Element not found").
   Always quote them: `agent-browser click '@e22'`. Same for `fill`, `type`,
   `get`, etc.
-- **Scheduler sleeps while the US market is closed** (global
-  `MARKET_HOURS_ENABLED`) — even ungated jobs wait for the next market open.
-  To verify a new pipeline immediately, publish through it directly (same code
-  path a job uses) instead of waiting for a pass. Lake sinks flush on a ~300 s
-  roll interval — data appears up to ~5 min after ingest.
+- **Scheduler market hours** (global `MARKET_HOURS_ENABLED`): market-gated
+  jobs (CBOE options) skip passes and the alarm sleeps until the next US
+  equity open. Ungated jobs (Yahoo OHLC / spot crypto / futures / indexes /
+  earnings / …) still wake the loop when their `next_attempt_after` is due —
+  otherwise a job seeded after hours (e.g. `crypto-spot-ohlc-daily`) would
+  sit empty until Monday open. To verify a new pipeline immediately without
+  waiting for the poll, publish through it directly or
+  `POST /jobs/{id}/trigger?force=1` (Bearer `LOADER_TOKEN`). Lake sinks flush
+  on a ~300 s roll interval — data appears up to ~5 min after ingest.
 - **Worker redeploys preserve secrets** (R2_SQL_TOKEN, PIPELINE_*_URL, …);
   CI needs only `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`.
 - **Edit-tool hazard:** `read`/`grep` elide long bodies as `{ … }` — never
