@@ -37,10 +37,14 @@ const BOT_PRESETS = {
     handle: 'yololobster',
     display_name: 'Yolo Lobster',
     persona: 'High risk, high reward',
-    bio: '',
+    bio: 'Asymmetric upside hunter — short-dated lottery tickets with real flow, always flagged as able to go to zero.',
     system_prompt_extra:
-      'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes.',
-    seed_prompts: 'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
+      'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes. When a standout name has a chartable series (volume/OI leaders, IV smile, or short-dated price action), query a compact frame and call render_chart so the public timeline post paints a figure — do not narrate a chart without that tool.',
+    seed_prompts: [
+      'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
+      'Scan for OTM call flow with real volume and open interest — pick the asymmetric upside names that can still go to zero.',
+      "What are today's highest-conviction short-dated yolo calls? Require tradable quotes and flag the wipeout risk.",
+    ].join('\n'),
   },
 } as const;
 
@@ -371,7 +375,7 @@ export default function BotsPage() {
             <Button variant="secondary" size="sm" label="New bot" onClick={() => startCreate()} />
           </div>
           {bots.length === 0 && !creating && (
-            <Text type="supporting">No bots yet — @nowlobster seeds on deploy, or create one here.</Text>
+            <Text type="supporting">No bots yet — @nowlobster and @yololobster seed on deploy, or create one here.</Text>
           )}
           <ul className="bots-handles">
             {bots.map((bot) => (
@@ -473,7 +477,7 @@ export default function BotsPage() {
                   <Text type="supporting">
                     Server-side Copilot runs on a cadence (cron wakes due rows). Market-gated
                     schedules only fire during the US session — use force to test after hours.
-                    @nowlobster ships with an hourly overview schedule.
+                    @nowlobster and @yololobster ship with hourly market-hours schedules.
                   </Text>
                   <label className="bots-enabled">
                     <input
