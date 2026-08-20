@@ -336,6 +336,19 @@ export const FEEDS: CatalogItem[] = [
     tools: ['run_query', 'research_ticker'],
   },
   {
+    id: 'feed:edgar',
+    kind: 'feed',
+    title: 'SEC EDGAR filings',
+    summary: 'Equity 10-K/Q/8-K and ETF prospectuses',
+    description:
+      'Daily SEC submissions ingest for the equity + ETF universe. Equities land 10-K / 10-Q / 8-K rows; ETFs land the prospectus family (N-1A, 485BPOS, 497, …). Metadata + edgar_url go to options.sec_filings (append-only historical). Research links out to the primary document on sec.gov.',
+    provider: 'SEC EDGAR',
+    cadence: 'Daily (sec-filings-daily job)',
+    tables: ['sec_filings'],
+    tools: ['run_query'],
+    endpoint: 'GET /api/research/{ticker}/filings',
+  },
+  {
     id: 'feed:openfigi',
     kind: 'feed',
     title: 'OpenFIGI identifiers',
@@ -432,6 +445,13 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
     description:
       'Upcoming and recent earnings: earnings_date, time (BMO/AMC), fiscal quarter, eps_forecast, last_year_eps. Chat joins this to chains for event-vol questions.',
     feeds: ['nasdaq'],
+    tools: ['run_query'],
+  },
+  sec_filings: {
+    summary: 'SEC filings and ETF prospectuses',
+    description:
+      'EDGAR metadata rows: form_type, accession, filed_at, report_date, kind (filing|prospectus), edgar_url. Equities keep 10-K/10-Q/8-K; ETFs keep N-1A / 485BPOS / 497 family. Append-only — newest run wins per accession. Powers /research/{ticker} filings links.',
+    feeds: ['edgar'],
     tools: ['run_query'],
   },
   econ_calendar: {

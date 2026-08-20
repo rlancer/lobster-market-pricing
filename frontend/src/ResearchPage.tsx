@@ -139,6 +139,27 @@ export default function ResearchPage() {
     };
   }, [tickerParam, briefReady]);
 
+  // SEC filings / ETF prospectuses — lake read, idle after brief paints.
+  useEffect(() => {
+    if (!tickerParam || !briefReady) return;
+    let active = true;
+    const cancel = whenIdle(() => {
+      api.researchFilings(tickerParam, 16)
+        .then((res) => {
+          if (!active || !res.items.length) return;
+          setResearch((prev) => {
+            if (!prev || prev.identity.ticker !== tickerParam) return prev;
+            return { ...prev, filings: res.items };
+          });
+        })
+        .catch(() => { /* filings are optional chrome */ });
+    });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [tickerParam, briefReady]);
+
   // 2) OHLC — start with the brief (chart sits above the fold; parts=ohlc is
   //    a single date-bounded lake query, not the full enrichment suite).
   useEffect(() => {

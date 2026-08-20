@@ -21,9 +21,12 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   `indices-ohlc-daily` (batch, daily; Yahoo CBOE vol indexes `^VIX` …
   from `symbols/indices.json` → `options.ohlc` / `options.realized_vol`),
   `crypto-spot-ohlc-daily` (batch, daily; Yahoo spot crypto `BTC-USD` …
-  from `symbols/crypto-spot.json` → `options.ohlc` / `options.realized_vol`), and
+  from `symbols/crypto-spot.json` → `options.ohlc` / `options.realized_vol`),
   `research-briefs-daily` (item-scoped, daily; warms the API Worker D1
-  `ticker_research` cache via `POST /api/research/warm` — no new lake table).
+  `ticker_research` cache via `POST /api/research/warm` — no new lake table),
+  and `sec-filings-daily` (batch, daily; SEC EDGAR submissions →
+  `options.sec_filings` — equity 10-K/Q/8-K + ETF prospectus family with
+  `edgar_url` links).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`
@@ -61,7 +64,7 @@ Worker auto-calls this when research returns a thin brief for an out-of-universe
 equity. Enrollment also seeds `symbol_state`, `ohlc_backfill_state`, and
 `research_brief_state`, and optionally kicks an immediate CBOE + OHLC load.
 ETL jobs (`cboe-options`, `ohlc-daily`, `ohlc-backfill`, `earnings-daily`,
-`fundamentals-daily`, `research-briefs-daily`) use the **effective universe** =
+`fundamentals-daily`, `research-briefs-daily`, `sec-filings-daily`) use the **effective universe** =
 bundled manifest ∪ enabled `enrolled_symbols`. List enrollments with
 `GET /symbols/enrolled`. Admin proxy: `POST /api/symbols/enroll` on the API
 Worker (Bearer `ADMIN_TOKEN`; requires `LOADER_TOKEN` on that Worker too).
@@ -195,21 +198,22 @@ EtfHoldings:       <PIPELINE_ETF_HOLDINGS_URL secret — stream cboe_etf_holding
 Fundamentals:      <PIPELINE_FUNDAMENTALS_URL secret — stream cboe_fundamentals_v2>
 FuturesSettlements:<PIPELINE_FUTURES_SETTLEMENTS_URL secret — stream cboe_futures_settlements_v2>
 FuturesQuotes:     <PIPELINE_FUTURES_QUOTES_URL secret — stream cboe_futures_quotes_v2>
+SecFilings:        <PIPELINE_SEC_FILINGS_URL secret — stream cboe_sec_filings_v2>
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
          cboe_etf_profiles_v2, cboe_etf_holdings_v2, cboe_fundamentals_v2,
-         cboe_futures_settlements_v2, cboe_futures_quotes_v2
+         cboe_futures_settlements_v2, cboe_futures_quotes_v2, cboe_sec_filings_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
          cboe_etf_profiles_sink, cboe_etf_holdings_sink, cboe_fundamentals_sink,
-         cboe_futures_settlements_sink, cboe_futures_quotes_sink
+         cboe_futures_settlements_sink, cboe_futures_quotes_sink, cboe_sec_filings_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots,
         options.etf_profiles, options.etf_holdings, options.fundamentals,
-        options.futures_settlements, options.futures_quotes
+        options.futures_settlements, options.futures_quotes, options.sec_filings
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline

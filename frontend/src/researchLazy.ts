@@ -98,6 +98,7 @@ export function pendingTickerResearch(ticker: string): TickerResearch {
     },
     earnings: [],
     news: [],
+    filings: [],
     etf: null,
     computed_at: '',
     expires_at: '',

@@ -97,7 +97,7 @@ export function ResearchBriefView({
 }) {
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
-  const { identity, price, technicals, fundamentals, earnings, news, realized_vol, etf } = research;
+  const { identity, price, technicals, fundamentals, earnings, news, filings = [], realized_vol, etf } = research;
   const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const insufficientCommentary =
@@ -124,7 +124,11 @@ export function ResearchBriefView({
     void navigate({ to: '/chat' });
   };
 
-  const hasRailMeta = earnings.length > 0 || news.length > 0 || Boolean(relatedChats && relatedChats.length > 0);
+  const hasRailMeta =
+    earnings.length > 0 ||
+    news.length > 0 ||
+    filings.length > 0 ||
+    Boolean(relatedChats && relatedChats.length > 0);
 
   return (
     <VStack className="research-brief" gap={3}>
@@ -310,6 +314,35 @@ export function ResearchBriefView({
                             rel="noreferrer"
                           />
                         ))}
+                      </List>
+                    </VStack>
+                  )}
+                  {filings.length > 0 && (
+                    <VStack gap={2}>
+                      <Heading level={3}>
+                        {etf ? 'Prospectus & filings' : 'SEC filings'}
+                      </Heading>
+                      <List density="compact" hasDividers className="research-news-list">
+                        {filings.map((item) => {
+                          const label = [
+                            item.form_type,
+                            item.filed_at,
+                            item.description && item.description !== item.form_type
+                              ? item.description
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+                          return (
+                            <ListItem
+                              key={item.accession || item.edgar_url}
+                              label={label}
+                              href={item.edgar_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            />
+                          );
+                        })}
                       </List>
                     </VStack>
                   )}
