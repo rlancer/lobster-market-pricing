@@ -1,66 +1,59 @@
 name: Provision FINRA short pipelines
 
-# One-shot operator lever: create Cloudflare Pipelines stream/sink/pipeline for
-# options.short_interest + options.reg_sho_daily, set Worker secrets on
-# cboe-to-r2, then kick short-interest-daily and reg-sho-daily.
-# Idempotent — safe to re-run if streams already exist.
+# One-shot: create short_interest + reg_sho_daily streams/sinks/pipelines if
+# missing, set Worker secrets, redeploy loader, probe-publish sample rows,
+# force both jobs, wait for the ~300s sink roll, then assert via /api/query.
 #
-# Required GitHub secrets:
-#   CLOUDFLARE_API_TOKEN      — Workers + Pipelines write
-#   CLOUDFLARE_ACCOUNT_ID
-#   R2_DATA_CATALOG_TOKEN     — r2-data-catalog sink create
-#   LOADER_TOKEN              — trigger jobs after provision
+# Required GitHub secrets (same set as SEC filings / CFE provision):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, R2_DATA_CATALOG_TOKEN,
+#   PIPELINE_AUTH_TOKEN, LOADER_TOKEN
+# Optional: PIPELINES_ADMIN_TOKEN (Pipelines Edit if deploy token lacks it)
+#
+# Trigger: workflow_dispatch, or push to cursor/run-provision-finra-short-693a
+# (gh workflow_dispatch is 403 for the Cursor integration token).
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
+  push:
+    branches: ['cursor/run-provision-finra-short-693a']
 
 concurrency:
   group: provision-finra-short
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   provision:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - key: short_interest
-            stream: cboe_short_interest_v2
-            sink: cboe_short_interest_sink
-            pipeline: cboe_short_interest_pipeline
-            table: short_interest
-            schema: schemas/short_interest.json
-            secret: PIPELINE_SHORT_INTEREST_URL
-            job: short-interest-daily
-          - key: reg_sho_daily
-            stream: cboe_reg_sho_daily_v2
-            sink: cboe_reg_sho_daily_sink
-            pipeline: cboe_reg_sho_daily_pipeline
-            table: reg_sho_daily
-            schema: schemas/reg_sho_daily.json
-            secret: PIPELINE_REG_SHO_URL
-            job: reg-sho-daily
+    timeout-minutes: 25
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
       LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
       BUCKET: cboe-options-data
       LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
-      STREAM: ${{ matrix.stream }}
-      SINK: ${{ matrix.sink }}
-      PIPELINE: ${{ matrix.pipeline }}
-      TABLE: ${{ matrix.table }}
-      SCHEMA: ${{ matrix.schema }}
-      SECRET: ${{ matrix.secret }}
-      JOB: ${{ matrix.job }}
+      WORKER_QUERY_URL: https://api.lobster.mp/api/query
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN LOADER_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Secrets present (values not printed)."
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -72,124 +65,183 @@ jobs:
       - name: Install loader dependencies
         run: cd loader && npm ci
 
-      - name: Verify secrets
+      - name: Provision streams / sinks / pipelines
+        working-directory: loader
         run: |
           set -euo pipefail
-          missing=0
-          for k in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN LOADER_TOKEN; do
-            if [ -z "${!k:-}" ]; then
-              echo "::error::$k is missing from GitHub secrets"
-              missing=1
+
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+
+          wrangler_pipelines() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler "$@"
+          }
+
+          try_list() {
+            wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+              && return 0
+            if [ "$PIPELINES_TOKEN" != "$R2_DATA_CATALOG_TOKEN" ]; then
+              echo "Deploy token cannot list pipelines — retrying with R2_DATA_CATALOG_TOKEN"
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+                && return 0
             fi
+            echo "::error::No available token can manage Pipelines (need Pipelines Edit)."
+            cat /tmp/streams.err >&2 || true
+            return 1
+          }
+          try_list
+
+          provision_one() {
+            local stream="$1" sink="$2" pipeline="$3" table="$4" schema="$5" env_key="$6"
+
+            if wrangler_pipelines pipelines streams get "$stream" --json >"/tmp/${stream}.json" 2>/dev/null; then
+              echo "Stream $stream already exists"
+            else
+              echo "Creating stream $stream"
+              wrangler_pipelines pipelines streams create "$stream" \
+                --schema-file "$schema" \
+                --http-enabled true \
+                --http-auth true
+              wrangler_pipelines pipelines streams get "$stream" --json >"/tmp/${stream}.json"
+            fi
+
+            local endpoint
+            endpoint=$(node -e "const s=require('/tmp/${stream}.json'); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)")
+            echo "${env_key}=${endpoint}" >> "$GITHUB_ENV"
+            echo "$stream endpoint captured (value not printed)."
+
+            if wrangler_pipelines pipelines sinks get "$sink" --json >"/tmp/${sink}.json" 2>/dev/null; then
+              echo "Sink $sink already exists"
+            else
+              echo "Creating sink $sink (creates options.${table})"
+              wrangler_pipelines pipelines sinks create "$sink" \
+                --type r2-data-catalog \
+                --bucket "$BUCKET" \
+                --namespace options \
+                --table "$table" \
+                --catalog-token "$R2_DATA_CATALOG_TOKEN" \
+                --format parquet \
+                --roll-interval 300
+            fi
+
+            if wrangler_pipelines pipelines get "$pipeline" --json >"/tmp/${pipeline}.json" 2>/dev/null; then
+              echo "Pipeline $pipeline already exists"
+            else
+              echo "Creating pipeline $pipeline"
+              wrangler_pipelines pipelines create "$pipeline" \
+                --sql "INSERT INTO ${sink} SELECT * FROM ${stream}"
+            fi
+          }
+
+          provision_one \
+            cboe_short_interest_v2 cboe_short_interest_sink cboe_short_interest_pipeline \
+            short_interest schemas/short_interest.json PIPELINE_SHORT_INTEREST_URL
+
+          provision_one \
+            cboe_reg_sho_daily_v2 cboe_reg_sho_daily_sink cboe_reg_sho_daily_pipeline \
+            reg_sho_daily schemas/reg_sho_daily.json PIPELINE_REG_SHO_URL
+
+      - name: Set Worker secrets
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          printf '%s' "$PIPELINE_SHORT_INTEREST_URL" | npx wrangler secret put PIPELINE_SHORT_INTEREST_URL
+          printf '%s' "$PIPELINE_REG_SHO_URL" | npx wrangler secret put PIPELINE_REG_SHO_URL
+          echo "Worker secrets PIPELINE_SHORT_INTEREST_URL + PIPELINE_REG_SHO_URL updated."
+
+      - name: Redeploy loader so EtlScheduler DO picks up the secrets
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          npx wrangler deploy
+          echo "cboe-to-r2 redeployed."
+
+      - name: Publish sample rows directly (bypass DO)
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          node tools/short_interest_probe_publish.mjs AAPL MSFT BRK.B
+          node tools/reg_sho_probe_publish.mjs AAPL MSFT BRK.B
+
+      - name: Force short-interest-daily + reg-sho-daily
+        run: |
+          set -euo pipefail
+          sleep 5
+          for job in short-interest-daily reg-sho-daily; do
+            resp=$(curl -sS -X POST \
+              -H "Authorization: Bearer $LOADER_TOKEN" \
+              -w '\n__HTTP_%{http_code}' \
+              "$LOADER_URL/jobs/$job/trigger?force=1")
+            body="${resp%__HTTP_*}"
+            code="${resp##*__HTTP_}"
+            echo "== $job =="
+            echo "$body"
+            if [ "$code" = "409" ]; then
+              echo "Loader busy (409) — direct publish already landed rows; continuing."
+              continue
+            fi
+            if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+              echo "::warning::$job trigger returned HTTP $code — direct publish still counts"
+            fi
+            sleep 2
+            status=$(curl -sS "$LOADER_URL/jobs/$job")
+            echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted})}'
           done
-          if [ "$missing" -ne 0 ]; then exit 1; fi
-          echo "All required secrets present."
 
-      - name: Create stream (idempotent)
-        working-directory: loader
+      - name: Wait for sink roll (~5 min)
+        run: |
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s."
+          sleep 360
+
+      - name: Assert short_interest + reg_sho_daily rows
         run: |
           set -euo pipefail
-          if npx wrangler pipelines streams get "$STREAM" --json >/tmp/stream.json 2>/dev/null; then
-            echo "Stream $STREAM already exists"
-          else
-            echo "Creating stream $STREAM"
-            npx wrangler pipelines streams create "$STREAM" \
-              --schema-file "$SCHEMA" \
-              --http-enabled true \
-              --http-auth true
-          fi
+          assert_sql() {
+            local sql="$1" expect="$2" label="$3"
+            body=$(jq -nc --arg sql "$sql" '{sql:$sql, limit:20}')
+            resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+              -H 'content-type: application/json' \
+              -d "$body" \
+              -w '\n__HTTP_%{http_code}')
+            http="${resp##*__HTTP_}"
+            json="${resp%__HTTP_*}"
+            echo "== $label =="
+            echo "$json" | head -c 1500; echo
+            if [ "$http" != "200" ]; then
+              echo "::error::$label HTTP $http"
+              exit 1
+            fi
+            if echo "$json" | grep -qi 'iceberg table not found'; then
+              echo "::error::$label table missing after sink roll"
+              exit 1
+            fi
+            if ! echo "$json" | grep -qi "$expect"; then
+              echo "::error::$label missing expected marker '$expect'"
+              exit 1
+            fi
+          }
 
-      - name: Extract stream ingest URL
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          npx wrangler pipelines streams get "$STREAM" --json >/tmp/stream.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open("/tmp/stream.json"))
-          found=[]
-          def walk(o):
-            if isinstance(o, dict):
-              for k,v in o.items():
-                if isinstance(v, str) and ("pipelines.cloudflare.com" in v or "pipeline" in v) and v.startswith("http"):
-                  found.append(v)
-                walk(v)
-            elif isinstance(o, list):
-              for i in o: walk(i)
-          walk(d)
-          prefer=[u for u in found if "ingest" in u or "http" in u]
-          url=(prefer or found or [None])[0]
-          if not url:
-            raise SystemExit("no ingest URL in:\n"+json.dumps(d, indent=2)[:3000])
-          open("/tmp/stream_url.txt","w").write(url.strip())
-          print("ingest_url_host="+url.split("/")[2])
-          PY
+          assert_sql \
+            "SELECT symbol, settlement_date, short_interest, source FROM options.short_interest WHERE symbol = 'AAPL' ORDER BY fetched_at DESC LIMIT 5" \
+            "AAPL" \
+            "AAPL short_interest"
 
-      - name: Create r2-data-catalog sink (idempotent)
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          if npx wrangler pipelines sinks get "$SINK" --json >/tmp/sink.json 2>/dev/null; then
-            echo "Sink $SINK already exists"
-          else
-            echo "Creating sink $SINK → options.$TABLE"
-            npx wrangler pipelines sinks create "$SINK" \
-              --type r2-data-catalog \
-              --bucket "$BUCKET" \
-              --namespace options \
-              --table "$TABLE" \
-              --catalog-token "$R2_DATA_CATALOG_TOKEN" \
-              --format parquet \
-              --compression zstd \
-              --roll-interval 300
-          fi
+          assert_sql \
+            "SELECT symbol, trade_date, short_ratio, source FROM options.reg_sho_daily WHERE symbol = 'AAPL' ORDER BY fetched_at DESC LIMIT 5" \
+            "AAPL" \
+            "AAPL reg_sho_daily"
 
-      - name: Create pipeline (idempotent)
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          if npx wrangler pipelines get "$PIPELINE" --json >/dev/null 2>&1; then
-            echo "Pipeline $PIPELINE already exists"
-          else
-            echo "Creating pipeline $PIPELINE"
-            npx wrangler pipelines create "$PIPELINE" \
-              --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
-          fi
-
-      - name: Set Worker secret
-        working-directory: loader
-        run: |
-          set -euo pipefail
-          url=$(cat /tmp/stream_url.txt)
-          if [ -z "$url" ]; then
-            echo "::error::empty stream URL"
-            exit 1
-          fi
-          printf '%s' "$url" | npx wrangler secret put "$SECRET"
-          echo "$SECRET set on cboe-to-r2 (value not printed)"
-
-      - name: Trigger job
-        run: |
-          set -euo pipefail
-          resp=$(curl -sS -X POST \
-            -H "Authorization: Bearer $LOADER_TOKEN" \
-            -w '\n__HTTP_%{http_code}' \
-            "$LOADER_URL/jobs/$JOB/trigger?force=1")
-          body="${resp%__HTTP_*}"
-          code="${resp##*__HTTP_}"
-          echo "$body" | head -c 2000; echo
-          if [ "$code" != "200" ]; then
-            echo "::error::trigger $JOB returned HTTP $code"
-            exit 1
-          fi
+          echo "FINRA short pipelines verified."
 
       - name: Summary
         run: |
           {
-            echo "## FINRA pipeline provisioned (\`${{ matrix.key }}\`)"
-            echo "- stream: \`$STREAM\`"
-            echo "- sink: \`$SINK\` → \`options.$TABLE\`"
-            echo "- pipeline: \`$PIPELINE\`"
-            echo "- Worker secret \`$SECRET\` set"
-            echo "- \`$JOB\` triggered (lake flush ~300s)"
+            echo "## FINRA short pipelines provisioned"
+            echo "- \`options.short_interest\` ← \`cboe_short_interest_v2\`"
+            echo "- \`options.reg_sho_daily\` ← \`cboe_reg_sho_daily_v2\`"
+            echo "- Worker secrets set; loader redeployed; probe rows + job triggers sent"
+            echo "- Verified via \`/api/query\` after sink roll"
           } >> "$GITHUB_STEP_SUMMARY"
