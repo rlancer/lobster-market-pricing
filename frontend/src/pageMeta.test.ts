@@ -68,6 +68,8 @@ test('chat, monitor, brand, and share have route titles', () => {
   assert.equal(pageMetaForUrl('/chat').title, `Chat · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/monitor').title, `Dataset monitor · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/brand').title, `Brand · ${SITE_NAME}`);
+  assert.equal(pageMetaForUrl('/copilot').title, `Copilot internals · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/copilot').description ?? '', /system prompts/);
   assert.equal(pageMetaForUrl('/share/abc').title, `Shared chat · ${SITE_NAME}`);
 });
 

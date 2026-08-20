@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { describeCopilotCapabilities } from "../src/copilot-capabilities.ts";
+import { COPILOT_TOOL_DESCRIPTIONS, COPILOT_TOOL_INPUT_SCHEMAS } from "../src/copilot-contract.ts";
+import { SCHEMA_PLACEHOLDER } from "../src/copilot-prompt.ts";
+import type { LakeTable } from "../src/copilot-sql.ts";
+
+test("describeCopilotCapabilities lists every tool with JSON schema", () => {
+  const caps = describeCopilotCapabilities();
+  const names = caps.tools.map((tool) => tool.name);
+  assert.deepEqual(names, Object.keys(COPILOT_TOOL_INPUT_SCHEMAS));
+  for (const tool of caps.tools) {
+    assert.equal(tool.description, COPILOT_TOOL_DESCRIPTIONS[tool.name]);
+    assert.equal(tool.input_schema.type, "object");
+    assert.ok(tool.label.length > 0);
+  }
+  assert.equal(caps.meta.schema_mode, "placeholder");
+  assert.equal(caps.meta.table_count, 0);
+});
+
+test("describeCopilotCapabilities exposes the known system prompts", () => {
+  const caps = describeCopilotCapabilities();
+  const ids = caps.prompts.map((prompt) => prompt.id);
+  assert.deepEqual(ids, [
+    "copilot",
+    "bot-addon",
+    "scope-classifier",
+    "chat-meta",
+    "bot-prompt-invent",
+    "research-commentary",
+  ]);
+  const copilot = caps.prompts.find((prompt) => prompt.id === "copilot");
+  assert.ok(copilot);
+  assert.match(copilot.body, /senior quant developer/);
+  assert.ok(copilot.body.includes(SCHEMA_PLACEHOLDER));
+});
+
+test("describeCopilotCapabilities can embed a live lake schema without samples", () => {
+  const tables: LakeTable[] = [
+    {
+      name: "option_contracts",
+      columns: [
+        { name: "symbol", type: "VARCHAR" },
+        { name: "strike", type: "DOUBLE" },
+      ],
+      sample: [{ symbol: "SPY", strike: 500 }],
+      row_count: 12,
+    },
+  ];
+  const caps = describeCopilotCapabilities({ tables, includeSamples: false });
+  assert.equal(caps.meta.schema_mode, "live");
+  assert.equal(caps.meta.table_count, 1);
+  assert.equal(caps.meta.schema_include_samples, false);
+  const copilot = caps.prompts.find((prompt) => prompt.id === "copilot");
+  assert.ok(copilot);
+  assert.match(copilot.body, /TABLE options\.option_contracts/);
+  assert.match(copilot.body, /symbol VARCHAR/);
+  assert.doesNotMatch(copilot.body, /sample rows/);
+  assert.doesNotMatch(copilot.body, /SPY/);
+});

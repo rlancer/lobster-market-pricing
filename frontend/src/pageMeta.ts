@@ -203,6 +203,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/copilot') {
+    return {
+      title: pageTitle('Copilot internals'),
+      description:
+        'Admin-only explorer for live Copilot system prompts and tool input schemas from the Worker.',
+      path: '/copilot',
+    };
+  }
+
   if (path === '/docs' || path.startsWith('/docs/')) {
     const slug = path === '/docs' ? 'overview' : (segments[1] ?? 'overview');
     const doc = DOCS[slug] ?? DOCS.overview;
