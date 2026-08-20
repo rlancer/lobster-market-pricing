@@ -149,6 +149,15 @@ describe("summarizeResearch", () => {
         revenue_growth: null,
         source: "yahoo",
       },
+      shorting: {
+        settlement_date: "2026-07-31",
+        short_interest: 141_606_163,
+        short_interest_change_pct: -3.37,
+        days_to_cover: 2.42,
+        short_ratio: 0.36,
+        short_ratio_date: "2026-08-18",
+        source: "finra",
+      },
       earnings: [{ earnings_date: "2026-07-30", time: "after-hours", fiscal_q: "Jun/2026", eps_forecast: 1.4, last_year_eps: 1.2, name: "Apple" }],
       news: [{ title: "Apple headlines", link: "https://example.com" }],
       etf: null,
@@ -160,6 +169,9 @@ describe("summarizeResearch", () => {
     assert.match(text, /AAPL/);
     assert.match(text, /figi=BBG000B9XRY4/);
     assert.match(text, /marketCap=/);
+    assert.match(text, /Shorting \(FINRA\)/);
+    assert.match(text, /daysToCover=2\.42/);
+    assert.match(text, /shortVolRatio=36\.0%/);
     assert.match(text, /Apple headlines/);
   });
 

@@ -332,6 +332,9 @@ export function synthesizeCommentary(r: TickerResearch): string {
       `earnings ${e.earnings_date}${e.eps_forecast != null ? ` (EPS est ${e.eps_forecast})` : ""}`,
     );
   }
+  const s = r.shorting;
+  if (s?.days_to_cover != null) fundBits.push(`days to cover ${s.days_to_cover.toFixed(1)}`);
+  if (s?.short_ratio != null) fundBits.push(`short vol ${(s.short_ratio * 100).toFixed(0)}%`);
   if (fundBits.length) paragraphs.push(`${fundBits.join(" · ")}.`);
 
   // Keep the recap tight; always keep the trade closer last.

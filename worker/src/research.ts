@@ -1,7 +1,8 @@
 /**
  * Per-ticker research brief: recent price/volume moves, technical posture
- * (consolidation / accumulation), earnings, optional news, and lake
- * fundamentals (market cap, PE, debt from options.fundamentals, latest-wins).
+ * (consolidation / accumulation), earnings, optional news, lake
+ * fundamentals (market cap, PE, debt from options.fundamentals, latest-wins),
+ * and FINRA shorting (options.short_interest + options.reg_sho_daily).
  * Cached in D1 so the chat widget and /research/:ticker route share one path.
  * GET /api/research/{ticker} stays on lake + D1: no live Yahoo, no OpenFIGI,
  * no Tavily on the first-paint critical path.
@@ -61,6 +62,18 @@ export interface FundamentalsBrief {
   source: string | null;
 }
 
+/** Latest FINRA short interest + most recent Reg SHO short-volume ratio. */
+export interface ShortingBrief {
+  settlement_date: string | null;
+  short_interest: number | null;
+  short_interest_change_pct: number | null;
+  days_to_cover: number | null;
+  /** Latest Reg SHO short_volume / total_volume across FINRA TRFs. */
+  short_ratio: number | null;
+  short_ratio_date: string | null;
+  source: string | null;
+}
+
 export interface TechnicalBrief {
   trend: "up" | "down" | "sideways" | "unknown";
   consolidation: boolean;
@@ -88,6 +101,8 @@ export interface TickerResearch {
   technicals: TechnicalBrief;
   realized_vol: RealizedVolBrief | null;
   fundamentals: FundamentalsBrief;
+  /** Absent on older D1 cache rows; treat as empty. */
+  shorting?: ShortingBrief;
   earnings: EarningsBrief[];
   news: NewsBrief[];
   etf: {
@@ -125,6 +140,7 @@ export interface ResearchDeps {
   loadNews: (ticker: string, limit: number) => Promise<{ items: NewsBrief[]; error?: string }>;
   loadEtfProfile?: (ticker: string) => Promise<TickerResearch["etf"]>;
   loadFundamentals?: (ticker: string) => Promise<FundamentalsBrief>;
+  loadShorting?: (ticker: string) => Promise<ShortingBrief>;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
@@ -283,6 +299,18 @@ export function emptyFundamentals(): FundamentalsBrief {
   };
 }
 
+export function emptyShorting(): ShortingBrief {
+  return {
+    settlement_date: null,
+    short_interest: null,
+    short_interest_change_pct: null,
+    days_to_cover: null,
+    short_ratio: null,
+    short_ratio_date: null,
+    source: null,
+  };
+}
+
 export async function readResearchCache(
   db: D1Database,
   securityId: string,
@@ -432,7 +460,7 @@ async function computeAndStoreResearch(
   // OpenFIGI unless liveFigi. Lake loaders use the URL ticker (canonical for
   // this product); identity.ticker is the same except on rare alias remap.
   const secondary = opts?.includeSecondary === true;
-  const [identityRaw, ohlc, realizedVol, earnings, newsResult, etf, fundamentals] = await Promise.all([
+  const [identityRaw, ohlc, realizedVol, earnings, newsResult, etf, fundamentals, shorting] = await Promise.all([
     resolveTickerIdentity(env, ticker, {
       lakeLookup: deps.lakeLookup,
       fetchImpl: deps.fetchImpl,
@@ -449,6 +477,9 @@ async function computeAndStoreResearch(
     deps.loadFundamentals
       ? deps.loadFundamentals(ticker).catch(() => emptyFundamentals())
       : Promise.resolve(emptyFundamentals()),
+    secondary && deps.loadShorting
+      ? deps.loadShorting(ticker).catch(() => emptyShorting())
+      : Promise.resolve(emptyShorting()),
   ]);
 
   // Indexes/futures have no securities / underlying_snapshots row — fill name
@@ -475,6 +506,7 @@ async function computeAndStoreResearch(
     technicals,
     realized_vol: realizedVol,
     fundamentals,
+    shorting,
     earnings: earnings.slice(0, RESEARCH_EARNINGS_LIMIT),
     news: newsResult.items.slice(0, RESEARCH_NEWS_LIMIT),
     etf,
@@ -520,6 +552,25 @@ export function summarizeResearch(r: TickerResearch): string {
       `Fundamentals: marketCap=${fmtNum(f.market_cap)}, trailingPE=${fmtNum(f.trailing_pe)}, ` +
         `forwardPE=${fmtNum(f.forward_pe)}, totalDebt=${fmtNum(f.total_debt)}, D/E=${fmtNum(f.debt_to_equity)}`,
     );
+  }
+  const s = r.shorting;
+  if (s && (s.short_interest != null || s.short_ratio != null || s.days_to_cover != null)) {
+    const bits: string[] = [];
+    if (s.short_interest != null) {
+      bits.push(
+        `shortInterest=${fmtNum(s.short_interest)}` +
+          (s.settlement_date ? ` asOf ${s.settlement_date}` : ""),
+      );
+    }
+    if (s.short_interest_change_pct != null) bits.push(`ΔSI=${fmtPct(s.short_interest_change_pct)}`);
+    if (s.days_to_cover != null) bits.push(`daysToCover=${s.days_to_cover.toFixed(2)}`);
+    if (s.short_ratio != null) {
+      bits.push(
+        `shortVolRatio=${(s.short_ratio * 100).toFixed(1)}%` +
+          (s.short_ratio_date ? ` (${s.short_ratio_date})` : ""),
+      );
+    }
+    lines.push(`Shorting (FINRA): ${bits.join(", ")}`);
   }
   if (r.etf) {
     const e = r.etf;
