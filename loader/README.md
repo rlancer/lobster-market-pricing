@@ -145,7 +145,7 @@ publishes normalized rows to `options.yields`:
 Columns: `series_id`, `date`, `value` (FRED units — percent / percentage
 points), `title`, `tenor` (e.g. `10Y`, `ON`; null for spreads), `kind`,
 `source` (`fred`), `run_id`, `fetched_at`. Batch-scoped, ungated, daily;
-each pass syncs ~2y of history one series at a time (same isolation model as
+each pass syncs ~10y of history one series at a time (same isolation model as
 `fred-econ-daily`). Reuses the existing `FRED_API_KEY` Worker secret.
 
 Latest-wins query shape:

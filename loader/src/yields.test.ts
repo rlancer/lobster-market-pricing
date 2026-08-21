@@ -75,9 +75,11 @@ describe("publishYieldSeries", () => {
 
   it("fetches, normalizes, and posts observations", async () => {
     const posts: Array<{ url: string; headers: Record<string, string>; body: unknown }> = [];
+    let fredUrl = "";
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("stlouisfed.org")) {
+        fredUrl = url;
         expect(url).toContain("series_id=DGS10");
         expect(url).toContain("observation_start=");
         return new Response(JSON.stringify(FRED_PAYLOAD), { status: 200 });
@@ -104,6 +106,9 @@ describe("publishYieldSeries", () => {
         published: true,
         run_id: "run-abc",
       });
+      // Default lookback is ~10y (3650d) from fixed now → 2016-08-23.
+      expect(fredUrl).toContain("observation_start=2016-08-23");
+      expect(fredUrl).toContain("observation_end=2026-08-21");
       expect(posts).toHaveLength(1);
       expect(posts[0].headers["idempotency-key"]).toBe("yields:run-abc:DGS10");
       expect(posts[0].headers.authorization).toBe("Bearer tok");

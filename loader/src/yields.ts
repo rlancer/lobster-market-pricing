@@ -51,8 +51,8 @@ export const FRED_SERIES_OBSERVATIONS_URL =
 
 export const YIELDS_SOURCE = "fred";
 
-/** ~2y of history — covers the lake's ~1y OHLC window with margin for joins. */
-export const YIELDS_LOOKBACK_DAYS = 730;
+/** ~10y of history — enough for multi-year trend / regime context on direction asks. */
+export const YIELDS_LOOKBACK_DAYS = 3650;
 
 export const YIELDS_FIELDS = [
   "series_id", "date", "value", "title", "tenor", "kind", "source", "run_id", "fetched_at",
