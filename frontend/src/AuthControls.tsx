@@ -27,6 +27,7 @@ import {
   type AvatarCrop,
 } from './prepareAvatar';
 import { UserAvatar } from './UserAvatar';
+import { ReplyStylePicker } from './ReplyStylePicker';
 
 type PendingAvatar = {
   file: File;
@@ -201,7 +202,7 @@ export function AuthControls({
   }
 
   function applyProfilePatch(patch: {
-    handle?: string;
+    handle?: string | null;
     display_name?: string | null;
     avatar_url?: string | null;
     name?: string;
@@ -231,7 +232,7 @@ export function AuthControls({
     try {
       const result = await api.updateProfile({ handle: draft });
       applyProfilePatch(result);
-      setDraft(result.handle);
+      setDraft(result.handle ?? draft);
       setClaimOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save handle');
@@ -475,6 +476,7 @@ export function AuthControls({
               isDisabled={!canSaveHandle}
               onClick={() => { void saveHandle(); }}
             />
+            <ReplyStylePicker />
             <Button
               variant="ghost"
               size="sm"

@@ -166,9 +166,11 @@ export function questionWantsRisk(question: string): boolean {
  * Stable-ordered specialist list for this turn.
  * Pure options-tape asks on a single name keep F+T+O without macro.
  * Broad ETF / rates / Fed asks add macro; risk language adds risk.
+ * `context` is extra routing text (user reply note) so a short audience note
+ * can pull macro/risk without stuffing the question.
  */
-export function selectDeskSpecialists(question: string): DeskViewpointId[] {
-  const q = question.trim();
+export function selectDeskSpecialists(question: string, context?: string): DeskViewpointId[] {
+  const q = [question, context].filter((part) => typeof part === "string" && part.trim()).join("\n").trim();
   if (!q) return [...DEFAULT_DESK];
 
   const symbols = extractMentionedSymbols(q);
