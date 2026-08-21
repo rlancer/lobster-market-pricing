@@ -2,7 +2,9 @@
  * Structured suggested trades — shared by live chat, share, and timeline.
  * Dense rows (not cards): bias/conviction tokens + structure + optional legs.
  *
- * Legs are a discriminant: option (call/put) or equity (stock/ETF long/short).
+ * Legs are formal: instrument option|equity (stock/ETF), side buy/sell
+ * (long/short), optional qty. Worker normalize always sets instrument;
+ * optional here so legacy share payloads still typecheck.
  */
 
 export type TradeBias = 'bullish' | 'bearish' | 'neutral';
@@ -11,26 +13,21 @@ export type OptionRight = 'call' | 'put';
 export type TradeSide = 'buy' | 'sell';
 export type LegInstrument = 'option' | 'equity';
 
-interface TradeLegBase {
+/**
+ * Flat leg shape for UI + API wire.
+ * Prefer instrument + (for options) right + strike|strike_rel.
+ */
+export interface TradeLeg {
+  instrument?: LegInstrument;
   side: TradeSide;
   qty?: number;
   symbol?: string;
-}
-
-export interface OptionTradeLeg extends TradeLegBase {
-  instrument: 'option';
-  right: OptionRight;
+  right?: OptionRight;
   strike?: number;
   strike_rel?: string;
   expiration?: string;
   dte?: number;
 }
-
-export interface EquityTradeLeg extends TradeLegBase {
-  instrument: 'equity';
-}
-
-export type TradeLeg = OptionTradeLeg | EquityTradeLeg;
 
 export interface SuggestedTrade {
   ticker: string;
@@ -47,10 +44,16 @@ export interface SuggestedTrades {
   skip_reason?: string;
 }
 
+function resolveInstrument(leg: TradeLeg): LegInstrument {
+  if (leg.instrument === 'option' || leg.instrument === 'equity') return leg.instrument;
+  if (leg.right || leg.strike != null || leg.strike_rel) return 'option';
+  return 'equity';
+}
+
 export function formatTradeLeg(leg: TradeLeg): string {
   const qty = leg.qty != null ? `${leg.qty} ` : '';
   const sym = leg.symbol ? ` ${leg.symbol}` : '';
-  if (leg.instrument === 'equity') {
+  if (resolveInstrument(leg) === 'equity') {
     return `${leg.side} ${qty}shares${sym}`.replace(/\s+/g, ' ').trim();
   }
   const strike = leg.strike != null
@@ -59,7 +62,8 @@ export function formatTradeLeg(leg: TradeLeg): string {
   const tenor = leg.expiration
     ? leg.expiration + (leg.dte != null ? ` (${leg.dte}d)` : '')
     : (leg.dte != null ? `${leg.dte}d` : '');
-  const body = `${leg.side} ${qty}${strike} ${leg.right}${sym}`;
+  const right = leg.right ?? '?';
+  const body = `${leg.side} ${qty}${strike} ${right}${sym}`;
   return `${body.replace(/\s+/g, ' ').trim()}${tenor ? ` · ${tenor}` : ''}`;
 }
 
