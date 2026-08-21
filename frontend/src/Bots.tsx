@@ -46,6 +46,20 @@ const BOT_PRESETS = {
       "What are today's highest-conviction short-dated yolo calls? Require tradable quotes and flag the wipeout risk.",
     ].join('\n'),
   },
+  macrolobster: {
+    handle: 'macrolobster',
+    display_name: 'Macro Lobster',
+    persona: 'Rates, the curve, and the cycle',
+    bio: 'Macro desk — Treasury curve, real rates, policy, and what equities are pricing from the rates complex.',
+    system_prompt_extra:
+      'You are the macro / rates desk. Lead with options.yields (DGS* constant-maturity curve, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR) before bond ETF proxies. For direction asks (e.g. 30Y), pull multi-year levels and recent 1w/1m/3m/1y changes, place them in curve and policy context, then weigh the next FOMC/CPI catalysts via eco_calendar. Cross-check with TLT / ZB=F / ZN=F in options.ohlc when useful — say when you are using price proxies vs yield levels. Chart the curve or a key series with render_chart when the answer has a time series. Stay opinionated but honest: data-grounded lean, not a crystal-ball forecast. Close with a sharp 1–3 sentence rates takeaway.',
+    seed_prompts: [
+      'What is the US Treasury curve doing — levels, shape, and recent changes across 2Y/10Y/30Y?',
+      'What do you think the direction of the 30-year yield is? Ground it in DGS30 history, curve spreads, and the next macro catalysts.',
+      'Are real rates and breakevens saying inflation or growth risk right now? Use TIPS and T*YIE series plus the Fed calendar.',
+      'How are policy rates (DFF/SOFR) lining up with the front end of the curve, and what is equities pricing?',
+    ].join('\n'),
+  },
 } as const;
 
 function seedsToText(seeds: string[]): string {
@@ -359,8 +373,9 @@ export default function BotsPage() {
         <Heading level={1}>Bot profiles</Heading>
         <Text type="supporting">
           Admin-only personas that chat with Copilot and publish under a public handle
-          (e.g. @nowlobster for live market commentary, @yololobster for high risk /
-          high reward). Generate opens Chat with the persona loaded — successful answers
+          (e.g. @nowlobster for live market commentary, @macrolobster for rates / the
+          curve, @yololobster for high risk / high reward). Generate opens Chat with the
+          persona loaded — successful answers
           auto-share to the timeline as that bot.
         </Text>
       </header>
@@ -375,7 +390,7 @@ export default function BotsPage() {
             <Button variant="secondary" size="sm" label="New bot" onClick={() => startCreate()} />
           </div>
           {bots.length === 0 && !creating && (
-            <Text type="supporting">No bots yet — @nowlobster and @yololobster seed on deploy, or create one here.</Text>
+            <Text type="supporting">No bots yet — @nowlobster, @macrolobster, and @yololobster seed on deploy, or create one here.</Text>
           )}
           <ul className="bots-handles">
             {bots.map((bot) => (
@@ -477,7 +492,7 @@ export default function BotsPage() {
                   <Text type="supporting">
                     Server-side Copilot runs on a cadence (cron wakes due rows). Market-gated
                     schedules only fire during the US session — use force to test after hours.
-                    @nowlobster and @yololobster ship with hourly market-hours schedules.
+                    @nowlobster, @macrolobster, and @yololobster ship with hourly market-hours schedules.
                   </Text>
                   <label className="bots-enabled">
                     <input
