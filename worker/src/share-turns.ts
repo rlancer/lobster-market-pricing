@@ -3,7 +3,7 @@
  */
 import type { UIMessage } from "ai";
 import { chartFitsResult, inferChartSpec, wantsChart, type ChartSpec } from "./chart-spec";
-import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
+import { normalizeDeskBrief, type DeskBrief, type DeskBriefInput } from "./copilot-desk";
 import { normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 
 export type ShareTurn = {
@@ -146,12 +146,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         if (fromInput) chart = fromInput;
       }
       if (name === "publish_desk" && input && typeof input === "object") {
-        const fromInput = normalizeDeskBrief(input as {
-          fundamental: string;
-          technical: string;
-          options: string;
-          overview: string;
-        });
+        const fromInput = normalizeDeskBrief(input as DeskBriefInput);
         if (fromInput) desk = fromInput;
       }
       if (name === "suggest_trades" && input && typeof input === "object") {
@@ -172,12 +167,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         if (result && !chartFitsResult(chart, result.columns)) chart = null;
       }
       if (output.desk && typeof output.desk === "object") {
-        const fromOutput = normalizeDeskBrief(output.desk as {
-          fundamental: string;
-          technical: string;
-          options: string;
-          overview: string;
-        });
+        const fromOutput = normalizeDeskBrief(output.desk as DeskBriefInput);
         if (fromOutput) desk = fromOutput;
       }
       if (output.trades && typeof output.trades === "object") {
@@ -199,12 +189,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       if (metaChart && (!result || chartFitsResult(metaChart, result.columns))) chart = metaChart;
     }
     if (!desk && meta?.desk && typeof meta.desk === "object") {
-      const fromMeta = normalizeDeskBrief(meta.desk as {
-        fundamental: string;
-        technical: string;
-        options: string;
-        overview: string;
-      });
+      const fromMeta = normalizeDeskBrief(meta.desk as DeskBriefInput);
       if (fromMeta) desk = fromMeta;
     }
     if (!trades && meta?.trades && typeof meta.trades === "object") {

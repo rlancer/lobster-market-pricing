@@ -47,9 +47,10 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "For Bitcoin spot use BTC-USD — not IBIT unless the user asked for the ETF. " +
     "Call whenever you suggest a trade or deep-dive a specific underlying.",
   publish_desk:
-    "Publish the three specialist takes (fundamental, technical, options) plus a weighed desk overview that shares the same tool evidence. " +
+    "Publish takes for the active desk specialists (subset of fundamental, technical, options, risk, macro) plus a weighed overview that shares the same tool evidence. " +
+    "Fill only the specialists named as active for this turn; omit the rest. " +
     "Call after research_ticker / SQL / news for ticker analysis and trade ideas. " +
-    "The UI shows each viewpoint in its own panel; the final prose should be the overview, not a paste of all four fields.",
+    "The UI shows each published viewpoint in its own panel; the final prose should be the overview, not a paste of every field.",
   suggest_trades:
     "Publish 0–3 structured trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity). " +
     "Call after publish_desk on ticker/trade analysis so the UI can show trades without parsing prose. " +
@@ -90,10 +91,24 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     force: z.boolean().optional(),
   }).strict(),
   publish_desk: z.object({
-    fundamental: deskViewpointText.describe("Fundamental analyst take grounded in shared lake evidence."),
-    technical: deskViewpointText.describe("Technical analyst take grounded in the same evidence."),
-    options: deskViewpointText.describe("Options trader take (liquidity, IV, structure) grounded in the same evidence."),
-    overview: z.string().trim().min(40).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
+    fundamental: deskViewpointText.optional().describe(
+      "Fundamental analyst take when that specialist is active for this turn.",
+    ),
+    technical: deskViewpointText.optional().describe(
+      "Technical analyst take when that specialist is active for this turn.",
+    ),
+    options: deskViewpointText.optional().describe(
+      "Options trader take (liquidity, IV, structure) when that specialist is active.",
+    ),
+    risk: deskViewpointText.optional().describe(
+      "Risk analyst take (downside, sizing, what breaks) when that specialist is active.",
+    ),
+    macro: deskViewpointText.optional().describe(
+      "Macro analyst take (rates, Fed, factor regime) when that specialist is active.",
+    ),
+    overview: z.string().trim().min(40).max(3_200).describe(
+      "Weighed desk overview that reconciles the active specialists only.",
+    ),
   }).strict(),
   suggest_trades: z.object({
     trades: z.array(z.object({

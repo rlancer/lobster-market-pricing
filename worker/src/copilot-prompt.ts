@@ -2,7 +2,7 @@
  * Copilot system-prompt assembly (schema + rules + optional bot persona).
  * Kept free of Agents runtime so admin explore + unit tests can import it.
  */
-import { deskAnalystBlock } from "./copilot-desk";
+import { deskAnalystBlock, type DeskViewpointId } from "./copilot-desk";
 import { QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
 import { tradesSuggestBlock } from "./copilot-trades";
 import type { LakeTable } from "./copilot-sql";
@@ -12,6 +12,12 @@ export interface BotPromptProfile {
   display_name: string;
   persona: string;
   system_prompt_extra: string;
+}
+
+export interface SystemPromptOptions {
+  bot?: BotPromptProfile | null;
+  /** Specialists that must publish this turn (from selectDeskSpecialists). */
+  deskSpecialists?: readonly DeskViewpointId[];
 }
 
 export const SCHEMA_PLACEHOLDER =
@@ -39,14 +45,19 @@ export function schemaToPrompt(tables: LakeTable[], opts?: { includeSamples?: bo
   }).join("\n\n");
 }
 
-export function systemPrompt(schema: string, bot?: BotPromptProfile | null): string {
+export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null | SystemPromptOptions): string {
+  const opts: SystemPromptOptions = botOrOpts && typeof botOrOpts === "object" && "handle" in botOrOpts
+    ? { bot: botOrOpts }
+    : (botOrOpts && typeof botOrOpts === "object" ? botOrOpts : { bot: botOrOpts ?? null });
+  const bot = opts.bot ?? null;
+  const deskSpecialists = opts.deskSpecialists;
   const lines = [
-    "You are Lobster MP's market desk: a three-analyst team writing DataFusion SQL (R2 SQL) against an options market Iceberg lake, then publishing fundamental, technical, and options viewpoints plus a weighed overview.",
+    "You are Lobster MP's market desk: a multi-analyst team writing DataFusion SQL (R2 SQL) against an options market Iceberg lake, then publishing only the specialists needed for the ask plus a weighed overview.",
     "",
     "Schema:",
     schema,
     "",
-    deskAnalystBlock(),
+    deskAnalystBlock(deskSpecialists),
     "",
     tradesSuggestBlock(),
     "",
@@ -62,7 +73,7 @@ export function systemPrompt(schema: string, bot?: BotPromptProfile | null): str
     "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",
     "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
     `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a plain-English answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
-    "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links — and still publish fundamental + options takes, not only technicals.",
+    "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links — and still publish the active non-technical specialists (fundamental / options / risk / macro as routed), not only technicals.",
     "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It lake-normalizes the symbol, links this chat to that security, and returns price/volume technicals, lake fundamentals, earnings, and news. Ground every specialist take in that brief plus follow-up SQL.",
     "- If research_ticker reports thin/missing lake data for a ticker, the system auto-enrolls it into the continuous ETL so options, OHLC, and fundamentals start landing. Tell the user data is being loaded and they can retry shortly — do not invent chain or OHLC numbers.",
     "- Suggested trades MUST be actually tradable and MUST go through suggest_trades (never prose-only). After research_ticker, query options.option_contracts for the candidate strikes before recommending them: require a two-sided quote (bid>0 and ask>=bid), a relative bid-ask spread that is not wide (prefer <=15%), and demonstrated interest (volume >= 10 or open interest >= 100). Prefer names with several near-ATM listed contracts that actually quote. Skip one-sided/empty books and wide markets — a pretty structure on an untradeable name is a bad answer. If liquidity is too thin, call suggest_trades with trades: [] (skip_reason optional) — do not invent a fill.",
@@ -90,7 +101,7 @@ export function systemPrompt(schema: string, bot?: BotPromptProfile | null): str
       "Write in this persona's voice while still following every SQL/tool rule above.",
       "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
       "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
-      "publish_desk and suggest_trades are optional for timeline posts: prefer a single sharp voice when the persona would sound diluted by three panels, but still balance fundamental, technical, and options facts inside that voice. When you do suggest a trade, prefer suggest_trades so the UI can show structured legs.",
+      "publish_desk and suggest_trades are optional for timeline posts: prefer a single sharp voice when the persona would sound diluted by multiple panels, but still balance fundamental, technical, options, and (when relevant) risk/macro facts inside that voice. When you do suggest a trade, prefer suggest_trades so the UI can show structured legs.",
     );
   }
   return lines.join("\n");

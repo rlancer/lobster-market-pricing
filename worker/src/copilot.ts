@@ -32,7 +32,8 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
-import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
+import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskViewpointId } from "./copilot-desk";
+import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
@@ -724,6 +725,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       failedDeskCount: number;
       stepsAfterQuery: number;
     },
+    deskSpecialists: readonly DeskViewpointId[],
   ) {
     const persist = () => this.writeTurnState(turn.used, turn.successfulQuery, turn.failedQueryCount, capture);
     const noteQueryFailure = () => {
@@ -917,10 +919,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk,
         execute: async (args) => this.safeTool("publish_desk", TOOL_LABELS.publish_desk, args, capture, () => {
           status("Publishing desk viewpoints…");
-          const desk = normalizeDeskBrief(args);
+          const desk = normalizeDeskBrief(args, { required: deskSpecialists });
           if (!desk) {
             noteDeskFailure();
-            return this.output(false, "publish_desk rejected: need real fundamental/technical/options/overview takes (no placeholders or tiny stubs).", {
+            const needed = deskSpecialists.join("/");
+            return this.output(false, `publish_desk rejected: need real ${needed}/overview takes for the active desk (no placeholders or tiny stubs; omit inactive specialists).`, {
               error: "Desk viewpoints incomplete or stubbed.",
             });
           }
@@ -1026,7 +1029,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     }
 
     const tables = await this.loadSchema();
-    const latestQuestion = latestUserText(this.messages).toLowerCase();
+    const userQuestion = latestUserText(this.messages);
+    const latestQuestion = userQuestion.toLowerCase();
+    const deskSpecialists = selectDeskSpecialists(userQuestion);
     const requestedFrame = this.frameMetadata().find((frame) => latestQuestion.includes(frame.name.toLowerCase()));
     let wroteAnswerStatus = false;
     const activeModel = bot?.model || this.env.COPILOT_MODEL;
@@ -1037,10 +1042,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       execute: ({ writer }) => {
         const status = (value: string) => writer.write({ type: "data-status", data: { status: value }, transient: true });
         status("Reasoning over the data…");
-        const tools = this.createTools(tables, capture, status, turn);
+        const tools = this.createTools(tables, capture, status, turn, deskSpecialists);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables), bot),
+          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists }),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),
@@ -1057,8 +1062,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               preferFilterFrame: Boolean(requestedFrame),
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
-              // Timeline bots keep a single persona voice; interactive chat always
-              // publishes the three-analyst desk + structured trades once lake evidence exists.
+              // Timeline bots keep a single persona voice; interactive chat publishes
+              // the routed multi-analyst desk + structured trades once lake evidence exists.
               requireDesk: !bot,
               deskPublished: Boolean(capture.desk),
               stepsAfterQuery: turn.stepsAfterQuery,

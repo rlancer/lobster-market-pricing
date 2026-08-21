@@ -1860,10 +1860,12 @@ function capShareDesk(raw: unknown): DeskBrief | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const rec = raw as Record<string, unknown>;
   const desk = normalizeDeskBrief({
-    fundamental: typeof rec.fundamental === "string" ? rec.fundamental : "",
-    technical: typeof rec.technical === "string" ? rec.technical : "",
-    options: typeof rec.options === "string" ? rec.options : "",
-    overview: typeof rec.overview === "string" ? rec.overview : "",
+    fundamental: typeof rec.fundamental === "string" ? rec.fundamental : undefined,
+    technical: typeof rec.technical === "string" ? rec.technical : undefined,
+    options: typeof rec.options === "string" ? rec.options : undefined,
+    risk: typeof rec.risk === "string" ? rec.risk : undefined,
+    macro: typeof rec.macro === "string" ? rec.macro : undefined,
+    overview: typeof rec.overview === "string" ? rec.overview : undefined,
   });
   return desk ?? undefined;
 }
