@@ -60,6 +60,7 @@ import { describeCopilotCapabilities } from "./copilot-capabilities";
 import { CopilotAgentBase } from "./copilot";
 import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
 import { normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+import { coalesceAssistantMessageRecords } from "./share-turns";
 import { applyColumnSynonyms } from "./copilot-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
@@ -1939,6 +1940,12 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     return out;
   });
 
+  // chatRecovery retries land as consecutive assistant rows — collapse before
+  // the byte budget so /share does not show stacked empty bubbles.
+  const coalesced = coalesceAssistantMessageRecords(messages);
+  messages.length = 0;
+  messages.push(...coalesced);
+
   const firstUser = messages.find((m) => m.role === "user" && typeof m.content === "string" && m.content);
   const title = typeof firstUser?.content === "string"
     ? clipTitle(firstUser.content, SHARE_MAX_TITLE)
@@ -2251,6 +2258,9 @@ async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext):
     messages = JSON.parse(row.messages);
   } catch {
     /* rows are written by us; tolerate a corrupt one rather than 500 */
+  }
+  if (Array.isArray(messages)) {
+    messages = coalesceAssistantMessageRecords(messages);
   }
   const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
   let tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];

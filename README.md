@@ -407,9 +407,13 @@ capture (POST `/api/chat/history` stamps `user_id` from the session when
 logged in) and is not the user-facing catalog. Every tool outcome (success or
 failure) is also appended server-side into D1 `copilot_tool_events` for admin
 debugging via `GET /api/tool_calls` — lake history intentionally strips
-tools/errors. `chatRecovery` (bounded retries)
+tools/errors. `chatRecovery` (bounded retries; stall watchdog
+`chatStreamStallTimeoutMs` tuned for multi-analyst desk gaps, with tool
+status heartbeats so long `research_ticker` / lake calls do not look idle)
 re-drives an interrupted answer if the Worker/Agent is evicted mid-turn, and
-the client shows a "Recovering interrupted answer…" indicator. Cached result
+the client shows a "Recovering interrupted answer…" indicator. Consecutive
+assistant rows from those retries are coalesced on share/timeline read and in
+the live chat UI so recovery debris does not render as stacked empty bubbles. Cached result
 frames live only in the Agent's SQLite (`frames`/`frame_rows`) with a 15-minute
 TTL and an eight-frame cap; `filter_frame` compiles the validated expression
 AST into parameterized SQLite/JSON1 predicates so a large frame is filtered

@@ -25,6 +25,124 @@ export type ShareCapture = {
   trades?: SuggestedTrades | null;
 };
 
+/** True when an assistant turn has anything worth showing (or merging). */
+export function assistantShareTurnHasSubstance(turn: Pick<ShareTurn, "content" | "reasoning" | "sql" | "chart" | "desk" | "trades">): boolean {
+  return Boolean(
+    (typeof turn.content === "string" && turn.content.trim())
+    || (typeof turn.reasoning === "string" && turn.reasoning.trim())
+    || (typeof turn.sql === "string" && turn.sql.trim())
+    || turn.chart
+    || turn.desk
+    || turn.trades,
+  );
+}
+
+/**
+ * Merge consecutive assistant turns from chatRecovery retries into one.
+ * Each stalled desk attempt used to land as another empty bubble on /share
+ * and in live chat (user → assistant → assistant → assistant).
+ */
+export function mergeAssistantShareTurns(earlier: ShareTurn, later: ShareTurn): ShareTurn {
+  const desk = later.desk ?? earlier.desk;
+  const content = (
+    desk?.overview
+    || (later.content?.trim() ? later.content : "")
+    || earlier.content
+    || ""
+  ).trim();
+  const merged: ShareTurn = {
+    role: "assistant",
+    content: content || ((later.reasoning || earlier.reasoning) ? "(see reasoning)" : ""),
+  };
+  const reasoning = (later.reasoning?.trim() || earlier.reasoning || "").trim();
+  if (reasoning) merged.reasoning = reasoning;
+  const sql = later.sql?.trim() || earlier.sql;
+  if (sql) merged.sql = sql;
+  if (later.chart || earlier.chart) merged.chart = later.chart ?? earlier.chart;
+  if (desk) merged.desk = desk;
+  if (later.trades || earlier.trades) merged.trades = later.trades ?? earlier.trades;
+  if (later.ts != null || earlier.ts != null) merged.ts = later.ts ?? earlier.ts;
+  return merged;
+}
+
+/** Collapse recovery debris: consecutive assistants → one turn; drop empty shells. */
+export function coalesceAssistantShareTurns(turns: ShareTurn[]): ShareTurn[] {
+  const out: ShareTurn[] = [];
+  for (const turn of turns) {
+    if (turn.role !== "assistant") {
+      out.push(turn);
+      continue;
+    }
+    const prev = out[out.length - 1];
+    if (prev?.role === "assistant") {
+      out[out.length - 1] = mergeAssistantShareTurns(prev, turn);
+      continue;
+    }
+    if (!assistantShareTurnHasSubstance(turn)) continue;
+    out.push(turn);
+  }
+  return out;
+}
+
+/**
+ * Same coalesce for stored share/timeline JSON rows ({role, content, …}).
+ * Used on share write + public read so existing multi-bubble shares heal.
+ */
+export function coalesceAssistantMessageRecords(messages: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(messages)) return [];
+  const out: Record<string, unknown>[] = [];
+  for (const raw of messages) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const rec = { ...(raw as Record<string, unknown>) };
+    const role = rec.role === "assistant" ? "assistant" : rec.role === "user" ? "user" : null;
+    if (!role) continue;
+    rec.role = role;
+    if (role !== "assistant") {
+      out.push(rec);
+      continue;
+    }
+    const asTurn: ShareTurn = {
+      role: "assistant",
+      content: typeof rec.content === "string" ? rec.content : "",
+      ...(typeof rec.reasoning === "string" ? { reasoning: rec.reasoning } : {}),
+      ...(typeof rec.sql === "string" ? { sql: rec.sql } : {}),
+      ...(rec.chart && typeof rec.chart === "object" ? { chart: rec.chart as ChartSpec } : {}),
+      ...(rec.desk && typeof rec.desk === "object" ? { desk: rec.desk as DeskBrief } : {}),
+      ...(rec.trades && typeof rec.trades === "object" ? { trades: rec.trades as SuggestedTrades } : {}),
+      ...(typeof rec.ts === "number" ? { ts: rec.ts } : {}),
+    };
+    const prev = out[out.length - 1];
+    if (prev?.role === "assistant") {
+      const earlier: ShareTurn = {
+        role: "assistant",
+        content: typeof prev.content === "string" ? prev.content : "",
+        ...(typeof prev.reasoning === "string" ? { reasoning: prev.reasoning } : {}),
+        ...(typeof prev.sql === "string" ? { sql: prev.sql } : {}),
+        ...(prev.chart && typeof prev.chart === "object" ? { chart: prev.chart as ChartSpec } : {}),
+        ...(prev.desk && typeof prev.desk === "object" ? { desk: prev.desk as DeskBrief } : {}),
+        ...(prev.trades && typeof prev.trades === "object" ? { trades: prev.trades as SuggestedTrades } : {}),
+        ...(typeof prev.ts === "number" ? { ts: prev.ts } : {}),
+      };
+      const merged = mergeAssistantShareTurns(earlier, asTurn);
+      const next: Record<string, unknown> = { role: "assistant", content: merged.content };
+      if (merged.reasoning) next.reasoning = merged.reasoning;
+      if (merged.sql) next.sql = merged.sql;
+      if (merged.chart) next.chart = merged.chart;
+      if (merged.desk) next.desk = merged.desk;
+      if (merged.trades) next.trades = merged.trades;
+      if (merged.ts != null) next.ts = merged.ts;
+      // Preserve result from whichever side had it (share hydration).
+      if (rec.result != null) next.result = rec.result;
+      else if (prev.result != null) next.result = prev.result;
+      out[out.length - 1] = next;
+      continue;
+    }
+    if (!assistantShareTurnHasSubstance(asTurn) && rec.result == null) continue;
+    out.push(rec);
+  }
+  return out;
+}
+
 type ToolPayload = {
   sql?: unknown;
   result?: { columns?: unknown; rows?: unknown } | null;
@@ -217,5 +335,5 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     if (typeof meta?.createdAt === "number" && Number.isFinite(meta.createdAt)) turn.ts = meta.createdAt;
     out.push(turn);
   }
-  return out;
+  return coalesceAssistantShareTurns(out);
 }

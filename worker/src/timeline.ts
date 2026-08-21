@@ -18,6 +18,7 @@ import { getSessionUser, type AuthEnv } from "./auth";
 import { backfillShareMeta, shareNeedsMetaBackfill, type ChatMetaEnv } from "./chat-meta";
 import { listTickersForChats } from "./chat-tickers";
 import { createCopilotModel } from "./copilot-contract";
+import { coalesceAssistantMessageRecords } from "./share-turns";
 import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
 import { shareDisplayTitle } from "./user-chats";
@@ -100,12 +101,10 @@ export function excerptFromMessages(messages: unknown, title: string | null): st
  * when the share has no renderable turns.
  */
 export function previewMessagesFromShare(messages: unknown, title: string | null = null): Record<string, unknown>[] {
-  const rows = Array.isArray(messages) ? messages : [];
+  const rows = coalesceAssistantMessageRecords(messages);
   const out: Record<string, unknown>[] = [];
   for (const row of rows) {
-    const rec = messageRecord(row);
-    if (!rec) continue;
-    const slim = slimPreviewMessage(rec);
+    const slim = slimPreviewMessage(row);
     if (slim) out.push(slim);
   }
   if (out.length > 0) return out;

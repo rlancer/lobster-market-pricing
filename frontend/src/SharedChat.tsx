@@ -5,6 +5,7 @@ import './SharedChat.css';
 import { Sunglasses } from './Sunglasses';
 import { TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
+import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { PostShareButton } from './PostShareButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME } from './pageMeta';
@@ -173,7 +174,7 @@ function SharedChatRoute() {
               </p>
             </header>
             <section className="share-msgs" aria-label="Shared conversation">
-              {share.messages.map((m: SharedChatMessage, i: number) => (
+              {coalesceAssistantMessages(share.messages).map((m: SharedChatMessage, i: number) => (
                 <TranscriptMessage key={i} message={m} collapseSql />
               ))}
             </section>
