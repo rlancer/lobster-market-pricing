@@ -97,15 +97,24 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   }).strict(),
   suggest_trades: z.object({
     trades: z.array(z.object({
-      ticker: z.string().trim().min(1).max(16).describe("Underlying ticker, e.g. AAPL or BTC-USD."),
+      ticker: z.string().trim().min(1).max(16).describe("Underlying ticker, e.g. AAPL or SPY."),
       bias: z.enum(["bullish", "bearish", "neutral"]),
       conviction: z.enum(["high", "medium", "low"]),
-      structure: z.string().trim().min(1).max(160).describe("Short structure label, e.g. bull call debit spread."),
+      structure: z.string().trim().min(1).max(160)
+        .describe("Short structure label, e.g. bull call debit spread, long shares, covered call."),
       legs: z.array(z.object({
-        right: z.enum(["call", "put"]),
-        side: z.enum(["buy", "sell"]),
+        instrument: z.enum(["option", "equity"]).optional()
+          .describe("option = listed call/put; equity = stock or ETF shares. Infer option when right/strike present."),
+        side: z.enum(["buy", "sell"]).describe("buy = long, sell = short / write."),
+        qty: z.number().int().positive().max(1_000_000).optional()
+          .describe("Contracts (option) or shares (equity). Prefer when the idea is sized."),
+        symbol: z.string().trim().min(1).max(16).optional()
+          .describe("Leg symbol override when different from trade ticker (rare)."),
+        // Option-only fields (required by normalize when instrument=option).
+        right: z.enum(["call", "put"]).optional().describe("Required for option legs."),
         strike: z.number().positive().optional().describe("Absolute strike from option_contracts when known."),
-        strike_rel: z.string().trim().min(1).max(40).optional().describe("Relative strike when absolute unknown, e.g. ATM or ~5% OTM."),
+        strike_rel: z.string().trim().min(1).max(40).optional()
+          .describe("Relative strike when absolute unknown, e.g. ATM or ~5% OTM."),
         expiration: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("YYYY-MM-DD expiration."),
         dte: z.number().int().min(0).max(730).optional(),
       }).strict()).max(4).optional(),

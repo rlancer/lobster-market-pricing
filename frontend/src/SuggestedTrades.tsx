@@ -1,19 +1,36 @@
 /**
  * Structured suggested trades — shared by live chat, share, and timeline.
  * Dense rows (not cards): bias/conviction tokens + structure + optional legs.
+ *
+ * Legs are a discriminant: option (call/put) or equity (stock/ETF long/short).
  */
 
 export type TradeBias = 'bullish' | 'bearish' | 'neutral';
 export type TradeConviction = 'high' | 'medium' | 'low';
+export type OptionRight = 'call' | 'put';
+export type TradeSide = 'buy' | 'sell';
+export type LegInstrument = 'option' | 'equity';
 
-export interface TradeLeg {
-  right: 'call' | 'put';
-  side: 'buy' | 'sell';
+interface TradeLegBase {
+  side: TradeSide;
+  qty?: number;
+  symbol?: string;
+}
+
+export interface OptionTradeLeg extends TradeLegBase {
+  instrument: 'option';
+  right: OptionRight;
   strike?: number;
   strike_rel?: string;
   expiration?: string;
   dte?: number;
 }
+
+export interface EquityTradeLeg extends TradeLegBase {
+  instrument: 'equity';
+}
+
+export type TradeLeg = OptionTradeLeg | EquityTradeLeg;
 
 export interface SuggestedTrade {
   ticker: string;
@@ -30,14 +47,20 @@ export interface SuggestedTrades {
   skip_reason?: string;
 }
 
-function formatLeg(leg: TradeLeg): string {
+export function formatTradeLeg(leg: TradeLeg): string {
+  const qty = leg.qty != null ? `${leg.qty} ` : '';
+  const sym = leg.symbol ? ` ${leg.symbol}` : '';
+  if (leg.instrument === 'equity') {
+    return `${leg.side} ${qty}shares${sym}`.replace(/\s+/g, ' ').trim();
+  }
   const strike = leg.strike != null
     ? String(leg.strike)
     : (leg.strike_rel ?? '?');
   const tenor = leg.expiration
     ? leg.expiration + (leg.dte != null ? ` (${leg.dte}d)` : '')
     : (leg.dte != null ? `${leg.dte}d` : '');
-  return `${leg.side} ${strike} ${leg.right}${tenor ? ` · ${tenor}` : ''}`;
+  const body = `${leg.side} ${qty}${strike} ${leg.right}${sym}`;
+  return `${body.replace(/\s+/g, ' ').trim()}${tenor ? ` · ${tenor}` : ''}`;
 }
 
 function biasLabel(bias: TradeBias): string {
@@ -73,7 +96,7 @@ export function SuggestedTradesView({ trades }: { trades: SuggestedTrades }) {
               {trade.legs?.length ? (
                 <div className="ai-trade-legs">
                   {trade.legs.map((leg, legIndex) => (
-                    <span key={legIndex} className="ai-trade-leg">{formatLeg(leg)}</span>
+                    <span key={legIndex} className="ai-trade-leg">{formatTradeLeg(leg)}</span>
                   ))}
                 </div>
               ) : null}

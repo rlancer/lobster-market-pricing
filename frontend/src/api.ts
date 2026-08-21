@@ -444,8 +444,11 @@ export interface SharedChatMessage extends ChatHistoryMessage {
       conviction: 'high' | 'medium' | 'low';
       structure: string;
       legs?: {
-        right: 'call' | 'put';
+        instrument?: 'option' | 'equity';
         side: 'buy' | 'sell';
+        qty?: number;
+        symbol?: string;
+        right?: 'call' | 'put';
         strike?: number;
         strike_rel?: string;
         expiration?: string;
@@ -612,8 +615,11 @@ export interface AdminSuggestedTrade {
   conviction: 'high' | 'medium' | 'low';
   structure: string;
   legs: {
-    right: 'call' | 'put';
+    instrument: 'option' | 'equity';
     side: 'buy' | 'sell';
+    qty?: number;
+    symbol?: string;
+    right?: 'call' | 'put';
     strike?: number;
     strike_rel?: string;
     expiration?: string;
