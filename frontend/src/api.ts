@@ -445,6 +445,17 @@ export interface SharedChatMessage extends ChatHistoryMessage {
   };
   /** Structured trade suggestions from suggest_trades (not prose-parsed). */
   trades?: SuggestedTrades;
+  /**
+   * Session frames that fed this turn (Sources strip) — same shape as live
+   * ChatContextStrip metadata. Timeline/share reuse the chat Sources UI.
+   */
+  frames?: {
+    name: string;
+    columns: string[];
+    row_count: number;
+    sql: string;
+    fetched_at: number;
+  }[];
 }
 
 export type ShareChatMessage = SharedChatMessage;

@@ -13,7 +13,8 @@ import {
 } from '@astryxdesign/core';
 import { BarChart3, ChevronDown, ChevronUp, Code2, Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
-import { TranscriptMessage } from './ChatTranscript';
+import { ChatContextStrip } from './ChatContextStrip';
+import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { PostShareButton } from './PostShareButton';
@@ -33,12 +34,23 @@ function titlesMatch(title: string, userContent: string | undefined): boolean {
 /**
  * Clamp tall feed posts; expand/collapse in place so the full conversation
  * stays on the timeline (no /share route hop to keep reading).
+ * Reports clamp/expand so the parent can hydrate query results when the
+ * reader opens the full post (or when content already fits).
  */
-function FeedPreview({ children }: { children: ReactNode }) {
+function FeedPreview({
+  children,
+  onReveal,
+}: {
+  children: ReactNode;
+  /** Fires when the post should load full query results (expanded or unclamped). */
+  onReveal?: () => void;
+}) {
   const bodyRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
+  const [measured, setMeasured] = useState(false);
   const collapsed = !expanded && overflows;
+  const revealedRef = useRef(false);
 
   useLayoutEffect(() => {
     const node = bodyRef.current;
@@ -53,12 +65,22 @@ function FeedPreview({ children }: { children: ReactNode }) {
         getComputedStyle(document.documentElement).getPropertyValue('--size-element-lg'),
       ) || 36;
       setOverflows(node.scrollHeight > lg * 12 + 4);
+      setMeasured(true);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
   }, [children, expanded]);
+
+  useLayoutEffect(() => {
+    if (!measured || revealedRef.current) return;
+    // Hydrate when the post already fits, or the reader expanded it.
+    if (expanded || !overflows) {
+      revealedRef.current = true;
+      onReveal?.();
+    }
+  }, [expanded, overflows, measured, onReveal]);
 
   return (
     <VStack gap={2} className="timeline-preview-wrap">
@@ -82,7 +104,16 @@ function FeedPreview({ children }: { children: ReactNode }) {
               ? <ChevronUp size={14} aria-hidden="true" />
               : <ChevronDown size={14} aria-hidden="true" />
           }
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => {
+            setExpanded((value) => {
+              const next = !value;
+              if (next && !revealedRef.current) {
+                revealedRef.current = true;
+                onReveal?.();
+              }
+              return next;
+            });
+          }}
         />
       )}
     </VStack>
@@ -105,6 +136,7 @@ export function TimelinePostRow({
   titleLevel?: 2 | 3;
 }) {
   const [unpublishing, setUnpublishing] = useState(false);
+  const [hydrateResult, setHydrateResult] = useState(false);
   const messages: SharedChatMessage[] = coalesceAssistantMessages(
     post.messages?.length
       ? post.messages
@@ -118,6 +150,7 @@ export function TimelinePostRow({
   const tickers = (post.tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
+  const frames = framesFromMessages(messages);
   const displayName = post.name?.trim() || post.handle;
 
   const unpublish = async () => {
@@ -197,16 +230,21 @@ export function TimelinePostRow({
         <PostShareButton url={post.url} title={titleText} />
       </HStack>
 
-      {/* 3. Full conversation — primary content, expand in place */}
+      {/* 3. Sources — same frame exploration as live chat (SQL / Open in Data) */}
+      {frames.length > 0 && (
+        <ChatContextStrip frames={frames} tickers={[]} />
+      )}
+
+      {/* 4. Full conversation — primary content, expand in place */}
       {messages.length > 0 && (
-        <FeedPreview>
+        <FeedPreview onReveal={() => setHydrateResult(true)}>
           <VStack gap={4} className="timeline-msgs" aria-label="Conversation">
             {messages.map((message, index) => (
               <TranscriptMessage
                 key={`${post.share_id}-${index}`}
                 message={message}
                 openInData
-                hydrateResult={false}
+                hydrateResult={hydrateResult}
                 collapseSql
               />
             ))}
@@ -214,7 +252,7 @@ export function TimelinePostRow({
         </FeedPreview>
       )}
 
-      {/* 4. Supporting meta — technical flags + moderation */}
+      {/* 5. Supporting meta — technical flags + moderation */}
       {(post.has_sql || post.has_chart || post.model || isAdmin) && (
         <HStack gap={3} vAlign="center" className="timeline-post-meta">
           {(post.has_sql || post.has_chart || post.model) && (

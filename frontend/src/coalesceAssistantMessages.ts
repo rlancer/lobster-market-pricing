@@ -13,6 +13,8 @@ export type CoalesceableAssistant = {
   chart?: unknown;
   desk?: { overview?: string } | null;
   trades?: unknown;
+  tools?: unknown;
+  frames?: unknown;
   model?: string;
   ts?: number;
   id?: string;
@@ -28,6 +30,8 @@ function hasSubstance(message: CoalesceableAssistant): boolean {
     || message.trades
     || message.chart
     || message.result
+    || (Array.isArray(message.tools) && message.tools.length > 0)
+    || (Array.isArray(message.frames) && message.frames.length > 0)
     || message.error,
   );
 }
@@ -40,6 +44,11 @@ function mergeAssistants<T extends CoalesceableAssistant>(earlier: T, later: T):
     || earlier.content
     || ''
   ).trim();
+  const laterFrames = Array.isArray(later.frames) && later.frames.length ? later.frames : null;
+  const earlierFrames = Array.isArray(earlier.frames) && earlier.frames.length ? earlier.frames : null;
+  const laterTools = Array.isArray(later.tools) ? later.tools : [];
+  const earlierTools = Array.isArray(earlier.tools) ? earlier.tools : [];
+  const tools = [...earlierTools, ...laterTools].slice(0, 20);
   return {
     ...earlier,
     ...later,
@@ -51,6 +60,8 @@ function mergeAssistants<T extends CoalesceableAssistant>(earlier: T, later: T):
     chart: later.chart ?? earlier.chart,
     desk,
     trades: later.trades ?? earlier.trades,
+    frames: laterFrames ?? earlierFrames ?? later.frames ?? earlier.frames,
+    tools: tools.length ? tools : (later.tools ?? earlier.tools),
     model: later.model || earlier.model,
     ts: later.ts ?? earlier.ts,
     error: later.error || earlier.error,

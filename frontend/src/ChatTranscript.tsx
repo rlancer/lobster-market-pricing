@@ -10,27 +10,48 @@ import { AssistantMark } from './Sunglasses';
 import { DeskViewpoints, isDeskBrief } from './DeskViewpoints';
 import { SuggestedTradesView } from './SuggestedTrades';
 
+const TOOL_LABELS: Record<string, string> = {
+  run_query: 'SQL query',
+  check_schema: 'Check schema',
+  list_frames: 'List frames',
+  filter_frame: 'Filter frame',
+  refresh_frame: 'Refresh frame',
+  render_chart: 'Render chart',
+  get_news: 'News',
+  eco_calendar: 'Eco calendar',
+  web_search: 'Web search',
+  research_ticker: 'Ticker research',
+  publish_desk: 'Desk viewpoints',
+  suggest_trades: 'Suggested trades',
+};
+
 /**
- * Read-only assistant turn body shared by /share/:id and the public timeline.
- * Mirrors the finished-message layout in AiChat: desk viewpoints, markdown,
- * collapsible Thinking, chart, SQL block, and query result (details when a chart is up).
+ * Finished assistant turn body shared by live chat, /share/:id, and the
+ * public timeline. Desk viewpoints, markdown, Thinking, Tools used, chart,
+ * SQL, and query result (details when a chart is up).
  */
 export function AssistantMessageBody({
   message,
   openInData = false,
   hydrateResult = true,
   collapseSql = false,
+  hideThinking = false,
+  hideTools = false,
 }: {
   message: SharedChatMessage;
   /** When true, offer “Open in Data” next to Copy (live chat / timeline in-app). */
   openInData?: boolean;
   /**
-   * When false, skip live /api/query hydration (timeline feed). SQL and
+   * When false, skip live /api/query hydration (clamped timeline feed). SQL and
    * Thinking still render; charts force a fetch so the figure can paint.
    */
   hydrateResult?: boolean;
-  /** Timeline: SQL starts collapsed like Thinking; share/chat keep it open. */
+  /** Timeline / settled chat: SQL starts collapsed like Thinking. */
   collapseSql?: boolean;
+  /** Live streaming: TurnProgress already shows the open Thinking panel. */
+  hideThinking?: boolean;
+  /** Live streaming: TurnProgress already shows the tool feed. */
+  hideTools?: boolean;
 }) {
   const wantsChart = Boolean(message.chart);
   const shouldHydrate = hydrateResult || wantsChart;
@@ -84,6 +105,7 @@ export function AssistantMessageBody({
   const desk = message.desk && isDeskBrief(message.desk) ? message.desk : null;
   const overviewRaw = (desk?.overview || message.content || '').trim();
   const overview = /^(placeholder|tbd|todo|n\/?a|none|\.{1,3})$/i.test(overviewRaw) ? '' : overviewRaw;
+  const tools = !hideTools && message.tools?.length ? message.tools : null;
 
   return (
     <>
@@ -98,10 +120,34 @@ export function AssistantMessageBody({
         );
       })()}
       {message.trades && <SuggestedTradesView trades={message.trades} />}
-      {message.reasoning && (
+      {!hideThinking && message.reasoning && (
         <details className="ai-thinking ai-thinking-done">
           <summary>Thinking</summary>
           <div className="ai-thinking-body">{message.reasoning}</div>
+        </details>
+      )}
+      {tools && (
+        <details className="ai-thinking ai-thinking-done ai-tools-used">
+          <summary>Tools used ({tools.length})</summary>
+          <div className="ai-tool-feed">
+            {tools.map((tool, index) => (
+              <div
+                className={`ai-tool-row${tool.ok === undefined ? '' : tool.ok ? ' ok' : ' fail'}`}
+                key={`${tool.name}-${index}`}
+              >
+                <span className="ai-tool-name">
+                  <span className="ai-tool-state" aria-hidden="true">
+                    {tool.ok === undefined ? '·' : tool.ok ? '✓' : '✗'}
+                  </span>
+                  {TOOL_LABELS[tool.name] ?? tool.name.replaceAll('_', ' ')}
+                </span>
+                {tool.args && <code className="ai-tool-args">{tool.args}</code>}
+                {tool.summary && (
+                  <span className="ai-tool-summary" title={tool.summary}>{tool.summary}</span>
+                )}
+              </div>
+            ))}
+          </div>
         </details>
       )}
       {chart && result && <ChartView result={result} spec={chart} />}
@@ -140,23 +186,42 @@ export function AssistantMessageBody({
           <ResultTable result={result} />
         )
       )}
+      {message.role === 'assistant'
+        && !overview
+        && (message.sql || result || chart || message.trades || desk)
+        && (
+          <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
+        )}
     </>
   );
 }
 
-/** One read-only transcript row — same bubble chrome as AiChat / SharedChat. */
+/** Collect the latest session frames from a transcript (Sources strip). */
+export function framesFromMessages(messages: SharedChatMessage[]): NonNullable<SharedChatMessage['frames']> {
+  let frames: NonNullable<SharedChatMessage['frames']> = [];
+  for (const message of messages) {
+    if (message.frames?.length) frames = message.frames;
+  }
+  return frames;
+}
+
+/** One transcript row — same bubble chrome as live AiChat / SharedChat / timeline. */
 export function TranscriptMessage({
   message,
   openInData = false,
   hydrateResult = true,
   collapseSql = false,
+  hideThinking = false,
   userAside = null,
   userLabel = null,
+  footer = null,
+  header = null,
 }: {
   message: SharedChatMessage;
   openInData?: boolean;
   hydrateResult?: boolean;
   collapseSql?: boolean;
+  hideThinking?: boolean;
   /**
    * Optional chrome beside the user bubble (timeline: avatar on the left).
    * Assistant turns keep the brand mark; omit on /share and /chat.
@@ -164,6 +229,10 @@ export function TranscriptMessage({
   userAside?: ReactNode;
   /** Optional single-line name/@handle rendered above the user bubble. */
   userLabel?: ReactNode;
+  /** Optional chrome below the assistant body (live chat: timestamp / model). */
+  footer?: ReactNode;
+  /** Optional chrome above the assistant body (live chat: TurnProgress). */
+  header?: ReactNode;
 }) {
   if (message.role === 'user') {
     const body = message.content
@@ -189,12 +258,15 @@ export function TranscriptMessage({
     <div className="ai-msg ai-assistant">
       <AssistantMark />
       <div className="ai-bubble">
+        {header}
         <AssistantMessageBody
           message={message}
           openInData={openInData}
           hydrateResult={hydrateResult}
           collapseSql={collapseSql}
+          hideThinking={hideThinking}
         />
+        {footer}
       </div>
     </div>
   );

@@ -1761,6 +1761,8 @@ const SHARE_MAX_SQL = 10_000;               // chars — per message sql
 const SHARE_MAX_REASONING = 20_000;         // chars — per message thinking trace
 const SHARE_MAX_TOOLS = 20;                 // tool entries per message
 const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
+const SHARE_MAX_FRAMES = 8;                 // session frames snapshotted per message
+const SHARE_MAX_FRAME_COLS = 40;
 const SHARE_MAX_TITLE = 120;                // chars — auto-derived title (see clipTitle)
 const SHARE_MAX_RESULT_ROWS = 200;          // query rows snapshotted onto a share
 const SHARE_MAX_RESULT_COLS = 40;
@@ -1888,6 +1890,48 @@ function capShareTrades(raw: unknown): SuggestedTrades | undefined {
   return trades ?? undefined;
 }
 
+function capShareFrames(raw: unknown): Record<string, unknown>[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: Record<string, unknown>[] = [];
+  for (const item of raw.slice(0, SHARE_MAX_FRAMES)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as Record<string, unknown>;
+    if (typeof rec.name !== "string" || !rec.name.trim()) continue;
+    if (typeof rec.sql !== "string" || !rec.sql.trim()) continue;
+    if (typeof rec.row_count !== "number" || !Number.isFinite(rec.row_count)) continue;
+    if (typeof rec.fetched_at !== "number" || !Number.isFinite(rec.fetched_at)) continue;
+    const columns = Array.isArray(rec.columns)
+      ? rec.columns.filter((c): c is string => typeof c === "string" && c.length > 0).slice(0, SHARE_MAX_FRAME_COLS)
+      : [];
+    out.push({
+      name: rec.name.trim().slice(0, 80),
+      columns,
+      row_count: rec.row_count,
+      sql: rec.sql.slice(0, SHARE_MAX_SQL),
+      fetched_at: rec.fetched_at,
+    });
+  }
+  return out.length ? out : undefined;
+}
+
+function capShareTools(raw: unknown): Record<string, unknown>[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const tools = raw
+    .slice(0, SHARE_MAX_TOOLS)
+    .map((t) => {
+      const tr = t && typeof t === "object" ? (t as Record<string, unknown>) : {};
+      const name = str(tr.name)?.slice(0, 80) ?? "";
+      if (!name) return null;
+      const tool: Record<string, unknown> = { name };
+      if (typeof tr.args === "string" && tr.args) tool.args = tr.args.slice(0, SHARE_MAX_TOOL_ARG);
+      if (tr.ok === true || tr.ok === false) tool.ok = tr.ok;
+      if (tr.summary != null && tr.summary !== "") tool.summary = str(tr.summary)!.slice(0, 500);
+      return tool;
+    })
+    .filter((t): t is Record<string, unknown> => t !== null);
+  return tools.length ? tools : undefined;
+}
+
 /**
  * Pass 2 — share-only tightening on top of the lake normalizer's output.
  * The shipped caps (20k chars, no byte budget) are looser than the D1 row
@@ -1929,24 +1973,10 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     if (desk) out.desk = desk;
     const trades = capShareTrades(original.trades ?? rec.trades);
     if (trades) out.trades = trades;
-    if (Array.isArray(rec.tools)) {
-      // The schema tolerates tools (future ToolRow capture); v1 client never
-      // sends them, so this is a defensive cap, not a UI feature.
-      const tools = rec.tools
-        .slice(0, SHARE_MAX_TOOLS)
-        .map((t) => {
-          const tr = t && typeof t === "object" ? (t as Record<string, unknown>) : {};
-          const name = str(tr.name)?.slice(0, 80) ?? "";
-          if (!name) return null;
-          const tool: Record<string, unknown> = { name };
-          if (typeof tr.args === "string" && tr.args) tool.args = tr.args.slice(0, SHARE_MAX_TOOL_ARG);
-          if (tr.ok === true || tr.ok === false) tool.ok = tr.ok;
-          if (tr.summary != null && tr.summary !== "") tool.summary = str(tr.summary)!.slice(0, 500);
-          return tool;
-        })
-        .filter((t): t is Record<string, unknown> => t !== null);
-      if (tools.length) out.tools = tools;
-    }
+    const tools = capShareTools(original.tools ?? rec.tools);
+    if (tools) out.tools = tools;
+    const frames = capShareFrames(original.frames ?? rec.frames);
+    if (frames) out.frames = frames;
     return out;
   });
 
@@ -1977,6 +2007,9 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
   }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
     for (const m of [...messages].reverse()) delete m.trades;
+  }
+  if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
+    for (const m of [...messages].reverse()) delete m.frames;
   }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
     for (const m of [...messages].reverse()) delete m.sql; // newest last to lose sql
