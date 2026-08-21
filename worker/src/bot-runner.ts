@@ -28,6 +28,7 @@ import { enrichChatMeta } from "./chat-meta";
 import { createCopilotModel } from "./copilot-contract";
 import type { ShareTurn } from "./share-turns";
 import { moderateTimelineShare } from "./timeline-moderation";
+import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 import { clipTitle, TITLE_MAX } from "./user-chats";
 
 const SHARE_MAX_CONTENT = 5_000;
@@ -37,7 +38,7 @@ const SHARE_MAX_TITLE = TITLE_MAX;
 const SHARE_ID_BYTES = 18;
 const SHARE_ROW_MAX_BYTES = 2_000_000;
 
-export interface BotRunnerEnv extends BotEnv, MarketHoursEnv {
+export interface BotRunnerEnv extends BotEnv, MarketHoursEnv, ImprovementReporterEnv {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   CopilotAgent: DurableObjectNamespace<any>;
   COPILOT_MODEL?: string;
@@ -105,6 +106,7 @@ async function mintBotShare(
     endedAt: number;
     title?: string | null;
   },
+  opts?: { waitUntil?: (p: Promise<unknown>) => void },
 ): Promise<{ ok: true; share_id: string } | { ok: false; error: string }> {
   const existing = await env.SCHEMA_DB.prepare(
     `SELECT share_id FROM shared_chats WHERE run_id = ?1`,
@@ -163,6 +165,20 @@ async function mintBotShare(
       onTimeline ? args.botHandle : null,
       args.runId,
     ).run();
+    scheduleImprovementReport(
+      env,
+      moderationModel,
+      {
+        messages,
+        decision: moderation,
+        action: onTimeline ? "allow_bot_share" : "reject_bot_share",
+        shareId,
+        runId: args.runId,
+        botHandle: args.botHandle,
+        publicOrigin: "https://lobster.mp",
+      },
+      { waitUntil: opts?.waitUntil },
+    );
     if (onTimeline) {
       await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: shareId });
       return { ok: true, share_id: shareId };
@@ -225,6 +241,7 @@ export async function runBotChatAndShare(
   env: BotRunnerEnv,
   bot: BotProfile,
   prompt: string,
+  opts?: { waitUntil?: (p: Promise<unknown>) => void },
 ): Promise<
   | { ok: true; run: BotRun; share_id: string; chat_id: string }
   | { ok: false; error: string; run?: BotRun }
@@ -284,7 +301,7 @@ export async function runBotChatAndShare(
       startedAt,
       endedAt: Date.now(),
       title: metaTitle,
-    });
+    }, { waitUntil: opts?.waitUntil });
     if (!share.ok) {
       await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "failed", error: share.error });
       return { ok: false, error: share.error, run };
@@ -306,7 +323,7 @@ export async function runBotChatAndShare(
 export async function runOneBotSchedule(
   env: BotRunnerEnv,
   schedule: BotSchedule,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; waitUntil?: (p: Promise<unknown>) => void },
 ): Promise<
   | { ok: true; deferred?: false; run: BotRun; share_id: string }
   | { ok: true; deferred: true; reason: string; next_run_at: number }
@@ -328,7 +345,7 @@ export async function runOneBotSchedule(
     return { ok: false, error: "bot missing or disabled" };
   }
 
-  const result = await runBotChatAndShare(env, bot, schedule.prompt);
+  const result = await runBotChatAndShare(env, bot, schedule.prompt, { waitUntil: opts?.waitUntil });
   if (!result.ok) {
     await markScheduleFailure(env.SCHEMA_DB, schedule.handle, result.error, now, env);
     return { ok: false, error: result.error };
@@ -338,7 +355,10 @@ export async function runOneBotSchedule(
 }
 
 /** Cron entry — process due schedules sequentially (single-flight per handle). */
-export async function runDueBotSchedules(env: BotRunnerEnv): Promise<{
+export async function runDueBotSchedules(
+  env: BotRunnerEnv,
+  opts?: { waitUntil?: (p: Promise<unknown>) => void },
+): Promise<{
   processed: number;
   ran: number;
   deferred: number;
@@ -354,7 +374,7 @@ export async function runDueBotSchedules(env: BotRunnerEnv): Promise<{
     try {
       const live = await getBotSchedule(env.SCHEMA_DB, schedule.handle);
       if (!live || !live.enabled) continue;
-      const outcome = await runOneBotSchedule(env, live);
+      const outcome = await runOneBotSchedule(env, live, { waitUntil: opts?.waitUntil });
       if (outcome.ok && outcome.deferred) {
         deferred += 1;
         results.push({ handle: schedule.handle, status: "deferred", detail: outcome.reason });
