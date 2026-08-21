@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildIssueBody,
+  fallbackRejectSuggestion,
   IMPROVEMENT_LABEL,
   IMPROVEMENT_REVIEW_SYSTEM,
   normalizeFingerprint,
@@ -94,4 +95,16 @@ test("scheduleImprovementReport no-ops without a GitHub token", () => {
     { waitUntil: () => { scheduled = true; } },
   );
   assert.equal(scheduled, false);
+});
+
+test("fallbackRejectSuggestion builds a stable fingerprint from the reason", () => {
+  const fb = fallbackRejectSuggestion(
+    { allow: false, reason: "assistant left only a reasoning placeholder — no finished answer", source: "heuristic" },
+    "reject_bot_create_share",
+  );
+  assert.ok(fb);
+  assert.match(fb!.fingerprint, /^reject-assistant-left-only/);
+  assert.match(fb!.title, /reasoning placeholder/i);
+  assert.equal(fb!.category, "truncation");
+  assert.equal(fallbackRejectSuggestion({ allow: true, reason: "ok", source: "llm" }), null);
 });
