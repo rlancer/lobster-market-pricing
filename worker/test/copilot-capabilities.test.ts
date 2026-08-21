@@ -33,7 +33,7 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   ]);
   const copilot = caps.prompts.find((prompt) => prompt.id === "copilot");
   assert.ok(copilot);
-  assert.match(copilot.body, /three-analyst/);
+  assert.match(copilot.body, /multi-analyst/);
   assert.match(copilot.body, /publish_desk/);
   assert.match(copilot.body, /suggest_trades/);
   assert.match(copilot.body, /BTC-USD/);
@@ -43,6 +43,8 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
   const desk = caps.prompts.find((prompt) => prompt.id === "desk-analysts");
   assert.ok(desk);
   assert.match(desk.body, /Fundamental analyst/);
+  assert.match(desk.body, /Risk analyst/);
+  assert.match(desk.body, /Macro analyst/);
   assert.match(desk.body, /BTC-USD/);
   const trades = caps.prompts.find((prompt) => prompt.id === "suggest-trades");
   assert.ok(trades);
@@ -79,5 +81,7 @@ test("describeCopilotCapabilities can embed a live lake schema without samples",
   assert.match(copilot.body, /TABLE options\.option_contracts/);
   assert.match(copilot.body, /symbol VARCHAR/);
   assert.doesNotMatch(copilot.body, /sample rows/);
-  assert.doesNotMatch(copilot.body, /SPY/);
+  // Schema samples must stay out of the prompt; SPY may still appear in desk routing copy.
+  assert.doesNotMatch(copilot.body, /"symbol":\s*"SPY"/);
+  assert.doesNotMatch(copilot.body, /strike.: 500/);
 });

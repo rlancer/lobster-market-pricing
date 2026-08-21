@@ -431,11 +431,13 @@ export interface SharedChatMessage extends ChatHistoryMessage {
     xLabel?: string;
     yLabel?: string;
   };
-  /** Three-analyst desk viewpoints published via publish_desk. */
+  /** Routed multi-analyst desk viewpoints published via publish_desk. */
   desk?: {
-    fundamental: string;
-    technical: string;
-    options: string;
+    fundamental?: string;
+    technical?: string;
+    options?: string;
+    risk?: string;
+    macro?: string;
     overview: string;
   };
   /** Structured trade suggestions from suggest_trades (not prose-parsed). */
