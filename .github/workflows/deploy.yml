@@ -400,8 +400,11 @@ jobs:
 
       # Stable dev URL (https://robs-options-slop-dev.pages.dev/): this project's
       # production branch is `dev`, so every dev build also lands here and uses
-      # the matching screener-api-dev Worker.
+      # the matching screener-api-dev Worker. Skip on pull_request — push already
+      # deploys the same tip, and dual push+PR runs race on `--branch dev`
+      # (Cloudflare "Unknown internal error").
       - name: Deploy to Cloudflare Pages (stable dev URL)
+        if: github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

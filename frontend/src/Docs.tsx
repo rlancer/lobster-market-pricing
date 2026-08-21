@@ -124,10 +124,11 @@ const JOBS = [
   ['cfe-futures-daily', 'Daily', 'CFE settlements + delayed monthals (VX curve and siblings) into futures_settlements / futures_quotes.'],
   ['futures-ohlc-daily', 'Daily', 'Yahoo continuous CME/CBOT futures (=F) OHLC into options.ohlc / realized_vol (incl. BTC=F / ETH=F / micros).'],
   ['instruments-daily', 'Daily', 'Manifest classification → options.instruments (security_type equity|etf|index|future|crypto) for type-filtered OHLC queries.'],
+  ['fred-yields-daily', 'Daily', 'FRED Treasury / rates curve → options.yields (DGS* constant-maturity, spreads, TIPS/breakevens, DFF/SOFR).'],
 ];
 
 const TABLES =
-  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes';
+  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes · yields';
 
 const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },

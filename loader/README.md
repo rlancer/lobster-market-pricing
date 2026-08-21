@@ -129,6 +129,44 @@ job auto-refreshes the window daily (ungated). Provisioning recipe is identical
 to the earnings block above with names `cboe_econ_v2` / `cboe_econ_sink` /
 `cboe_econ_pipeline` and `schemas/econ_calendar.json`.
 
+### US Treasury / rates curve (`fred-yields-daily`)
+
+Fetches curated **FRED series observations** for the US rates curve and
+publishes normalized rows to `options.yields`:
+
+| `kind` | Series |
+|---|---|
+| `nominal` | `DGS1MO` … `DGS30` (constant-maturity Treasuries) |
+| `spread` | `T10Y2Y`, `T10Y3M` |
+| `breakeven` | `T5YIE`, `T10YIE` |
+| `real` | `DFII5`, `DFII10` (TIPS) |
+| `policy` | `DFF` (fed funds effective), `SOFR` |
+
+Columns: `series_id`, `date`, `value` (FRED units — percent / percentage
+points), `title`, `tenor` (e.g. `10Y`, `ON`; null for spreads), `kind`,
+`source` (`fred`), `run_id`, `fetched_at`. Batch-scoped, ungated, daily;
+each pass syncs ~10y of history one series at a time (same isolation model as
+`fred-econ-daily`). Reuses the existing `FRED_API_KEY` Worker secret.
+
+Latest-wins query shape:
+
+```sql
+SELECT series_id, date, value, tenor, kind
+FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY series_id, date ORDER BY fetched_at DESC) AS rn
+  FROM options.yields
+) t
+WHERE rn = 1 AND date >= '2026-01-01' AND kind = 'nominal'
+ORDER BY date, tenor
+```
+
+**Provision after merge** — stream `cboe_yields_v2`, sink `cboe_yields_sink`
+(creates `options.yields`), pipeline `cboe_yields_pipeline`, then
+`npx wrangler secret put PIPELINE_YIELDS_URL`. Recipe matches the earnings
+block above with `schemas/yields.json`, or run
+`.github/workflows/provision-fred-yields.yml`. Dry-run until the secret is set
+(no FRED fetches). Probe: `node --experimental-strip-types tools/yields_probe.ts`.
+
 ### ETF fund profiles + top holdings (`etf-daily`)
 
 Yahoo chart v8 already stores ETF **distributions** on `options.corporate_actions`

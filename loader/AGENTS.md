@@ -29,10 +29,13 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   `ticker_research` cache via `POST /api/research/warm` — no new lake table),
   `sec-filings-daily` (batch, daily; SEC EDGAR submissions →
   `options.sec_filings` — equity 10-K/Q/8-K + ETF prospectus family with
-  `edgar_url` links), and `instruments-daily` (batch, daily; manifest
+  `edgar_url` links), `instruments-daily` (batch, daily; manifest
   classification → `options.instruments` with extendable `security_type`
   in {equity, etf, index, future, crypto} so OHLC queries filter by kind
-  instead of hand-listing tickers).
+  instead of hand-listing tickers), and `fred-yields-daily` (batch, daily;
+  FRED Treasury / rates curve observations → `options.yields`: DGS*
+  constant-maturity, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR;
+  ~10y lookback).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`
@@ -208,27 +211,28 @@ ShortInterest:     <PIPELINE_SHORT_INTEREST_URL secret — stream cboe_short_int
 RegShoDaily:       <PIPELINE_REG_SHO_URL secret — stream cboe_reg_sho_daily_v2>
 SecFilings:        <PIPELINE_SEC_FILINGS_URL secret — stream cboe_sec_filings_v2>
 Instruments:       <PIPELINE_INSTRUMENTS_URL secret — stream cboe_instruments_v2>
+Yields:            <PIPELINE_YIELDS_URL secret — stream cboe_yields_v2>
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
          cboe_etf_profiles_v2, cboe_etf_holdings_v2, cboe_fundamentals_v2,
          cboe_futures_settlements_v2, cboe_futures_quotes_v2,
          cboe_short_interest_v2, cboe_reg_sho_daily_v2, cboe_sec_filings_v2,
-         cboe_instruments_v2
+         cboe_instruments_v2, cboe_yields_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
          cboe_etf_profiles_sink, cboe_etf_holdings_sink, cboe_fundamentals_sink,
          cboe_futures_settlements_sink, cboe_futures_quotes_sink,
          cboe_short_interest_sink, cboe_reg_sho_daily_sink, cboe_sec_filings_sink,
-         cboe_instruments_sink
+         cboe_instruments_sink, cboe_yields_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots,
         options.etf_profiles, options.etf_holdings, options.fundamentals,
         options.futures_settlements, options.futures_quotes,
         options.short_interest, options.reg_sho_daily, options.sec_filings,
-        options.instruments
+        options.instruments, options.yields
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline
