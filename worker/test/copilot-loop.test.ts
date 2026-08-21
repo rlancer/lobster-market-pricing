@@ -96,7 +96,8 @@ test('stays on auto after DESK_FORCE_FAILURES_MAX so a voluntary desk can still 
   assert.equal(policy.toolChoice, 'auto');
 });
 
-test('seals with tools off after publish_desk when trades are not required', () => {
+test('keeps auto after publish_desk when trades are not required', () => {
+  // Timeline bots still need render_chart after the desk; last-step seals.
   const policy = nextCopilotStepPolicy({
     ...base,
     stepNumber: 3,
@@ -104,8 +105,8 @@ test('seals with tools off after publish_desk when trades are not required', () 
     requireDesk: true,
     deskPublished: true,
   });
-  assert.equal(policy.toolChoice, 'none');
-  assert.deepEqual(policy.activeTools, []);
+  assert.equal(policy.toolChoice, 'auto');
+  assert.equal(policy.activeTools, undefined);
 });
 
 test('forces suggest_trades after publish_desk when trades are required', () => {
@@ -150,15 +151,17 @@ test('stops forcing suggest_trades after TRADES_FORCE_FAILURES_MAX failures', ()
   assert.deepEqual(policy.activeTools, []);
 });
 
-test('does not force publish_desk for bot / timeline turns', () => {
+test('forces publish_desk for bot / timeline turns once the gather window ends', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
-    stepNumber: 2,
+    stepNumber: 6,
     successfulQuery: true,
-    requireDesk: false,
+    requireDesk: true,
     deskPublished: false,
+    stepsAfterQuery: 5,
+    requireTrades: false,
   });
-  assert.equal(policy.toolChoice, 'auto');
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
 });
 
 test('stops forcing tools after QUERY_FORCE_FAILURES_MAX failures', () => {

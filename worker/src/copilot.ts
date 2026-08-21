@@ -1063,7 +1063,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const tables = await this.loadSchema();
     const userQuestion = latestUserText(this.messages);
     const latestQuestion = userQuestion.toLowerCase();
-    const deskSpecialists = selectDeskSpecialists(userQuestion);
+    const deskSpecialists = selectDeskSpecialists(
+      userQuestion,
+      bot ? `${bot.persona}\n${bot.system_prompt_extra}` : undefined,
+    );
     const requestedFrame = this.frameMetadata().find((frame) => latestQuestion.includes(frame.name.toLowerCase()));
     let wroteAnswerStatus = false;
     const activeModel = bot?.model || this.env.COPILOT_MODEL;
@@ -1094,9 +1097,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               preferFilterFrame: Boolean(requestedFrame),
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
-              // Timeline bots keep a single persona voice; interactive chat publishes
-              // the routed multi-analyst desk + structured trades once lake evidence exists.
-              requireDesk: !bot,
+              // Bot thesis posts and interactive chat both publish the routed
+              // specialist personas via publish_desk. Structured trades stay
+              // interactive-only so a rates post is not forced into a flyer.
+              requireDesk: true,
               deskPublished: Boolean(capture.desk),
               stepsAfterQuery: turn.stepsAfterQuery,
               failedDeskCount: turn.failedDeskCount,

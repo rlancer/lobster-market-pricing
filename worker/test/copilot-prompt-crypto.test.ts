@@ -13,6 +13,19 @@ test("systemPrompt teaches the desk that spot Bitcoin is BTC-USD in the lake", (
   assert.doesNotMatch(body, /ONLY answer US equities, ETF, options/);
 });
 
+test("systemPrompt requires publish_desk on bot timeline posts", () => {
+  const body = systemPrompt("[schema]", {
+    handle: "macrolobster",
+    display_name: "Macro Lobster",
+    persona: "Rates, the curve, and the cycle",
+    system_prompt_extra: "Lead with options.yields.",
+  });
+  assert.match(body, /MUST still call publish_desk/);
+  assert.match(body, /specialist personas/);
+  assert.doesNotMatch(body, /optional for timeline posts/);
+  assert.doesNotMatch(body, /prefer a single sharp voice/);
+});
+
 test("deskAnalystBlock tells options specialist spot crypto has no OCC root", () => {
   const body = deskAnalystBlock();
   assert.match(body, /BTC-USD/);

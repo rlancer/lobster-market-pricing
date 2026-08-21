@@ -365,11 +365,14 @@ model metadata, and the final prose answer. Chart specs are merged across tool
 outputs for the turn (so `render_chart` cannot wipe the query rows the plot
 needs); if the model skips `render_chart` on a chart/smile/surface question,
 the client infers a spec from the result columns. Interactive analysis turns
-publish a **routed multi-analyst desk** via `publish_desk`: specialists are
-selected from fundamental / technical / options / risk / macro based on the
-ask (e.g. GME options chain keeps the core three and skips macro; SPY / TLT /
-Fed / CPI pulls macro; hedge / sizing / wipeout language pulls risk). The UI
-renders only the published panels. The Worker owns the schema context,
+and public bot thesis posts both publish a **routed multi-analyst desk** via
+`publish_desk`: specialists are selected from fundamental / technical /
+options / risk / macro based on the ask (and, for bots, the persona) — e.g. a
+GME options chain keeps the core three and skips macro; SPY / TLT / Fed / CPI
+or `@macrolobster` rates posts pull macro; hedge / sizing / wipeout language
+pulls risk. The UI renders only the published panels. Structured `suggest_trades`
+stays interactive-chat-only unless the bot actually has a tradable idea. The
+Worker owns the schema context,
 deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
 validation, OpenFIGI ticker research (`research_ticker`), news, web search, economic calendar, tool iteration, and the final
 prose answer.

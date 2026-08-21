@@ -144,10 +144,11 @@ export function nextCopilotStepPolicy(opts: {
         toolChoice: { type: "tool", toolName: "suggest_trades" },
       };
     }
-    // Desk (+ trades when required) is the answer — seal with prose only. Extra
-    // tool rounds after publish_desk widen the abort window and leave mid-turn
-    // narration as the visible text when the final tool parts never land.
-    if (opts.requireDesk && opts.deskPublished) {
+    // Interactive chat: desk (+ trades when required) is the answer — seal so
+    // extra tool rounds cannot leave mid-turn narration as the visible text.
+    // Timeline bots still need render_chart after the desk, so keep auto until
+    // the last-step seal.
+    if (opts.requireDesk && opts.deskPublished && opts.requireTrades) {
       return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
     }
     return { toolChoice: "auto", maxOutputTokens: toolBudget };

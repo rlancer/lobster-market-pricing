@@ -32,3 +32,12 @@ test("selectDeskSpecialists keeps single-name desks free of macro", () => {
     ["fundamental", "technical", "options"],
   );
 });
+
+test("selectDeskSpecialists routes a rates-bot persona onto the macro tape", () => {
+  const specialists = selectDeskSpecialists(
+    "Hourly update.",
+    "Rates, the curve, and the cycle\nLead with options.yields before bond ETF proxies.",
+  );
+  assert.ok(specialists.includes("macro"));
+  assert.ok(specialists.includes("technical"));
+});

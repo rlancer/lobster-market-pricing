@@ -103,7 +103,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
       "Write in this persona's voice while still following every SQL/tool rule above.",
       "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
       "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
-      "publish_desk and suggest_trades are optional for timeline posts: prefer a single sharp voice when the persona would sound diluted by multiple panels, but still balance fundamental, technical, options, and (when relevant) risk/macro facts inside that voice. When you do suggest a trade, prefer suggest_trades so the UI can show structured legs.",
+      "Timeline posts MUST still call publish_desk after tools so the feed can render the active specialist personas (fundamental / technical / options / risk / macro as routed) plus a weighed overview. Write each specialist take AND the overview in this bot's voice — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
     );
   }
   return lines.join("\n");
