@@ -316,11 +316,12 @@ in-memory.
 
 The **timeline** is the home surface (`/`). On desktop it adds a companion
 column (tags from public posts, breaking news, index tape) and hides that
-rail below `56rem` until there is a mobile surface. Chat lives at `/chat` and
-reuses the same companion shell inside chat chrome (top bar spans both
-columns). The rail opens once tickers or session frames attach, hosts those
-sources, and shows related news + session tape; market fallback alone does
-not open an empty welcome rail.
+rail below `56rem` until there is a mobile surface. Per-handle profiles at
+`/u/{handle}` reuse the same companion column next to that author's public
+chats. Chat lives at `/chat` and reuses the same companion shell inside chat
+chrome (top bar spans both columns). The rail opens once tickers or session
+frames attach, hosts those sources, and shows related news + session tape;
+market fallback alone does not open an empty welcome rail.
 **Research**
 (`/research`, `/research/{ticker}`) is the ticker detail page — the brief
 (spot + compact fundamentals) paints first from D1/lake; chart and Lobster

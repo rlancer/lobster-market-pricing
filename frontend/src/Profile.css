@@ -63,6 +63,13 @@
   margin-block-end: 0;
 }
 
+@media (min-width: 56rem) {
+  /* Same pairing as / and /chat: reading column + 22rem companion rail. */
+  .profile.content-column {
+    max-width: calc(var(--chat-max) + 22rem + var(--spacing-5));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .profile-header {
     animation: none;
