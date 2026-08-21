@@ -375,6 +375,18 @@ export const FEEDS: CatalogItem[] = [
     tables: ['securities', 'symbol_history'],
     tools: ['run_query', 'research_ticker'],
   },
+  {
+    id: 'feed:instruments',
+    kind: 'feed',
+    title: 'Instrument classification',
+    summary: 'security_type tags for every OHLC symbol',
+    description:
+      'Latest-wins dimension for the full OHLC universe: equity, etf, index, future, crypto (extendable). Built from loader manifests plus enrolled tickers via instruments-daily — join options.instruments on symbol instead of hand-listing ETF tickers. Optional asset_class (Broad Market, US Sector, Crypto, …) for finer screens.',
+    provider: 'Loader manifests',
+    cadence: 'Daily (instruments-daily job)',
+    tables: ['instruments'],
+    tools: ['run_query'],
+  },
 ];
 
 export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'description' | 'feeds' | 'tools'>> = {
@@ -425,6 +437,13 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
     description:
       'Descriptive facts for each ticker in the universe: name, sector, exchange, currency, figi, composite_figi, isin. CBOE does not supply name/sector; those are merged from the manifest plus OpenFIGI.',
     feeds: ['openfigi', 'cboe'],
+    tools: ['run_query'],
+  },
+  instruments: {
+    summary: 'Instrument kind — equity / etf / index / future / crypto',
+    description:
+      'One latest-wins row per symbol with security_type (extendable string), optional asset_class, and source. Covers equities, ETFs, indexes, continuous futures, and spot crypto. Join to options.ohlc on symbol for type filters (e.g. WHERE security_type = \'etf\') instead of hand-listing tickers.',
+    feeds: ['instruments'],
     tools: ['run_query'],
   },
   symbol_history: {

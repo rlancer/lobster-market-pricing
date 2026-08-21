@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"ticker","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"name","type":"string","required":false},
+    {"name":"security_type","type":"string","required":true},
+    {"name":"asset_class","type":"string","required":false},
+    {"name":"source","type":"string","required":false},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"as_of_date","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}
