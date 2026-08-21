@@ -18,6 +18,7 @@ import { api, type TimelineAuthor, type TimelinePost } from './api';
 import { UserAvatar } from './UserAvatar';
 import { useIsAdmin } from './useAdmin';
 import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './TimelineFeed';
+import { TimelineRail } from './TimelineRail';
 
 function ProfileHeaderSkeleton() {
   return (
@@ -105,7 +106,8 @@ function ProfileHeader({
 
 /**
  * Public user / bot details at /u/$handle — profile identity plus chats they
- * opted onto the public timeline (bots appear via bot_handle shares).
+ * opted onto the public timeline (bots appear via bot_handle shares). Desktop
+ * reuses the timeline companion rail (tags, news, tape) beside the feed.
  */
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -191,78 +193,84 @@ export default function ProfilePage() {
 
   return (
     <VStack className="profile content-column" gap={0}>
-      <VStack gap={5} className="profile-body" paddingBlock={5}>
-        {loading && (
-          <VStack gap={5}>
-            <ProfileHeaderSkeleton />
-            <TimelineFeedSkeleton />
-          </VStack>
-        )}
+      <section className="timeline-columns">
+        <VStack className="timeline-main" gap={0}>
+          <VStack gap={5} className="profile-body" paddingBlock={5}>
+            {loading && (
+              <VStack gap={5}>
+                <ProfileHeaderSkeleton />
+                <TimelineFeedSkeleton />
+              </VStack>
+            )}
 
-        {!loading && missing && (
-          <EmptyState
-            title="Profile not found"
-            description="That handle isn't claimed."
-            icon={<Newspaper size={24} />}
-            actions={<Button variant="secondary" label="Back to timeline" onClick={goHome} />}
-          />
-        )}
+            {!loading && missing && (
+              <EmptyState
+                title="Profile not found"
+                description="That handle isn't claimed."
+                icon={<Newspaper size={24} />}
+                actions={<Button variant="secondary" label="Back to timeline" onClick={goHome} />}
+              />
+            )}
 
-        {(error || actionError) && (
-          <VStack gap={3} className="timeline-state">
-            <Text className="timeline-err">{error ?? actionError}</Text>
-            {error && (
-              <Button variant="secondary" size="sm" label="Try again" onClick={() => { void load(); }} />
+            {(error || actionError) && (
+              <VStack gap={3} className="timeline-state">
+                <Text className="timeline-err">{error ?? actionError}</Text>
+                {error && (
+                  <Button variant="secondary" size="sm" label="Try again" onClick={() => { void load(); }} />
+                )}
+              </VStack>
+            )}
+
+            {!loading && !missing && profile && (
+              <>
+                <ProfileHeader profile={profile} onBack={goHome} />
+
+                <VStack gap={3} className="profile-chats" as="section" aria-label="Public chats">
+                  <Heading level={2}>Public chats</Heading>
+                  <Text type="supporting">
+                    Chats this handle shared on the public timeline. Unlisted share links stay private.
+                  </Text>
+
+                  {!error && items.length === 0 && (
+                    <TimelineEmpty
+                      handle={handle}
+                      onAsk={() => { void navigate({ to: '/chat' }); }}
+                    />
+                  )}
+
+                  {items.length > 0 && (
+                    <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
+                      {items.map((post) => (
+                        <TimelinePostRow
+                          key={post.share_id}
+                          post={post}
+                          isAdmin={isAdmin}
+                          showAuthor={false}
+                          titleLevel={3}
+                          onUnpublish={unpublishPost}
+                        />
+                      ))}
+                    </VStack>
+                  )}
+
+                  {nextBefore != null && (
+                    <HStack hAlign="center" className="timeline-more">
+                      <Button
+                        variant="secondary"
+                        label="Load older chats"
+                        isLoading={loadingMore}
+                        onClick={() => { void load(nextBefore); }}
+                      />
+                    </HStack>
+                  )}
+                </VStack>
+              </>
             )}
           </VStack>
-        )}
+        </VStack>
 
-        {!loading && !missing && profile && (
-          <>
-            <ProfileHeader profile={profile} onBack={goHome} />
-
-            <VStack gap={3} className="profile-chats" as="section" aria-label="Public chats">
-              <Heading level={2}>Public chats</Heading>
-              <Text type="supporting">
-                Chats this handle shared on the public timeline. Unlisted share links stay private.
-              </Text>
-
-              {!error && items.length === 0 && (
-                <TimelineEmpty
-                  handle={handle}
-                  onAsk={() => { void navigate({ to: '/chat' }); }}
-                />
-              )}
-
-              {items.length > 0 && (
-                <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
-                  {items.map((post) => (
-                    <TimelinePostRow
-                      key={post.share_id}
-                      post={post}
-                      isAdmin={isAdmin}
-                      showAuthor={false}
-                      titleLevel={3}
-                      onUnpublish={unpublishPost}
-                    />
-                  ))}
-                </VStack>
-              )}
-
-              {nextBefore != null && (
-                <HStack hAlign="center" className="timeline-more">
-                  <Button
-                    variant="secondary"
-                    label="Load older chats"
-                    isLoading={loadingMore}
-                    onClick={() => { void load(nextBefore); }}
-                  />
-                </HStack>
-              )}
-            </VStack>
-          </>
-        )}
-      </VStack>
+        <TimelineRail />
+      </section>
     </VStack>
   );
 }

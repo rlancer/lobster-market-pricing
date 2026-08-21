@@ -14,8 +14,9 @@ const TIMELINE_RAIL_LABELS = {
 } as const;
 
 /**
- * Desktop-only companion column for the home timeline. Hidden below 56rem
- * (same breakpoint as Research's rail) until we have a mobile surface.
+ * Desktop-only companion column for the home timeline and /u/$handle
+ * profiles. Hidden below 56rem (same breakpoint as Research's rail) until
+ * we have a mobile surface.
  */
 export function TimelineRail() {
   const isDesktop = useMediaQuery('(min-width: 56rem)');

@@ -1,4 +1,4 @@
-/* Desktop companion column — shared by timeline + chat. */
+/* Desktop companion column — shared by timeline, profile, and chat. */
 .companion-rail {
   position: sticky;
   top: var(--spacing-4);

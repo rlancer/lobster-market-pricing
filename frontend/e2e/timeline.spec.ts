@@ -636,4 +636,85 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('heading', { name: 'Profile not found' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back to timeline' })).toBeVisible();
   });
+
+  test('desktop profile shows the same market rail as the timeline', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [],
+          next_before: null,
+          profile: {
+            handle: 'macrolobster',
+            name: 'Macro Lobster',
+            is_bot: false,
+            created_at: Date.UTC(2026, 0, 15),
+          },
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline/rail', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          tags: [{ ticker: 'SPY', posts: 4 }, { ticker: 'NVDA', posts: 2 }],
+          news: [{
+            title: 'Markets open mixed',
+            link: 'https://example.com/breaking',
+            published: null,
+            snippet: 'Futures firmer into the open.',
+            source: 'tavily',
+          }],
+          highlights: [
+            { ticker: 'SPY', name: 'S&P 500', spot: 500.12, change_1d_pct: 0.4 },
+          ],
+          fetched_at: '2026-08-19T00:00:00.000Z',
+        }),
+      });
+    });
+
+    await page.goto('/u/macrolobster');
+    await expect(page.getByRole('heading', { name: 'Macro Lobster' })).toBeVisible();
+    const rail = page.getByRole('complementary', { name: 'Market rail' });
+    await expect(rail).toBeVisible();
+    await expect(rail.getByRole('heading', { name: 'Tags' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: /SPY/ })).toBeVisible();
+    await expect(rail.getByRole('list', { name: 'Breaking news' })).toBeVisible();
+    await expect(rail.getByText('Markets open mixed')).toBeVisible();
+    await expect(rail.getByRole('list', { name: 'Market highlights' })).toBeVisible();
+  });
+
+  test('profile rail is hidden on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [],
+          next_before: null,
+          profile: {
+            handle: 'macrolobster',
+            name: 'Macro Lobster',
+            is_bot: false,
+            created_at: Date.UTC(2026, 0, 15),
+          },
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline/rail', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ tags: [], news: [], highlights: [], fetched_at: '2026-08-19T00:00:00.000Z' }),
+      });
+    });
+
+    await page.goto('/u/macrolobster');
+    await expect(page.getByRole('heading', { name: 'Macro Lobster' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
+  });
 });
