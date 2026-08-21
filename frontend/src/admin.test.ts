@@ -25,6 +25,7 @@ test('isAdminNavPath covers the admin hub and tool routes', () => {
   assert.equal(isAdminNavPath('/bots'), true);
   assert.equal(isAdminNavPath('/users'), true);
   assert.equal(isAdminNavPath('/chats'), true);
+  assert.equal(isAdminNavPath('/trades'), true);
   assert.equal(isAdminNavPath('/copilot'), true);
   assert.equal(isAdminNavPath('/brand'), true);
   assert.equal(isAdminNavPath('/copilot/extra'), true);

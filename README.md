@@ -278,6 +278,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Copilot + auto-share to timeline. |
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
+| `GET /api/admin/trades` | Admin session (or `ADMIN_TOKEN`) — flattened suggested trades from successful `suggest_trades` tool events (~30 day retention). Optional `limit` (default 100, max 500) and `before` (ISO `created_at` cursor). Enriches with newest `share_id` / `bot_handle` when the chat was shared. Powers `/trades`. |
 
 ### `/api/screen` query parameters
 

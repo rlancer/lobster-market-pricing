@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Heading, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
-import { Bot, ChevronRight, MessagesSquare, Palette, Terminal, Users, type LucideIcon } from 'lucide-react';
+import { Bot, ChevronRight, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
 import { useIsAdmin } from './useAdmin';
 import './Admin.css';
@@ -32,6 +32,12 @@ const ADMIN_TOOLS: AdminTool[] = [
     label: 'Chats',
     description: 'Lake Copilot transcripts — profiles or visitor fingerprints.',
     icon: MessagesSquare,
+  },
+  {
+    to: '/trades',
+    label: 'Suggested trades',
+    description: 'Every Copilot suggest_trades idea — ticker, structure, and legs.',
+    icon: TrendingUp,
   },
   {
     to: '/copilot',
@@ -74,8 +80,8 @@ export default function AdminPage() {
       <VStack gap={2}>
         <Heading level={1}>Admin</Heading>
         <Text type="supporting">
-          Operator tools for bots, users, chats, Copilot internals, and brand.
-          Open one from here instead of crowding the left nav.
+          Operator tools for bots, users, chats, suggested trades, Copilot
+          internals, and brand. Open one from here instead of crowding the left nav.
         </Text>
       </VStack>
 

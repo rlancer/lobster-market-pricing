@@ -1,0 +1,29 @@
+.trades-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.trades-error {
+  color: var(--color-error);
+}
+
+.trades-table {
+  width: 100%;
+}
+
+.trades-legs,
+.trades-rationale {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.trades-link {
+  color: var(--color-text-accent);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.trades-link:hover {
+  text-decoration: underline;
+}
