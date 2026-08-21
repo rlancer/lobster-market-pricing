@@ -24,7 +24,7 @@ test("tradesFromToolArgs extracts valid trades and skips junk", () => {
         conviction: "high",
         structure: "bull call debit spread",
         rationale: "Strong momentum into earnings.",
-        legs: [{ right: "call", side: "buy", strike: 200, expiration: "2026-09-18", dte: 30 }],
+        legs: [{ instrument: "option", right: "call", side: "buy", strike: 200, expiration: "2026-09-18", dte: 30 }],
       },
     ],
   });

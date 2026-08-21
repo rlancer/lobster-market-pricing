@@ -397,6 +397,8 @@ export interface ChatHistorySaveResponse {
 
 // ---------------------------------------------------------------------------
 // Copilot chat shares (Worker POST /api/share/chat → D1 shared_chats)
+import type { SuggestedTrades, TradeLeg } from './SuggestedTrades';
+
 // ---------------------------------------------------------------------------
 /** Response of POST /api/share/chat — the share_id slug is the implicit capability (public, unlisted link). */
 export interface ShareChatResponse {
@@ -432,33 +434,17 @@ export interface SharedChatMessage extends ChatHistoryMessage {
     xLabel?: string;
     yLabel?: string;
   };
-  /** Three-analyst desk viewpoints published via publish_desk. */
+  /** Routed multi-analyst desk viewpoints published via publish_desk. */
   desk?: {
-    fundamental: string;
-    technical: string;
-    options: string;
+    fundamental?: string;
+    technical?: string;
+    options?: string;
+    risk?: string;
+    macro?: string;
     overview: string;
   };
   /** Structured trade suggestions from suggest_trades (not prose-parsed). */
-  trades?: {
-    trades: {
-      ticker: string;
-      bias: 'bullish' | 'bearish' | 'neutral';
-      conviction: 'high' | 'medium' | 'low';
-      structure: string;
-      legs?: {
-        right: 'call' | 'put';
-        side: 'buy' | 'sell';
-        strike?: number;
-        strike_rel?: string;
-        expiration?: string;
-        dte?: number;
-      }[];
-      rationale: string;
-      liquidity?: string;
-    }[];
-    skip_reason?: string;
-  };
+  trades?: SuggestedTrades;
 }
 
 export type ShareChatMessage = SharedChatMessage;
@@ -614,14 +600,7 @@ export interface AdminSuggestedTrade {
   bias: 'bullish' | 'bearish' | 'neutral';
   conviction: 'high' | 'medium' | 'low';
   structure: string;
-  legs: {
-    right: 'call' | 'put';
-    side: 'buy' | 'sell';
-    strike?: number;
-    strike_rel?: string;
-    expiration?: string;
-    dte?: number;
-  }[] | null;
+  legs: TradeLeg[] | null;
   rationale: string;
   liquidity: string | null;
 }

@@ -209,8 +209,14 @@ function formatToolArgs(name: string, input: unknown): string {
       return String(o.symbol ?? '').toUpperCase();
     case 'research_ticker':
       return String(o.symbol ?? '').toUpperCase();
-    case 'publish_desk':
-      return 'fundamental · technical · options · overview';
+    case 'publish_desk': {
+      const keys = ['fundamental', 'technical', 'options', 'risk', 'macro', 'overview'] as const;
+      const present = keys.filter((key) => {
+        const value = o[key];
+        return typeof value === 'string' && value.trim().length > 0;
+      });
+      return present.join(' · ') || 'desk';
+    }
     case 'suggest_trades': {
       const list = Array.isArray(o.trades) ? o.trades : [];
       if (!list.length) return o.skip_reason ? 'none' : '';

@@ -47,9 +47,10 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "For Bitcoin spot use BTC-USD — not IBIT unless the user asked for the ETF. " +
     "Call whenever you suggest a trade or deep-dive a specific underlying.",
   publish_desk:
-    "Publish the three specialist takes (fundamental, technical, options) plus a weighed desk overview that shares the same tool evidence. " +
+    "Publish takes for the active desk specialists (subset of fundamental, technical, options, risk, macro) plus a weighed overview that shares the same tool evidence. " +
+    "Fill only the specialists named as active for this turn; omit the rest. " +
     "Call after research_ticker / SQL / news for ticker analysis and trade ideas. " +
-    "The UI shows each viewpoint in its own panel; the final prose should be the overview, not a paste of all four fields.",
+    "The UI shows each published viewpoint in its own panel; the final prose should be the overview, not a paste of every field.",
   suggest_trades:
     "Publish 0–3 structured trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity). " +
     "Call after publish_desk on ticker/trade analysis so the UI can show trades without parsing prose. " +
@@ -90,22 +91,45 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     force: z.boolean().optional(),
   }).strict(),
   publish_desk: z.object({
-    fundamental: deskViewpointText.describe("Fundamental analyst take grounded in shared lake evidence."),
-    technical: deskViewpointText.describe("Technical analyst take grounded in the same evidence."),
-    options: deskViewpointText.describe("Options trader take (liquidity, IV, structure) grounded in the same evidence."),
-    overview: z.string().trim().min(40).max(3_200).describe("Weighed desk overview that reconciles the three specialists."),
+    fundamental: deskViewpointText.optional().describe(
+      "Fundamental analyst take when that specialist is active for this turn.",
+    ),
+    technical: deskViewpointText.optional().describe(
+      "Technical analyst take when that specialist is active for this turn.",
+    ),
+    options: deskViewpointText.optional().describe(
+      "Options trader take (liquidity, IV, structure) when that specialist is active.",
+    ),
+    risk: deskViewpointText.optional().describe(
+      "Risk analyst take (downside, sizing, what breaks) when that specialist is active.",
+    ),
+    macro: deskViewpointText.optional().describe(
+      "Macro analyst take (rates, Fed, factor regime) when that specialist is active.",
+    ),
+    overview: z.string().trim().min(40).max(3_200).describe(
+      "Weighed desk overview that reconciles the active specialists only.",
+    ),
   }).strict(),
   suggest_trades: z.object({
     trades: z.array(z.object({
-      ticker: z.string().trim().min(1).max(16).describe("Underlying ticker, e.g. AAPL or BTC-USD."),
+      ticker: z.string().trim().min(1).max(16).describe("Underlying ticker, e.g. AAPL or SPY."),
       bias: z.enum(["bullish", "bearish", "neutral"]),
       conviction: z.enum(["high", "medium", "low"]),
-      structure: z.string().trim().min(1).max(160).describe("Short structure label, e.g. bull call debit spread."),
+      structure: z.string().trim().min(1).max(160)
+        .describe("Short structure label, e.g. bull call debit spread, long shares, covered call."),
       legs: z.array(z.object({
-        right: z.enum(["call", "put"]),
-        side: z.enum(["buy", "sell"]),
+        instrument: z.enum(["option", "equity"]).optional()
+          .describe("option = listed call/put; equity = stock or ETF shares. Infer option when right/strike present."),
+        side: z.enum(["buy", "sell"]).describe("buy = long, sell = short / write."),
+        qty: z.number().int().positive().max(1_000_000).optional()
+          .describe("Contracts (option) or shares (equity). Prefer when the idea is sized."),
+        symbol: z.string().trim().min(1).max(16).optional()
+          .describe("Leg symbol override when different from trade ticker (rare)."),
+        // Option-only fields (required by normalize when instrument=option).
+        right: z.enum(["call", "put"]).optional().describe("Required for option legs."),
         strike: z.number().positive().optional().describe("Absolute strike from option_contracts when known."),
-        strike_rel: z.string().trim().min(1).max(40).optional().describe("Relative strike when absolute unknown, e.g. ATM or ~5% OTM."),
+        strike_rel: z.string().trim().min(1).max(40).optional()
+          .describe("Relative strike when absolute unknown, e.g. ATM or ~5% OTM."),
         expiration: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("YYYY-MM-DD expiration."),
         dte: z.number().int().min(0).max(730).optional(),
       }).strict()).max(4).optional(),

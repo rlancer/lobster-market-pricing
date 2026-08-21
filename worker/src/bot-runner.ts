@@ -61,7 +61,8 @@ function base62Encode(bytes: Uint8Array): string {
   return out;
 }
 
-function capShareMessages(messages: ShareTurn[], titleOverride?: string | null): { messages: Record<string, unknown>[]; title: string | null; sourceSql: string | null } {
+/** Cap share turns for bot auto-share (desk + trades + chart/sql preserved). */
+export function capShareMessages(messages: ShareTurn[], titleOverride?: string | null): { messages: Record<string, unknown>[]; title: string | null; sourceSql: string | null } {
   const capped = messages.map((m) => {
     const out: Record<string, unknown> = {
       role: m.role,
@@ -71,6 +72,7 @@ function capShareMessages(messages: ShareTurn[], titleOverride?: string | null):
     if (m.sql) out.sql = m.sql.slice(0, SHARE_MAX_SQL);
     if (m.chart) out.chart = m.chart;
     if (m.desk) out.desk = m.desk;
+    if (m.trades) out.trades = m.trades;
     if (typeof m.ts === "number") out.ts = m.ts;
     return out;
   });

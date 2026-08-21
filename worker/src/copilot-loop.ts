@@ -96,8 +96,8 @@ export function nextCopilotStepPolicy(opts: {
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
 
   if (opts.successfulQuery) {
-    // After lake evidence lands, force the three-analyst desk once so the UI
-    // always gets Fundamental / Technical / Options panels (not TA-only prose).
+    // After lake evidence lands, force the routed multi-analyst desk once so the UI
+    // gets the active specialist panels (not TA-only prose).
     // Give a short auto window first so research_ticker / chain SQL can run —
     // forcing desk on the next step produced literal "placeholder" stubs.
     if (opts.requireDesk && !opts.deskPublished) {
