@@ -31,6 +31,17 @@ LOADER_TOKEN=
 # to chat_history.
 ADMIN_TOKEN=
 
+# Fine-grained GitHub PAT for the timeline moderation improvement reporter.
+# Needs Issues: Read and write on rlancer/lobster-market-pricing (or
+# IMPROVEMENT_ISSUE_REPO). Optional — unset = quality gate still runs, no
+# GitHub issues are filed. Deploy with:
+#   cd worker && npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN
+# Mirror as a GitHub Actions secret so deploy.yml can reinject it.
+IMPROVEMENT_ISSUE_TOKEN=
+
+# Optional owner/repo override (default rlancer/lobster-market-pricing).
+# IMPROVEMENT_ISSUE_REPO=rlancer/lobster-market-pricing
+
 # Better Auth (optional Copilot login — Google OAuth only, no passwords).
 # BETTER_AUTH_SECRET must be a long random string. Cookie domain is derived
 # from the request host (lobster.mp siblings vs localhost). Mirror the same

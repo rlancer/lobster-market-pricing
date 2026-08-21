@@ -66,6 +66,7 @@ import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
 import { moderateTimelineShare } from "./timeline-moderation";
+import { scheduleImprovementReport } from "./improvement-reporter";
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
   authorizeCopilotAgent,
@@ -138,6 +139,15 @@ export interface Env extends Cloudflare.Env {
   MARKET_OPEN_MINUTES?: string;
   MARKET_CLOSE_MINUTES?: string;
   MARKET_EARLY_CLOSE_MINUTES?: string;
+  /**
+   * Fine-grained GitHub PAT (Issues: Read and write) for the moderation
+   * improvement reporter. Optional — unset = no issue filing.
+   * Named IMPROVEMENT_ISSUE_TOKEN because GitHub Actions forbids secrets
+   * whose names start with GITHUB_.
+   */
+  IMPROVEMENT_ISSUE_TOKEN?: string;
+  /** owner/repo override; defaults to rlancer/lobster-market-pricing. */
+  IMPROVEMENT_ISSUE_REPO?: string;
 }
 
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs
@@ -1997,7 +2007,7 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
  * Body: the full ChatHistoryRecord (the lake capture shape — the pass-1
  * normalizer requires started_at/ended_at ISO timestamps + non-empty messages).
  */
-async function createShare(env: Env, req: Request): Promise<Response> {
+async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
   // Oversized raw body → 413 before JSON.parse (bounds parse cost, keeps the
   // D1 row budget honest). Content-Length is byte-accurate when present; the
   // text() read re-checks actual UTF-8 byte length regardless.
@@ -2108,6 +2118,12 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   // bot_handle must match if also supplied).
   let botHandle: string | null = null;
   let botModerationReject: string | null = null;
+  let pendingBotImprovement: {
+    moderation: Awaited<ReturnType<typeof moderateTimelineShare>>;
+    model: ReturnType<typeof createCopilotModel> | null;
+    handle: string;
+    publicOrigin: string;
+  } | null = null;
   const botHandleRaw = typeof body.bot_handle === "string" ? body.bot_handle.trim().toLowerCase() : "";
   if (botHandleRaw || botHandleFromRun) {
     if (!runIdRaw) {
@@ -2144,6 +2160,15 @@ async function createShare(env: Env, req: Request): Promise<Response> {
     } else {
       botHandle = bot.handle;
     }
+    const requestOrigin = new URL(req.url).origin;
+    pendingBotImprovement = {
+      moderation,
+      model: moderationModel,
+      handle: bot.handle,
+      publicOrigin: requestOrigin.includes("api-dev.")
+        ? "https://dev.lobster.mp"
+        : "https://lobster.mp",
+    };
   }
 
   try {
@@ -2165,6 +2190,24 @@ async function createShare(env: Env, req: Request): Promise<Response> {
       botHandle,
       linkedRunId,
     ).run();
+    if (pendingBotImprovement) {
+      scheduleImprovementReport(
+        env,
+        pendingBotImprovement.model,
+        {
+          messages,
+          decision: pendingBotImprovement.moderation,
+          action: pendingBotImprovement.moderation.allow
+            ? "allow_bot_create_share"
+            : "reject_bot_create_share",
+          shareId,
+          runId: linkedRunId,
+          botHandle: pendingBotImprovement.handle,
+          publicOrigin: pendingBotImprovement.publicOrigin,
+        },
+        { waitUntil: (p) => ctx.waitUntil(p) },
+      );
+    }
     if (user && !botHandle && !botModerationReject) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
     if (linkedRunId) {
       if (botModerationReject) {
@@ -3180,7 +3223,10 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const schedule = await getBotSchedule(env.SCHEMA_DB, handle);
     if (!schedule) return json(env, { error: "schedule not found" }, 404, "private");
     const force = new URL(req.url).searchParams.get("force") === "1";
-    const outcome = await runOneBotSchedule(env, schedule, { force });
+    const outcome = await runOneBotSchedule(env, schedule, {
+      force,
+      waitUntil: (p) => ctx.waitUntil(p),
+    });
     if (outcome.ok && outcome.deferred) {
       return json(env, {
         ok: true,
@@ -3203,7 +3249,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
   if (schedulesTick && req.method === "POST") {
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
-    const summary = await runDueBotSchedules(env);
+    const summary = await runDueBotSchedules(env, { waitUntil: (p) => ctx.waitUntil(p) });
     return json(env, { ok: true, ...summary }, 200, "private");
   }
 
@@ -3538,7 +3584,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   // Copilot chat shares: create (open, user-requested) + public read. The id
   // IS the capability — no auth, and unknown ids 404 identically to expired.
   if (path === "/api/share/chat" && req.method === "POST")
-    return await createShare(env, req);
+    return await createShare(env, req, ctx);
   if (path.startsWith("/api/share/"))
     return await getSharedChat(env, path.slice("/api/share/".length), ctx);
 
@@ -3577,7 +3623,7 @@ export default {
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
-      runDueBotSchedules(env).then((summary) => {
+      runDueBotSchedules(env, { waitUntil: (p) => ctx.waitUntil(p) }).then((summary) => {
         console.log(JSON.stringify({ botSchedules: true, ...summary }));
       }).catch((error) => {
         console.error("bot schedules tick failed", error);

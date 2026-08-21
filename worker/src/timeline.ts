@@ -27,6 +27,7 @@ import {
   moderateTimelineShare,
   TIMELINE_QUALITY_REJECTED_ERROR,
 } from "./timeline-moderation";
+import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
@@ -36,7 +37,7 @@ const META_SYNC_MAX = 6;
 /** Safety ceiling for a single first-message preview (not a display truncate). */
 export const EXCERPT_MAX = 100_000;
 
-export interface TimelineEnv extends AuthEnv, ChatMetaEnv {
+export interface TimelineEnv extends AuthEnv, ChatMetaEnv, ImprovementReporterEnv {
   SCHEMA_DB: D1Database;
   OPEN_ROUTER_KEY?: string;
   COPILOT_MODEL?: string;
@@ -513,7 +514,11 @@ async function listTimeline(env: TimelineEnv, req: Request, ctx: ExecutionContex
   return json({ items, next_before, profile }, 200, "private");
 }
 
-async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response> {
+async function publishTimeline(
+  env: TimelineEnv,
+  req: Request,
+  ctx: ExecutionContext,
+): Promise<Response> {
   const user = await getSessionUser(env, req);
   if (!user) return json({ error: "unauthorized" }, 401, "private");
   const handle = await getHandle(env.SCHEMA_DB, user.id);
@@ -560,13 +565,31 @@ async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response
   }
 
   // Quality gate — refuse cut-off / placeholder / unfinished tool-loop dumps.
+  const requestOrigin = new URL(req.url).origin;
   const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
     ? createCopilotModel(
       { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
-      new URL(req.url).origin,
+      requestOrigin,
     )
     : null;
   const moderation = await moderateTimelineShare(messages, moderationModel);
+  const publicOrigin = requestOrigin.includes("api-dev.")
+    ? "https://dev.lobster.mp"
+    : requestOrigin.includes("api.")
+      ? "https://lobster.mp"
+      : "https://lobster.mp";
+  scheduleImprovementReport(
+    env,
+    moderationModel,
+    {
+      messages,
+      decision: moderation,
+      action: moderation.allow ? "allow_publish" : "reject_publish",
+      shareId,
+      publicOrigin,
+    },
+    { waitUntil: (p) => ctx.waitUntil(p) },
+  );
   if (!moderation.allow) {
     console.info(JSON.stringify({
       timelineModeration: true,
@@ -688,7 +711,7 @@ export async function handleTimeline(
 ): Promise<Response | null> {
   if (path === "/api/timeline") {
     if (req.method === "GET") return listTimeline(env, req, ctx);
-    if (req.method === "POST") return publishTimeline(env, req);
+    if (req.method === "POST") return publishTimeline(env, req, ctx);
     return json({ error: "method not allowed" }, 405, "private");
   }
   if (path === "/api/timeline/rail") {
