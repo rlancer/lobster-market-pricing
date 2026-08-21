@@ -9,6 +9,9 @@
  *
  * Cheap-model title + ticker NER runs for every share that still carries the
  * prompt as its title (human posts included — not only bot mint).
+ *
+ * Before a human listing lands, timeline-moderation judges whether the
+ * transcript is a finished, feed-worthy answer (same gate bots use at mint).
  */
 import { isAdminEmail } from "./admin";
 import { getSessionUser, type AuthEnv } from "./auth";
@@ -19,6 +22,10 @@ import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
 import { shareDisplayTitle } from "./user-chats";
 import { loadTimelineRail, type TimelineLakeQuery } from "./timeline-rail";
+import {
+  moderateTimelineShare,
+  TIMELINE_QUALITY_REJECTED_ERROR,
+} from "./timeline-moderation";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
@@ -552,6 +559,29 @@ async function publishTimeline(env: TimelineEnv, req: Request): Promise<Response
   } catch {
     messages = [];
   }
+
+  // Quality gate — refuse cut-off / placeholder / unfinished tool-loop dumps.
+  const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
+    ? createCopilotModel(
+      { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+      new URL(req.url).origin,
+    )
+    : null;
+  const moderation = await moderateTimelineShare(messages, moderationModel);
+  if (!moderation.allow) {
+    console.info(JSON.stringify({
+      timelineModeration: true,
+      action: "reject_publish",
+      share_id: shareId,
+      source: moderation.source,
+      reason: moderation.reason,
+    }));
+    return json({
+      error: TIMELINE_QUALITY_REJECTED_ERROR,
+      reason: moderation.reason,
+    }, 422, "private");
+  }
+
   // Land with a real headline + NER tags — same pass bots get at mint time.
   let title = share.title;
   if (

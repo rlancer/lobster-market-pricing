@@ -2,7 +2,8 @@
  * Server-side bot chat runner — schedule / admin trigger without a browser.
  *
  * Mints a bot_run + CopilotAgent DO, runs one headless turn, then inserts a
- * shared_chats row stamped with bot_handle (timeline) and links run_id.
+ * shared_chats row. Finished answers stamp bot_handle (timeline); the quality
+ * gate holds incomplete runs as unlisted shares and marks the run failed.
  */
 import {
   createBotRun,
@@ -26,6 +27,7 @@ import type { MarketHoursEnv } from "./market-hours";
 import { enrichChatMeta } from "./chat-meta";
 import { createCopilotModel } from "./copilot-contract";
 import type { ShareTurn } from "./share-turns";
+import { moderateTimelineShare } from "./timeline-moderation";
 import { clipTitle, TITLE_MAX } from "./user-chats";
 
 const SHARE_MAX_CONTENT = 5_000;
@@ -114,6 +116,29 @@ async function mintBotShare(
   if (!messages.some((m) => m.role === "assistant" && typeof m.content === "string" && m.content.trim())) {
     return { ok: false, error: "no assistant content to share" };
   }
+
+  // Same quality gate as human publish — incomplete / cut-off runs stay off
+  // the public feed. Mint an unlisted share (no bot_handle) for audit, and
+  // mark the run failed so schedules do not treat junk as a successful post.
+  const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
+    ? createCopilotModel(
+      { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+      "https://lobster.mp",
+    )
+    : null;
+  const moderation = await moderateTimelineShare(messages, moderationModel);
+  const onTimeline = moderation.allow;
+  if (!onTimeline) {
+    console.info(JSON.stringify({
+      timelineModeration: true,
+      action: "reject_bot_share",
+      run_id: args.runId,
+      bot_handle: args.botHandle,
+      source: moderation.source,
+      reason: moderation.reason,
+    }));
+  }
+
   const messagesJson = JSON.stringify(messages);
   const rowBytes = utf8Bytes(messagesJson) + utf8Bytes(sourceSql ?? "") + 512;
   if (rowBytes > SHARE_ROW_MAX_BYTES) return { ok: false, error: "share payload too large" };
@@ -133,19 +158,37 @@ async function mintBotShare(
       messagesJson,
       sourceSql,
       now,
-      args.botHandle,
+      onTimeline ? args.botHandle : null,
       args.runId,
     ).run();
-    await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: shareId });
-    return { ok: true, share_id: shareId };
+    if (onTimeline) {
+      await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: shareId });
+      return { ok: true, share_id: shareId };
+    }
+    const error = `timeline quality: ${moderation.reason}`;
+    await updateBotRun(env.SCHEMA_DB, args.runId, {
+      status: "failed",
+      share_id: shareId,
+      error,
+    });
+    return { ok: false, error };
   } catch (error) {
     if (String(error).includes("UNIQUE")) {
       const byRun = await env.SCHEMA_DB.prepare(
-        `SELECT share_id FROM shared_chats WHERE run_id = ?1`,
-      ).bind(args.runId).first<{ share_id: string }>();
+        `SELECT share_id, bot_handle FROM shared_chats WHERE run_id = ?1`,
+      ).bind(args.runId).first<{ share_id: string; bot_handle: string | null }>();
       if (byRun?.share_id) {
-        await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: byRun.share_id });
-        return { ok: true, share_id: byRun.share_id };
+        if (byRun.bot_handle) {
+          await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: byRun.share_id });
+          return { ok: true, share_id: byRun.share_id };
+        }
+        const rejected = `timeline quality: ${moderation.reason}`;
+        await updateBotRun(env.SCHEMA_DB, args.runId, {
+          status: "failed",
+          share_id: byRun.share_id,
+          error: rejected,
+        });
+        return { ok: false, error: rejected };
       }
     }
     console.error("bot share mint failed", error);
