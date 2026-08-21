@@ -267,8 +267,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 | `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: active subset of fundamental / technical / options / risk / macro + weighed overview — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
-| `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), and `is_admin`. 401 if anonymous. |
-| `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Requires a claimed handle for display_name-only. 400 if invalid/reserved, 409 if handle taken. |
+| `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
+| `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}`, `{reply_style?}`, `{reply_note?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Reply style is a canned audience (desk trader / hedge fund / new to trading); `reply_note` is optional flavor, 240 chars max (blank clears). Reply prefs do not require a claimed handle. 400 if invalid/reserved, 409 if handle taken. |
+| `GET /api/reply-styles` | Public catalog of Copilot reply voices `{items:[{id,label,hint}], default, note_max}`. Prompt copy stays on the Worker. |
 | `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP/SVG, ≤2 MB. Client pan/zoom-crops rasters to a square (≤512px JPEG) before upload; SVG stays vector after script screening. Stored as a D1 blob on `user_avatars`. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
 | `DELETE /api/me/avatar` | Clear the custom avatar (falls back to the brand sunglasses mark). |
 | `GET /api/avatars/{user_id}` | Public avatar bytes from D1 (404 when unset). |
@@ -369,7 +370,12 @@ publish a **routed multi-analyst desk** via `publish_desk`: specialists are
 selected from fundamental / technical / options / risk / macro based on the
 ask (e.g. GME options chain keeps the core three and skips macro; SPY / TLT /
 Fed / CPI pulls macro; hedge / sizing / wipeout language pulls risk). The UI
-renders only the published panels. The Worker owns the schema context,
+renders only the published panels. Interactive chat (and the Account menu)
+also pick a **reply voice** — canned audiences `desk` (working trader),
+`fund` (hedge-fund / PM), or `learner` (new to trading), plus an optional
+240-character note. Voice only: same Copilot tools and desk as everyone else.
+Bot `system_prompt_extra` is capped at 1000 characters so timeline personas
+cannot dump unbounded context. The Worker owns the schema context,
 deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
 validation, OpenFIGI ticker research (`research_ticker`), news, web search, economic calendar, tool iteration, and the final
 prose answer.

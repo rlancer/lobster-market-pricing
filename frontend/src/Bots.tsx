@@ -443,10 +443,10 @@ export default function BotsPage() {
               <TextArea
                 label="System prompt extra"
                 value={form.system_prompt_extra}
-                onChange={(value) => setForm((prev) => ({ ...prev, system_prompt_extra: value }))}
+                onChange={(value) => setForm((prev) => ({ ...prev, system_prompt_extra: value.slice(0, 1_000) }))}
                 isDisabled={busy}
                 rows={6}
-                description="Appended to the base quant Copilot prompt."
+                description={`Appended to the base Copilot prompt — ${form.system_prompt_extra.length}/1000 characters.`}
               />
               <TextArea
                 label="Seed prompts"

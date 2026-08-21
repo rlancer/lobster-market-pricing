@@ -151,6 +151,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
+  { method: 'GET', path: '/api/reply-styles', desc: 'Canned Copilot reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
+  { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/copilot/capabilities', desc: 'Admin — live Copilot system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
@@ -175,7 +177,7 @@ const SURFACES = [
   {
     route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
   },
   {
     route: '/data',

@@ -18,6 +18,7 @@ import {
   Timestamp,
   useChatStreamScroll,
   useMediaQuery,
+  VStack,
 } from '@astryxdesign/core';
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
@@ -28,6 +29,8 @@ import { clearBotSession, clearPendingPrompt, ensureLiveChatId, notifyChatsChang
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
+import { ReplyStylePicker } from './ReplyStylePicker';
+import { loadReplyPref } from './replyStyle';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { AssistantMark } from './Sunglasses';
 import { type ChartSpec } from './Chart';
@@ -602,10 +605,18 @@ function AiChatSession({
     // origins. Default fetch credentials omit the session cookie, so owned
     // history 401s and the UI looks like a blank welcome chat.
     credentials: 'include',
-    body: () => ({
-      origin: window.location.origin,
-      ...(peekBotHandle() ? { bot_handle: peekBotHandle() } : {}),
-    }),
+    body: () => {
+      const origin = window.location.origin;
+      const botHandle = peekBotHandle();
+      if (botHandle) return { origin, bot_handle: botHandle };
+      // Peek localStorage at send time — useAgentChat may keep the first body fn.
+      const reply = loadReplyPref();
+      return {
+        origin,
+        reply_style: reply.style,
+        ...(reply.note ? { reply_note: reply.note } : {}),
+      };
+    },
     onData: (part) => {
       if (part.type === 'data-status' && typeof part.data === 'object' && part.data !== null && 'status' in part.data && typeof part.data.status === 'string') {
         setProgressStatus(part.data.status);
@@ -1310,7 +1321,9 @@ function AiChatSession({
                   </section>
 
                   <footer className="ai-composer-wrap">
-                    <ChatComposer
+                    <VStack gap={2}>
+                      {!botHandle && <ReplyStylePicker compact />}
+                      <ChatComposer
                       value={input}
                       onChange={setInput}
                       onSubmit={send}
@@ -1330,6 +1343,7 @@ function AiChatSession({
                       }
                       sendButton={<ChatSendButton />}
                     />
+                    </VStack>
                   </footer>
 
         </section>

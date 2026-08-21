@@ -32,3 +32,8 @@ test("selectDeskSpecialists keeps single-name desks free of macro", () => {
     ["fundamental", "technical", "options"],
   );
 });
+
+test("selectDeskSpecialists can route from a short reply note", () => {
+  const specialists = selectDeskSpecialists("what's the take?", "I care about rates and the Fed.");
+  assert.ok(specialists.includes("macro"));
+});

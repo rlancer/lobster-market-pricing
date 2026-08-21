@@ -1,11 +1,13 @@
 /**
- * Copilot system-prompt assembly (schema + rules + optional bot persona).
+ * Copilot system-prompt assembly (schema + rules + optional bot persona
+ * or interactive reply voice).
  * Kept free of Agents runtime so admin explore + unit tests can import it.
  */
 import { deskAnalystBlock, type DeskViewpointId } from "./copilot-desk";
 import { QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
 import { tradesSuggestBlock } from "./copilot-trades";
 import type { LakeTable } from "./copilot-sql";
+import { DEFAULT_REPLY_STYLE, replyStyleAddon, type ReplyPref } from "./reply-style";
 
 export interface BotPromptProfile {
   handle: string;
@@ -18,6 +20,8 @@ export interface SystemPromptOptions {
   bot?: BotPromptProfile | null;
   /** Specialists that must publish this turn (from selectDeskSpecialists). */
   deskSpecialists?: readonly DeskViewpointId[];
+  /** Interactive-chat audience. Ignored when a bot profile is bound. */
+  reply?: ReplyPref | null;
 }
 
 export const SCHEMA_PLACEHOLDER =
@@ -51,6 +55,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     : (botOrOpts && typeof botOrOpts === "object" ? botOrOpts : { bot: botOrOpts ?? null });
   const bot = opts.bot ?? null;
   const deskSpecialists = opts.deskSpecialists;
+  const reply = bot ? null : (opts.reply ?? { style: DEFAULT_REPLY_STYLE, note: null });
   const lines = [
     "You are Lobster MP's market desk: a multi-analyst team writing DataFusion SQL (R2 SQL) against an options market Iceberg lake, then publishing only the specialists needed for the ask plus a weighed overview.",
     "",
@@ -105,6 +110,8 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
       "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
       "publish_desk and suggest_trades are optional for timeline posts: prefer a single sharp voice when the persona would sound diluted by multiple panels, but still balance fundamental, technical, options, and (when relevant) risk/macro facts inside that voice. When you do suggest a trade, prefer suggest_trades so the UI can show structured legs.",
     );
+  } else if (reply) {
+    lines.push(replyStyleAddon(reply));
   }
   return lines.join("\n");
 }
