@@ -27,6 +27,13 @@ export const DESK_FORCE_FAILURES_MAX = 4;
  */
 export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 5;
 
+/**
+ * Timeline bots skip publish_desk; without an early prose seal they stay on
+ * auto until the last step and dump extra tool XML into the visible answer
+ * (share VMJqmdt9ldnIcTvFpn37NRlj — chart landed, then raw DSML render_chart).
+ */
+export const BOT_AUTO_STEPS_BEFORE_SEAL = 4;
+
 export type CopilotToolChoice =
   | "auto"
   | "none"
@@ -77,12 +84,17 @@ export function nextCopilotStepPolicy(opts: {
   /** Failed suggest_trades attempts this turn (incomplete payload, etc.). */
   failedTradesCount?: number;
   tradesForceFailuresMax?: number;
+  /** Timeline bots: a chart already landed — seal prose instead of more tools. */
+  chartPublished?: boolean;
+  /** Auto steps after the first successful query before a bot must seal prose. */
+  botAutoStepsBeforeSeal?: number;
 }): CopilotStepPolicy {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
   const tradesForceFailuresMax = opts.tradesForceFailuresMax ?? TRADES_FORCE_FAILURES_MAX;
   const deskForceFailuresMax = opts.deskForceFailuresMax ?? DESK_FORCE_FAILURES_MAX;
   const autoBeforeDesk = opts.autoStepsBeforeDesk ?? AUTO_STEPS_AFTER_QUERY_BEFORE_DESK;
+  const botAutoBeforeSeal = opts.botAutoStepsBeforeSeal ?? BOT_AUTO_STEPS_BEFORE_SEAL;
   const remaining = opts.remainingTokens;
   if (remaining < 256) {
     throw new Error("Copilot output-token budget exhausted before a final answer");
@@ -96,6 +108,17 @@ export function nextCopilotStepPolicy(opts: {
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
 
   if (opts.successfulQuery) {
+    // Timeline bots: seal after a short gather window (or once a chart lands).
+    // Staying on auto until the final step invites leaked tool markup instead
+    // of the 1–3 sentence takeaway the feed requires.
+    if (!opts.requireDesk) {
+      const stepsAfterQuery = opts.stepsAfterQuery ?? 0;
+      const nearEnd = opts.stepNumber >= maxSteps - 3;
+      if (opts.chartPublished || stepsAfterQuery >= botAutoBeforeSeal || nearEnd) {
+        return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      }
+      return { toolChoice: "auto", maxOutputTokens: toolBudget };
+    }
     // After lake evidence lands, force the routed multi-analyst desk once so the UI
     // gets the active specialist panels (not TA-only prose).
     // Give a short auto window first so research_ticker / chain SQL can run —

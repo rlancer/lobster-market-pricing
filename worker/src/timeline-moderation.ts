@@ -8,6 +8,7 @@
  */
 import { generateText, type LanguageModel } from "ai";
 import { formatChatMetaTranscript } from "./chat-meta";
+import { hasLeakedToolMarkup, stripLeakedToolMarkup } from "./tool-markup";
 
 /** Stable client-facing error when publish is refused for quality. */
 export const TIMELINE_QUALITY_REJECTED_ERROR =
@@ -19,6 +20,7 @@ export const TIMELINE_MODERATION_SYSTEM = [
   "REJECT when the transcript is incomplete or not feed-worthy:",
   "- cut off mid-sentence or mid-list (ends with 'wait,', 'Let me…', trailing comma, ellipsis without a finish)",
   "- mostly tool-loop / scratchpad narration ('Let me query…', 'Hmm…', 'Actually let me reconsider…') without a sealed answer",
+  "- raw tool-call markup leaked into the answer (DSML / XML tool_calls / invoke blocks) instead of a finished takeaway",
   "- placeholder body like '(see reasoning)' with no finished desk or trades",
   "- empty, stub, or error-only assistant output",
   "- jailbreak, off-topic non-market content, or spam",
@@ -39,6 +41,8 @@ type AssistantView = {
   hasDesk: boolean;
   hasTrades: boolean;
   deskOverview: string;
+  /** Unstripped content — used to detect leaked tool markup. */
+  rawContent: string;
 };
 
 function messageRecord(value: unknown): Record<string, unknown> | null {
@@ -52,7 +56,7 @@ export function lastAssistantView(messages: unknown): AssistantView | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const rec = messageRecord(messages[i]);
     if (!rec || rec.role !== "assistant") continue;
-    const content = typeof rec.content === "string" ? rec.content.trim() : "";
+    const content = typeof rec.content === "string" ? stripLeakedToolMarkup(rec.content) : "";
     const reasoning = typeof rec.reasoning === "string" ? rec.reasoning.trim() : "";
     const desk = rec.desk && typeof rec.desk === "object" && !Array.isArray(rec.desk)
       ? rec.desk as Record<string, unknown>
@@ -75,8 +79,9 @@ export function lastAssistantView(messages: unknown): AssistantView | null {
         || (typeof tradesObj.skip_reason === "string" && tradesObj.skip_reason.trim())
       ),
     );
-    if (!content && !reasoning && !hasDesk && !hasTrades) continue;
-    return { content, reasoning, hasDesk, hasTrades, deskOverview };
+    const rawContent = typeof rec.content === "string" ? rec.content : "";
+    if (!content && !reasoning && !hasDesk && !hasTrades && !hasLeakedToolMarkup(rawContent)) continue;
+    return { content, reasoning, hasDesk, hasTrades, deskOverview, rawContent };
   }
   return null;
 }
@@ -89,7 +94,11 @@ const CUTOFF_TAIL =
 
 /** Narration that never sealed into a reader-facing answer. */
 const TOOL_LOOP_VOICE =
-  /\b(?:let me (?:query|check|look|pull|run|re-?query|get|find|see|think|reconsider|define|structure)|i(?:'ll| will) (?:query|check|look|pull|run))\b/i;
+  /\b(?:let me (?:query|check|look|pull|run|re-?query|get|find|see|think|reconsider|define|structure|render|publish|also)|i(?:'ll| will) (?:query|check|look|pull|run|render|publish)|now i need to (?:publish|render|query))\b/i;
+
+/** Explicit unfinished desk/chart intent even when the sentence has a period. */
+const UNFINISHED_SEAL_INTENT =
+  /\b(?:now i need to publish(?: the desk)?|publish the desk view|let me also render)\b/i;
 
 function looksCutOff(text: string): boolean {
   const trimmed = text.trim();
@@ -119,6 +128,15 @@ export function heuristicTimelineQuality(messages: unknown): TimelineModerationD
   const body = assistant.deskOverview || assistant.content;
   const sealed = assistant.hasDesk || assistant.hasTrades;
 
+  // Leaked DSML / XML tool envelopes are never a finished feed post.
+  if (!sealed && hasLeakedToolMarkup(assistant.rawContent)) {
+    return {
+      allow: false,
+      reason: "assistant answer leaks raw tool-call markup without a takeaway",
+      source: "heuristic",
+    };
+  }
+
   if (isPlaceholderContent(assistant.content) && !sealed) {
     return {
       allow: false,
@@ -131,6 +149,16 @@ export function heuristicTimelineQuality(messages: unknown): TimelineModerationD
     return {
       allow: false,
       reason: "assistant answer is empty",
+      source: "heuristic",
+    };
+  }
+
+  // Chart/SQL landed but the prose is still "let me publish/render…" — common
+  // after stripping leaked tool markup (share VMJqmdt9…).
+  if (!sealed && body.length >= 40 && UNFINISHED_SEAL_INTENT.test(body)) {
+    return {
+      allow: false,
+      reason: "assistant answer is unfinished tool-loop narration",
       source: "heuristic",
     };
   }

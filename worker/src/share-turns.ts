@@ -5,6 +5,7 @@ import type { UIMessage } from "ai";
 import { chartFitsResult, inferChartSpec, wantsChart, type ChartSpec } from "./chart-spec";
 import { normalizeDeskBrief, type DeskBrief, type DeskBriefInput } from "./copilot-desk";
 import { normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+import { stripLeakedToolMarkup } from "./tool-markup";
 
 /** Compact tool row for share/timeline “Tools used” disclosure. */
 export type ShareToolRow = {
@@ -343,11 +344,12 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
   let lastUserQuestion = "";
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const content = message.parts
-      .filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof (part as { text?: string }).text === "string")
-      .map((part) => part.text)
-      .join("")
-      .trim();
+    const content = stripLeakedToolMarkup(
+      message.parts
+        .filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof (part as { text?: string }).text === "string")
+        .map((part) => part.text)
+        .join(""),
+    );
     const reasoning = message.parts
       .filter((part): part is { type: "reasoning"; text: string } => part.type === "reasoning" && typeof (part as { text?: string }).text === "string")
       .map((part) => part.text)

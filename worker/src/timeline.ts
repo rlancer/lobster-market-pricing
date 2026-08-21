@@ -245,6 +245,7 @@ interface ShareRow {
   title: string | null;
   messages: string;
   expires_at: number | null;
+  model: string | null;
 }
 
 interface TimelineRow {
@@ -542,7 +543,7 @@ async function publishTimeline(
   if (!SHARE_ID_RE.test(shareId)) return json({ error: "share_id is required" }, 400, "private");
 
   const share = await env.SCHEMA_DB.prepare(
-    `SELECT share_id, chat_id, title, messages, expires_at FROM shared_chats WHERE share_id = ?1`,
+    `SELECT share_id, chat_id, title, messages, expires_at, model FROM shared_chats WHERE share_id = ?1`,
   ).bind(shareId).first<ShareRow>();
   if (!share || (share.expires_at && share.expires_at < Date.now())) {
     return json({ error: "not found" }, 404, "private");
@@ -595,6 +596,7 @@ async function publishTimeline(
       action: moderation.allow ? "allow_publish" : "reject_publish",
       shareId,
       publicOrigin,
+      model: typeof share.model === "string" ? share.model : null,
     },
     { waitUntil: (p) => ctx.waitUntil(p) },
   );
