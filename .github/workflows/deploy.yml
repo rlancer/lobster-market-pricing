@@ -178,15 +178,15 @@ jobs:
 
       # Fine-grained PAT (Issues: Read and write) so the timeline moderation
       # improvement reporter can open deduped GitHub issues. Optional.
-      - name: Set GITHUB_IMPROVEMENT_TOKEN secret on Worker (if configured)
+      - name: Set IMPROVEMENT_ISSUE_TOKEN secret on Worker (if configured)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -n "${{ secrets.GITHUB_IMPROVEMENT_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.GITHUB_IMPROVEMENT_TOKEN }}" | npx wrangler secret put GITHUB_IMPROVEMENT_TOKEN --name screener-api
+          if [ -n "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" ]; then
+            printf '%s' "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" | npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN --name screener-api
           else
-            echo "GITHUB_IMPROVEMENT_TOKEN not set — skipping (moderation still runs; no GitHub issues)"
+            echo "IMPROVEMENT_ISSUE_TOKEN not set — skipping (moderation still runs; no GitHub issues)"
           fi
         working-directory: worker
 
@@ -302,15 +302,15 @@ jobs:
           fi
         working-directory: worker
 
-      - name: Set GITHUB_IMPROVEMENT_TOKEN secret on screener-api-dev (if configured)
+      - name: Set IMPROVEMENT_ISSUE_TOKEN secret on screener-api-dev (if configured)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -n "${{ secrets.GITHUB_IMPROVEMENT_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.GITHUB_IMPROVEMENT_TOKEN }}" | npx wrangler secret put GITHUB_IMPROVEMENT_TOKEN --name screener-api-dev
+          if [ -n "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" ]; then
+            printf '%s' "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" | npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN --name screener-api-dev
           else
-            echo "GITHUB_IMPROVEMENT_TOKEN not set — skipping (preview moderation will not file issues)"
+            echo "IMPROVEMENT_ISSUE_TOKEN not set — skipping (preview moderation will not file issues)"
           fi
         working-directory: worker
 

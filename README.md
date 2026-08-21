@@ -135,7 +135,7 @@ reasoning effort (`COPILOT_REASONING_EFFORT`), and per-turn output/history caps
 cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 ```
 
-### Worker — `GITHUB_IMPROVEMENT_TOKEN` (secret, optional)
+### Worker — `IMPROVEMENT_ISSUE_TOKEN` (secret, optional)
 
 After the timeline quality gate runs (human publish or bot share), a cheap
 OpenRouter pass can propose **product improvements** and open GitHub issues on
@@ -147,10 +147,10 @@ the same failure mode does not spam the tracker. Issues are labeled
 
 ```bash
 # Create a fine-grained PAT → Issues: Read and write on this repo, then:
-gh secret set GITHUB_IMPROVEMENT_TOKEN
-cd worker && npx wrangler secret put GITHUB_IMPROVEMENT_TOKEN
+gh secret set IMPROVEMENT_ISSUE_TOKEN
+cd worker && npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN
 # Optional override (defaults to rlancer/lobster-market-pricing):
-# npx wrangler secret put GITHUB_IMPROVEMENT_REPO
+# npx wrangler secret put IMPROVEMENT_ISSUE_REPO
 ```
 
 ### Worker — Better Auth (optional Copilot login)
@@ -449,7 +449,7 @@ the link. Before a share is listed — human publish or bot auto-share — a
 **timeline quality gate** (`worker/src/timeline-moderation.ts`) rejects cut-off
 mid-tool narrations, `(see reasoning)` placeholders, and other unfinished
 answers; humans get 422, bot runs mint an unlisted share without `bot_handle`
-and mark the run failed. When `GITHUB_IMPROVEMENT_TOKEN` is set, a follow-up
+and mark the run failed. When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
 pass (`worker/src/improvement-reporter.ts`) may open a deduped GitHub issue for
 actionable product fixes. Admins can unpublish any feed post from the timeline UI (same
 DELETE): human listings drop out of `timeline_posts`, bot shares clear

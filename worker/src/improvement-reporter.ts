@@ -3,7 +3,7 @@
  *
  * After the timeline quality gate runs, a cheap OpenRouter pass looks for
  * actionable product/engineering improvements (prompt gaps, tool-loop cutoffs,
- * bad desk seals, data bugs). When GITHUB_IMPROVEMENT_TOKEN is set, each novel
+ * bad desk seals, data bugs). When IMPROVEMENT_ISSUE_TOKEN is set, each novel
  * fingerprint becomes a GitHub issue. D1 `improvement_reports` dedupes so the
  * same failure mode does not open dozens of tickets.
  *
@@ -33,9 +33,9 @@ export interface ImprovementReporterEnv {
   OPEN_ROUTER_KEY?: string;
   COPILOT_MODEL?: string;
   /** Fine-grained PAT with Issues: Read and write on the target repo. */
-  GITHUB_IMPROVEMENT_TOKEN?: string;
+  IMPROVEMENT_ISSUE_TOKEN?: string;
   /** owner/repo — defaults to rlancer/lobster-market-pricing. */
-  GITHUB_IMPROVEMENT_REPO?: string;
+  IMPROVEMENT_ISSUE_REPO?: string;
 }
 
 export type ImprovementAction =
@@ -170,7 +170,7 @@ export async function extractImprovements(
 }
 
 function repoFromEnv(env: ImprovementReporterEnv): { owner: string; repo: string; full: string } {
-  const full = (env.GITHUB_IMPROVEMENT_REPO?.trim() || DEFAULT_IMPROVEMENT_REPO).replace(/^\/+|\/+$/g, "");
+  const full = (env.IMPROVEMENT_ISSUE_REPO?.trim() || DEFAULT_IMPROVEMENT_REPO).replace(/^\/+|\/+$/g, "");
   const [owner, repo] = full.split("/");
   if (!owner || !repo || full.includes(" ")) {
     return { owner: "rlancer", repo: "lobster-market-pricing", full: DEFAULT_IMPROVEMENT_REPO };
@@ -263,7 +263,7 @@ export async function fileImprovementIssue(
   suggestion: ImprovementSuggestion,
   context: ImprovementContext,
 ): Promise<FiledImprovement> {
-  const token = env.GITHUB_IMPROVEMENT_TOKEN?.trim();
+  const token = env.IMPROVEMENT_ISSUE_TOKEN?.trim();
   if (!token) {
     return { fingerprint: suggestion.fingerprint, issueNumber: null, issueUrl: null, skipped: "no_token" };
   }
@@ -383,7 +383,7 @@ export async function reportImprovements(
   model: LanguageModel | null | undefined,
   context: ImprovementContext,
 ): Promise<FiledImprovement[]> {
-  if (!env.GITHUB_IMPROVEMENT_TOKEN?.trim()) return [];
+  if (!env.IMPROVEMENT_ISSUE_TOKEN?.trim()) return [];
   if (!model) return [];
 
   const suggestions = await extractImprovements(context.messages, model, context.decision, {
@@ -416,7 +416,7 @@ export function scheduleImprovementReport(
   context: ImprovementContext,
   opts?: { waitUntil?: (p: Promise<unknown>) => void },
 ): void {
-  if (!env.GITHUB_IMPROVEMENT_TOKEN?.trim()) return;
+  if (!env.IMPROVEMENT_ISSUE_TOKEN?.trim()) return;
   if (!model) return;
   const task = reportImprovements(env, model, context).catch((error) => {
     console.warn(JSON.stringify({

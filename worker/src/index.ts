@@ -141,10 +141,12 @@ export interface Env extends Cloudflare.Env {
   /**
    * Fine-grained GitHub PAT (Issues: Read and write) for the moderation
    * improvement reporter. Optional — unset = no issue filing.
+   * Named IMPROVEMENT_ISSUE_TOKEN because GitHub Actions forbids secrets
+   * whose names start with GITHUB_.
    */
-  GITHUB_IMPROVEMENT_TOKEN?: string;
+  IMPROVEMENT_ISSUE_TOKEN?: string;
   /** owner/repo override; defaults to rlancer/lobster-market-pricing. */
-  GITHUB_IMPROVEMENT_REPO?: string;
+  IMPROVEMENT_ISSUE_REPO?: string;
 }
 
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs
