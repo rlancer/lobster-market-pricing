@@ -375,8 +375,38 @@ async function recordFiled(
   return { fingerprint: suggestion.fingerprint, issueNumber: number, issueUrl: htmlUrl, skipped: null };
 }
 
+/** Build a stable fallback suggestion when a reject has no LLM proposal. */
+export function fallbackRejectSuggestion(
+  decision: TimelineModerationDecision,
+  action?: ImprovementAction,
+): ImprovementSuggestion | null {
+  if (decision.allow) return null;
+  const reason = decision.reason.trim() || "quality gate rejected share";
+  const fingerprint = normalizeFingerprint(`reject-${reason}`)
+    || normalizeFingerprint(`reject-${decision.source}-${action || "gate"}`);
+  if (!fingerprint) return null;
+  const title = `Fix timeline reject: ${reason}`.slice(0, TITLE_MAX);
+  const body = [
+    "The timeline quality gate rejected a share. The improvement reviewer did not",
+    "propose a more specific ticket, so this fallback captures the failure mode.",
+    "",
+    `- **Reason:** ${reason}`,
+    `- **Source:** \`${decision.source}\``,
+    action ? `- **Gate action:** \`${action}\`` : null,
+    "",
+    "Investigate why Copilot produced an unfinished / unpublishable answer and",
+    "harden prompts, tool loops, or sealing so this reject stops recurring.",
+  ].filter((line) => line !== null).join("\n");
+  const category = /cut.?off|truncat|placeholder|tool-?loop|empty|reasoning/i.test(reason)
+    ? "truncation"
+    : "bot-behavior";
+  return { fingerprint, title, category, body: body.slice(0, BODY_MAX) };
+}
+
 /**
  * Full review + optional GitHub file. Never throws.
+ * Rejects always file once per reason fingerprint even when the LLM is quiet
+ * or unavailable — allows still need a model proposal.
  */
 export async function reportImprovements(
   env: ImprovementReporterEnv,
@@ -384,11 +414,28 @@ export async function reportImprovements(
   context: ImprovementContext,
 ): Promise<FiledImprovement[]> {
   if (!env.IMPROVEMENT_ISSUE_TOKEN?.trim()) return [];
-  if (!model) return [];
 
-  const suggestions = await extractImprovements(context.messages, model, context.decision, {
-    action: context.action,
-  });
+  let suggestions: ImprovementSuggestion[] = [];
+  if (model) {
+    suggestions = await extractImprovements(context.messages, model, context.decision, {
+      action: context.action,
+    });
+  }
+
+  if (!suggestions.length && !context.decision.allow) {
+    const fallback = fallbackRejectSuggestion(context.decision, context.action);
+    if (fallback) {
+      console.info(JSON.stringify({
+        improvementReporter: true,
+        action: "fallback_reject",
+        fingerprint: fallback.fingerprint,
+        gate_action: context.action,
+        share_id: context.shareId ?? null,
+      }));
+      suggestions = [fallback];
+    }
+  }
+
   if (!suggestions.length) {
     console.info(JSON.stringify({
       improvementReporter: true,
@@ -408,7 +455,8 @@ export async function reportImprovements(
 
 /**
  * Schedule the reporter without blocking the response.
- * No-ops when the PAT is unset.
+ * No-ops when the PAT is unset. Allows still need a model; rejects can file
+ * a reason fingerprint without one.
  */
 export function scheduleImprovementReport(
   env: ImprovementReporterEnv,
@@ -417,7 +465,7 @@ export function scheduleImprovementReport(
   opts?: { waitUntil?: (p: Promise<unknown>) => void },
 ): void {
   if (!env.IMPROVEMENT_ISSUE_TOKEN?.trim()) return;
-  if (!model) return;
+  if (!model && context.decision.allow) return;
   const task = reportImprovements(env, model, context).catch((error) => {
     console.warn(JSON.stringify({
       improvementReporter: true,
