@@ -215,14 +215,24 @@ function normalizeReasoningEffort(value: string): "xhigh" | "high" | "medium" | 
 export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent<E> {
   override messageConcurrency = "queue" as const;
   override maxPersistedMessages = 100;
+  /**
+   * Multi-analyst desk turns (research + lake SQL + publish_desk + suggest_trades
+   * under high reasoning) routinely leave multi-minute gaps between stream
+   * chunks. Invalid legacy fields (maxAgeMs / noProgressLimit) were ignored by
+   * the SDK; tune the real budgets so a healthy desk turn is not aborted into
+   * chatRecovery — each retry was landing as another empty assistant bubble
+   * (see share 1e79caJg9cECVL7jW06PUerj4).
+   */
   override chatRecovery = {
-    maxAttempts: 3,
+    maxAttempts: 6,
     stableTimeoutMs: 15_000,
-    maxAgeMs: 10 * 60_000,
-    noProgressLimit: 2,
+    noProgressTimeoutMs: 10 * 60_000,
+    maxRecoveryWork: Number.POSITIVE_INFINITY,
     terminalMessage: "The assistant was interrupted and could not recover this turn.",
   };
-  override chatStreamStallTimeoutMs = 120_000;
+  /** Stall watchdog: gap between chunks, not total turn length. Keep above
+   *  slowest legitimate quiet period (OpenRouter high-reasoning + research_ticker). */
+  override chatStreamStallTimeoutMs = 5 * 60_000;
 
   protected abstract loadSchema(): Promise<LakeTable[]>;
   protected abstract executeLakeQuery(sql: string, limit: number): Promise<QueryResult>;
@@ -694,20 +704,36 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     );
   }
 
+  /**
+   * Run a tool and keep the UI stream alive. Long quiet tools (research_ticker,
+   * lake SQL) previously left no chunks for >chatStreamStallTimeoutMs, which
+   * aborted healthy desk turns into chatRecovery and stacked assistant bubbles.
+   */
   private async safeTool(
     toolName: string,
     label: string,
     args: unknown,
     capture: Capture,
     operation: () => Promise<ToolOutput> | ToolOutput,
+    status?: (value: string) => void,
   ): Promise<ToolOutput> {
     const started = Date.now();
+    status?.(`${label}…`);
+    let pulse = 0;
+    const heartbeat = status
+      ? setInterval(() => {
+        pulse += 1;
+        status(`${label}… (${pulse * 20}s)`);
+      }, 20_000)
+      : null;
     let output: ToolOutput;
     try {
       output = await operation();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       output = this.output(false, `${label} failed: ${message}`, { error: message });
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
     }
     this.recordToolEvent(toolName, args, output, Date.now() - started);
     return output;
@@ -742,11 +768,17 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       capture.failed_desk_count = turn.failedDeskCount;
       persist();
     };
+    const runTool = (
+      toolName: string,
+      label: string,
+      args: unknown,
+      operation: () => Promise<ToolOutput> | ToolOutput,
+    ) => this.safeTool(toolName, label, args, capture, operation, status);
     return {
       run_query: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.run_query,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
-        execute: async ({ sql, save_as }) => this.safeTool("run_query", TOOL_LABELS.run_query, { sql, save_as }, capture, async () => {
+        execute: async ({ sql, save_as }) => runTool("run_query", TOOL_LABELS.run_query, { sql, save_as }, async () => {
           const normalized = applyColumnSynonyms(sql, tables);
           const issues = validateSqlSchema(normalized.sql, tables);
           const errors = issues.filter((issue) => issue.severity === "error");
@@ -777,7 +809,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       check_schema: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.check_schema,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema,
-        execute: async ({ sql }) => this.safeTool("check_schema", TOOL_LABELS.check_schema, { sql }, capture, () => {
+        execute: async ({ sql }) => runTool("check_schema", TOOL_LABELS.check_schema, { sql }, () => {
           const normalized = applyColumnSynonyms(sql, tables);
           const issues = validateSqlSchema(normalized.sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
           if (normalized.rewrites.length) {
@@ -789,12 +821,12 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       list_frames: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.list_frames,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.list_frames,
-        execute: async () => this.safeTool("list_frames", TOOL_LABELS.list_frames, {}, capture, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
+        execute: async () => runTool("list_frames", TOOL_LABELS.list_frames, {}, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
       }),
       filter_frame: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.filter_frame,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame,
-        execute: async (args) => this.safeTool("filter_frame", TOOL_LABELS.filter_frame, args, capture, () => {
+        execute: async (args) => runTool("filter_frame", TOOL_LABELS.filter_frame, args, () => {
           const frame = this.getFrame(args.frame);
           if (!frame) return this.output(false, `No cached frame '${args.frame}'.`, { error: `No frame '${args.frame}'.` });
           if (Date.now() - frame.fetched_at > FRAME_TTL_MS) {
@@ -816,7 +848,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       refresh_frame: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.refresh_frame,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.refresh_frame,
-        execute: async ({ frame: name }) => this.safeTool("refresh_frame", TOOL_LABELS.refresh_frame, { frame: name }, capture, async () => {
+        execute: async ({ frame: name }) => runTool("refresh_frame", TOOL_LABELS.refresh_frame, { frame: name }, async () => {
           const frame = this.getFrame(name);
           if (!frame) return this.output(false, `No cached frame '${name}'.`, { error: `No frame '${name}'.` });
           status("Refreshing cached data…");
@@ -837,7 +869,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       render_chart: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.render_chart,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart,
-        execute: async (args) => this.safeTool("render_chart", TOOL_LABELS.render_chart, args, capture, () => {
+        execute: async (args) => runTool("render_chart", TOOL_LABELS.render_chart, args, () => {
           const result = capture.result;
           if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
           const x = resolveColumn(result.columns, args.x);
@@ -872,7 +904,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       get_news: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.get_news,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news,
-        execute: async ({ symbol, limit }) => this.safeTool("get_news", TOOL_LABELS.get_news, { symbol, limit }, capture, async () => {
+        execute: async ({ symbol, limit }) => runTool("get_news", TOOL_LABELS.get_news, { symbol, limit }, async () => {
           const result = await this.fetchNews(symbol.toUpperCase(), limit);
           if (result.error) return this.output(false, `News temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No recent headlines found for ${result.symbol}.`;
@@ -882,7 +914,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       web_search: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.web_search,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search,
-        execute: async ({ query, max_results }) => this.safeTool("web_search", TOOL_LABELS.web_search, { query, max_results }, capture, async () => {
+        execute: async ({ query, max_results }) => runTool("web_search", TOOL_LABELS.web_search, { query, max_results }, async () => {
           const result = await this.searchWeb(query, max_results);
           if (result.error) return this.output(false, `Web search temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.results.length ? result.results.map((item, index) => `${index + 1}. ${item.title} — ${item.link}`).join("\n") : `No results found for "${result.query}".`;
@@ -892,7 +924,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       eco_calendar: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.eco_calendar,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar,
-        execute: async ({ days }) => this.safeTool("eco_calendar", TOOL_LABELS.eco_calendar, { days }, capture, async () => {
+        execute: async ({ days }) => runTool("eco_calendar", TOOL_LABELS.eco_calendar, { days }, async () => {
           const result = await this.fetchEconomicCalendar(days);
           if (result.error) return this.output(false, `Macro calendar temporarily unavailable: ${result.error}`, { error: result.error });
           const summary = result.items.length ? result.items.map((item, index) => `${index + 1}. ${item.date}${item.time ? ` ${item.time}` : ""} — ${item.title}`).join("\n") : "No scheduled macro events in the requested window.";
@@ -902,7 +934,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       research_ticker: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.research_ticker,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker,
-        execute: async ({ symbol, force }) => this.safeTool("research_ticker", TOOL_LABELS.research_ticker, { symbol, force }, capture, async () => {
+        execute: async ({ symbol, force }) => runTool("research_ticker", TOOL_LABELS.research_ticker, { symbol, force }, async () => {
           const chatId = typeof this.name === "string" ? this.name : undefined;
           const result = await this.researchTicker(symbol, { force, chatId });
           if (result.error && !result.research) {
@@ -917,7 +949,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       publish_desk: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.publish_desk,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk,
-        execute: async (args) => this.safeTool("publish_desk", TOOL_LABELS.publish_desk, args, capture, () => {
+        execute: async (args) => runTool("publish_desk", TOOL_LABELS.publish_desk, args, () => {
           status("Publishing desk viewpoints…");
           const desk = normalizeDeskBrief(args, { required: deskSpecialists });
           if (!desk) {
@@ -937,7 +969,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       suggest_trades: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.suggest_trades,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.suggest_trades,
-        execute: async (args) => this.safeTool("suggest_trades", TOOL_LABELS.suggest_trades, args, capture, () => {
+        execute: async (args) => runTool("suggest_trades", TOOL_LABELS.suggest_trades, args, () => {
           status("Publishing suggested trades…");
           const trades = normalizeSuggestedTrades(args);
           if (!trades) {

@@ -15,6 +15,7 @@ import { BarChart3, ChevronDown, ChevronUp, Code2, Newspaper, Sparkles } from 'l
 import './Timeline.css';
 import { TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
+import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { PostShareButton } from './PostShareButton';
 import { UserAvatar } from './UserAvatar';
 
@@ -104,11 +105,13 @@ export function TimelinePostRow({
   titleLevel?: 2 | 3;
 }) {
   const [unpublishing, setUnpublishing] = useState(false);
-  const messages: SharedChatMessage[] = post.messages?.length
-    ? post.messages
-    : post.excerpt
-      ? [{ role: 'assistant', content: post.excerpt }]
-      : [];
+  const messages: SharedChatMessage[] = coalesceAssistantMessages(
+    post.messages?.length
+      ? post.messages
+      : post.excerpt
+        ? [{ role: 'assistant', content: post.excerpt }]
+        : [],
+  );
   const titleText = post.title?.trim() || 'Shared chat';
   const userMessage = messages.find((message) => message.role === 'user');
   const showTitle = !titlesMatch(titleText, userMessage?.content);

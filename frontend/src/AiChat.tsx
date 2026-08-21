@@ -25,6 +25,7 @@ import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
+import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { clearBotSession, clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
@@ -683,17 +684,20 @@ function AiChatSession({
   const disconnected = socketState !== 'open';
   const projectedMessages = useMemo(() => {
     const projected = messages.map(projectMessage).filter((message): message is Msg => message !== null);
-    return projected.map((message, index) => {
+    const withCharts = projected.map((message, index) => {
       if (message.role !== 'assistant') return message;
       const previous = projected[index - 1];
       const question = previous?.role === 'user' ? previous.content : '';
       return withChartFallback(message, question);
     });
+    // chatRecovery retries append extra assistant rows — show one bubble per user turn.
+    return coalesceAssistantMessages(withCharts);
   }, [messages]);
   const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
   const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+  // Prefer the latest assistant after the user (recovery creates a new row per attempt).
   const liveAssistant = (busy || paused) && lastUserIndex >= 0
-    ? messages.slice(lastUserIndex + 1).find((message) => message.role === 'assistant')
+    ? [...messages.slice(lastUserIndex + 1)].reverse().find((message) => message.role === 'assistant')
     : undefined;
   const liveAssistantId = liveAssistant?.id;
   const reasoning = liveAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
@@ -933,6 +937,7 @@ function AiChatSession({
       ...(message.desk ? { desk: message.desk } : {}),
       ...(message.trades ? { trades: message.trades } : {}),
     })).slice(-100);
+    // projectedMessages is already coalesced; keep applyCapture on the last assistant.
     const turns = applyCaptureToShareMessages(baseTurns, capture);
     const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
     return {
