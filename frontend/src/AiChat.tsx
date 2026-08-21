@@ -964,8 +964,16 @@ function AiChatSession({
       setShareResult(response);
       setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
-      // Server marks bot_runs shared when run_id is present; PATCH remains best-effort fallback.
-      if (runId && response.share_id) {
+      if (response.moderation_rejected) {
+        setShareError(
+          response.reason
+            ? `Shared as an unlisted link, but not posted to the timeline: ${response.reason}`
+            : 'Shared as an unlisted link, but not posted to the timeline — finish the answer and share again.',
+        );
+      }
+      // Server marks bot_runs shared when run_id is present (or failed when
+      // moderation withheld timeline). PATCH remains best-effort fallback.
+      if (runId && response.share_id && !response.moderation_rejected) {
         void api.updateBotRun(runId, { status: 'shared', share_id: response.share_id }).catch(() => {
           /* run bookkeeping is best-effort; server also links on share */
         });
@@ -1355,7 +1363,15 @@ function AiChatSession({
       </section>
       <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={480}>
                 <DialogHeader
-                  title={shareError ? 'Share failed' : shareResult ? (shareResult.bot_handle ? 'Auto-shared to timeline' : 'Chat shared') : 'Share chat'}
+                  title={
+                    shareResult?.moderation_rejected
+                      ? 'Shared (held from timeline)'
+                      : shareError && !shareResult
+                        ? 'Share failed'
+                        : shareResult
+                          ? (shareResult.bot_handle ? 'Auto-shared to timeline' : 'Chat shared')
+                          : 'Share chat'
+                  }
                   subtitle={
                     shareResult
                       ? shareResult.bot_handle
@@ -1379,7 +1395,7 @@ function AiChatSession({
                         className="ai-share-publish"
                         label="Post to public timeline"
                         description={shareResult.can_publish
-                          ? 'Anyone visiting the site will see this chat on the home feed, attributed to your handle.'
+                          ? 'Anyone visiting the site will see this chat on the home feed, attributed to your handle. Incomplete or cut-off answers are held back.'
                           : 'Sign in with a public handle before sharing to post chats on the timeline. The link still works for anyone you send it to.'}
                         value={onTimeline}
                         onChange={setOnTimeline}
@@ -1389,8 +1405,20 @@ function AiChatSession({
                           : 'Sign in with a public handle, then share again to post this chat on the timeline.'}
                         changeAction={async (checked) => {
                           if (!shareResult.can_publish) return;
-                          if (checked) await api.publishTimeline(shareResult.share_id);
-                          else await api.unpublishTimeline(shareResult.share_id);
+                          try {
+                            if (checked) await api.publishTimeline(shareResult.share_id);
+                            else await api.unpublishTimeline(shareResult.share_id);
+                            setShareError(null);
+                          } catch (error) {
+                            const raw = String((error as Error)?.message ?? error);
+                            const quality = raw.match(/This chat isn't ready for the public timeline[^"]*/);
+                            const message = quality?.[0]
+                              ?? (raw.includes('422')
+                                ? "This chat isn't ready for the public timeline yet. Finish the answer and try again."
+                                : raw);
+                            setShareError(message);
+                            throw error;
+                          }
                         }}
                         labelSpacing="spread"
                         width="100%"

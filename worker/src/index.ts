@@ -64,6 +64,7 @@ import { applyColumnSynonyms } from "./copilot-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
+import { moderateTimelineShare } from "./timeline-moderation";
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
   authorizeCopilotAgent,
@@ -2099,6 +2100,7 @@ async function createShare(env: Env, req: Request): Promise<Response> {
   // When run_id is present, the run's handle is the source of truth (body
   // bot_handle must match if also supplied).
   let botHandle: string | null = null;
+  let botModerationReject: string | null = null;
   const botHandleRaw = typeof body.bot_handle === "string" ? body.bot_handle.trim().toLowerCase() : "";
   if (botHandleRaw || botHandleFromRun) {
     if (!runIdRaw) {
@@ -2111,7 +2113,30 @@ async function createShare(env: Env, req: Request): Promise<Response> {
     const wantHandle = botHandleRaw || botHandleFromRun!;
     const bot = await getBotProfile(env.SCHEMA_DB, wantHandle);
     if (!bot || !bot.enabled) return json(env, { error: "bot not found" }, 400);
-    botHandle = bot.handle;
+    // Bot shares auto-list on the timeline — run the same quality gate as
+    // human publish / headless mint before stamping bot_handle.
+    const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
+      ? createCopilotModel(
+        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+        new URL(req.url).origin,
+      )
+      : null;
+    const moderation = await moderateTimelineShare(messages, moderationModel);
+    if (!moderation.allow) {
+      console.info(JSON.stringify({
+        timelineModeration: true,
+        action: "reject_bot_create_share",
+        bot_handle: bot.handle,
+        source: moderation.source,
+        reason: moderation.reason,
+      }));
+      // Mint unlisted (no bot_handle) so the run still has a capability URL;
+      // withhold timeline listing.
+      botHandle = null;
+      botModerationReject = moderation.reason;
+    } else {
+      botHandle = bot.handle;
+    }
   }
 
   try {
@@ -2133,9 +2158,17 @@ async function createShare(env: Env, req: Request): Promise<Response> {
       botHandle,
       linkedRunId,
     ).run();
-    if (user && !botHandle) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
+    if (user && !botHandle && !botModerationReject) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
     if (linkedRunId) {
-      await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: shareId });
+      if (botModerationReject) {
+        await updateBotRun(env.SCHEMA_DB, linkedRunId, {
+          status: "failed",
+          share_id: shareId,
+          error: `timeline quality: ${botModerationReject}`,
+        });
+      } else {
+        await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: shareId });
+      }
     }
   } catch (dbErr) {
     // Concurrent share of the same run_id: unique index wins — return the
@@ -2145,13 +2178,26 @@ async function createShare(env: Env, req: Request): Promise<Response> {
         `SELECT share_id, bot_handle FROM shared_chats WHERE run_id = ?1`,
       ).bind(linkedRunId).first<{ share_id: string; bot_handle: string | null }>();
       if (byRun) {
-        await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: byRun.share_id });
+        if (byRun.bot_handle) {
+          await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: byRun.share_id });
+        } else if (botModerationReject) {
+          await updateBotRun(env.SCHEMA_DB, linkedRunId, {
+            status: "failed",
+            share_id: byRun.share_id,
+            error: `timeline quality: ${botModerationReject}`,
+          });
+        } else {
+          await updateBotRun(env.SCHEMA_DB, linkedRunId, { status: "shared", share_id: byRun.share_id });
+        }
         return json(env, {
           share_id: byRun.share_id,
           url: "/share/" + byRun.share_id,
           can_publish: false,
           on_timeline: Boolean(byRun.bot_handle),
           bot_handle: byRun.bot_handle,
+          ...(byRun.bot_handle ? {} : botModerationReject
+            ? { moderation_rejected: true, reason: botModerationReject }
+            : {}),
         });
       }
     }
@@ -2161,13 +2207,18 @@ async function createShare(env: Env, req: Request): Promise<Response> {
     return json(env, { error: "storage unavailable" }, 502);
   }
   shareRateRecordLocal(ip);
-  const handle = user && !botHandle ? await getHandle(env.SCHEMA_DB, user.id) : null;
+  const handle = user && !botHandle && !botModerationReject
+    ? await getHandle(env.SCHEMA_DB, user.id)
+    : null;
   return json(env, {
     share_id: shareId,
     url: "/share/" + shareId,
     can_publish: Boolean(handle),
     on_timeline: Boolean(botHandle),
     bot_handle: botHandle,
+    ...(botModerationReject
+      ? { moderation_rejected: true, reason: botModerationReject }
+      : {}),
   });
 }
 

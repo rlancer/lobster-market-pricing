@@ -410,6 +410,9 @@ export interface ShareChatResponse {
   /** True when this share is listed on the public timeline. */
   on_timeline?: boolean;
   bot_handle?: string | null;
+  /** Bot share withheld from the timeline by the quality gate. */
+  moderation_rejected?: boolean;
+  reason?: string;
 }
 
 /**
