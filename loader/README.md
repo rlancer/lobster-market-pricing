@@ -308,6 +308,43 @@ pass. Provisioning recipe matches the earnings block with names
 `cboe_sec_filings_v2` / `cboe_sec_filings_sink` / `cboe_sec_filings_pipeline`
 (`schemas/sec_filings.json`).
 
+### Instrument classification (`instruments-daily`)
+
+`options.ohlc` holds bars for equities, ETFs, indexes (`^VIX`), continuous
+futures (`ES=F`), and spot crypto (`BTC-USD`) — but the bar table itself has
+no type tag. Hand-listing ETF tickers in every query is the wrong fix.
+`instruments-daily` publishes **`options.instruments`**: one latest-wins row
+per symbol with an extendable `security_type` (`equity` | `etf` | `index` |
+`future` | `crypto`) plus optional `asset_class` / `source`. Both `symbol`
+and `ticker` are set (same value) so joins to OHLC or securities work either
+way.
+
+Catalog is built from loader manifests (no live Yahoo/FIGI fetch):
+`universe.json` ∪ enrolled equities, `etfs.json`, `indices.json`,
+`futures.json`, `crypto-spot.json`. New kinds are free strings — add a
+constant + manifest mapping; no Iceberg schema change.
+
+Example (ETF OHLC coverage without an `IN (...)` list):
+
+```sql
+SELECT o.symbol, MIN(o.date) AS first_date, MAX(o.date) AS last_date, COUNT(*) AS bars
+FROM options.ohlc o
+JOIN (
+  SELECT symbol, security_type
+  FROM options.instruments
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY fetched_at DESC) = 1
+) i ON i.symbol = o.symbol
+WHERE i.security_type = 'etf' AND o.date >= '2026-06-01'
+GROUP BY o.symbol
+ORDER BY o.symbol
+LIMIT 40
+```
+
+Batch, ungated, daily. Dry-run unless `PIPELINE_INSTRUMENTS_URL` is set.
+Provisioning recipe matches the earnings block with names
+`cboe_instruments_v2` / `cboe_instruments_sink` / `cboe_instruments_pipeline`
+(`schemas/instruments.json`).
+
 ## Package layout
 
 - `src/run-symbols.ts` — CBOE fetch, OCC normalization, batching, retries, and Pipeline publication (in-process, no container)
@@ -317,9 +354,10 @@ pass. Provisioning recipe matches the earnings block with names
 - `tools/figi_map.ts` — OpenFIGI mapper for `symbols/universe.json` → `options.securities` + `options.symbol_history`
 - `src/index.js` — Worker endpoint, one-shot `/run` + `/loop/*` + `/jobs*` driver routing
 - `src/scheduler.ts` — the generic `EtlScheduler` Durable Object (job-agnostic alarm loop + `/jobs` observability)
-- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `reg-sho-daily.ts`, `research-briefs-daily.ts`, `sec-filings-daily.ts`)
+- `src/jobs/` — job registry (`registry.ts`) + adapters (`cboe-options.ts`, `ohlc-daily.ts`, `ohlc-backfill.ts`, `earnings-daily.ts`, `etf-daily.ts`, `fundamentals-daily.ts`, `futures-ohlc-daily.ts`, `cfe-futures-daily.ts`, `indices-ohlc-daily.ts`, `crypto-spot-ohlc-daily.ts`, `short-interest-daily.ts`, `reg-sho-daily.ts`, `research-briefs-daily.ts`, `sec-filings-daily.ts`, `instruments-daily.ts`)
 - `src/earnings.ts` — Nasdaq earnings-calendar fetch/normalize/publish
 - `src/sec.ts` — SEC EDGAR submissions fetch/normalize/publish → `options.sec_filings`
+- `src/instruments.ts` — manifest classification → `options.instruments` (`security_type`)
 - `src/etf.ts` — Yahoo fundProfile + topHoldings fetch/normalize/publish
 - `src/fundamentals.ts` — Yahoo equity quoteSummary fundamentals fetch/normalize/publish
 - `src/short-interest.ts` — FINRA consolidated short interest fetch/normalize/publish
@@ -327,7 +365,7 @@ pass. Provisioning recipe matches the earnings block with names
 - `migrations/0001_initial.sql` — D1 schema (`symbol_state`, `loader_meta`)
 - `migrations/0002_job_state.sql` — D1 schedule ledger (`job_state`)
 - `migrations/0003_ohlc_backfill_state.sql` — D1 backfill item store (`ohlc_backfill_state`)
-- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, `reg_sho_daily`, `sec_filings`, …)
+- `schemas/` — Pipeline input schemas (`option_contracts`, `underlyings`, `refresh_runs`, `ohlc`, `realized_vol`, `securities`, `instruments`, `symbol_history`, `underlying_snapshots`, `corporate_actions`, `earnings`, `fundamentals`, `short_interest`, `reg_sho_daily`, `sec_filings`, …)
 - `wrangler.jsonc` — Worker, D1, DO (`ETL_SCHEDULER`), and Pipeline endpoint configuration
 - `.github/workflows/deploy-loader.yml` — Worker deployment (auto on push to `main`, incl. D1 migrations)
 - `../FOLLOW-UP-ACTIONS.md` — full-dataset population procedure
