@@ -161,7 +161,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'suggest_trades',
     summary: 'Structured end-of-turn trade ideas',
     description:
-      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence.',
+      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity, side buy|sell (long/short), optional qty, plus option right/strike/expiry. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence.',
     tables: ['option_contracts'],
     tools: ['research_ticker', 'run_query', 'publish_desk'],
     params: [

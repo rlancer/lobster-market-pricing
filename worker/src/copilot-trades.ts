@@ -2,18 +2,36 @@
  * Structured suggested trades for Copilot.
  *
  * Emitted via the suggest_trades tool so the UI can render concrete legs
- * without parsing freeform markdown. Legs must come from lake evidence
- * (option_contracts quotes) when the model names absolute strikes.
+ * without parsing freeform markdown. Legs are a formal discriminant:
+ * option contracts (call/put + strike) or equity (stock/ETF long/short).
+ * Absolute option strikes must come from lake evidence (option_contracts).
  */
 
 export type TradeBias = "bullish" | "bearish" | "neutral";
 export type TradeConviction = "high" | "medium" | "low";
 export type OptionRight = "call" | "put";
 export type TradeSide = "buy" | "sell";
+/** Option contract vs underlying shares (stock or ETF). */
+export type LegInstrument = "option" | "equity";
 
-export interface TradeLeg {
-  right: OptionRight;
+interface TradeLegBase {
   side: TradeSide;
+  /**
+   * Size: option contracts or equity shares.
+   * Optional at suggestion time; preferred when the idea is sized.
+   */
+  qty?: number;
+  /**
+   * Override when the leg is not the parent trade ticker (rare; e.g. pairs).
+   * Defaults to SuggestedTrade.ticker when omitted.
+   */
+  symbol?: string;
+}
+
+/** Listed call/put — needs right + (strike or strike_rel). */
+export interface OptionTradeLeg extends TradeLegBase {
+  instrument: "option";
+  right: OptionRight;
   /** Absolute strike when grounded in option_contracts. */
   strike?: number;
   /** Relative strike when absolute is unknown (e.g. "ATM", "~5% OTM"). */
@@ -23,11 +41,18 @@ export interface TradeLeg {
   dte?: number;
 }
 
+/** Long (buy) or short (sell) stock / ETF shares. */
+export interface EquityTradeLeg extends TradeLegBase {
+  instrument: "equity";
+}
+
+export type TradeLeg = OptionTradeLeg | EquityTradeLeg;
+
 export interface SuggestedTrade {
   ticker: string;
   bias: TradeBias;
   conviction: TradeConviction;
-  /** Short structure label (bull call debit spread, iron condor, …). */
+  /** Short structure label (bull call debit spread, long shares, covered call, …). */
   structure: string;
   legs?: TradeLeg[];
   rationale: string;
@@ -49,11 +74,13 @@ const STRIKE_REL_MAX = 40;
 const TICKER_MAX = 16;
 const TRADES_MAX = 3;
 const LEGS_MAX = 4;
+const QTY_MAX = 1_000_000;
 
 const BIASES = new Set<TradeBias>(["bullish", "bearish", "neutral"]);
 const CONVICTIONS = new Set<TradeConviction>(["high", "medium", "low"]);
 const RIGHTS = new Set<OptionRight>(["call", "put"]);
 const SIDES = new Set<TradeSide>(["buy", "sell"]);
+const INSTRUMENTS = new Set<LegInstrument>(["option", "equity"]);
 
 function clip(text: string, max: number): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
@@ -71,16 +98,45 @@ function asConviction(value: unknown): TradeConviction | null {
     : null;
 }
 
-function normalizeLeg(raw: unknown): TradeLeg | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const rec = raw as Record<string, unknown>;
-  const right = typeof rec.right === "string" && RIGHTS.has(rec.right as OptionRight)
-    ? rec.right as OptionRight
-    : null;
-  const side = typeof rec.side === "string" && SIDES.has(rec.side as TradeSide)
-    ? rec.side as TradeSide
-    : null;
-  if (!right || !side) return null;
+function asSide(value: unknown): TradeSide | null {
+  return typeof value === "string" && SIDES.has(value as TradeSide) ? value as TradeSide : null;
+}
+
+function asRight(value: unknown): OptionRight | null {
+  return typeof value === "string" && RIGHTS.has(value as OptionRight) ? value as OptionRight : null;
+}
+
+function asQty(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > QTY_MAX) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
+function asSymbol(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return clip(value.toUpperCase(), TICKER_MAX);
+}
+
+/**
+ * Resolve instrument. Explicit wins; otherwise legacy option legs (had `right`)
+ * stay options, and side-only legs become equity.
+ */
+function resolveInstrument(rec: Record<string, unknown>): LegInstrument | null {
+  if (typeof rec.instrument === "string" && INSTRUMENTS.has(rec.instrument as LegInstrument)) {
+    return rec.instrument as LegInstrument;
+  }
+  if (asRight(rec.right) || rec.strike != null || (typeof rec.strike_rel === "string" && rec.strike_rel.trim())) {
+    return "option";
+  }
+  // Legacy payloads never emitted side-only legs; treat as equity for new stock ideas.
+  if (asSide(rec.side)) return "equity";
+  return null;
+}
+
+function normalizeOptionLeg(rec: Record<string, unknown>, side: TradeSide): OptionTradeLeg | null {
+  const right = asRight(rec.right);
+  if (!right) return null;
 
   const strike = typeof rec.strike === "number" && Number.isFinite(rec.strike) && rec.strike > 0
     ? rec.strike
@@ -96,15 +152,46 @@ function normalizeLeg(raw: unknown): TradeLeg | null {
   const dte = typeof rec.dte === "number" && Number.isFinite(rec.dte) && rec.dte >= 0 && rec.dte <= 730
     ? Math.floor(rec.dte)
     : undefined;
+  const qty = asQty(rec.qty);
+  const symbol = asSymbol(rec.symbol);
 
   return {
+    instrument: "option",
     right,
     side,
     ...(strike != null ? { strike } : {}),
     ...(strike_rel ? { strike_rel } : {}),
     ...(expiration ? { expiration } : {}),
     ...(dte != null ? { dte } : {}),
+    ...(qty != null ? { qty } : {}),
+    ...(symbol ? { symbol } : {}),
   };
+}
+
+function normalizeEquityLeg(rec: Record<string, unknown>, side: TradeSide): EquityTradeLeg {
+  const qty = asQty(rec.qty);
+  const symbol = asSymbol(rec.symbol);
+  return {
+    instrument: "equity",
+    side,
+    ...(qty != null ? { qty } : {}),
+    ...(symbol ? { symbol } : {}),
+  };
+}
+
+function normalizeLeg(raw: unknown): TradeLeg | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const side = asSide(rec.side);
+  if (!side) return null;
+
+  const instrument = resolveInstrument(rec);
+  if (!instrument) return null;
+
+  if (instrument === "equity") {
+    return normalizeEquityLeg(rec, side);
+  }
+  return normalizeOptionLeg(rec, side);
 }
 
 function normalizeTrade(raw: unknown): SuggestedTrade | null {
@@ -172,14 +259,41 @@ export function formatTradesToolSummary(payload: SuggestedTrades): string {
   return [`Suggested trades (${payload.trades.length}):`, ...lines].join("\n");
 }
 
+/** Compact leg label for admin / debug strings. */
+export function formatTradeLeg(leg: TradeLeg): string {
+  const qty = leg.qty != null ? `${leg.qty} ` : "";
+  const sym = leg.symbol ? ` ${leg.symbol}` : "";
+  if (leg.instrument === "equity") {
+    return `${leg.side} ${qty}shares${sym}`.replace(/\s+/g, " ").trim();
+  }
+  const strike = leg.strike != null
+    ? String(leg.strike)
+    : (leg.strike_rel ?? "?");
+  const tenor = leg.expiration
+    ? leg.expiration + (leg.dte != null ? ` (${leg.dte}d)` : "")
+    : (leg.dte != null ? `${leg.dte}d` : "");
+  const body = `${leg.side} ${qty}${strike} ${leg.right}${sym}`;
+  return `${body.replace(/\s+/g, " ").trim()}${tenor ? ` · ${tenor}` : ""}`;
+}
+
+export function isOptionLeg(leg: TradeLeg): leg is OptionTradeLeg {
+  return leg.instrument === "option";
+}
+
+export function isEquityLeg(leg: TradeLeg): leg is EquityTradeLeg {
+  return leg.instrument === "equity";
+}
+
 /** Prompt block: emit trades only via suggest_trades (no freeform parsing). */
 export function tradesSuggestBlock(): string {
   return [
     "Suggested trades (structured — never freeform-only):",
     "- After publish_desk on ticker / trade analysis, MUST call suggest_trades before final prose. The UI renders trades from this tool only — do not bury legs in markdown.",
     "- Each trade needs ticker, bias (bullish|bearish|neutral), conviction (high|medium|low), structure label, and rationale grounded in shared evidence.",
-    "- Prefer 1–2 defined-risk ideas. Include legs (buy/sell + call/put + strike or strike_rel + expiration/dte) when option_contracts quotes support them.",
-    "- Absolute strikes/expiries MUST come from a prior option_contracts query with two-sided quotes (bid>0, ask>=bid), tight-ish spread, and volume/OI interest. Put that quote quality in liquidity.",
+    "- Prefer 1–2 defined-risk ideas. Include legs when evidence supports them. Each leg needs instrument (option|equity) + side (buy|sell).",
+    "- Option legs: right (call|put) + strike or strike_rel + expiration/dte. Absolute strikes/expiries MUST come from a prior option_contracts query with two-sided quotes (bid>0, ask>=bid), tight-ish spread, and volume/OI interest. Put that quote quality in liquidity.",
+    "- Equity legs: stock or ETF shares of the trade ticker (or leg.symbol override). buy = long, sell = short. Optional qty = share count. Use for outright long/short, covered calls, collars, etc.",
+    "- Optional qty on option legs = contract count. Prefer sized legs when the idea implies a unit.",
     "- If nothing is tradable, pass trades: [] (skip_reason optional). Never invent fills or far-OTM lottery tickets.",
     "- After suggest_trades, final message text stays the desk overview only (1–4 sentences). Do not re-list the trades in prose.",
   ].join("\n");

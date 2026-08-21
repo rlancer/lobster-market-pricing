@@ -15,20 +15,10 @@ import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import { Search } from 'lucide-react';
 import { useIsAdmin } from './useAdmin';
 import { api, type AdminSuggestedTrade } from './api';
-import type { TradeLeg } from './SuggestedTrades';
+import { formatTradeLeg } from './SuggestedTrades';
 import './Trades.css';
 
 type AdminTradeRow = AdminSuggestedTrade & Record<string, unknown>;
-
-function formatLeg(leg: TradeLeg): string {
-  const strike = leg.strike != null
-    ? String(leg.strike)
-    : (leg.strike_rel ?? '?');
-  const tenor = leg.expiration
-    ? leg.expiration + (leg.dte != null ? ` (${leg.dte}d)` : '')
-    : (leg.dte != null ? `${leg.dte}d` : '');
-  return `${leg.side} ${strike} ${leg.right}${tenor ? ` · ${tenor}` : ''}`;
-}
 
 function biasColor(bias: AdminSuggestedTrade['bias']): 'green' | 'red' | 'gray' {
   if (bias === 'bullish') return 'green';
@@ -44,7 +34,7 @@ function shortModel(model: string | null): string {
 
 function matchesQuery(trade: AdminSuggestedTrade, query: string): boolean {
   if (!query) return true;
-  const legs = (trade.legs ?? []).map(formatLeg).join(' ');
+  const legs = (trade.legs ?? []).map(formatTradeLeg).join(' ');
   const haystack = [
     trade.ticker,
     trade.bias,
@@ -221,7 +211,7 @@ export default function TradesPage() {
                   <Text weight="semibold">{trade.structure}</Text>
                   {trade.legs?.length ? (
                     <Text type="supporting" size="sm" className="trades-legs">
-                      {trade.legs.map(formatLeg).join(' · ')}
+                      {trade.legs.map(formatTradeLeg).join(' · ')}
                     </Text>
                   ) : null}
                 </VStack>
