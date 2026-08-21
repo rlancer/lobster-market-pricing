@@ -185,29 +185,34 @@ jobs:
       - name: Assert yields rows
         run: |
           set -euo pipefail
+          # Lake / R2 SQL can lag the sink roll briefly (empty 200 with no rows).
+          # Retry rather than false-fail a provision that already published.
           assert_sql() {
             local sql="$1" expect="$2" label="$3"
+            local attempt max=8
             body=$(jq -nc --arg sql "$sql" '{sql:$sql, limit:20}')
-            resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
-              -H 'content-type: application/json' \
-              -d "$body" \
-              -w '\n__HTTP_%{http_code}')
-            http="${resp##*__HTTP_}"
-            json="${resp%__HTTP_*}"
-            echo "== $label =="
-            echo "$json" | head -c 1500; echo
-            if [ "$http" != "200" ]; then
-              echo "::error::$label HTTP $http"
-              exit 1
-            fi
-            if echo "$json" | grep -qi 'iceberg table not found'; then
-              echo "::error::$label table missing after sink roll"
-              exit 1
-            fi
-            if ! echo "$json" | grep -qi "$expect"; then
-              echo "::error::$label missing expected marker '$expect'"
-              exit 1
-            fi
+            for attempt in $(seq 1 "$max"); do
+              resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+                -H 'content-type: application/json' \
+                -d "$body" \
+                -w '\n__HTTP_%{http_code}')
+              http="${resp##*__HTTP_}"
+              json="${resp%__HTTP_*}"
+              echo "== $label (attempt $attempt/$max) =="
+              echo "$json" | head -c 1500; echo
+              if [ "$http" != "200" ]; then
+                echo "::warning::$label HTTP $http — retrying"
+              elif echo "$json" | grep -qi 'iceberg table not found'; then
+                echo "::warning::$label table missing — retrying"
+              elif echo "$json" | grep -qi "$expect"; then
+                return 0
+              else
+                echo "::warning::$label missing marker '$expect' — retrying"
+              fi
+              sleep $((attempt * 15))
+            done
+            echo "::error::$label failed after $max attempts"
+            exit 1
           }
 
           assert_sql \
