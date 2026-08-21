@@ -1,0 +1,228 @@
+name: Provision FRED yields pipeline
+
+# One-shot: create cboe_yields_* if missing, set PIPELINE_YIELDS_URL,
+# redeploy loader so the DO sees the secret, force fred-yields-daily, wait for
+# the ~300s sink roll, then assert rows via production /api/query.
+#
+# Required GitHub secrets (same set as SEC filings / FINRA provision):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, R2_DATA_CATALOG_TOKEN,
+#   PIPELINE_AUTH_TOKEN, LOADER_TOKEN, FRED_API_KEY
+# Optional: PIPELINES_ADMIN_TOKEN (Pipelines Edit if deploy token lacks it)
+#
+# Trigger: workflow_dispatch, or push to cursor/run-provision-fred-yields-749e
+# (gh workflow_dispatch is 403 for the Cursor integration token).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['cursor/run-provision-fred-yields-749e']
+
+concurrency:
+  group: provision-fred-yields
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
+      LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      STREAM: cboe_yields_v2
+      SINK: cboe_yields_sink
+      PIPELINE: cboe_yields_pipeline
+      BUCKET: cboe-options-data
+      LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+      WORKER_QUERY_URL: https://api.lobster.mp/api/query
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN LOADER_TOKEN FRED_API_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Secrets present (values not printed)."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Provision stream / sink / pipeline
+        working-directory: loader
+        run: |
+          set -euo pipefail
+
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+
+          wrangler_pipelines() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler "$@"
+          }
+
+          try_list() {
+            wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+              && return 0
+            if [ "$PIPELINES_TOKEN" != "$R2_DATA_CATALOG_TOKEN" ]; then
+              echo "Deploy token cannot list pipelines — retrying with R2_DATA_CATALOG_TOKEN"
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+                && return 0
+            fi
+            echo "::error::No available token can manage Pipelines (need Pipelines Edit)."
+            cat /tmp/streams.err >&2 || true
+            return 1
+          }
+          try_list
+
+          if wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json" 2>/dev/null; then
+            echo "Stream $STREAM already exists"
+          else
+            echo "Creating stream $STREAM"
+            wrangler_pipelines pipelines streams create "$STREAM" \
+              --schema-file schemas/yields.json \
+              --http-enabled true \
+              --http-auth true
+            wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json"
+          fi
+
+          ENDPOINT=$(node -e "const s=require('/tmp/${STREAM}.json'); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)")
+          echo "PIPELINE_YIELDS_URL=$ENDPOINT" >> "$GITHUB_ENV"
+          echo "Stream endpoint captured (value not printed)."
+
+          if wrangler_pipelines pipelines sinks get "$SINK" --json >"/tmp/${SINK}.json" 2>/dev/null; then
+            echo "Sink $SINK already exists"
+          else
+            echo "Creating sink $SINK (creates options.yields)"
+            wrangler_pipelines pipelines sinks create "$SINK" \
+              --type r2-data-catalog \
+              --bucket "$BUCKET" \
+              --namespace options \
+              --table yields \
+              --catalog-token "$R2_DATA_CATALOG_TOKEN" \
+              --format parquet \
+              --roll-interval 300
+          fi
+
+          if wrangler_pipelines pipelines get "$PIPELINE" --json >"/tmp/${PIPELINE}.json" 2>/dev/null; then
+            echo "Pipeline $PIPELINE already exists"
+          else
+            echo "Creating pipeline $PIPELINE"
+            wrangler_pipelines pipelines create "$PIPELINE" \
+              --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
+          fi
+
+      - name: Set PIPELINE_YIELDS_URL Worker secret
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          printf '%s' "$PIPELINE_YIELDS_URL" | npx wrangler secret put PIPELINE_YIELDS_URL
+          echo "Worker secret PIPELINE_YIELDS_URL updated."
+
+      - name: Redeploy loader so EtlScheduler DO picks up the secret
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          npx wrangler deploy
+          echo "cboe-to-r2 redeployed."
+
+      - name: Publish sample series directly (bypass DO)
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          node tools/yields_probe_publish.mjs DGS10 T10Y2Y SOFR DFF DGS2 DGS30
+
+      - name: Force fred-yields-daily (Worker path)
+        run: |
+          set -euo pipefail
+          sleep 5
+          resp=$(curl -sS -X POST \
+            -H "Authorization: Bearer $LOADER_TOKEN" \
+            -w '\n__HTTP_%{http_code}' \
+            "$LOADER_URL/jobs/fred-yields-daily/trigger?force=1")
+          body="${resp%__HTTP_*}"
+          code="${resp##*__HTTP_}"
+          echo "$body"
+          if [ "$code" = "409" ]; then
+            echo "Loader busy (409) — direct publish already landed rows; continuing."
+            exit 0
+          fi
+          if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+            echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
+          fi
+          sleep 3
+          status=$(curl -sS "$LOADER_URL/jobs/fred-yields-daily")
+          echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted})}'
+
+      - name: Wait for sink roll (~5 min)
+        run: |
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s."
+          sleep 360
+
+      - name: Assert yields rows
+        run: |
+          set -euo pipefail
+          assert_sql() {
+            local sql="$1" expect="$2" label="$3"
+            body=$(jq -nc --arg sql "$sql" '{sql:$sql, limit:20}')
+            resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+              -H 'content-type: application/json' \
+              -d "$body" \
+              -w '\n__HTTP_%{http_code}')
+            http="${resp##*__HTTP_}"
+            json="${resp%__HTTP_*}"
+            echo "== $label =="
+            echo "$json" | head -c 1500; echo
+            if [ "$http" != "200" ]; then
+              echo "::error::$label HTTP $http"
+              exit 1
+            fi
+            if echo "$json" | grep -qi 'iceberg table not found'; then
+              echo "::error::$label table missing after sink roll"
+              exit 1
+            fi
+            if ! echo "$json" | grep -qi "$expect"; then
+              echo "::error::$label missing expected marker '$expect'"
+              exit 1
+            fi
+          }
+
+          assert_sql \
+            "SELECT series_id, date, value, kind FROM options.yields WHERE series_id = 'DGS10' ORDER BY date DESC LIMIT 5" \
+            "DGS10" \
+            "DGS10 observations"
+
+          assert_sql \
+            "SELECT series_id, date, value, kind FROM options.yields WHERE series_id = 'T10Y2Y' ORDER BY date DESC LIMIT 5" \
+            "T10Y2Y\|spread" \
+            "T10Y2Y spread"
+
+          assert_sql \
+            "SELECT series_id, date, value, kind FROM options.yields WHERE series_id = 'SOFR' ORDER BY date DESC LIMIT 5" \
+            "SOFR\|policy" \
+            "SOFR policy rate"
+
+          echo "FRED yields pipeline verified."

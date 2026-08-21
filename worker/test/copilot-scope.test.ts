@@ -21,6 +21,13 @@ test('scope classifier treats spot crypto as in-scope market data', () => {
   );
 });
 
+test('scope classifier treats Treasury yields / rates as in-scope', () => {
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /Treasury yields/i);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /yield curve/i);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /DGS\*/);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /SOFR/);
+});
+
 test('parseScopeLabel accepts exact and padded labels', () => {
   assert.equal(parseScopeLabel('IN_SCOPE'), true);
   assert.equal(parseScopeLabel('OUT_OF_SCOPE'), false);

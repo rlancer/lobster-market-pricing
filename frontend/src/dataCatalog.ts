@@ -227,6 +227,18 @@ export const FEEDS: CatalogItem[] = [
     live: 'econ',
   },
   {
+    id: 'feed:fred-yields',
+    kind: 'feed',
+    title: 'FRED Treasury / rates curve',
+    summary: 'Constant-maturity yields, spreads, TIPS, SOFR',
+    description:
+      'Daily FRED series observations into options.yields: DGS1MO–DGS30 constant-maturity Treasuries, T10Y2Y / T10Y3M curve spreads, T5YIE / T10YIE breakevens, DFII5 / DFII10 TIPS, plus DFF and SOFR overnight policy rates. Values are percent / percentage points. Bond ETF prices (TLT, IEF, SHY) remain in options.ohlc — this table is the actual yield curve levels everything else is priced off of.',
+    provider: 'FRED (St. Louis Fed)',
+    cadence: 'Daily (fred-yields-daily job)',
+    tables: ['yields'],
+    tools: ['run_query', 'render_chart'],
+  },
+  {
     id: 'feed:federalreserve',
     kind: 'feed',
     title: 'Federal Reserve calendar',
@@ -494,6 +506,13 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
       'event_date, title, kind (macro|fed), source (fred|federalreserve), optional event_time ET. The eco_calendar tool prefers this table and falls back to a live FRED/Fed fetch.',
     feeds: ['fred', 'federalreserve'],
     tools: ['eco_calendar', 'run_query'],
+  },
+  yields: {
+    summary: 'US Treasury / rates curve (FRED)',
+    description:
+      'series_id, date, value (percent / percentage points), title, tenor, kind (nominal|real|breakeven|spread|policy), source=fred. Constant-maturity DGS* curve, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR. Latest-wins on (series_id, date). Prefer this over bond ETF closes when the question is about the yield curve.',
+    feeds: ['fred-yields'],
+    tools: ['run_query', 'render_chart'],
   },
   futures_settlements: {
     summary: 'CFE daily settlement prices (VX curve)',

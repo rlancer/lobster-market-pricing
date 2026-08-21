@@ -15,6 +15,7 @@ import { shortInterestDailyJob } from "./short-interest-daily.js";
 import { regShoDailyJob } from "./reg-sho-daily.js";
 import { secFilingsDailyJob } from "./sec-filings-daily.js";
 import { instrumentsDailyJob } from "./instruments-daily.js";
+import { fredYieldsDailyJob } from "./fred-yields-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -51,6 +52,8 @@ import { instrumentsDailyJob } from "./instruments-daily.js";
 //     options.sec_filings (equity 10-K/Q/8-K + ETF prospectus family).
 //   - instruments-daily — batch, ungated, daily; manifest classification →
 //     options.instruments (security_type equity|etf|index|future|crypto).
+//   - fred-yields-daily — batch, ungated, daily; FRED Treasury / rates curve
+//     observations → options.yields (DGS* + spreads + TIPS/breakevens + DFF/SOFR).
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -69,5 +72,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     researchBriefsDailyJob(env),
     secFilingsDailyJob(env),
     instrumentsDailyJob(env),
+    fredYieldsDailyJob(env),
   ];
 }
