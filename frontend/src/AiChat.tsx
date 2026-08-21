@@ -12,12 +12,10 @@ import {
   Dialog,
   DialogHeader,
   IconButton,
-  Markdown,
   Spinner,
   StatusDot,
   Switch,
   Timestamp,
-  Tooltip,
   useChatStreamScroll,
   useMediaQuery,
 } from '@astryxdesign/core';
@@ -32,13 +30,14 @@ import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { AssistantMark } from './Sunglasses';
-import { ChartView, type ChartSpec } from './Chart';
-import { MAX_RENDER_ROWS, ResultTable } from './QueryResultView';
+import { type ChartSpec } from './Chart';
+import { MAX_RENDER_ROWS } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 import { ChatRail } from './ChatRail';
-import { DeskViewpoints, isDeskBrief, type DeskBrief } from './DeskViewpoints';
-import { SuggestedTradesView, isSuggestedTrades, type SuggestedTrades } from './SuggestedTrades';
+import { AssistantMessageBody } from './ChatTranscript';
+import { isDeskBrief, type DeskBrief } from './DeskViewpoints';
+import { isSuggestedTrades, type SuggestedTrades } from './SuggestedTrades';
 
 /** Nearest ancestor that scrolls — AppShell content pane, else the viewport. */
 function nearestScrollRoot(node: HTMLElement | null): HTMLElement | null {
@@ -116,6 +115,8 @@ interface Msg {
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
   trades?: SuggestedTrades | null;
+  tools?: { name: string; args?: string; ok?: boolean; summary?: string }[];
+  frames?: FrameMetadata[];
   error?: string;
   ts?: number;
   model?: string;
@@ -254,6 +255,12 @@ function projectMessage(message: CopilotMessage): Msg | null {
   const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('');
   const presentation = presentationFromMessage(message);
   const meta = message.metadata;
+  const tools = projectTools(message).map((tool) => ({
+    name: tool.name,
+    ...(tool.args ? { args: tool.args } : {}),
+    ...(tool.ok !== null ? { ok: tool.ok } : {}),
+    ...(tool.summary ? { summary: tool.summary } : {}),
+  }));
   return {
     id: message.id,
     role: message.role,
@@ -264,6 +271,8 @@ function projectMessage(message: CopilotMessage): Msg | null {
     chart: presentation?.chart ?? meta?.chart ?? null,
     desk: presentation?.desk ?? meta?.desk ?? null,
     trades: presentation?.trades ?? meta?.trades ?? null,
+    ...(tools.length ? { tools } : {}),
+    ...(presentation?.frames?.length ? { frames: presentation.frames } : {}),
     ...(presentation?.model || meta?.model ? { model: presentation?.model || meta?.model } : {}),
     ...(meta?.createdAt ? { ts: meta.createdAt } : {}),
   };
@@ -919,24 +928,34 @@ function AiChatSession({
   }, [busy, agent, messages, setMessages]);
 
   const buildSharePayload = useCallback((handle: string | null, runId: string | null, capture?: TurnCapture | null) => {
-    const baseTurns: ShareChatMessage[] = projectedMessages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      ...(message.reasoning ? { reasoning: message.reasoning } : {}),
-      ...(message.sql ? { sql: message.sql } : {}),
-      ...(message.ts ? { ts: message.ts } : {}),
-      ...(message.result && !message.result.error ? {
-        result: {
-          columns: message.result.columns,
-          rows: message.result.rows.slice(0, MAX_RENDER_ROWS),
-          row_count: message.result.row_count,
-          ...(message.result.truncated ? { truncated: true, limit: message.result.limit } : {}),
-        },
-      } : {}),
-      ...(message.chart ? { chart: message.chart } : {}),
-      ...(message.desk ? { desk: message.desk } : {}),
-      ...(message.trades ? { trades: message.trades } : {}),
-    })).slice(-100);
+    const baseTurns: ShareChatMessage[] = projectedMessages.map((message, index, list) => {
+      const isLastAssistant = message.role === 'assistant'
+        && !list.slice(index + 1).some((row) => row.role === 'assistant');
+      return {
+        role: message.role,
+        content: message.content,
+        ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+        ...(message.sql ? { sql: message.sql } : {}),
+        ...(message.ts ? { ts: message.ts } : {}),
+        ...(message.result && !message.result.error ? {
+          result: {
+            columns: message.result.columns,
+            rows: message.result.rows.slice(0, MAX_RENDER_ROWS),
+            row_count: message.result.row_count,
+            ...(message.result.truncated ? { truncated: true, limit: message.result.limit } : {}),
+          },
+        } : {}),
+        ...(message.chart ? { chart: message.chart } : {}),
+        ...(message.desk ? { desk: message.desk } : {}),
+        ...(message.trades ? { trades: message.trades } : {}),
+        ...(message.tools?.length ? { tools: message.tools } : {}),
+        // Session frames accumulate on the live strip — stamp the catalog on the
+        // last assistant so timeline/share can reuse ChatContextStrip Sources.
+        ...((message.frames?.length || (isLastAssistant && frames.length))
+          ? { frames: (isLastAssistant && frames.length ? frames : message.frames) }
+          : {}),
+      };
+    }).slice(-100);
     // projectedMessages is already coalesced; keep applyCapture on the last assistant.
     const turns = applyCaptureToShareMessages(baseTurns, capture);
     const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
@@ -950,7 +969,7 @@ function AiChatSession({
       ...(handle ? { bot_handle: handle } : {}),
       ...(runId ? { run_id: runId } : {}),
     };
-  }, [projectedMessages, chatId]);
+  }, [projectedMessages, chatId, frames]);
 
   const shareChat = useCallback(async () => {
     setShareBusy(true);
@@ -1195,9 +1214,45 @@ function AiChatSession({
 
                     {projectedMessages.map((message) => {
                       const isLive = message.role === 'assistant' && message.id === liveAssistantId;
+                      if (message.role === 'user') {
+                        return (
+                          <div key={message.id} className="ai-msg ai-user">
+                            <div className="ai-bubble">
+                              {message.content ? <div className="ai-text">{message.content}</div> : null}
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (isScopeRejectedMessage(message)) {
+                        return (
+                          <div key={message.id} className="ai-msg ai-assistant">
+                            <AssistantMark />
+                            <div className="ai-bubble">
+                              <div className="ai-err">{message.content}</div>
+                              <div className="ai-scope-lock-hint">
+                                <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
+                                <Button variant="secondary" label="New chat" onClick={onNewChat} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      const shared: ShareChatMessage = {
+                        role: 'assistant',
+                        content: message.content,
+                        ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+                        ...(message.sql ? { sql: message.sql } : {}),
+                        ...(message.result && !message.result.error ? { result: message.result } : {}),
+                        ...(message.chart ? { chart: message.chart } : {}),
+                        ...(message.desk ? { desk: message.desk } : {}),
+                        ...(message.trades ? { trades: message.trades } : {}),
+                        ...(message.tools?.length ? { tools: message.tools } : {}),
+                        ...(message.frames?.length ? { frames: message.frames } : {}),
+                        ...(message.ts ? { ts: message.ts } : {}),
+                      };
                       return (
-                        <div key={message.id} className={`ai-msg ai-${message.role}`}>
-                          {message.role === 'assistant' && <AssistantMark />}
+                        <div key={message.id} className="ai-msg ai-assistant">
+                          <AssistantMark />
                           <div className="ai-bubble">
                             {isLive && (
                               <TurnProgress
@@ -1210,99 +1265,15 @@ function AiChatSession({
                                 thinkingRef={thinkingRef}
                               />
                             )}
-                            {message.role === 'assistant' && message.desk && isDeskBrief(message.desk) && (
-                              <DeskViewpoints desk={message.desk} showOverview={false} />
-                            )}
-                            {(() => {
-                              const desk = message.role === 'assistant' && message.desk && isDeskBrief(message.desk)
-                                ? message.desk
-                                : null;
-                              const overviewRaw = desk
-                                ? desk.overview
-                                : message.content;
-                              const overview = /^(placeholder|tbd|todo|n\/?a|none|\.{1,3})$/i.test((overviewRaw || '').trim())
-                                ? ''
-                                : overviewRaw;
-                              const showOverview = Boolean(overview?.trim());
-                              if (!showOverview) return null;
-                              if (message.role !== 'assistant') {
-                                return <div className="ai-text">{message.content}</div>;
-                              }
-                              if (isScopeRejectedMessage(message)) {
-                                return (
-                                  <>
-                                    <div className="ai-err">{message.content}</div>
-                                    <div className="ai-scope-lock-hint">
-                                      <span>This chat only answers market-data questions. Start a new chat for a finance ask.</span>
-                                      <Button variant="secondary" label="New chat" onClick={onNewChat} />
-                                    </div>
-                                  </>
-                                );
-                              }
-                              return (
-                                <div className="ai-text">
-                                  {desk ? <span className="ai-desk-overview-label">Overview</span> : null}
-                                  <Markdown>{overview}</Markdown>
-                                </div>
-                              );
-                            })()}
-                            {message.role === 'assistant' && message.trades && (
-                              <SuggestedTradesView trades={message.trades} />
-                            )}
-                            {message.role === 'assistant' && message.reasoning && !isLive && (
-                              <details className="ai-thinking ai-thinking-done">
-                                <summary>Thinking</summary>
-                                <div className="ai-thinking-body">{message.reasoning}</div>
-                              </details>
-                            )}
-                            {message.chart && message.result && <ChartView result={message.result} spec={message.chart} />}
-                            {message.sql && (
-                              isLive ? (
-                                <div className="ai-sql">
-                                  <div className="ai-sql-head">
-                                    <span>SQL</span>
-                                    <span className="ai-sql-actions">
-                                      <CopyButton text={message.sql} />
-                                      <Tooltip content="Open in Data" hasHoverIndication={false}>
-                                        <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
-                                      </Tooltip>
-                                    </span>
-                                  </div>
-                                  <pre>{message.sql}</pre>
-                                </div>
-                              ) : (
-                                <details className="ai-sql ai-sql-collapsible">
-                                  <summary className="ai-sql-head">
-                                    <span>SQL</span>
-                                    <span
-                                      className="ai-sql-actions"
-                                      onClick={(event) => event.stopPropagation()}
-                                      onKeyDown={(event) => event.stopPropagation()}
-                                    >
-                                      <CopyButton text={message.sql} />
-                                      <Tooltip content="Open in Data" hasHoverIndication={false}>
-                                        <button onClick={() => navigate({ to: '/data', search: { sql: message.sql!, item: 'query' } })}>Open in Data ↗</button>
-                                      </Tooltip>
-                                    </span>
-                                  </summary>
-                                  <pre>{message.sql}</pre>
-                                </details>
-                              )
-                            )}
-                            {message.result && (
-                              message.chart ? (
-                                <details className="ai-result-details">
-                                  <summary>Query result ({message.result.row_count.toLocaleString()} rows)</summary>
-                                  <ResultTable result={message.result} />
-                                </details>
-                              ) : (
-                                <ResultTable result={message.result} />
-                              )
-                            )}
-                            {message.role === 'assistant' && !isLive && !message.content && (message.sql || message.result || message.chart) && (
-                              <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
-                            )}
-                            {message.role === 'assistant' && !isLive && (message.ts !== undefined || message.model) && (
+                            <AssistantMessageBody
+                              message={shared}
+                              openInData
+                              hydrateResult={false}
+                              collapseSql={!isLive}
+                              hideThinking={isLive}
+                              hideTools={isLive}
+                            />
+                            {!isLive && (message.ts !== undefined || message.model) && (
                               <ChatMessageMetadata
                                 timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
                                 footer={message.model}

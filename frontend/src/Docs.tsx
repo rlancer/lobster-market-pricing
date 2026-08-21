@@ -165,7 +165,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Timeline',
-    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed); the title opens the unlisted /share/<id> page, and a share control beside the title offers copy link or system Share via…. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>.',
+    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed) using the same transcript body as live chat — Thinking, Tools used, SQL, charts, desk viewpoints, and query results (hydrated when you expand). Session frames open in a Sources strip with Open in Data, same as /chat. The title opens the unlisted /share/<id> page, and a share control beside the title offers copy link or system Share via…. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>.',
   },
   {
     route: '/chat',

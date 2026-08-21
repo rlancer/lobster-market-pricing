@@ -3,7 +3,8 @@ import { Link, useParams } from '@tanstack/react-router';
 import { AppShell, HStack, Spinner, Timestamp } from '@astryxdesign/core';
 import './SharedChat.css';
 import { Sunglasses } from './Sunglasses';
-import { TranscriptMessage } from './ChatTranscript';
+import { ChatContextStrip } from './ChatContextStrip';
+import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { PostShareButton } from './PostShareButton';
@@ -173,11 +174,22 @@ function SharedChatRoute() {
                 {share.on_timeline && <span>· on the timeline</span>}
               </p>
             </header>
-            <section className="share-msgs" aria-label="Shared conversation">
-              {coalesceAssistantMessages(share.messages).map((m: SharedChatMessage, i: number) => (
-                <TranscriptMessage key={i} message={m} collapseSql />
-              ))}
-            </section>
+            {(() => {
+              const messages = coalesceAssistantMessages(share.messages);
+              const frames = framesFromMessages(messages);
+              return (
+                <>
+                  {frames.length > 0 && (
+                    <ChatContextStrip frames={frames} />
+                  )}
+                  <section className="share-msgs" aria-label="Shared conversation">
+                    {messages.map((m: SharedChatMessage, i: number) => (
+                      <TranscriptMessage key={i} message={m} openInData collapseSql />
+                    ))}
+                  </section>
+                </>
+              );
+            })()}
           </>
         )}
       </section>

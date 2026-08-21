@@ -22,19 +22,26 @@ type Active = { kind: 'frame'; name: string } | null;
  * panel (only one frame panel open at a time).
  *
  * `variant="rail"` stacks under a Sources heading for the desktop chat column;
- * the default strip stays a compact row above the transcript (mobile).
+ * the default strip stays a compact row above the transcript (mobile / timeline).
+ *
+ * Live chat passes `chatId` to load ticker links from the API. Timeline / share
+ * pass static `tickers` (and optional frames snapshotted onto the transcript).
  */
 export function ChatContextStrip({
   chatId,
+  tickers,
   frames,
-  refreshKey,
+  refreshKey = 0,
   variant = 'strip',
   onPresenceChange,
 }: {
-  chatId: string;
+  /** When set, load linked tickers from /api/chats/:id/tickers. */
+  chatId?: string;
+  /** Static ticker symbols (timeline / share) — used when chatId is absent. */
+  tickers?: string[];
   frames: FrameMetadata[];
   /** Bump when a research_ticker tool completes so the strip refreshes. */
-  refreshKey: number;
+  refreshKey?: number;
   variant?: 'strip' | 'rail';
   /** Fires when the strip goes from empty ↔ non-empty (after links resolve). */
   onPresenceChange?: (present: boolean) => void;
@@ -42,9 +49,18 @@ export function ChatContextStrip({
   const navigate = useNavigate();
   const [links, setLinks] = useState<ChatTickerLink[]>([]);
   const [active, setActive] = useState<Active>(null);
-  const [loadingLinks, setLoadingLinks] = useState(false);
+  const [loadingLinks, setLoadingLinks] = useState(Boolean(chatId));
+
+  const staticTickers = (tickers ?? [])
+    .map((ticker) => ticker.trim().toUpperCase())
+    .filter(Boolean);
 
   useEffect(() => {
+    if (!chatId) {
+      setLinks([]);
+      setLoadingLinks(false);
+      return;
+    }
     let alive = true;
     setLoadingLinks(true);
     api.chatTickers(chatId)
@@ -70,15 +86,17 @@ export function ChatContextStrip({
     });
   }, [frames]);
 
+  const tickerCount = chatId ? links.length : staticTickers.length;
+
   useEffect(() => {
-    onPresenceChange?.(frames.length > 0 || links.length > 0);
-  }, [frames.length, links.length, onPresenceChange]);
+    onPresenceChange?.(frames.length > 0 || tickerCount > 0);
+  }, [frames.length, tickerCount, onPresenceChange]);
 
   const activeFrame = active?.kind === 'frame'
     ? frames.find((frame) => frame.name === active.name) ?? null
     : null;
 
-  if (!loadingLinks && links.length === 0 && frames.length === 0) return null;
+  if (!loadingLinks && tickerCount === 0 && frames.length === 0) return null;
 
   const closePanel = () => setActive(null);
 
@@ -95,6 +113,32 @@ export function ChatContextStrip({
     return ageMin < 1 ? 'fresh' : `${ageMin}m ago`;
   };
 
+  const tickerChips = chatId
+    ? links.map((link) => (
+      <Link
+        key={`ticker:${link.security_id}`}
+        to="/research/$ticker"
+        params={{ ticker: link.ticker }}
+        className="ai-frame-chip chat-context-chip chat-ticker-link"
+        aria-label={`Open ${link.ticker} details`}
+        title={`${link.ticker} details`}
+      >
+        <b>{link.ticker}</b>
+      </Link>
+    ))
+    : staticTickers.map((ticker) => (
+      <Link
+        key={`ticker:${ticker}`}
+        to="/research/$ticker"
+        params={{ ticker }}
+        className="ai-frame-chip chat-context-chip chat-ticker-link"
+        aria-label={`Open ${ticker} details`}
+        title={`${ticker} details`}
+      >
+        <b>{ticker}</b>
+      </Link>
+    ));
+
   const chips = (
     <div className={`ai-frames chat-research-strip${variant === 'rail' ? ' is-rail' : ''}`}>
       {frames.map((frame) => (
@@ -110,18 +154,7 @@ export function ChatContextStrip({
         </button>
       ))}
       {loadingLinks && <Spinner size="sm" />}
-      {links.map((link) => (
-        <Link
-          key={`ticker:${link.security_id}`}
-          to="/research/$ticker"
-          params={{ ticker: link.ticker }}
-          className="ai-frame-chip chat-context-chip chat-ticker-link"
-          aria-label={`Open ${link.ticker} details`}
-          title={`${link.ticker} details`}
-        >
-          <b>{link.ticker}</b>
-        </Link>
-      ))}
+      {tickerChips}
       {activeFrame && variant === 'strip' && (
         <HStack gap={2} vAlign="center" className="chat-research-actions">
           <button

@@ -406,3 +406,51 @@ test("extractShareTurns keeps suggest_trades payload", () => {
   assert.equal(turns[1].trades?.trades[0]?.structure, "bull call debit spread");
   assert.equal(turns[1].trades?.trades[0]?.legs?.length, 2);
 });
+
+test("extractShareTurns keeps tools and session frames for timeline Sources", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "OI leaders?" }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-run_query",
+          toolCallId: "q1",
+          state: "output-available",
+          input: { sql: "SELECT symbol FROM options.chains LIMIT 5" },
+          output: {
+            ok: true,
+            summary: "5 rows",
+            sql: "SELECT symbol FROM options.chains LIMIT 5",
+            result: { columns: ["symbol"], rows: [{ symbol: "AAPL" }] },
+            frames: [{
+              name: "last",
+              columns: ["symbol"],
+              row_count: 5,
+              sql: "SELECT symbol FROM options.chains LIMIT 5",
+              fetched_at: 1_700_000_000_000,
+            }],
+          },
+        },
+        { type: "text", text: "AAPL leads." },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns.length, 2);
+  assert.ok(turns[1].tools?.some((tool) => tool.name === "run_query"));
+  assert.equal(turns[1].tools?.[0]?.args, "SELECT symbol FROM options.chains LIMIT 5");
+  assert.equal(turns[1].tools?.[0]?.ok, true);
+  assert.deepEqual(turns[1].frames, [{
+    name: "last",
+    columns: ["symbol"],
+    row_count: 5,
+    sql: "SELECT symbol FROM options.chains LIMIT 5",
+    fetched_at: 1_700_000_000_000,
+  }]);
+});
