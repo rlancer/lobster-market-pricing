@@ -1042,7 +1042,13 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const modelEnv = bot?.model
       ? { ...this.env, COPILOT_MODEL: bot.model }
       : this.env;
-    const reasoningEffort = bot?.reasoning_effort || this.env.COPILOT_REASONING_EFFORT;
+    // Timeline bots inherit "high" from COPILOT_REASONING_EFFORT and then burn
+    // the output budget on planning-only reasoning with no tool calls (prod
+    // nowlobster force triggers 2026-08-22). Default bots to medium unless the
+    // profile sets an explicit effort; interactive chat keeps the env default.
+    const reasoningEffort = bot
+      ? (bot.reasoning_effort || "medium")
+      : this.env.COPILOT_REASONING_EFFORT;
     const model = createCopilotModel(modelEnv, origin);
 
     // Pre-agent finance gate: reject off-topic turns with a hard error (no

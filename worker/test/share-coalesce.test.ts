@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  applyCaptureToShareTurns,
   coalesceAssistantMessageRecords,
   coalesceAssistantShareTurns,
+  promoteReasoningTakeaway,
   type ShareTurn,
 } from "../src/share-turns.ts";
 
@@ -67,4 +69,47 @@ test("coalesceAssistantMessageRecords heals stored multi-bubble shares", () => {
   assert.equal(out[1].sql, "SELECT b");
   assert.equal(out[1].reasoning, "second attempt");
   assert.deepEqual(out[1].result, { columns: ["b"], rows: [] });
+});
+
+test("promoteReasoningTakeaway lifts a conclusive reasoning paragraph into content", () => {
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: "(see reasoning)",
+    reasoning: [
+      "Plan of tool calls:",
+      "Batch 1: run_query for SPY/QQQ closes.",
+      "",
+      "Risk-off into the close: SPX and QQQ fade while VIX and TLT catch a bid. Stay light until the open confirms.",
+    ].join("\n"),
+    chart: { kind: "line", x: "date", y: "close" },
+  });
+  assert.match(turned.content, /Risk-off into the close/);
+  assert.doesNotMatch(turned.content, /Plan of tool/i);
+});
+
+test("promoteReasoningTakeaway skips unfinished let-me narration", () => {
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: "(see reasoning)",
+    reasoning: "Let me query the options tape and then pull another window for the chart.",
+  });
+  assert.equal(turned.content, "(see reasoning)");
+});
+
+test("applyCaptureToShareTurns promotes reasoning after recovering chart/sql", () => {
+  const out = applyCaptureToShareTurns(
+    [
+      { role: "user", content: "Hourly overview" },
+      {
+        role: "assistant",
+        content: "(see reasoning)",
+        reasoning: "Planning queries.\n\nSPY leads QQQ; IWM lags as the tape stays risk-off into the close.",
+      },
+    ],
+    { sql: "SELECT 1", chart: { kind: "line", x: "date", y: "close" } },
+    "Hourly overview",
+  );
+  assert.match(out[1]!.content, /SPY leads QQQ/);
+  assert.ok(out[1]!.chart);
+  assert.equal(out[1]!.sql, "SELECT 1");
 });
