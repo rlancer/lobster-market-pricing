@@ -96,6 +96,18 @@ export function nextCopilotStepPolicy(opts: {
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
 
   if (opts.successfulQuery) {
+    // Callers that opt out of the desk (legacy bot path) keep interleaved
+    // text + tools for a visible takeaway. Do not hard-seal on chart alone —
+    // that left "(see reasoning)" shares on prod after #210 (DeepSeek dumps
+    // the close into the reasoning channel under toolChoice:none). Keep auto
+    // until the penultimate step; DSML strip + quality-gate heuristics catch
+    // markup leaks.
+    if (!opts.requireDesk) {
+      if (opts.stepNumber >= maxSteps - 2) {
+        return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      }
+      return { toolChoice: "auto", maxOutputTokens: toolBudget };
+    }
     // After lake evidence lands, force the routed multi-analyst desk once so the UI
     // gets the active specialist panels (not TA-only prose).
     // Give a short auto window first so research_ticker / chain SQL can run —
@@ -144,12 +156,19 @@ export function nextCopilotStepPolicy(opts: {
         toolChoice: { type: "tool", toolName: "suggest_trades" },
       };
     }
-    // Interactive chat: desk (+ trades when required) is the answer — seal so
-    // extra tool rounds cannot leave mid-turn narration as the visible text.
-    // Timeline bots still need render_chart after the desk, so keep auto until
-    // the last-step seal.
+    // Interactive chat: desk + trades is the answer — seal so extra tool
+    // rounds cannot leave mid-turn narration as the visible text.
     if (opts.requireDesk && opts.deskPublished && opts.requireTrades) {
       return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+    }
+    // Timeline bots: desk is published, trades not required. Keep auto so
+    // render_chart can still run, then seal on the penultimate step (same
+    // takeaway-in-text fix as the no-desk path above).
+    if (opts.requireDesk && opts.deskPublished) {
+      if (opts.stepNumber >= maxSteps - 2) {
+        return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      }
+      return { toolChoice: "auto", maxOutputTokens: toolBudget };
     }
     return { toolChoice: "auto", maxOutputTokens: toolBudget };
   }

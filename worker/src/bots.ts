@@ -12,7 +12,7 @@ import { parseHandle } from "./profiles";
 const DISPLAY_NAME_MAX = 80;
 const PERSONA_MAX = 200;
 const BIO_MAX = 2_000;
-const SYSTEM_EXTRA_MAX = 8_000;
+const SYSTEM_EXTRA_MAX = 1_000;
 const SEED_PROMPTS_MAX = 20;
 const SEED_PROMPT_MAX = 4_000;
 const MODEL_MAX = 120;

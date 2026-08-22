@@ -176,6 +176,7 @@ async function mintBotShare(
         runId: args.runId,
         botHandle: args.botHandle,
         publicOrigin: "https://lobster.mp",
+        model: args.model,
       },
       { waitUntil: opts?.waitUntil },
     );

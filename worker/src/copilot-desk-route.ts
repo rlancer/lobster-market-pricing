@@ -166,9 +166,9 @@ export function questionWantsRisk(question: string): boolean {
  * Stable-ordered specialist list for this turn.
  * Pure options-tape asks on a single name keep F+T+O without macro.
  * Broad ETF / rates / Fed asks add macro; risk language adds risk.
- *
- * `context` is extra routing text (bot persona + system_prompt_extra) so a
- * rates bot still publishes the macro panel even when the seed is terse.
+ * `context` is extra routing text (user reply note, or bot persona +
+ * system_prompt_extra) so a short audience note or a rates bot still
+ * publishes the macro panel without stuffing the question.
  */
 export function selectDeskSpecialists(question: string, context?: string): DeskViewpointId[] {
   const q = [question, context].filter((part) => typeof part === "string" && part.trim()).join("\n").trim();

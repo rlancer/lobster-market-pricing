@@ -97,7 +97,7 @@ test('stays on auto after DESK_FORCE_FAILURES_MAX so a voluntary desk can still 
 });
 
 test('keeps auto after publish_desk when trades are not required', () => {
-  // Timeline bots still need render_chart after the desk; last-step seals.
+  // Timeline bots still need render_chart after the desk; penultimate seals.
   const policy = nextCopilotStepPolicy({
     ...base,
     stepNumber: 3,
@@ -107,6 +107,19 @@ test('keeps auto after publish_desk when trades are not required', () => {
   });
   assert.equal(policy.toolChoice, 'auto');
   assert.equal(policy.activeTools, undefined);
+});
+
+test('seals bot desk turns on the penultimate step after publish_desk', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: AGENT_ITERATIONS_MAX - 2,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: true,
+    requireTrades: false,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
 });
 
 test('forces suggest_trades after publish_desk when trades are required', () => {
@@ -162,6 +175,31 @@ test('forces publish_desk for bot / timeline turns once the gather window ends',
     requireTrades: false,
   });
   assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'publish_desk' });
+});
+
+test('keeps bot turns on auto after a chart so the takeaway can land in text', () => {
+  // Regression: sealing on chartPublished alone left "(see reasoning)" bot shares
+  // on prod (2026-08-22 nowlobster force triggers after #210).
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    requireDesk: false,
+    stepsAfterQuery: 2,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('seals bot turns on the penultimate step', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: AGENT_ITERATIONS_MAX - 2,
+    successfulQuery: true,
+    requireDesk: false,
+    stepsAfterQuery: 1,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
 });
 
 test('stops forcing tools after QUERY_FORCE_FAILURES_MAX failures', () => {

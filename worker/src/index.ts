@@ -64,6 +64,15 @@ import { coalesceAssistantMessageRecords } from "./share-turns";
 import { applyColumnSynonyms } from "./copilot-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
+import {
+  DEFAULT_REPLY_STYLE,
+  REPLY_NOTE_MAX,
+  getReplyPref,
+  parseReplyNote,
+  parseReplyStyle,
+  publicReplyStyles,
+  upsertReplyPref,
+} from "./reply-style";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
 import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
@@ -2237,6 +2246,7 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
           runId: linkedRunId,
           botHandle: pendingBotImprovement.handle,
           publicOrigin: pendingBotImprovement.publicOrigin,
+          model: pass1.model ? String(pass1.model) : null,
         },
         { waitUntil: (p) => ctx.waitUntil(p) },
       );
@@ -3013,6 +3023,7 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
   if (req.method === "GET") {
     const row = await getUserProfile(env.SCHEMA_DB, user.id);
     const pub = profilePublicFields(user.id, row, user.name);
+    const reply = await getReplyPref(env.SCHEMA_DB, user.id);
     return json(env, {
       ok: true,
       id: user.id,
@@ -3024,6 +3035,8 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
       avatar_url: pub.avatar_url,
       suggested_handle: row?.handle ? null : suggestHandle(user.email, user.name),
       is_admin: isAdminEmail(user.email),
+      reply_style: reply.style,
+      reply_note: reply.note,
     }, 200, "private");
   }
   if (req.method === "PATCH") {
@@ -3033,17 +3046,68 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
     } catch {
       return json(env, { error: "invalid JSON body" }, 400, "private");
     }
-    const result = await updateProfile(env.SCHEMA_DB, user.id, body, user.name);
-    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    const hasHandle = Object.prototype.hasOwnProperty.call(body, "handle");
+    const hasDisplayName = Object.prototype.hasOwnProperty.call(body, "display_name");
+    const hasReplyStyle = Object.prototype.hasOwnProperty.call(body, "reply_style");
+    const hasReplyNote = Object.prototype.hasOwnProperty.call(body, "reply_note");
+    if (!hasHandle && !hasDisplayName && !hasReplyStyle && !hasReplyNote) {
+      return json(env, { error: "handle, display_name, reply_style, or reply_note is required" }, 400, "private");
+    }
+
+    let handle: string | null = null;
+    let display_name: string | null = null;
+    let avatar_url: string | null = null;
+    let name: string | null = null;
+
+    if (hasHandle || hasDisplayName) {
+      const result = await updateProfile(env.SCHEMA_DB, user.id, body, user.name);
+      if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+      handle = result.handle;
+      display_name = result.display_name;
+      avatar_url = result.avatar_url;
+      name = result.name;
+    } else {
+      const row = await getUserProfile(env.SCHEMA_DB, user.id);
+      const pub = profilePublicFields(user.id, row, user.name);
+      handle = row?.handle ?? null;
+      display_name = pub.display_name;
+      avatar_url = pub.avatar_url;
+      name = pub.name;
+    }
+
+    let reply = await getReplyPref(env.SCHEMA_DB, user.id);
+    if (hasReplyStyle || hasReplyNote) {
+      const nextStyle = hasReplyStyle ? parseReplyStyle(body.reply_style) : { ok: true as const, value: reply.style };
+      if (!nextStyle.ok) return json(env, { error: nextStyle.error }, 400, "private");
+      const nextNote = hasReplyNote ? parseReplyNote(body.reply_note) : { ok: true as const, value: reply.note };
+      if (!nextNote.ok) return json(env, { error: nextNote.error }, 400, "private");
+      reply = await upsertReplyPref(env.SCHEMA_DB, user.id, {
+        style: nextStyle.value,
+        note: nextNote.value,
+      });
+    }
+
     return json(env, {
       ok: true,
-      handle: result.handle,
-      display_name: result.display_name,
-      avatar_url: result.avatar_url,
-      name: result.name,
+      handle,
+      display_name,
+      avatar_url,
+      name,
+      reply_style: reply.style,
+      reply_note: reply.note,
     }, 200, "private");
   }
   return json(env, { error: "method not allowed" }, 405, "private");
+}
+
+async function handleReplyStyles(env: Env, req: Request, path: string): Promise<Response | null> {
+  if (path !== "/api/reply-styles") return null;
+  if (req.method !== "GET") return json(env, { error: "method not allowed" }, 405, "private");
+  return json(env, {
+    items: publicReplyStyles(),
+    default: DEFAULT_REPLY_STYLE,
+    note_max: REPLY_NOTE_MAX,
+  });
 }
 
 async function handleAvatarGet(env: Env, req: Request, path: string): Promise<Response | null> {
@@ -3531,6 +3595,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     }
     return json(env, await runQuery(env, sql, body.limit ?? 1000));
   }
+
+  const replyStyles = await handleReplyStyles(env, req, path);
+  if (replyStyles) return replyStyles;
 
   const me = await handleMe(env, req, path);
   if (me) return me;

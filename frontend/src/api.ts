@@ -754,14 +754,20 @@ export interface ProfileMe {
   suggested_handle: string | null;
   /** True when the signed-in email is on the product admin allowlist. */
   is_admin: boolean;
+  /** Canned Copilot audience. Default `desk`. */
+  reply_style?: 'desk' | 'fund' | 'learner';
+  /** Optional ≤240-char flavor note. */
+  reply_note?: string | null;
 }
 
 export interface ProfileUpdate {
   ok: true;
-  handle: string;
+  handle: string | null;
   display_name: string | null;
   avatar_url: string | null;
   name: string;
+  reply_style?: 'desk' | 'fund' | 'learner';
+  reply_note?: string | null;
 }
 
 /** @deprecated Prefer ProfileUpdate — kept for call sites that only read handle. */
@@ -1120,7 +1126,12 @@ export const api = {
       {},
     ),
   me: () => get<ProfileMe>('/api/me'),
-  updateProfile: async (body: { handle?: string; display_name?: string | null }) => {
+  updateProfile: async (body: {
+    handle?: string;
+    display_name?: string | null;
+    reply_style?: 'desk' | 'fund' | 'learner';
+    reply_note?: string | null;
+  }) => {
     const r = await fetch(`${API_BASE}/api/me`, {
       method: 'PATCH',
       credentials: 'include',

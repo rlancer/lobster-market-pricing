@@ -114,17 +114,34 @@ test("heuristic allows a short conclusive answer without desk chrome", () => {
   assert.equal(decision, null);
 });
 
-test("formatTimelineModerationTranscript appends desk context", () => {
-  const text = formatTimelineModerationTranscript([
-    { role: "user", content: "AAPL?" },
+test("heuristic rejects leaked DSML tool markup without a takeaway", () => {
+  const content = [
+    "The chart and data are ready. Now I need to publish the desk view. Let me also render a second chart.",
+    "",
+    "<｜DSML｜tool_calls>",
+    "<｜DSML｜invoke name=\"render_chart\">",
+    "<｜DSML｜parameter name=\"y\" string=\"true\">close</｜DSML｜parameter>",
+    "</｜DSML｜invoke>",
+    "</｜DSML｜tool_calls>",
+  ].join("\n");
+  const decision = heuristicTimelineQuality([
+    { role: "user", content: "Hourly market overview" },
+    { role: "assistant", content, chart: { kind: "line", x: "date", y: "close" } },
+  ]);
+  assert.equal(decision?.allow, false);
+  assert.match(decision?.reason ?? "", /tool-call markup|takeaway/i);
+});
+
+test("heuristic rejects unfinished publish/render intent after markup strip", () => {
+  const decision = heuristicTimelineQuality([
+    { role: "user", content: "Hourly market overview" },
     {
       role: "assistant",
-      content: "Takeaway.",
-      desk: { overview: "Bullish AAPL near 317 with liquid weeklies." },
-      trades: { trades: [{ ticker: "AAPL" }] },
+      content:
+        "The chart and data are ready. Now I need to publish the desk view. Let me also render a second chart showing risk posture (VIX and TLT) since that's the key factor driving the tape.",
+      chart: { kind: "line", x: "date", y: "close" },
     },
   ]);
-  assert.match(text, /user: AAPL\?/);
-  assert.match(text, /desk_overview: Bullish AAPL/);
-  assert.match(text, /trades: present/);
+  assert.equal(decision?.allow, false);
+  assert.match(decision?.reason ?? "", /tool-loop|narration/i);
 });

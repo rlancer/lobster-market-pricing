@@ -1,11 +1,13 @@
 /**
- * Copilot system-prompt assembly (schema + rules + optional bot persona).
+ * Copilot system-prompt assembly (schema + rules + optional bot persona
+ * or interactive reply voice).
  * Kept free of Agents runtime so admin explore + unit tests can import it.
  */
 import { deskAnalystBlock, type DeskViewpointId } from "./copilot-desk";
 import { QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
 import { tradesSuggestBlock } from "./copilot-trades";
 import type { LakeTable } from "./copilot-sql";
+import { DEFAULT_REPLY_STYLE, replyStyleAddon, type ReplyPref } from "./reply-style";
 
 export interface BotPromptProfile {
   handle: string;
@@ -18,6 +20,8 @@ export interface SystemPromptOptions {
   bot?: BotPromptProfile | null;
   /** Specialists that must publish this turn (from selectDeskSpecialists). */
   deskSpecialists?: readonly DeskViewpointId[];
+  /** Interactive-chat audience. Ignored when a bot profile is bound. */
+  reply?: ReplyPref | null;
 }
 
 export const SCHEMA_PLACEHOLDER =
@@ -51,6 +55,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     : (botOrOpts && typeof botOrOpts === "object" ? botOrOpts : { bot: botOrOpts ?? null });
   const bot = opts.bot ?? null;
   const deskSpecialists = opts.deskSpecialists;
+  const reply = bot ? null : (opts.reply ?? { style: DEFAULT_REPLY_STYLE, note: null });
   const lines = [
     "You are Lobster MP's market desk: a multi-analyst team writing DataFusion SQL (R2 SQL) against an options market Iceberg lake, then publishing only the specialists needed for the ask plus a weighed overview.",
     "",
@@ -66,6 +71,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- Spot crypto is first-class lake data: Yahoo symbols like BTC-USD / ETH-USD land in options.ohlc and options.realized_vol (same tables as equities). For a Bitcoin or crypto spot view, research_ticker + SQL on BTC-USD (and peers) — do NOT substitute IBIT or another crypto ETF unless the user asked for that ETF wrapper or for listed options on it. Crypto ETFs (IBIT, FBTC, …) carry CBOE option chains; CME continuous crypto futures are BTC=F / ETH=F / MBT=F / MET=F.",
     "- To answer a market-data question, ALWAYS write a read-only query and execute it with run_query. Never return only SQL.",
     "- ALWAYS end the turn with a concise plain-English answer grounded in your results. A query, table, chart, frame, publish_desk, or suggest_trades call alone is never a complete turn — even for a chart request, close with a 1-3 sentence takeaway (the desk overview when publish_desk ran).",
+    "- Never write raw tool-call markup in the message body (no DSML, XML <tool_calls>, invoke/parameter tags, or JSON tool envelopes). Tools are invoked only through the tool API; after they return, write the takeaway in plain prose.",
     "- Use only table and column names in the schema. Never invent identifiers. check_schema and run_query validate them.",
     "- OCC root naming differs by table: option_contracts / ohlc / realized_vol / earnings / instruments use `symbol`; underlying_snapshots / securities / fundamentals / etf_profiles / etf_holdings / corporate_actions / symbol_history / sec_filings use `ticker`; yields uses `series_id` (DGS10, T10Y2Y, SOFR, …). Prefer the real column; run_query also rewrites the synonym when unambiguous.",
     "- Filter by instrument kind via options.instruments (latest-wins on symbol): security_type in {equity, etf, index, future, crypto}, optional asset_class. Join ohlc/option_contracts on symbol — never hand-list ETF tickers when a type filter works.",
@@ -104,7 +110,10 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
       "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
       "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
       "Timeline posts MUST still call publish_desk after tools so the feed can render the active specialist personas (fundamental / technical / options / risk / macro as routed) plus a weighed overview. Write each specialist take AND the overview in this bot's voice — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
+      "After render_chart returns, do not open another tool round of narration ('Now I need to publish…', 'Let me also render…'). Write the closing takeaway immediately — sector leadership, options-flow read, and the desk view in prose.",
     );
+  } else if (reply) {
+    lines.push(replyStyleAddon(reply));
   }
   return lines.join("\n");
 }

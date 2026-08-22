@@ -81,7 +81,7 @@ function inventUserPrompt(bot: InventBotPromptProfile, usedPrompts: string[]): s
     `Bot: @${bot.handle} (${bot.display_name})`,
     `Persona: ${bot.persona}`,
     bot.system_prompt_extra.trim()
-      ? `Persona guidance:\n${bot.system_prompt_extra.trim().slice(0, 2_000)}`
+      ? `Persona guidance:\n${bot.system_prompt_extra.trim().slice(0, 1_000)}`
       : null,
     seedHint,
     "Prior prompts already used in chats (do not repeat or lightly rephrase):",

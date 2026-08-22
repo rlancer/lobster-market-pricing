@@ -13,6 +13,30 @@ test("systemPrompt teaches the desk that spot Bitcoin is BTC-USD in the lake", (
   assert.doesNotMatch(body, /ONLY answer US equities, ETF, options/);
 });
 
+test("systemPrompt defaults interactive chat to the desk reply voice", () => {
+  const body = systemPrompt("[schema]");
+  assert.match(body, /Audience: working trader/);
+  assert.match(body, /never overrides SQL/);
+});
+
+test("systemPrompt applies a fund reply voice and skips it for bots", () => {
+  const fund = systemPrompt("[schema]", { reply: { style: "fund", note: "I run a vol book." } });
+  assert.match(fund, /hedge-fund/);
+  assert.match(fund, /I run a vol book/);
+  const bot = systemPrompt("[schema]", {
+    bot: {
+      handle: "macrolobster",
+      display_name: "Macro Lobster",
+      persona: "Rates, the curve, and the cycle",
+      system_prompt_extra: "Lead with options.yields.",
+    },
+    reply: { style: "learner", note: "should not appear" },
+  });
+  assert.match(bot, /@macrolobster/);
+  assert.doesNotMatch(bot, /should not appear/);
+  assert.doesNotMatch(bot, /Audience: new to trading/);
+});
+
 test("systemPrompt requires publish_desk on bot timeline posts", () => {
   const body = systemPrompt("[schema]", {
     handle: "macrolobster",

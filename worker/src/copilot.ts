@@ -36,6 +36,7 @@ import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskVie
 import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
+import { parseReplyPrefFromBody } from "./reply-style";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 
 export type { BotPromptProfile } from "./copilot-prompt";
@@ -1041,7 +1042,13 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const modelEnv = bot?.model
       ? { ...this.env, COPILOT_MODEL: bot.model }
       : this.env;
-    const reasoningEffort = bot?.reasoning_effort || this.env.COPILOT_REASONING_EFFORT;
+    // Timeline bots inherit "high" from COPILOT_REASONING_EFFORT and then burn
+    // the output budget on planning-only reasoning with no tool calls (prod
+    // nowlobster force triggers 2026-08-22). Default bots to medium unless the
+    // profile sets an explicit effort; interactive chat keeps the env default.
+    const reasoningEffort = bot
+      ? (bot.reasoning_effort || "medium")
+      : this.env.COPILOT_REASONING_EFFORT;
     const model = createCopilotModel(modelEnv, origin);
 
     // Pre-agent finance gate: reject off-topic turns with a hard error (no
@@ -1063,9 +1070,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const tables = await this.loadSchema();
     const userQuestion = latestUserText(this.messages);
     const latestQuestion = userQuestion.toLowerCase();
+    const reply = bot ? null : parseReplyPrefFromBody(options.body);
     const deskSpecialists = selectDeskSpecialists(
       userQuestion,
-      bot ? `${bot.persona}\n${bot.system_prompt_extra}` : undefined,
+      bot ? `${bot.persona}\n${bot.system_prompt_extra}` : (reply?.note ?? undefined),
     );
     const requestedFrame = this.frameMetadata().find((frame) => latestQuestion.includes(frame.name.toLowerCase()));
     let wroteAnswerStatus = false;
@@ -1080,7 +1088,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         const tools = this.createTools(tables, capture, status, turn, deskSpecialists);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists }),
+          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply }),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),

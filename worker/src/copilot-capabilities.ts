@@ -29,6 +29,7 @@ import {
 } from "./copilot-desk";
 import { tradesSuggestBlock } from "./copilot-trades";
 import { COMMENTARY_SYSTEM } from "./research-commentary";
+import { DEFAULT_REPLY_STYLE, replyStyleAddon } from "./reply-style";
 
 export type CopilotPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
 
@@ -139,6 +140,14 @@ export function describeCopilotCapabilities(opts?: {
       summary: "Appended to the Copilot system prompt when a bot profile runs (generate / schedule).",
       body: exampleBotAddon(),
       used_by: "systemPrompt(..., bot) / botSystemAddon()",
+    },
+    {
+      id: "reply-style",
+      kind: "addon",
+      title: "User reply voice",
+      summary: "Canned audience (desk / hedge fund / new to trading) plus an optional 240-char note. Same Copilot tools as bots; voice only.",
+      body: replyStyleAddon({ style: DEFAULT_REPLY_STYLE, note: "<optional reply_note, max 240 chars>" }),
+      used_by: "systemPrompt(..., { reply }) / parseReplyPrefFromBody()",
     },
     {
       id: "scope-classifier",

@@ -68,6 +68,17 @@ test("validateBotInput rejects bad handles and empty persona", () => {
   assert.equal(validateBotInput({ handle: "yololobster", display_name: "X", persona: "  " }, { requireHandle: true }).ok, false);
 });
 
+test("validateBotInput caps system_prompt_extra so bots cannot dump context", () => {
+  const result = validateBotInput({
+    handle: "yololobster",
+    display_name: "Yolo Lobster",
+    persona: "High risk, high reward",
+    system_prompt_extra: "x".repeat(1_500),
+  }, { requireHandle: true });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.value.system_prompt_extra.length, 1_000);
+});
+
 test("botSystemAddon includes handle and persona", () => {
   const text = botSystemAddon({
     handle: "yololobster",
