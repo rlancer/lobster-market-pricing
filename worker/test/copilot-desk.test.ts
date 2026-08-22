@@ -121,3 +121,12 @@ test("selectDeskSpecialists uses macro tape without equity fundamentals for broa
   const specialists = selectDeskSpecialists("macro view on TLT and rates into the Fed meeting");
   assert.deepEqual(specialists, ["technical", "options", "macro"]);
 });
+
+test("selectDeskSpecialists uses bot persona context so a rates bot still gets macro", () => {
+  const specialists = selectDeskSpecialists(
+    "What is the US Treasury curve doing?",
+    "Rates, the curve, and the cycle\nYou are the macro / rates desk. Lead with options.yields.",
+  );
+  assert.ok(specialists.includes("macro"));
+  assert.ok(specialists.includes("technical"));
+});

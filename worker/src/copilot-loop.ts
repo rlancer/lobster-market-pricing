@@ -96,11 +96,12 @@ export function nextCopilotStepPolicy(opts: {
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
 
   if (opts.successfulQuery) {
-    // Timeline bots skip publish_desk and need interleaved text + tools for a
-    // visible takeaway. Do not hard-seal on chart alone — that left
-    // "(see reasoning)" shares on prod after #210 (DeepSeek dumps the close
-    // into the reasoning channel under toolChoice:none). Keep auto until the
-    // penultimate step; DSML strip + quality-gate heuristics catch markup leaks.
+    // Callers that opt out of the desk (legacy bot path) keep interleaved
+    // text + tools for a visible takeaway. Do not hard-seal on chart alone —
+    // that left "(see reasoning)" shares on prod after #210 (DeepSeek dumps
+    // the close into the reasoning channel under toolChoice:none). Keep auto
+    // until the penultimate step; DSML strip + quality-gate heuristics catch
+    // markup leaks.
     if (!opts.requireDesk) {
       if (opts.stepNumber >= maxSteps - 2) {
         return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
@@ -155,11 +156,19 @@ export function nextCopilotStepPolicy(opts: {
         toolChoice: { type: "tool", toolName: "suggest_trades" },
       };
     }
-    // Desk (+ trades when required) is the answer — seal with prose only. Extra
-    // tool rounds after publish_desk widen the abort window and leave mid-turn
-    // narration as the visible text when the final tool parts never land.
-    if (opts.requireDesk && opts.deskPublished) {
+    // Interactive chat: desk + trades is the answer — seal so extra tool
+    // rounds cannot leave mid-turn narration as the visible text.
+    if (opts.requireDesk && opts.deskPublished && opts.requireTrades) {
       return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+    }
+    // Timeline bots: desk is published, trades not required. Keep auto so
+    // render_chart can still run, then seal on the penultimate step (same
+    // takeaway-in-text fix as the no-desk path above).
+    if (opts.requireDesk && opts.deskPublished) {
+      if (opts.stepNumber >= maxSteps - 2) {
+        return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      }
+      return { toolChoice: "auto", maxOutputTokens: toolBudget };
     }
     return { toolChoice: "auto", maxOutputTokens: toolBudget };
   }

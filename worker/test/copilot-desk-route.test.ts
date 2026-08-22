@@ -37,3 +37,12 @@ test("selectDeskSpecialists can route from a short reply note", () => {
   const specialists = selectDeskSpecialists("what's the take?", "I care about rates and the Fed.");
   assert.ok(specialists.includes("macro"));
 });
+
+test("selectDeskSpecialists routes a rates-bot persona onto the macro tape", () => {
+  const specialists = selectDeskSpecialists(
+    "Hourly update.",
+    "Rates, the curve, and the cycle\nLead with options.yields before bond ETF proxies.",
+  );
+  assert.ok(specialists.includes("macro"));
+  assert.ok(specialists.includes("technical"));
+});

@@ -90,6 +90,8 @@ test("botSystemAddon includes handle and persona", () => {
   assert.match(text, /High risk, high reward/);
   assert.match(text, /Be loud about upside/);
   assert.match(text, /render_chart/);
+  assert.match(text, /MUST still call publish_desk/);
+  assert.doesNotMatch(text, /optional for timeline posts/);
 });
 
 test("BOT_RUN_TIMEOUT_MS is 15 minutes", () => {
