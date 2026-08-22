@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AGENT_ITERATIONS_MAX,
-  BOT_AUTO_STEPS_BEFORE_SEAL,
   DESK_FORCE_FAILURES_MAX,
   QUERY_FORCE_FAILURES_MAX,
   TRADES_FORCE_FAILURES_MAX,
@@ -158,31 +157,30 @@ test('does not force publish_desk for bot / timeline turns', () => {
     successfulQuery: true,
     requireDesk: false,
     deskPublished: false,
-    stepsAfterQuery: 1,
   });
   assert.equal(policy.toolChoice, 'auto');
 });
 
-test('seals bot turns after a chart lands', () => {
+test('keeps bot turns on auto after a chart so the takeaway can land in text', () => {
+  // Regression: sealing on chartPublished alone left "(see reasoning)" bot shares
+  // on prod (2026-08-22 nowlobster force triggers after #210).
   const policy = nextCopilotStepPolicy({
     ...base,
     stepNumber: 3,
     successfulQuery: true,
     requireDesk: false,
-    chartPublished: true,
-    stepsAfterQuery: 1,
+    stepsAfterQuery: 2,
   });
-  assert.equal(policy.toolChoice, 'none');
-  assert.deepEqual(policy.activeTools, []);
+  assert.equal(policy.toolChoice, 'auto');
 });
 
-test('seals bot turns after BOT_AUTO_STEPS_BEFORE_SEAL gather steps', () => {
+test('seals bot turns on the penultimate step', () => {
   const policy = nextCopilotStepPolicy({
     ...base,
-    stepNumber: 5,
+    stepNumber: AGENT_ITERATIONS_MAX - 2,
     successfulQuery: true,
     requireDesk: false,
-    stepsAfterQuery: BOT_AUTO_STEPS_BEFORE_SEAL,
+    stepsAfterQuery: 1,
   });
   assert.equal(policy.toolChoice, 'none');
   assert.deepEqual(policy.activeTools, []);

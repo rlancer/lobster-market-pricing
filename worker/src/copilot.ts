@@ -1105,7 +1105,6 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               requireTrades: !bot,
               tradesPublished: capture.trades != null,
               failedTradesCount: turn.failedTradesCount,
-              chartPublished: Boolean(capture.chart),
             });
             return policy;
           },
