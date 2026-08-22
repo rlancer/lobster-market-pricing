@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AGENT_ITERATIONS_MAX,
+  BOT_AUTO_STEPS_BEFORE_SEAL,
   DESK_FORCE_FAILURES_MAX,
   QUERY_FORCE_FAILURES_MAX,
   TRADES_FORCE_FAILURES_MAX,
@@ -157,8 +158,34 @@ test('does not force publish_desk for bot / timeline turns', () => {
     successfulQuery: true,
     requireDesk: false,
     deskPublished: false,
+    stepsAfterQuery: 1,
   });
   assert.equal(policy.toolChoice, 'auto');
+});
+
+test('seals bot turns after a chart lands', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    requireDesk: false,
+    chartPublished: true,
+    stepsAfterQuery: 1,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
+});
+
+test('seals bot turns after BOT_AUTO_STEPS_BEFORE_SEAL gather steps', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 5,
+    successfulQuery: true,
+    requireDesk: false,
+    stepsAfterQuery: BOT_AUTO_STEPS_BEFORE_SEAL,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
 });
 
 test('stops forcing tools after QUERY_FORCE_FAILURES_MAX failures', () => {

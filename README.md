@@ -143,7 +143,10 @@ this repo. Store a fine-grained PAT with **Issues: Read and write** on
 `rlancer/lobster-market-pricing` (Contents not required). Unset = gate still
 runs; no issues are filed. D1 `improvement_reports` dedupes by fingerprint so
 the same failure mode does not spam the tracker. Issues are labeled
-`copilot-improvement`.
+`copilot-improvement`. Cutoff variants collapse to
+`assistant-answer-cutoff` / `unfinished-overview-no-final-answer`. The
+reporter skips jailbreak/spam rejects (gate working as intended), synthetic
+`test/*` harness shares, and vague LLM-only "unfinished" fallbacks.
 
 ```bash
 # Create a fine-grained PAT → Issues: Read and write on this repo, then:
@@ -462,7 +465,8 @@ mid-tool narrations, `(see reasoning)` placeholders, and other unfinished
 answers; humans get 422, bot runs mint an unlisted share without `bot_handle`
 and mark the run failed. When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
 pass (`worker/src/improvement-reporter.ts`) may open a deduped GitHub issue for
-actionable product fixes. Admins can unpublish any feed post from the timeline UI (same
+actionable product fixes (skips jailbreak/spam rejects, synthetic `test/*`
+fixtures, and vague LLM-only "unfinished" fallbacks). Admins can unpublish any feed post from the timeline UI (same
 DELETE): human listings drop out of `timeline_posts`, bot shares clear
 `bot_handle` and leave the feed while the share URL stays live. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
 10,000 chars), a byte budget on the serialized transcript (≤ 1.2 MB of UTF-8

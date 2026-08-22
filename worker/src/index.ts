@@ -2246,6 +2246,7 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
           runId: linkedRunId,
           botHandle: pendingBotImprovement.handle,
           publicOrigin: pendingBotImprovement.publicOrigin,
+          model: pass1.model ? String(pass1.model) : null,
         },
         { waitUntil: (p) => ctx.waitUntil(p) },
       );

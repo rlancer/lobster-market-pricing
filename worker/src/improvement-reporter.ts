@@ -26,6 +26,11 @@ export const IMPROVEMENT_REVIEW_SYSTEM = [
   "- Do NOT paste long transcript text, secrets, emails, or personal data. Summarize; cite share_id if given in context.",
   "- Titles ≤ 80 chars, imperative (e.g. \"Seal desk overview before ending tool narration\").",
   "- Skip one-off content mistakes that need no code/prompt change.",
+  "- Skip when the gate correctly rejected jailbreak, prompt/system dumps, spam, or off-topic non-market content — that is the gate working, not a product bug.",
+  "- Skip synthetic / fixture transcripts (obvious test prompts, fake API keys, model ids like test/*, 'force-improvement' harnesses).",
+  "- Skip vague restatements of the moderation reason with no concrete fixable failure mode.",
+  "- For cut-off mid-thought, leaked tool markup (DSML/XML), or charts/SQL without a closing takeaway, use fingerprint `assistant-answer-cutoff` (or `unfinished-overview-no-final-answer` when an overview prompt never sealed).",
+  "- Only file when you can name a durable code/prompt/loop change — not 'investigate why'.",
 ].join("\n");
 
 export interface ImprovementReporterEnv {
@@ -55,6 +60,8 @@ export type ImprovementContext = {
   botHandle?: string | null;
   /** Origin for /share/{id} links in the issue body. */
   publicOrigin?: string | null;
+  /** Copilot model id when known — used to skip synthetic test/* fixtures. */
+  model?: string | null;
 };
 
 export type ImprovementSuggestion = {
@@ -375,38 +382,92 @@ async function recordFiled(
   return { fingerprint: suggestion.fingerprint, issueNumber: number, issueUrl: htmlUrl, skipped: null };
 }
 
+/** Heuristic reject reasons that map to a known, fixable product failure mode. */
+const ACTIONABLE_HEURISTIC_REASON =
+  /cut.?off|truncat|placeholder|tool-?loop|empty|reasoning|leaks? raw tool|tool-call markup|no assistant answer/i;
+
+/** Moderation / transcript signals that mean the gate did its job — do not file. */
+const GATE_WORKING_AS_INTENDED =
+  /jailbreak|system prompt|api keys?|off-?topic|spam|ignore prior|dump your (?:system )?prompt/i;
+
+/** Canonical fingerprints so cutoff variants collapse to one ticket. */
+export function canonicalizeImprovementFingerprint(fingerprint: string, category: string): string {
+  if (
+    category === "truncation"
+    || /cut.?off|truncat|mid-thought|tool-loop|leaked-tool|raw-tool|tool-call-markup/.test(fingerprint)
+  ) {
+    if (/overview|desk-takeaway|no-final-answer|unfinished-overview/.test(fingerprint)) {
+      return "unfinished-overview-no-final-answer";
+    }
+    return "assistant-answer-cutoff";
+  }
+  return fingerprint;
+}
+
+/** True when the share/model looks like a reporter harness fixture, not prod. */
+export function isSyntheticImprovementFixture(context: ImprovementContext): boolean {
+  const model = (context.model || "").trim().toLowerCase();
+  if (model.startsWith("test/") || /force-improvement|improvement-reporter/.test(model)) {
+    return true;
+  }
+  const transcript = formatTimelineModerationTranscript(context.messages, 2_000).toLowerCase();
+  if (!transcript.trim()) return false;
+  if (/sk-test-not-real|dump your system prompt|ignore prior instructions/.test(transcript)) {
+    return true;
+  }
+  return false;
+}
+
 /** Build a stable fallback suggestion when a reject has no LLM proposal. */
 export function fallbackRejectSuggestion(
   decision: TimelineModerationDecision,
   action?: ImprovementAction,
 ): ImprovementSuggestion | null {
   if (decision.allow) return null;
+  // Generic LLM REJECT labels are not actionable — wait for a real proposal.
+  if (decision.source !== "heuristic") return null;
   const reason = decision.reason.trim() || "quality gate rejected share";
-  const fingerprint = normalizeFingerprint(`reject-${reason}`)
-    || normalizeFingerprint(`reject-${decision.source}-${action || "gate"}`);
+  if (!ACTIONABLE_HEURISTIC_REASON.test(reason)) return null;
+  if (GATE_WORKING_AS_INTENDED.test(reason)) return null;
+
+  const category = /cut.?off|truncat|placeholder|tool-?loop|empty|reasoning|tool-call markup|leaks? raw tool/i.test(reason)
+    ? "truncation"
+    : "bot-behavior";
+  const rawFingerprint = /leaks? raw tool|tool-call markup/i.test(reason)
+    ? "assistant-answer-cutoff"
+    : /cut.?off|truncat|mid-thought|tool-loop|placeholder|reasoning/i.test(reason)
+      ? "assistant-answer-cutoff"
+      : `reject-${reason}`;
+  const fingerprint = canonicalizeImprovementFingerprint(
+    normalizeFingerprint(rawFingerprint) || normalizeFingerprint(`reject-${decision.source}-${action || "gate"}`) || "",
+    category,
+  );
   if (!fingerprint) return null;
-  const title = `Fix timeline reject: ${reason}`.slice(0, TITLE_MAX);
+  const title = (
+    category === "truncation"
+      ? "Prevent assistant answers from cutting off mid-thought"
+      : `Fix timeline reject: ${reason}`
+  ).slice(0, TITLE_MAX);
   const body = [
-    "The timeline quality gate rejected a share. The improvement reviewer did not",
-    "propose a more specific ticket, so this fallback captures the failure mode.",
+    "The timeline quality gate rejected a share for a known unfinished-answer pattern.",
+    "The improvement reviewer did not propose a more specific ticket, so this fallback",
+    "captures the failure mode.",
     "",
     `- **Reason:** ${reason}`,
     `- **Source:** \`${decision.source}\``,
     action ? `- **Gate action:** \`${action}\`` : null,
     "",
-    "Investigate why Copilot produced an unfinished / unpublishable answer and",
-    "harden prompts, tool loops, or sealing so this reject stops recurring.",
+    "Harden the agent loop / prompts so the turn seals a takeaway (no mid-thought",
+    "cutoff, leaked tool markup, or tool-loop narration on the public feed).",
   ].filter((line) => line !== null).join("\n");
-  const category = /cut.?off|truncat|placeholder|tool-?loop|empty|reasoning/i.test(reason)
-    ? "truncation"
-    : "bot-behavior";
   return { fingerprint, title, category, body: body.slice(0, BODY_MAX) };
 }
 
 /**
  * Full review + optional GitHub file. Never throws.
- * Rejects always file once per reason fingerprint even when the LLM is quiet
- * or unavailable — allows still need a model proposal.
+ * Heuristic rejects may file a canonical cutoff fingerprint when the LLM is
+ * quiet; generic LLM rejects need a concrete model proposal (no vague
+ * "unfinished or not feed-worthy" fallbacks).
  */
 export async function reportImprovements(
   env: ImprovementReporterEnv,
@@ -415,12 +476,44 @@ export async function reportImprovements(
 ): Promise<FiledImprovement[]> {
   if (!env.IMPROVEMENT_ISSUE_TOKEN?.trim()) return [];
 
+  if (isSyntheticImprovementFixture(context)) {
+    console.info(JSON.stringify({
+      improvementReporter: true,
+      action: "skip_synthetic",
+      gate_action: context.action,
+      share_id: context.shareId ?? null,
+      model: context.model ?? null,
+    }));
+    return [];
+  }
+
+  if (
+    !context.decision.allow
+    && GATE_WORKING_AS_INTENDED.test(
+      `${context.decision.reason}\n${formatTimelineModerationTranscript(context.messages, 1_500)}`,
+    )
+  ) {
+    console.info(JSON.stringify({
+      improvementReporter: true,
+      action: "skip_gate_working",
+      gate_action: context.action,
+      share_id: context.shareId ?? null,
+      reason: context.decision.reason,
+    }));
+    return [];
+  }
+
   let suggestions: ImprovementSuggestion[] = [];
   if (model) {
     suggestions = await extractImprovements(context.messages, model, context.decision, {
       action: context.action,
     });
   }
+
+  suggestions = suggestions.map((s) => ({
+    ...s,
+    fingerprint: canonicalizeImprovementFingerprint(s.fingerprint, s.category),
+  }));
 
   if (!suggestions.length && !context.decision.allow) {
     const fallback = fallbackRejectSuggestion(context.decision, context.action);
@@ -476,3 +569,4 @@ export function scheduleImprovementReport(
   if (opts?.waitUntil) opts.waitUntil(task);
   else void task;
 }
+
