@@ -1076,6 +1076,8 @@ function AiChatSession({
   const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat && !scopeLocked;
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
   const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing' && !scopeLocked;
+  /* Mobile app bar owns New chat; omit the empty Share strip until a turn exists. */
+  const showChatHead = !isMobile || Boolean(botHandle) || canShare;
 
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
@@ -1113,6 +1115,7 @@ function AiChatSession({
 
   return (
     <section className="ai-chat">
+      {showChatHead && (
       <header className="ai-head" aria-label="Chat controls">
                 {botHandle && (
                   <p className="ai-bot-banner" role="status">
@@ -1143,6 +1146,7 @@ function AiChatSession({
                   )}
                 </section>
               </header>
+      )}
 
               {disconnected && !accessBlocked && (
                 <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
