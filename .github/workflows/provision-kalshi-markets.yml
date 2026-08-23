@@ -285,7 +285,7 @@ jobs:
         run: |
           set -euo pipefail
           sleep 5
-          before=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq -r '.job.last_pass.run_id // empty')
+          before_at=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
           # async=1 returns immediately; paced Kalshi pass finishes in the DO.
           set +e
           resp=$(curl -sS -X POST \
@@ -307,21 +307,22 @@ jobs:
               echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
             fi
           fi
-          # Poll until last_pass.run_id advances or ~15 min elapses (run timeout 900s).
+          # Poll until last_pass.finished_at advances (run_id may be null on timeout).
           for i in $(seq 1 60); do
             status=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly")
-            after=$(echo "$status" | jq -r '.job.last_pass.run_id // empty')
+            after_at=$(echo "$status" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
             failed=$(echo "$status" | jq -r '.job.last_pass.failed // 0')
             succeeded=$(echo "$status" | jq -r '.job.last_pass.succeeded // 0')
-            echo "poll $i: run_id=$after succeeded=$succeeded failed=$failed"
-            if [ -n "$after" ] && [ "$after" != "$before" ]; then
-              echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted})}'
+            run_id=$(echo "$status" | jq -r '.job.last_pass.run_id // empty')
+            echo "poll $i: finished_at=$after_at run_id=$run_id succeeded=$succeeded failed=$failed"
+            if [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
+              echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
               exit 0
             fi
             sleep 15
           done
           echo "::warning::Timed out waiting for new last_pass — continuing (direct publish may still count)"
-          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted})}'
+          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
 
       - name: Wait for sink roll (~5 min)
         run: |
