@@ -344,3 +344,17 @@ jobs:
             "KXINX equity index"
 
           echo "Kalshi markets pipeline verified."
+
+      # Main-branch deploy-loader can overwrite this feature-branch Worker mid-run.
+      # Redeploy once more at the end so kalshi-markets-hourly stays registered.
+      - name: Final loader redeploy (beat main overwrite race)
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          npx wrangler deploy
+          echo "cboe-to-r2 final redeploy done."
+          sleep 5
+          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | tee /tmp/kalshi-job.json
+          if ! grep -q '"ok":true' /tmp/kalshi-job.json; then
+            echo "::warning::kalshi-markets-hourly still not in Worker registry after redeploy"
+          fi
