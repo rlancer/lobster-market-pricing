@@ -97,14 +97,83 @@ jobs:
           }
           try_list
 
-          if wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json" 2>/dev/null; then
-            echo "Stream $STREAM already exists"
-          else
-            echo "Creating stream $STREAM"
+          # Open-beta hard cap: 20 streams / 20 sinks / 20 pipelines per account.
+          # Free slots by deleting *retired* resources only (never live lake feeds).
+          # options.underlyings was retired 2026-08-08 in favor of securities +
+          # underlying_snapshots; symbol_load_errors is optional and often unwired.
+          echo "Current streams:"
+          node -e 'const s=require("/tmp/streams.json"); const arr=Array.isArray(s)?s:(s.result||s.streams||[]); console.log("count="+arr.length); for (const x of arr) console.log(" -", x.name||x.id||JSON.stringify(x).slice(0,80));'
+
+          free_retired_slot() {
+            local name
+            for name in \
+              cboe_underlyings_pipeline cboe_symbol_load_errors_pipeline \
+              cboe_underlyings_v1_pipeline cboe_instruments_pipeline; do
+              if wrangler_pipelines pipelines get "$name" --json >/dev/null 2>&1; then
+                # instruments: table never landed in prod /api/tables — free the
+                # orphaned pipeline slot so Kalshi can provision. Re-add later
+                # after a Pipelines limit increase.
+                echo "Deleting pipeline $name (retired/orphaned — frees quota)"
+                wrangler_pipelines pipelines delete "$name" -y || true
+              fi
+            done
+            for name in \
+              cboe_underlyings_sink cboe_symbol_load_errors_sink \
+              cboe_underlyings_v1_sink cboe_instruments_sink; do
+              if wrangler_pipelines pipelines sinks get "$name" --json >/dev/null 2>&1; then
+                echo "Deleting sink $name (retired/orphaned — frees quota)"
+                wrangler_pipelines pipelines sinks delete "$name" -y || true
+              fi
+            done
+            for name in \
+              cboe_underlyings_v2 cboe_underlyings_v1 \
+              cboe_symbol_load_errors_v2 cboe_symbol_load_errors_v1 \
+              cboe_instruments_v2; do
+              if wrangler_pipelines pipelines streams get "$name" --json >/dev/null 2>&1; then
+                echo "Deleting stream $name (retired/orphaned — frees Pipelines quota slot)"
+                wrangler_pipelines pipelines streams delete "$name" -y || true
+              fi
+            done
+          }
+          free_retired_slot
+
+          create_stream() {
             wrangler_pipelines pipelines streams create "$STREAM" \
               --schema-file schemas/kalshi_markets.json \
               --http-enabled true \
               --http-auth true
+          }
+
+          if wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json" 2>/dev/null; then
+            echo "Stream $STREAM already exists"
+          else
+            echo "Creating stream $STREAM"
+            if ! create_stream 2>/tmp/create_stream.err; then
+              if grep -q 'Quota exceeded\|code: 1017' /tmp/create_stream.err; then
+                echo "Quota exceeded — listing streams and retrying after retired cleanup"
+                cat /tmp/create_stream.err >&2 || true
+                try_list
+                free_retired_slot
+                # Last resort: if an unused smoke/test stream exists, drop it.
+                node -e '
+                  const s=require("/tmp/streams.json");
+                  const arr=Array.isArray(s)?s:(s.result||s.streams||[]);
+                  const names=arr.map(x=>x.name).filter(Boolean);
+                  const drop=names.filter(n=>/smoke|test|zzz|probe|underlyings|load_errors/i.test(n));
+                  console.log(drop.join("\n"));
+                ' >/tmp/drop_candidates.txt
+                while IFS= read -r name; do
+                  [ -z "$name" ] && continue
+                  [ "$name" = "$STREAM" ] && continue
+                  echo "Deleting quota-relief candidate stream $name"
+                  wrangler_pipelines pipelines streams delete "$name" -y || true
+                done < /tmp/drop_candidates.txt
+                create_stream
+              else
+                cat /tmp/create_stream.err >&2
+                exit 1
+              fi
+            fi
             wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json"
           fi
 
@@ -116,22 +185,50 @@ jobs:
             echo "Sink $SINK already exists"
           else
             echo "Creating sink $SINK (creates options.kalshi_markets)"
-            wrangler_pipelines pipelines sinks create "$SINK" \
+            if ! wrangler_pipelines pipelines sinks create "$SINK" \
               --type r2-data-catalog \
               --bucket "$BUCKET" \
               --namespace options \
               --table kalshi_markets \
               --catalog-token "$R2_DATA_CATALOG_TOKEN" \
               --format parquet \
-              --roll-interval 300
+              --roll-interval 300 2>/tmp/create_sink.err; then
+              if grep -q 'Quota exceeded\|code: 1017' /tmp/create_sink.err; then
+                echo "Sink quota exceeded — deleting retired sinks and retrying"
+                cat /tmp/create_sink.err >&2 || true
+                free_retired_slot
+                wrangler_pipelines pipelines sinks create "$SINK" \
+                  --type r2-data-catalog \
+                  --bucket "$BUCKET" \
+                  --namespace options \
+                  --table kalshi_markets \
+                  --catalog-token "$R2_DATA_CATALOG_TOKEN" \
+                  --format parquet \
+                  --roll-interval 300
+              else
+                cat /tmp/create_sink.err >&2
+                exit 1
+              fi
+            fi
           fi
 
           if wrangler_pipelines pipelines get "$PIPELINE" --json >"/tmp/${PIPELINE}.json" 2>/dev/null; then
             echo "Pipeline $PIPELINE already exists"
           else
             echo "Creating pipeline $PIPELINE"
-            wrangler_pipelines pipelines create "$PIPELINE" \
-              --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
+            if ! wrangler_pipelines pipelines create "$PIPELINE" \
+              --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}" 2>/tmp/create_pipeline.err; then
+              if grep -q 'Quota exceeded\|code: 1017' /tmp/create_pipeline.err; then
+                echo "Pipeline quota exceeded — deleting retired pipelines and retrying"
+                cat /tmp/create_pipeline.err >&2 || true
+                free_retired_slot
+                wrangler_pipelines pipelines create "$PIPELINE" \
+                  --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
+              else
+                cat /tmp/create_pipeline.err >&2
+                exit 1
+              fi
+            fi
           fi
 
       - name: Set PIPELINE_KALSHI_MARKETS_URL Worker secret
