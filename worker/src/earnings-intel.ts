@@ -320,8 +320,9 @@ export function hasEnoughDataForEarningsSummary(
   results: EarningsResultBrief[],
   facts: CompanyFactBrief[],
   calendar: EarningsBrief[],
+  hasReport = false,
 ): boolean {
-  return results.length > 0 || facts.length > 0 || calendar.length > 0;
+  return results.length > 0 || facts.length > 0 || calendar.length > 0 || hasReport;
 }
 
 export function synthesizeEarningsSummary(
@@ -533,7 +534,7 @@ export async function getOrComputeEarningsIntel(
       }
     : null;
   const cached = researchSummaryFields(research);
-  const enough = hasEnoughDataForEarningsSummary(results, facts, calendar);
+  const enough = hasEnoughDataForEarningsSummary(results, facts, calendar, Boolean(report));
 
   if (!enough) {
     const summary = `Not enough earnings data yet in the lake for ${ticker}.`;
