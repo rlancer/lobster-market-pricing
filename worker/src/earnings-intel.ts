@@ -316,6 +316,28 @@ export function buildEarningsQuality(facts: CompanyFactBrief[]): EarningsQuality
   };
 }
 
+/** When Yahoo history is empty, surface diluted EPS from SEC periods as actuals. */
+export function resultsFromCompanyFacts(facts: CompanyFactBrief[]): EarningsResultBrief[] {
+  const out: EarningsResultBrief[] = [];
+  const seen = new Set<string>();
+  for (const f of facts) {
+    if (f.diluted_eps == null || !Number.isFinite(f.diluted_eps)) continue;
+    if (!/^Q[1-4]$|^FY$/.test(f.period_type)) continue;
+    if (seen.has(f.period_end)) continue;
+    seen.add(f.period_end);
+    out.push({
+      quarter_end: f.period_end,
+      period_label: f.period_type,
+      eps_actual: f.diluted_eps,
+      eps_estimate: null,
+      eps_difference: null,
+      surprise_pct: null,
+      currency: "USD",
+    });
+  }
+  return out;
+}
+
 export function hasEnoughDataForEarningsSummary(
   results: EarningsResultBrief[],
   facts: CompanyFactBrief[],
@@ -517,11 +539,12 @@ export async function getOrComputeEarningsIntel(
   const now = deps.now?.() ?? Date.now();
   const research = await getOrComputeResearch(env, rawTicker, deps, { force: false });
   const ticker = research.identity.ticker;
-  const [results, facts, filings] = await Promise.all([
+  const [resultsRaw, facts, filings] = await Promise.all([
     deps.loadEarningsResults(ticker),
     deps.loadCompanyFacts(ticker),
     deps.loadFilings ? deps.loadFilings(ticker) : Promise.resolve([]),
   ]);
+  const results = resultsRaw.length ? resultsRaw : resultsFromCompanyFacts(facts);
   const calendar = research.earnings ?? [];
   const quality = buildEarningsQuality(facts);
   const reportPick = pickEarningsReportFiling(filings);

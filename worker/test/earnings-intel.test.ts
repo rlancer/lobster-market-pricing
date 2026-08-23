@@ -3,6 +3,7 @@ import {
   buildEarningsQuality,
   htmlToPlainText,
   pickEarningsReportFiling,
+  resultsFromCompanyFacts,
   synthesizeEarningsSummary,
   type CompanyFactBrief,
   type EarningsResultBrief,
@@ -100,5 +101,18 @@ describe("htmlToPlainText", () => {
     );
     expect(text).toBe("Revenue grew");
     expect(text).not.toMatch(/script|evil/i);
+  });
+});
+
+describe("resultsFromCompanyFacts", () => {
+  it("maps diluted EPS periods when Yahoo history is missing", () => {
+    const rows = resultsFromCompanyFacts([
+      baseFact({ diluted_eps: 2.02, period_type: "Q3", period_end: "2026-06-27" }),
+      baseFact({ diluted_eps: 2.01, period_type: "Q2", period_end: "2026-03-28" }),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].eps_actual).toBe(2.02);
+    expect(rows[0].eps_estimate).toBeNull();
+    expect(rows[0].period_label).toBe("Q3");
   });
 });

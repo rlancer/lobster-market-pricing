@@ -52,21 +52,33 @@ function quarterEndFromYahoo(value: unknown): string | null {
   return d.toISOString().slice(0, 10);
 }
 
+function cookieFrom(res: Response): string {
+  const headers = res.headers as Headers & { getSetCookie?: () => string[] };
+  if (typeof headers.getSetCookie === "function") {
+    const parts = headers.getSetCookie().map((c) => c.split(";")[0]).filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  // Do NOT split on commas — Expires=Mon, 23 Aug … embeds commas.
+  const one = headers.get("set-cookie");
+  return one ? one.split(";")[0].trim() : "";
+}
+
 async function openYahooSession(fetchImpl: typeof fetch): Promise<{ cookie: string; crumb: string }> {
   const cookieRes = await fetchImpl(COOKIE_URL, {
     headers: { "user-agent": YAHOO_UA },
     redirect: "manual",
   });
-  const setCookie = cookieRes.headers.getSetCookie?.() ?? [];
-  const cookie =
-    setCookie.map((c) => c.split(";")[0]).filter(Boolean).join("; ") ||
-    (cookieRes.headers.get("set-cookie") || "").split(",").map((c) => c.split(";")[0].trim()).filter(Boolean).join("; ");
+  const cookie = cookieFrom(cookieRes);
+  if (!cookie) throw new Error("yahoo cookie missing");
   const crumbRes = await fetchImpl(CRUMB_URL, {
     headers: { "user-agent": YAHOO_UA, cookie, accept: "text/plain" },
+    signal: AbortSignal.timeout(10_000),
   });
   if (!crumbRes.ok) throw new Error(`yahoo crumb HTTP ${crumbRes.status}`);
   const crumb = (await crumbRes.text()).trim();
-  if (!crumb) throw new Error("yahoo crumb empty");
+  if (!crumb || crumb.startsWith("{") || crumb.includes(" ")) {
+    throw new Error(`yahoo crumb invalid: ${crumb.slice(0, 40)}`);
+  }
   return { cookie, crumb };
 }
 
@@ -116,8 +128,13 @@ export async function fetchLiveEarningsResults(
       },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return [];
-    return parseLiveEarningsHistory(await res.json());
+    if (!res.ok) {
+      console.error(`live earnings results HTTP ${res.status} for ${ticker}`);
+      return [];
+    }
+    const rows = parseLiveEarningsHistory(await res.json());
+    if (!rows.length) console.error(`live earnings results empty parse for ${ticker}`);
+    return rows;
   } catch (e) {
     console.error("live earnings results fetch failed", e);
     return [];
