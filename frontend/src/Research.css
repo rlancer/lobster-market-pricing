@@ -466,6 +466,12 @@
   white-space: normal;
 }
 
+.research-kalshi-yes {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
 .research-id-line,
 .research-foot {
   font-family: var(--font-family-code);

@@ -15,7 +15,14 @@ import {
 import { Button } from '@astryxdesign/core/Button';
 import { AssistantMark } from './Sunglasses';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
-import type { ResearchChatLink, OhlcBar, ChainContract, TickerEarningsIntel, TickerResearch } from './api';
+import type {
+  ResearchChatLink,
+  KalshiMarketItem,
+  OhlcBar,
+  ChainContract,
+  TickerEarningsIntel,
+  TickerResearch,
+} from './api';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
@@ -30,6 +37,38 @@ function fmtPct(v: number | null | undefined): string {
 function fmtFracPct(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return '—';
   return `${(v * 100).toFixed(digits)}%`;
+}
+
+/** Kalshi YES price (0–1) as an implied probability. */
+function fmtYesProb(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  return `${(v * 100).toFixed(0)}%`;
+}
+
+function kalshiYesProb(item: KalshiMarketItem): number | null {
+  if (item.yes_last != null && Number.isFinite(item.yes_last)) return item.yes_last;
+  if (
+    item.yes_bid != null &&
+    item.yes_ask != null &&
+    Number.isFinite(item.yes_bid) &&
+    Number.isFinite(item.yes_ask)
+  ) {
+    return (item.yes_bid + item.yes_ask) / 2;
+  }
+  if (item.yes_bid != null && Number.isFinite(item.yes_bid)) return item.yes_bid;
+  if (item.yes_ask != null && Number.isFinite(item.yes_ask)) return item.yes_ask;
+  return null;
+}
+
+function fmtCloseDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso.slice(0, 10);
+  return new Date(t).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 function fmtNum(v: number | null | undefined, digits = 2): string {
@@ -63,6 +102,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 const FILINGS_PREVIEW = 3;
 /** How many related chats show before "Show N more". */
 const RELATED_CHATS_PREVIEW = 3;
+/** How many Kalshi event markets show before "Show N more". */
+const KALSHI_PREVIEW = 4;
 
 function EarningsIntelSection({
   intel,
@@ -258,11 +299,25 @@ export function ResearchBriefView({
   const [followUp, setFollowUp] = useState('');
   const [filingsExpanded, setFilingsExpanded] = useState(false);
   const [relatedExpanded, setRelatedExpanded] = useState(false);
-  const { identity, price, technicals, fundamentals, shorting, earnings, news, filings = [], realized_vol, etf } = research;
+  const [kalshiExpanded, setKalshiExpanded] = useState(false);
+  const {
+    identity,
+    price,
+    technicals,
+    fundamentals,
+    shorting,
+    earnings,
+    news,
+    filings = [],
+    kalshi = [],
+    realized_vol,
+    etf,
+  } = research;
 
   useEffect(() => {
     setFilingsExpanded(false);
     setRelatedExpanded(false);
+    setKalshiExpanded(false);
   }, [identity.ticker]);
 
   // Newest first; collapse to a short preview so the rail stays skimable.
@@ -278,6 +333,8 @@ export function ResearchBriefView({
     ? relatedSorted
     : relatedSorted.slice(0, RELATED_CHATS_PREVIEW);
   const relatedOverflow = relatedSorted.length > RELATED_CHATS_PREVIEW;
+  const kalshiVisible = kalshiExpanded ? kalshi : kalshi.slice(0, KALSHI_PREVIEW);
+  const kalshiOverflow = kalshi.length > KALSHI_PREVIEW;
   const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const insufficientCommentary =
@@ -308,6 +365,7 @@ export function ResearchBriefView({
     earnings.length > 0 ||
     news.length > 0 ||
     filings.length > 0 ||
+    kalshi.length > 0 ||
     Boolean(relatedChats && relatedChats.length > 0);
 
   return (
@@ -548,6 +606,55 @@ export function ResearchBriefView({
                               : `Show ${filingsSorted.length - FILINGS_PREVIEW} more`
                           }
                           onClick={() => setFilingsExpanded((value) => !value)}
+                        />
+                      )}
+                    </VStack>
+                  )}
+                  {kalshi.length > 0 && (
+                    <VStack gap={2}>
+                      <Heading level={3}>Event markets</Heading>
+                      <Text type="supporting">
+                        Kalshi odds linked to {identity.ticker}
+                      </Text>
+                      <List density="compact" hasDividers className="research-news-list">
+                        {kalshiVisible.map((item) => {
+                          const close = fmtCloseDate(item.close_time);
+                          const description = [
+                            item.yes_subtitle,
+                            item.market_ticker,
+                            close ? `closes ${close}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+                          const yes = fmtYesProb(kalshiYesProb(item));
+                          return (
+                            <ListItem
+                              key={item.market_ticker}
+                              label={item.title}
+                              description={description}
+                              endContent={
+                                <Text type="supporting" className="research-kalshi-yes">
+                                  YES {yes}
+                                </Text>
+                              }
+                              href={item.url ?? undefined}
+                              target={item.url ? '_blank' : undefined}
+                              rel={item.url ? 'noreferrer' : undefined}
+                            />
+                          );
+                        })}
+                      </List>
+                      {kalshiOverflow && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-expanded={kalshiExpanded}
+                          label={
+                            kalshiExpanded
+                              ? 'Show less'
+                              : `Show ${kalshi.length - KALSHI_PREVIEW} more`
+                          }
+                          onClick={() => setKalshiExpanded((value) => !value)}
                         />
                       )}
                     </VStack>

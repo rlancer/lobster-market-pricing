@@ -165,6 +165,27 @@ export default function ResearchPage() {
     };
   }, [tickerParam, briefReady]);
 
+  // Related Kalshi event markets — same idle chrome path as filings.
+  useEffect(() => {
+    if (!tickerParam || !briefReady) return;
+    let active = true;
+    const cancel = whenIdle(() => {
+      api.researchKalshi(tickerParam, 12)
+        .then((res) => {
+          if (!active || !res.items.length) return;
+          setResearch((prev) => {
+            if (!prev || prev.identity.ticker !== tickerParam) return prev;
+            return { ...prev, kalshi: res.items };
+          });
+        })
+        .catch(() => { /* kalshi is optional chrome */ });
+    });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [tickerParam, briefReady]);
+
   // Earnings intel (results + SEC facts + AI summary) — equities only, idle.
   useEffect(() => {
     if (!tickerParam || !briefReady || !research || research.etf) return;
