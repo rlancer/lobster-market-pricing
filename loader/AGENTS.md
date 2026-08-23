@@ -215,6 +215,9 @@ SecFilings:        <PIPELINE_SEC_FILINGS_URL secret — stream cboe_sec_filings_
 Instruments:       <PIPELINE_INSTRUMENTS_URL secret — stream cboe_instruments_v2>
 Yields:            <PIPELINE_YIELDS_URL secret — stream cboe_yields_v2>
 KalshiMarkets:     <PIPELINE_KALSHI_MARKETS_URL secret — stream cboe_kalshi_markets_v2>
+         # Note: Pipelines open-beta cap is 20 streams. Kalshi provision may
+         # pause cboe_reg_sho_daily_* to free a slot (reg-sho-daily then dry-runs;
+         # options.reg_sho_daily history remains). Re-add Reg SHO after a limit increase.
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
