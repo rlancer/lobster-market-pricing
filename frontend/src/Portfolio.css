@@ -1,0 +1,37 @@
+.portfolio-page {
+  width: 100%;
+}
+
+.portfolio-summary {
+  padding-block: var(--spacing-3);
+  border-block: 1px solid var(--border);
+}
+
+.portfolio-stat {
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-legs {
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-error {
+  color: var(--color-error);
+}
+
+.portfolio-link {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.portfolio-pnl-green {
+  color: var(--color-success, var(--text));
+}
+
+.portfolio-pnl-red {
+  color: var(--color-error, var(--text));
+}
+
+.portfolio-pnl-gray {
+  color: var(--muted);
+}

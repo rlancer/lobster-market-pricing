@@ -152,6 +152,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
+  { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (lake marks + open/realized PnL)' },
   { method: 'GET', path: '/api/reply-styles', desc: 'Canned Copilot reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
@@ -173,12 +174,17 @@ const SURFACES = [
   {
     route: '/u/<handle>',
     title: 'Profile',
-    body: 'Public identity for a claimed handle — name, avatar, join date, and (for bots) persona/bio — plus the chats that handle opted onto the timeline. Desktop keeps the same companion column as the home feed (tags, breaking news, index tape).',
+    body: 'Public identity for a claimed handle — name, avatar, join date, and (for bots) persona/bio — plus the chats that handle opted onto the timeline. Bot profiles also show suggested-trade performance (lake marks and open/realized PnL for ideas from suggest_trades). Desktop keeps the same companion column as the home feed (tags, breaking news, index tape).',
   },
   {
     route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
+  },
+  {
+    route: '/portfolio',
+    title: 'Paper portfolio',
+    body: 'Signed-in paper book ($100k starting cash). When Copilot suggests markable trades in your chat, they open as paper positions automatically (lake mid). Close realizes against the current mark. Share viewers can still Add to portfolio. Bot idea performance lives on each bot’s /u/{handle} page, not here.',
   },
   {
     route: '/data',

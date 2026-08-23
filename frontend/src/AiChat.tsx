@@ -76,6 +76,8 @@ const TOOL_LABELS: Record<string, string> = {
   research_ticker: 'Ticker research',
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
+  get_paper_portfolio: 'Paper portfolio',
+  get_bot_trades: 'Bot trade performance',
 };
 
 interface Presentation {
@@ -901,8 +903,25 @@ function AiChatSession({
     setInput('');
     setProgressStatus('Starting…');
     if (paused) setPaused(false);
-    sendMessage({ text: question });
-  }, [busy, paused, scopeLocked, sendMessage]);
+
+    const dispatch = () => sendMessage({ text: question });
+    // Claim before the turn so suggest_trades can auto-open paper positions.
+    if (user && !peekBotHandle() && !claimedRef.current) {
+      claimedRef.current = true;
+      void api.claimChat(chatId, question)
+        .then((result) => {
+          if (result.created) notifyChatsChanged();
+        })
+        .catch(() => {
+          claimedRef.current = false;
+        })
+        .finally(() => {
+          dispatch();
+        });
+      return;
+    }
+    dispatch();
+  }, [busy, paused, scopeLocked, sendMessage, user, chatId]);
 
   // Share as soon as the user has submitted a turn — empty new chats stay locked.
   const canShare = projectedMessages.some((message) => message.role === 'user' && message.content.trim());
@@ -1282,6 +1301,7 @@ function AiChatSession({
                               collapseSql={!isLive}
                               hideThinking={isLive}
                               hideTools={isLive}
+                              chatId={chatId}
                             />
                             {!isLive && (message.ts !== undefined || message.model) && (
                               <ChatMessageMetadata

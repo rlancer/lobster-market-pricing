@@ -30,6 +30,7 @@ import type { ShareTurn } from "./share-turns";
 import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 import { clipTitle, TITLE_MAX } from "./user-chats";
+import { linkBotTradesShare } from "./bot-trades";
 
 const SHARE_MAX_CONTENT = 5_000;
 const SHARE_MAX_SQL = 10_000;
@@ -113,6 +114,11 @@ async function mintBotShare(
   ).bind(args.runId).first<{ share_id: string }>();
   if (existing?.share_id) {
     await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: existing.share_id });
+    try {
+      await linkBotTradesShare(env.SCHEMA_DB, args.chatId, existing.share_id);
+    } catch (error) {
+      console.warn("link bot trades share failed", error);
+    }
     return { ok: true, share_id: existing.share_id };
   }
 
@@ -182,6 +188,11 @@ async function mintBotShare(
     );
     if (onTimeline) {
       await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: shareId });
+      try {
+        await linkBotTradesShare(env.SCHEMA_DB, args.chatId, shareId);
+      } catch (error) {
+        console.warn("link bot trades share failed", error);
+      }
       return { ok: true, share_id: shareId };
     }
     const error = `timeline quality: ${moderation.reason}`;
@@ -190,6 +201,11 @@ async function mintBotShare(
       share_id: shareId,
       error,
     });
+    try {
+      await linkBotTradesShare(env.SCHEMA_DB, args.chatId, shareId);
+    } catch (linkError) {
+      console.warn("link bot trades share failed", linkError);
+    }
     return { ok: false, error };
   } catch (error) {
     if (String(error).includes("UNIQUE")) {
@@ -197,6 +213,11 @@ async function mintBotShare(
         `SELECT share_id, bot_handle FROM shared_chats WHERE run_id = ?1`,
       ).bind(args.runId).first<{ share_id: string; bot_handle: string | null }>();
       if (byRun?.share_id) {
+        try {
+          await linkBotTradesShare(env.SCHEMA_DB, args.chatId, byRun.share_id);
+        } catch (linkError) {
+          console.warn("link bot trades share failed", linkError);
+        }
         if (byRun.bot_handle) {
           await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: byRun.share_id });
           return { ok: true, share_id: byRun.share_id };

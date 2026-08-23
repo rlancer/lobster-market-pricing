@@ -35,6 +35,8 @@ import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilo
 import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskViewpointId } from "./copilot-desk";
 import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+import { formatPaperPortfolioSummary } from "./paper-portfolio";
+import { formatBotTradesSummary } from "./bot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
@@ -241,6 +243,47 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected abstract searchWeb(query: string, limit: number): Promise<SearchResult>;
   protected abstract fetchEconomicCalendar(days: number): Promise<CalendarResult>;
   protected abstract researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }): Promise<ResearchToolResult>;
+
+  /**
+   * Apply suggest_trades into the chat owner's paper portfolio (lake marks).
+   * Default no-op — concrete Worker overrides with SCHEMA_DB + R2 SQL.
+   */
+  protected autoTrackSuggestedTrades(
+    _trades: SuggestedTrades,
+  ): Promise<import("./paper-portfolio").AutoTrackResult | null> {
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Snapshot suggest_trades into a bot performance book when this DO is a bot.
+   * Default no-op — Worker overrides when bot_session is set.
+   */
+  protected autoTrackBotSuggestedTrades(
+    _trades: SuggestedTrades,
+  ): Promise<import("./bot-trades").BotTrackResult | null> {
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Load the chat owner's paper book for get_paper_portfolio.
+   * Default null = tool unavailable (tests / no lake binding).
+   */
+  protected loadPaperPortfolio(
+    _status: "open" | "closed" | "all",
+  ): Promise<import("./paper-portfolio").PaperPortfolioView | null> {
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Load a public bot suggested-trade book for get_bot_trades.
+   * Default null = tool unavailable (tests / no lake binding).
+   */
+  protected loadBotTrades(
+    _handle: string,
+    _status: "open" | "closed" | "all",
+  ): Promise<import("./bot-trades").BotTradesBook | null> {
+    return Promise.resolve(null);
+  }
 
   private ensureCopilotSchema(): void {
     this.sql`CREATE TABLE IF NOT EXISTS frames (
@@ -970,7 +1013,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       suggest_trades: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.suggest_trades,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.suggest_trades,
-        execute: async (args) => runTool("suggest_trades", TOOL_LABELS.suggest_trades, args, () => {
+        execute: async (args) => runTool("suggest_trades", TOOL_LABELS.suggest_trades, args, async () => {
           status("Publishing suggested trades…");
           const trades = normalizeSuggestedTrades(args);
           if (!trades) {
@@ -983,7 +1026,68 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           capture.failed_trades_count = 0;
           turn.failedTradesCount = 0;
           persist();
-          return this.output(true, formatTradesToolSummary(trades), { error: null, trades });
+
+          let summary = formatTradesToolSummary(trades);
+          if (trades.trades.length > 0) {
+            status("Tracking suggested trades…");
+            try {
+              const tracked = await this.autoTrackSuggestedTrades(trades);
+              if (tracked && tracked.skipped == null) {
+                const parts: string[] = [];
+                if (tracked.tracked > 0) parts.push(`opened ${tracked.tracked} paper position${tracked.tracked === 1 ? "" : "s"}`);
+                if (tracked.already > 0) parts.push(`${tracked.already} already tracked`);
+                if (tracked.failed > 0) parts.push(`${tracked.failed} could not mark`);
+                if (parts.length) summary = `${summary}\nPaper portfolio: ${parts.join("; ")}.`;
+              }
+            } catch (error) {
+              console.error("auto-track suggested trades failed", error);
+            }
+            try {
+              const botTracked = await this.autoTrackBotSuggestedTrades(trades);
+              if (botTracked && botTracked.skipped == null) {
+                const parts: string[] = [];
+                if (botTracked.tracked > 0) parts.push(`tracked ${botTracked.tracked}`);
+                if (botTracked.already > 0) parts.push(`${botTracked.already} already tracked`);
+                if (botTracked.failed > 0) parts.push(`${botTracked.failed} could not mark`);
+                if (parts.length) summary = `${summary}\nBot trade book: ${parts.join("; ")}.`;
+              }
+            } catch (error) {
+              console.error("auto-track bot suggested trades failed", error);
+            }
+          }
+
+          return this.output(true, summary, { error: null, trades });
+        }),
+      }),
+      get_paper_portfolio: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_paper_portfolio,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_paper_portfolio,
+        execute: async (args) => runTool("get_paper_portfolio", TOOL_LABELS.get_paper_portfolio, args, async () => {
+          status("Loading paper portfolio…");
+          const statusFilter = args.status ?? "open";
+          const view = await this.loadPaperPortfolio(statusFilter);
+          if (!view) {
+            return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
+              error: "no_owner",
+            });
+          }
+          return this.output(true, formatPaperPortfolioSummary(view), { error: null });
+        }),
+      }),
+      get_bot_trades: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_bot_trades,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_bot_trades,
+        execute: async (args) => runTool("get_bot_trades", TOOL_LABELS.get_bot_trades, args, async () => {
+          status("Loading bot trade performance…");
+          const handle = String(args.handle ?? "").trim();
+          const statusFilter = args.status ?? "open";
+          const book = await this.loadBotTrades(handle, statusFilter);
+          if (!book) {
+            return this.output(false, "Unknown or disabled bot handle — try yololobster, nowlobster, or macrolobster.", {
+              error: "not_found",
+            });
+          }
+          return this.output(true, formatBotTradesSummary(book), { error: null });
         }),
       }),
     };

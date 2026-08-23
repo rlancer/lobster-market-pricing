@@ -13,7 +13,7 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -49,6 +49,7 @@ type Section = {
 const SECTIONS: Section[] = [
   { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
+  { to: '/portfolio', label: 'Portfolio', heading: 'Paper portfolio', icon: Briefcase },
 ];
 
 // Research, Data, Docs, Admin, dataset status, and account sit under a divider

@@ -212,6 +212,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/portfolio') {
+    return {
+      title: pageTitle('Paper portfolio'),
+      description:
+        'Track Copilot suggested trades in a paper book and mark PnL against lake quotes.',
+      path: '/portfolio',
+    };
+  }
+
   if (path === '/users') {
     return {
       title: pageTitle('Users'),

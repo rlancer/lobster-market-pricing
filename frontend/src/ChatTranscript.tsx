@@ -23,6 +23,8 @@ const TOOL_LABELS: Record<string, string> = {
   research_ticker: 'Ticker research',
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
+  get_paper_portfolio: 'Paper portfolio',
+  get_bot_trades: 'Bot trade performance',
 };
 
 /**
@@ -37,6 +39,8 @@ export function AssistantMessageBody({
   collapseSql = false,
   hideThinking = false,
   hideTools = false,
+  chatId,
+  enableTrack = true,
 }: {
   message: SharedChatMessage;
   /** When true, offer “Open in Data” next to Copy (live chat / timeline in-app). */
@@ -52,6 +56,10 @@ export function AssistantMessageBody({
   hideThinking?: boolean;
   /** Live streaming: TurnProgress already shows the tool feed. */
   hideTools?: boolean;
+  /** Live chat id for paper-portfolio Track dedupe. */
+  chatId?: string | null;
+  /** Hide Track on surfaces that should stay read-only. */
+  enableTrack?: boolean;
 }) {
   const wantsChart = Boolean(message.chart);
   const shouldHydrate = hydrateResult || wantsChart;
@@ -119,7 +127,13 @@ export function AssistantMessageBody({
           </div>
         );
       })()}
-      {message.trades && <SuggestedTradesView trades={message.trades} />}
+      {message.trades && (
+        <SuggestedTradesView
+          trades={message.trades}
+          chatId={chatId}
+          enableTrack={enableTrack}
+        />
+      )}
       {!hideThinking && message.reasoning && (
         <details className="ai-thinking ai-thinking-done">
           <summary>Thinking</summary>
@@ -212,6 +226,8 @@ export function TranscriptMessage({
   hydrateResult = true,
   collapseSql = false,
   hideThinking = false,
+  chatId,
+  enableTrack = true,
   userAside = null,
   userLabel = null,
   footer = null,
@@ -222,6 +238,8 @@ export function TranscriptMessage({
   hydrateResult?: boolean;
   collapseSql?: boolean;
   hideThinking?: boolean;
+  chatId?: string | null;
+  enableTrack?: boolean;
   /**
    * Optional chrome beside the user bubble (timeline: avatar on the left).
    * Assistant turns keep the brand mark; omit on /share and /chat.
@@ -265,6 +283,8 @@ export function TranscriptMessage({
           hydrateResult={hydrateResult}
           collapseSql={collapseSql}
           hideThinking={hideThinking}
+          chatId={chatId}
+          enableTrack={enableTrack}
         />
         {footer}
       </div>

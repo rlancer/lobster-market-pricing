@@ -74,6 +74,8 @@ test('chat, monitor, admin, brand, bots, users, chats, and share have route titl
   assert.equal(pageMetaForUrl('/users').title, `Users · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/chats').title, `Chats · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/chats').description ?? '', /visitor fingerprints/);
+  assert.equal(pageMetaForUrl('/portfolio').title, `Paper portfolio · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/portfolio').description ?? '', /paper book/);
   assert.equal(pageMetaForUrl('/copilot').title, `Copilot internals · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/copilot').description ?? '', /system prompts/);
   assert.equal(pageMetaForUrl('/share/abc').title, `Shared chat · ${SITE_NAME}`);

@@ -127,6 +127,9 @@ import {
   maybeEnrollMissingTicker,
   isEnrollableEquityTicker,
 } from "./enroll-symbol";
+import { handlePortfolio } from "./paper-portfolio-http";
+import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, resolvePaperOwnerUserId } from "./paper-portfolio";
+import { listBotTrades, trackBotSuggestedTrades } from "./bot-trades";
 
 
 // ---------------------------------------------------------------------------
@@ -2405,6 +2408,35 @@ async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext):
 }
 
 export class CopilotAgent extends CopilotAgentBase<Env> {
+  /**
+   * Remember the signed-in user on this DO so suggest_trades can open paper
+   * positions even when user_chats claim races the first turn.
+   */
+  override async fetch(request: Request): Promise<Response> {
+    try {
+      const user = await getSessionUser(this.env, request);
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      if (user) {
+        this.sql`
+          INSERT INTO paper_session_hint (singleton, user_id, updated_at)
+          VALUES (1, ${user.id}, ${Date.now()})
+          ON CONFLICT(singleton) DO UPDATE SET
+            user_id = ${user.id},
+            updated_at = ${Date.now()}
+        `;
+      }
+    } catch (error) {
+      console.warn("paper session hint skipped", error);
+    }
+    return super.fetch(request);
+  }
+
   protected override loadSchema(): Promise<LakeTable[]> {
     return schemaTables(this.env, this.ctx, false);
   }
@@ -2427,6 +2459,121 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
 
   protected override researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }) {
     return researchTickerForAgent(this.env, symbol, opts);
+  }
+
+  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
+  protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    let userId: string | null = null;
+    try {
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      const hint = this.sql<{ user_id: string }>`
+        SELECT user_id FROM paper_session_hint WHERE singleton = 1
+      `[0];
+      userId = hint?.user_id ?? null;
+    } catch {
+      userId = null;
+    }
+
+    const title = firstUserContent(this.messages);
+
+    return applySuggestedTradesToPaper(
+      this.env.SCHEMA_DB,
+      (sql, key) => r2sql(this.env, sql, key),
+      chatId,
+      trades,
+      { userId, title },
+    );
+  }
+
+  /** Snapshot bot suggestions into the public bot trade book (no cash). */
+  protected override async autoTrackBotSuggestedTrades(trades: SuggestedTrades) {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    let handle: string | null = null;
+    try {
+      const row = this.sql<{ handle: string }>`
+        SELECT handle FROM bot_session WHERE singleton = 1
+      `[0];
+      handle = row?.handle?.trim() || null;
+    } catch {
+      handle = null;
+    }
+    if (!handle) return null;
+
+    let runId: string | null = null;
+    try {
+      const run = await this.env.SCHEMA_DB.prepare(
+        `SELECT run_id FROM bot_runs WHERE chat_id = ?1 ORDER BY created_at DESC LIMIT 1`,
+      ).bind(chatId).first<{ run_id: string }>();
+      runId = run?.run_id ?? null;
+    } catch {
+      runId = null;
+    }
+
+    return trackBotSuggestedTrades(
+      this.env.SCHEMA_DB,
+      (sql, key) => r2sql(this.env, sql, key),
+      handle,
+      chatId,
+      trades,
+      { runId },
+    );
+  }
+
+  /** Load paper book for get_paper_portfolio (same owner resolution as auto-track). */
+  protected override async loadPaperPortfolio(status: "open" | "closed" | "all") {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    let sessionUserId: string | null = null;
+    try {
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      const hint = this.sql<{ user_id: string }>`
+        SELECT user_id FROM paper_session_hint WHERE singleton = 1
+      `[0];
+      sessionUserId = hint?.user_id ?? null;
+    } catch {
+      sessionUserId = null;
+    }
+
+    const userId = await resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, sessionUserId);
+    if (!userId) return null;
+
+    return listPortfolio(
+      this.env.SCHEMA_DB,
+      (sql, key) => r2sql(this.env, sql, key),
+      userId,
+      { status, refreshMarks: true },
+    );
+  }
+
+  /** Public bot trade book for get_bot_trades. */
+  protected override async loadBotTrades(handle: string, status: "open" | "closed" | "all") {
+    if (!this.env.SCHEMA_DB) return null;
+    const bot = await getBotProfile(this.env.SCHEMA_DB, handle);
+    if (!bot || !bot.enabled) return null;
+    return listBotTrades(
+      this.env.SCHEMA_DB,
+      (sql, key) => r2sql(this.env, sql, key),
+      bot.handle,
+      { status, refreshMarks: true },
+    );
   }
 }
 
@@ -3152,6 +3299,26 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     });
   }
 
+  const publicTrades = path.match(/^\/api\/bots\/([^/]+)\/trades$/);
+  if (publicTrades && req.method === "GET") {
+    const bot = await getBotProfile(env.SCHEMA_DB, decodeURIComponent(publicTrades[1]));
+    if (!bot || !bot.enabled) return json(env, { error: "not found" }, 404);
+    const url = new URL(req.url);
+    const statusRaw = url.searchParams.get("status");
+    const status = statusRaw === "open" || statusRaw === "closed" || statusRaw === "all"
+      ? statusRaw
+      : "open";
+    const refresh = url.searchParams.get("refresh") !== "0";
+    const book = await listBotTrades(
+      env.SCHEMA_DB,
+      (sql, key) => r2sql(env, sql, key),
+      bot.handle,
+      { status, refreshMarks: refresh },
+    );
+    if (!book) return json(env, { error: "not found" }, 404);
+    return json(env, { ok: true, ...book });
+  }
+
   if (path === "/api/admin/bots" && req.method === "GET") {
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
@@ -3601,6 +3768,14 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const me = await handleMe(env, req, path);
   if (me) return me;
+
+  const portfolio = await handlePortfolio(
+    env,
+    req,
+    path,
+    (sql, key) => r2sql(env, sql, key),
+  );
+  if (portfolio) return portfolio;
 
   const avatar = await handleAvatarGet(env, req, path);
   if (avatar) return avatar;
