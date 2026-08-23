@@ -265,6 +265,9 @@
   gap: 10px;
   width: min(100%, var(--chat-max));
   margin-inline: auto;
+  min-width: 0;
+  /* Keep turn tops clear of the sticky chat head when scrolled into view. */
+  scroll-margin-top: calc(var(--size-element-lg) + var(--spacing-2));
 }
 .ai-msg.ai-user { justify-content: flex-end; }
 .ai-msg.ai-assistant { justify-content: flex-start; }
@@ -303,7 +306,13 @@
   border: 1px solid var(--border);
   border-bottom-left-radius: var(--radius-inner);
 }
-.ai-text { white-space: pre-wrap; }
+/* Plain user text keeps newlines; assistant Markdown owns its own wrapping. */
+.ai-msg.ai-user .ai-text { white-space: pre-wrap; }
+.ai-msg.ai-assistant .ai-text {
+  white-space: normal;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .ai-busy {
   display: flex;
   flex-direction: column;
@@ -859,6 +868,8 @@
      left empty side margins against the full-bleed chrome. */
   .ai-chat-body { padding-inline: 0; }
   .ai-head {
+    /* App bar already sticks; a second sticky strip clips the transcript. */
+    position: static;
     padding-inline: var(--spacing-3);
   }
   .ai-conn { padding-inline: var(--spacing-3); }
@@ -872,6 +883,22 @@
   }
   .ai-examples { grid-template-columns: 1fr; gap: var(--spacing-0); }
   .ai-composer-wrap { padding: var(--spacing-2) var(--spacing-3); }
+  /* Reclaim the avatar column — tables/SQL need every horizontal pixel. */
+  .ai-msg.ai-assistant .ai-msg-mark { display: none; }
+  .ai-msg.ai-assistant .ai-bubble { max-width: 100%; }
+  .ai-msg.ai-user .ai-bubble { max-width: 100%; }
+  .ai-sql-head {
+    flex-wrap: wrap;
+    row-gap: var(--spacing-1);
+  }
+  .ai-sql-actions { gap: var(--spacing-3); }
+  .ai-result,
+  .ai-sql,
+  .ai-chart,
+  .ai-thinking,
+  .ai-result-details {
+    max-width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

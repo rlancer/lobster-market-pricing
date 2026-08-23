@@ -16,6 +16,7 @@ import {
   StatusDot,
   Switch,
   Timestamp,
+  useAppShellMobile,
   useChatStreamScroll,
   useMediaQuery,
 } from '@astryxdesign/core';
@@ -1070,10 +1071,13 @@ function AiChatSession({
 
   const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
   const isDesktop = useMediaQuery('(min-width: 56rem)');
+  const { isMobile } = useAppShellMobile();
   const composerBlocked = accessBlocked || scopeLocked;
   const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat && !scopeLocked;
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
   const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing' && !scopeLocked;
+  /* Mobile app bar owns New chat; omit the empty Share strip until a turn exists. */
+  const showChatHead = !isMobile || Boolean(botHandle) || canShare;
 
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
@@ -1111,6 +1115,7 @@ function AiChatSession({
 
   return (
     <section className="ai-chat">
+      {showChatHead && (
       <header className="ai-head" aria-label="Chat controls">
                 {botHandle && (
                   <p className="ai-bot-banner" role="status">
@@ -1135,9 +1140,13 @@ function AiChatSession({
                     isLoading={shareBusy}
                     onClick={shareChat}
                   />
-                  <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
+                  {/* Mobile app bar already owns New chat — keep this desktop-only. */}
+                  {!isMobile && (
+                    <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
+                  )}
                 </section>
               </header>
+      )}
 
               {disconnected && !accessBlocked && (
                 <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
