@@ -36,6 +36,7 @@
   z-index: 2;
   width: 100%;
   padding-block: var(--spacing-4);
+  padding-inline-start: var(--mobile-menu-gutter);
   margin-block-start: calc(var(--spacing-4) * -1);
   border-bottom: var(--border-width) solid var(--color-border-emphasized);
   background: color-mix(in srgb, var(--color-background-body) 92%, transparent);
