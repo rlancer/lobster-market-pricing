@@ -53,11 +53,14 @@ type Section = {
 const SECTIONS: Section[] = [
   { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
+];
+
+// Monitor stays in the header chip; Research, Data, Docs + Admin sit under a
+// divider at the bottom of the left nav.
+const BOTTOM_SECTIONS: Section[] = [
   { to: '/research', label: 'Research', heading: 'Research', icon: LineChart },
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
-
-// Monitor stays in the header chip; Docs + Admin sit under a divider in the left nav.
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
@@ -231,21 +234,6 @@ function WorkspaceNavItems({
               ))}
         </SideNavSection>
       ) : null}
-      {SECTIONS.filter((section) => section.to !== '/' && section.to !== '/chat').map((section) => (
-        <SideNavItem
-          key={section.to}
-          as={RouterLink}
-          href={section.to}
-          label={section.label}
-          icon={section.icon}
-          isSelected={
-            section.to === '/research'
-              ? Boolean(activeTo?.startsWith('/research'))
-              : activeTo === section.to
-          }
-          onClick={closeMobileNav}
-        />
-      ))}
     </>
   );
 }
@@ -263,6 +251,21 @@ function WorkspaceHelpNavItems({
 
   return (
     <>
+      {BOTTOM_SECTIONS.map((section) => (
+        <SideNavItem
+          key={section.to}
+          as={RouterLink}
+          href={section.to}
+          label={section.label}
+          icon={section.icon}
+          isSelected={
+            section.to === '/research'
+              ? Boolean(activeTo?.startsWith('/research'))
+              : activeTo === section.to
+          }
+          onClick={closeMobileNav}
+        />
+      ))}
       <SideNavItem
         as={RouterLink}
         href="/docs"
@@ -363,7 +366,7 @@ function WorkspaceLayout() {
     ? SECTIONS[0]
     : isAdminNavPath(location.pathname)
       ? ADMIN_HEADING
-      : [...SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
+      : [...SECTIONS, ...BOTTOM_SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
         s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
       );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
