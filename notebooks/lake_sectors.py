@@ -11,7 +11,8 @@
 Static islands HTML lives at frontend/public/notebooks/lake-sectors/ (CDN
 runtime). Python runs in the browser via Pyodide — the Worker only serves /api/*.
 
-Uses matplotlib (not Altair) so WASM formatting does not depend on pandas/IPython.
+Uses matplotlib (WASM-friendly). Altair was tried first but chart formatting
+fails in islands without pandas/IPython and left the UI on a stuck spinner.
 """
 
 import marimo
