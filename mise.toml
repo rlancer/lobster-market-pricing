@@ -8,58 +8,75 @@ PYTHONUNBUFFERED = "1"
 
 # ---------------------------------------------------------------------------
 # Tasks (run with: mise run <task>)
-# NOTE: mise on Windows only executes the first line of a multi-line `run`
-# script, so multi-step tasks must be chained on a single line with `&&`.
+# Prefer `dir = "..."` over `cd … &&` — more reliable on Windows (mise's
+# default shell is cmd) and avoids PowerShell/`&&` quirks. Package scripts
+# (`npm run …`) use each package's own wrangler from node_modules, so we
+# don't depend on the mise-global wrangler shim for Worker/loader work.
 # ---------------------------------------------------------------------------
+
+[tasks.dev]
+description = "Local Copilot stack: Worker :8787 + frontend :5173 (parallel)"
+run = [{ tasks = ["worker-dev", "frontend"] }]
+
 [tasks.sync]
 description = "Install Node dependencies (frontend + worker)"
-run = "cd frontend && npm install && cd ../worker && npm install"
+run = "npm --prefix frontend install && npm --prefix worker install"
 
 [tasks.frontend]
-description = "Run the Vite dev server on http://127.0.0.1:5173 (calls the screener-api Worker via VITE_API_BASE)"
-run = "cd frontend && npm run dev"
+description = "Run the Vite dev server on http://127.0.0.1:5173 (proxies /api + /agents → :8787)"
+dir = "frontend"
+run = "npm run dev"
 
 [tasks.worker-dev]
-description = "Run the screener-api Worker locally on http://127.0.0.1:8787 (reads R2_SQL_TOKEN from worker/.dev.vars)"
-run = "cd worker && npx wrangler dev"
+description = "Run the screener-api Worker locally on http://127.0.0.1:8787 (reads secrets from worker/.dev.vars)"
+dir = "worker"
+run = "npm run dev"
 
 [tasks.worker-deploy]
 description = "Deploy the screener-api Worker to Cloudflare (api.lobster.mp + workers.dev). Set R2_SQL_TOKEN via: cd worker && npx wrangler secret put R2_SQL_TOKEN"
-run = "cd worker && npx wrangler deploy"
+dir = "worker"
+run = "npm run deploy"
 
 [tasks.build]
 description = "Build the production frontend bundle"
-run = "cd frontend && npm run build"
+dir = "frontend"
+run = "npm run build"
 
 
 # ---------------------------------------------------------------------------
 # Loader (loader/) — CBOE → Cloudflare Pipelines → R2 Data Catalog
-# Run from the repo root; tasks cd into loader/ themselves.
 # ---------------------------------------------------------------------------
 [tasks.loader-install]
 description = "Install loader Node dependencies (@cloudflare/containers, wrangler)"
-run = "cd loader && npm ci"
+dir = "loader"
+run = "npm ci"
 
 [tasks.loader-types]
 description = "Generate and check loader Worker bindings"
-run = "cd loader && npx wrangler types && npx wrangler types --check"
+dir = "loader"
+run = "npx wrangler types && npx wrangler types --check"
 
 [tasks.loader-dev]
 description = "Run the cboe-to-r2 loader Worker locally"
-run = "cd loader && npx wrangler dev"
+dir = "loader"
+run = "npm run dev"
 
 [tasks.loader-deploy]
 description = "Deploy the cboe-to-r2 loader Worker and container. Set LOADER_TOKEN via: cd loader && npx wrangler secret put LOADER_TOKEN"
-run = "cd loader && npx wrangler deploy"
+dir = "loader"
+run = "npm run deploy"
 
 [tasks.loader-validate]
 description = "Validate loader Wrangler config without a container rollout"
-run = "cd loader && npx wrangler deploy --dry-run --containers-rollout=none"
+dir = "loader"
+run = "npx wrangler deploy --dry-run --containers-rollout=none"
 
 [tasks.loader-container-build]
 description = "Build the loader image with Podman (linux/amd64)"
-run = "cd loader && podman build --platform linux/amd64 -t cboe-to-r2-poc ."
+dir = "loader"
+run = "podman build --platform linux/amd64 -t cboe-to-r2-poc ."
 
 [tasks.loader-container-run]
 description = "Run the loader locally in stdout mode"
-run = "cd loader && podman run --rm -p 8080:8080 -e WRITE_MODE=stdout cboe-to-r2-poc"
+dir = "loader"
+run = "podman run --rm -p 8080:8080 -e WRITE_MODE=stdout cboe-to-r2-poc"

@@ -223,16 +223,23 @@ VITE_API_BASE=https://api-dev.lobster.mp
 
 ## Run it
 
-Open two terminals (or run the Worker in the background):
+One command for the local Copilot stack (Worker + Vite in parallel):
+
+```bash
+mise run dev           # Worker :8787 + frontend :5173 together
+```
+
+Or two terminals:
 
 ```bash
 mise run worker-dev    # Cloudflare Worker on http://127.0.0.1:8787
-mise run frontend       # Vite dev server on http://127.0.0.1:5173
+mise run frontend      # Vite on http://127.0.0.1:5173 (proxies /api + /agents)
 ```
 
-Then open <http://127.0.0.1:5173>. The frontend calls the Worker (via
-`VITE_API_BASE`) which queries the live Iceberg lake over R2 SQL. No local
-data is needed.
+Then open <http://127.0.0.1:5173>. With no `VITE_API_BASE`, Vite proxies to
+the local Worker; with `VITE_API_BASE` set, the browser talks to that origin
+directly. Either way the Worker queries the live Iceberg lake over R2 SQL —
+no local data is needed. Secrets for local Worker come from `worker/.dev.vars`.
 
 ### Deploy
 
