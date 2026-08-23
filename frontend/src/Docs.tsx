@@ -182,7 +182,7 @@ const SURFACES = [
   {
     route: '/portfolio',
     title: 'Paper portfolio',
-    body: 'Signed-in paper book ($100k starting cash). Track a Copilot suggestion to snapshot legs, debit cash at lake mid, and mark unrealized PnL; Close realizes against the current mark. Suggestions alone are not a ledger — tracking copies the idea into D1.',
+    body: 'Signed-in paper book ($100k starting cash). When Copilot suggests markable trades in your chat, they open as paper positions automatically (lake mid). Close realizes against the current mark. Share viewers can still Add to portfolio.',
   },
   {
     route: '/data',

@@ -6,7 +6,7 @@
  * and maintains one cash account per signed-in user.
  */
 
-import type { TradeLeg, SuggestedTrade } from "./copilot-trades";
+import type { TradeLeg, SuggestedTrade, SuggestedTrades } from "./copilot-trades";
 import { normalizeSuggestedTrades } from "./copilot-trades";
 
 export const DEFAULT_STARTING_CASH_CENTS = 100_000_00; // $100,000.00
@@ -478,6 +478,90 @@ export interface TrackSuggestionInput {
 export type TrackResult =
   | { ok: true; position: PaperPositionView; account_cash: number; created: boolean }
   | { ok: false; error: string; status: number };
+
+export interface AutoTrackResult {
+  /** Chat has no signed-in owner (anonymous / bot) — nothing to apply. */
+  skipped: "no_owner" | "empty" | null;
+  tracked: number;
+  already: number;
+  failed: number;
+  errors: string[];
+}
+
+/**
+ * Apply every markable suggested trade into the chat owner's paper book.
+ * Used when suggest_trades succeeds — suggestions are not fire-and-forget.
+ *
+ * When the chat is not yet cataloged but `userId` is known (session on the
+ * agent request), claim it from the first user turn title then open positions.
+ */
+export async function autoTrackSuggestedTrades(
+  db: D1Database,
+  lake: LakeSql,
+  chatId: string,
+  payload: SuggestedTrades,
+  opts?: { userId?: string | null; title?: string | null; now?: number },
+): Promise<AutoTrackResult> {
+  const now = opts?.now ?? Date.now();
+  const trades = payload.trades ?? [];
+  if (trades.length === 0) {
+    return { skipped: "empty", tracked: 0, already: 0, failed: 0, errors: [] };
+  }
+
+  let owner = await db.prepare(
+    `SELECT user_id, deleted_at FROM user_chats WHERE chat_id = ?1`,
+  ).bind(chatId).first<{ user_id: string; deleted_at: number | null }>();
+
+  if ((!owner || owner.deleted_at != null) && opts?.userId) {
+    const title = typeof opts.title === "string" && opts.title.trim()
+      ? opts.title.trim().slice(0, 120)
+      : "Chat";
+    try {
+      await db.prepare(
+        `INSERT INTO user_chats (chat_id, user_id, title, created_at, updated_at, deleted_at)
+         VALUES (?1, ?2, ?3, ?4, ?4, NULL)
+         ON CONFLICT(chat_id) DO NOTHING`,
+      ).bind(chatId, opts.userId, title, now).run();
+    } catch {
+      // Concurrent claim — re-read owner below.
+    }
+    owner = await db.prepare(
+      `SELECT user_id, deleted_at FROM user_chats WHERE chat_id = ?1`,
+    ).bind(chatId).first<{ user_id: string; deleted_at: number | null }>();
+  }
+
+  if (!owner || owner.deleted_at != null) {
+    return { skipped: "no_owner", tracked: 0, already: 0, failed: 0, errors: [] };
+  }
+  // Never apply into someone else's book if a session hint disagrees.
+  if (opts?.userId && owner.user_id !== opts.userId) {
+    return { skipped: "no_owner", tracked: 0, already: 0, failed: 0, errors: [] };
+  }
+
+  let tracked = 0;
+  let already = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < trades.length; i++) {
+    const trade = trades[i]!;
+    const result = await trackSuggestion(db, lake, owner.user_id, {
+      trade,
+      trade_index: i,
+      chat_id: chatId,
+      qty: 1,
+    }, now);
+    if (!result.ok) {
+      failed += 1;
+      errors.push(`${trade.ticker}: ${result.error}`);
+      continue;
+    }
+    if (result.created) tracked += 1;
+    else already += 1;
+  }
+
+  return { skipped: null, tracked, already, failed, errors };
+}
 
 export async function trackSuggestion(
   db: D1Database,

@@ -101,7 +101,8 @@ export default function PortfolioPage() {
         <VStack gap={2}>
           <Heading level={1}>Paper portfolio</Heading>
           <Text type="supporting">
-            Track ideas from Chat → mark to lake mid → close to realize. Starting cash $100,000.
+            Copilot suggestions with concrete legs open here automatically for your chats.
+            Marks use lake mid/spot. Starting cash $100,000.
           </Text>
         </VStack>
         <HStack gap={2} wrap="wrap">
@@ -171,7 +172,8 @@ export default function PortfolioPage() {
         </HStack>
       ) : rows.length === 0 ? (
         <Text type="supporting">
-          No positions yet. In Chat, use Track PnL on a suggested trade with concrete legs.
+          No open positions yet. Ask Chat for a trade idea while signed in — markable
+          suggestions land here automatically.
           {' '}
           <Link to="/chat" className="portfolio-link">Open Chat</Link>
         </Text>

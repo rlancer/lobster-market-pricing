@@ -242,6 +242,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected abstract fetchEconomicCalendar(days: number): Promise<CalendarResult>;
   protected abstract researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }): Promise<ResearchToolResult>;
 
+  /**
+   * Apply suggest_trades into the chat owner's paper portfolio (lake marks).
+   * Default no-op — concrete Worker overrides with SCHEMA_DB + R2 SQL.
+   */
+  protected autoTrackSuggestedTrades(
+    _trades: SuggestedTrades,
+  ): Promise<import("./paper-portfolio").AutoTrackResult | null> {
+    return Promise.resolve(null);
+  }
+
   private ensureCopilotSchema(): void {
     this.sql`CREATE TABLE IF NOT EXISTS frames (
       name TEXT PRIMARY KEY,
@@ -970,7 +980,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       suggest_trades: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.suggest_trades,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.suggest_trades,
-        execute: async (args) => runTool("suggest_trades", TOOL_LABELS.suggest_trades, args, () => {
+        execute: async (args) => runTool("suggest_trades", TOOL_LABELS.suggest_trades, args, async () => {
           status("Publishing suggested trades…");
           const trades = normalizeSuggestedTrades(args);
           if (!trades) {
@@ -983,7 +993,25 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           capture.failed_trades_count = 0;
           turn.failedTradesCount = 0;
           persist();
-          return this.output(true, formatTradesToolSummary(trades), { error: null, trades });
+
+          let summary = formatTradesToolSummary(trades);
+          if (trades.trades.length > 0) {
+            status("Tracking suggested trades in paper portfolio…");
+            try {
+              const tracked = await this.autoTrackSuggestedTrades(trades);
+              if (tracked && tracked.skipped == null) {
+                const parts: string[] = [];
+                if (tracked.tracked > 0) parts.push(`opened ${tracked.tracked} paper position${tracked.tracked === 1 ? "" : "s"}`);
+                if (tracked.already > 0) parts.push(`${tracked.already} already tracked`);
+                if (tracked.failed > 0) parts.push(`${tracked.failed} could not mark`);
+                if (parts.length) summary = `${summary}\nPaper portfolio: ${parts.join("; ")}.`;
+              }
+            } catch (error) {
+              console.error("auto-track suggested trades failed", error);
+            }
+          }
+
+          return this.output(true, summary, { error: null, trades });
         }),
       }),
     };

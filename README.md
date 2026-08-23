@@ -272,7 +272,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`) and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. 401 if anonymous. |
-| `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). |
+| `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}`, `{reply_style?}`, `{reply_note?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Reply style is a canned audience (desk trader / hedge fund / new to trading); `reply_note` is optional flavor, 240 chars max (blank clears). Reply prefs do not require a claimed handle. 400 if invalid/reserved, 409 if handle taken. |
 | `GET /api/reply-styles` | Public catalog of Copilot reply voices `{items:[{id,label,hint}], default, note_max}`. Prompt copy stays on the Worker. |
@@ -335,11 +335,12 @@ market fallback alone does not open an empty welcome rail.
 commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News and related chats
 settle on idle. Chat ticker chips (from `research_ticker`) link there.
-**Portfolio** (`/portfolio`, signed-in) is the paper book: Track PnL on a
-Copilot suggested trade (concrete legs + lake mid) opens a position, marks
-unrealized PnL from the lake, and Close realizes it against $100k starting
-cash. Suggestions alone are not a book — `copilot_tool_events` stays ~30d
-admin debug.
+**Portfolio** (`/portfolio`, signed-in) is the paper book: when Copilot
+`suggest_trades` lands concrete legs in a signed-in chat, those ideas
+auto-open paper positions at lake mid; `/portfolio` marks unrealized PnL
+and Close realizes against $100k starting cash. Share/timeline viewers can
+still **Add to portfolio**. Suggestions alone are not a book —
+`copilot_tool_events` stays ~30d admin debug.
 **Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that

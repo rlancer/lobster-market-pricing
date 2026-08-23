@@ -78,3 +78,29 @@ test("parseTrackBody rejects junk", () => {
   assert.deepEqual(parseTrackBody({}), { error: "trade is required" });
   assert.deepEqual(parseTrackBody({ trade: { ticker: "X" } }), { error: "invalid trade" });
 });
+
+test("autoTrackSuggestedTrades skips empty and missing owner", async () => {
+  const { autoTrackSuggestedTrades } = await import("../src/paper-portfolio.ts");
+
+  const emptyDb = {
+    prepare() {
+      return {
+        bind() { return this; },
+        async first() { return null; },
+        async run() { return {}; },
+        async all() { return { results: [] }; },
+      };
+    },
+    async batch() { return []; },
+  } as unknown as D1Database;
+
+  const lake = async () => [];
+
+  const empty = await autoTrackSuggestedTrades(emptyDb, lake, "chat-1", { trades: [] });
+  assert.equal(empty.skipped, "empty");
+
+  const noOwner = await autoTrackSuggestedTrades(emptyDb, lake, "chat-1", {
+    trades: [sampleTrade],
+  });
+  assert.equal(noOwner.skipped, "no_owner");
+});

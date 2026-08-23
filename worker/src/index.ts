@@ -128,6 +128,7 @@ import {
   isEnrollableEquityTicker,
 } from "./enroll-symbol";
 import { handlePortfolio } from "./paper-portfolio-http";
+import { autoTrackSuggestedTrades as applySuggestedTradesToPaper } from "./paper-portfolio";
 
 
 // ---------------------------------------------------------------------------
@@ -2406,6 +2407,35 @@ async function getSharedChat(env: Env, shareId: string, _ctx: ExecutionContext):
 }
 
 export class CopilotAgent extends CopilotAgentBase<Env> {
+  /**
+   * Remember the signed-in user on this DO so suggest_trades can open paper
+   * positions even when user_chats claim races the first turn.
+   */
+  override async fetch(request: Request): Promise<Response> {
+    try {
+      const user = await getSessionUser(this.env, request);
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      if (user) {
+        this.sql`
+          INSERT INTO paper_session_hint (singleton, user_id, updated_at)
+          VALUES (1, ${user.id}, ${Date.now()})
+          ON CONFLICT(singleton) DO UPDATE SET
+            user_id = ${user.id},
+            updated_at = ${Date.now()}
+        `;
+      }
+    } catch (error) {
+      console.warn("paper session hint skipped", error);
+    }
+    return super.fetch(request);
+  }
+
   protected override loadSchema(): Promise<LakeTable[]> {
     return schemaTables(this.env, this.ctx, false);
   }
@@ -2428,6 +2458,39 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
 
   protected override researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }) {
     return researchTickerForAgent(this.env, symbol, opts);
+  }
+
+  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
+  protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    let userId: string | null = null;
+    try {
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      const hint = this.sql<{ user_id: string }>`
+        SELECT user_id FROM paper_session_hint WHERE singleton = 1
+      `[0];
+      userId = hint?.user_id ?? null;
+    } catch {
+      userId = null;
+    }
+
+    const title = firstUserContent(this.messages);
+
+    return applySuggestedTradesToPaper(
+      this.env.SCHEMA_DB,
+      (sql, key) => r2sql(this.env, sql, key),
+      chatId,
+      trades,
+      { userId, title },
+    );
   }
 }
 
