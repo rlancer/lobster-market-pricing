@@ -72,6 +72,7 @@ describe("kalshi-markets-hourly job adapter", () => {
         PIPELINE_KALSHI_MARKETS_URL,
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
+        KALSHI_SERIES_PACE_MS: 0,
         runId: () => "run-1",
       }));
       expect(run.failures).toEqual([]);
@@ -104,12 +105,13 @@ describe("kalshi-markets-hourly job adapter", () => {
       return new Response("unexpected", { status: 500 });
     });
     try {
-      const job = kalshiMarketsHourlyJob(env({ KALSHI_CONCURRENCY: 1 }));
+      const job = kalshiMarketsHourlyJob(env({ KALSHI_CONCURRENCY: 1, KALSHI_SERIES_PACE_MS: 0 }));
       const run = await job.run(UNIVERSE, env({
         PIPELINE_KALSHI_MARKETS_URL,
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
         KALSHI_CONCURRENCY: 1,
+        KALSHI_SERIES_PACE_MS: 0,
         runId: () => "run-1",
       }));
       expect(run.failures).toHaveLength(1);

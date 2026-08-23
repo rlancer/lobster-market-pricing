@@ -18,6 +18,9 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 // Dry-run: without PIPELINE_KALSHI_MARKETS_URL the pass is a no-op.
 export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
   const concurrency = Math.max(1, Math.floor(num(env, "KALSHI_CONCURRENCY", 1)));
+  // Default 1.5s between series — Kalshi public API 429s under burst.
+  // Tests set KALSHI_SERIES_PACE_MS=0 to avoid wall-clock waits.
+  const seriesPaceMs = Math.floor(num(env, "KALSHI_SERIES_PACE_MS", 1500));
   return {
     id: "kalshi-markets-hourly",
     marketGated: false,
@@ -33,6 +36,7 @@ export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
         ...(e as unknown as KalshiEnv),
         runId: () => runId,
       };
+      const paceMs = Math.floor(num(e, "KALSHI_SERIES_PACE_MS", seriesPaceMs));
       const failures: JobRunFailure[] = [];
       let next = 0;
       const worker = async () => {
@@ -48,9 +52,8 @@ export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
               error: String((error && (error as Error).message) || error),
             });
           }
-          // Pace series — Kalshi public API 429s under burst (too_many_requests).
-          if (index + 1 < items.length) {
-            await new Promise((r) => setTimeout(r, 1500));
+          if (paceMs > 0 && index + 1 < items.length) {
+            await new Promise((r) => setTimeout(r, paceMs));
           }
         }
       };
