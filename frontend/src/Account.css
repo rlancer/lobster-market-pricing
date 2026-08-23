@@ -1,0 +1,29 @@
+.account-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.account-avatar {
+  display: block;
+  flex-shrink: 0;
+  width: var(--size-element-xl, 56px);
+  height: var(--size-element-xl, 56px);
+  max-width: var(--size-element-xl, 56px);
+  max-height: var(--size-element-xl, 56px);
+  border-radius: var(--radius-full);
+  object-fit: cover;
+}
+
+.account-identity-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-handle-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.account-handle-link:hover {
+  color: var(--color-text-accent);
+}

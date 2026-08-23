@@ -114,7 +114,8 @@ button, select { cursor: pointer; }
   text-align: start;
   transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
-.topbar-profile:hover {
+.topbar-profile:hover,
+.topbar-profile[aria-current="page"] {
   color: var(--accent);
   background: var(--color-accent-muted);
 }

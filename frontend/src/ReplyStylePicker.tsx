@@ -20,7 +20,7 @@ import { useReplyStyle } from './useReplyStyle';
 /**
  * Copilot voice + optional context.
  * Compact keeps the composer lean with a preferences popover; full uses
- * descriptive radio rows in Account so the choices are easier to compare.
+ * descriptive radio rows on Account so the choices are easier to compare.
  */
 export function ReplyStylePicker({
   compact = false,

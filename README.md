@@ -163,7 +163,8 @@ can reopen past conversations from the left nav. Sign in / Sign out live in
 the app header so the account is available on every workspace page, not only
 Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
 letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
-`user` row). From the account popover you can also set a **display name** and
+`user` row). From the **Account** page (`/account`, via the left-nav profile
+control) you can also set a **display name** and
 upload a **custom avatar** (JPEG/PNG/WebP/SVG bytes in D1 `user_avatars`;
 `user_profiles.avatar_key` is a presence sentinel, served at
 `/api/avatars/{user_id}`). Handles are the URL slug for `/u/{handle}` (that

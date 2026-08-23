@@ -221,6 +221,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/account') {
+    return {
+      title: pageTitle('Account'),
+      description:
+        'Claim a public handle, set your display name and photo, choose how Lobster replies, and sign out.',
+      path: '/account',
+    };
+  }
+
   if (path === '/users') {
     return {
       title: pageTitle('Users'),
