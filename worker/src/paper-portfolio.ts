@@ -17,6 +17,13 @@ export type LakeSql = (sql: string, key?: string) => Promise<Record<string, unkn
 
 export type PaperPositionStatus = "open" | "closed";
 export type PaperPositionSource = "suggestion" | "manual";
+export type TradeConviction = "high" | "medium" | "low";
+
+/** Parse conviction query/tool input; null means no filter. */
+export function parseConviction(raw: string | null | undefined): TradeConviction | null {
+  if (raw === "high" || raw === "medium" || raw === "low") return raw;
+  return null;
+}
 
 export interface PaperAccount {
   user_id: string;
@@ -694,20 +701,36 @@ export async function listPortfolio(
   db: D1Database,
   lake: LakeSql,
   userId: string,
-  opts?: { status?: "open" | "closed" | "all"; refreshMarks?: boolean },
+  opts?: {
+    status?: "open" | "closed" | "all";
+    conviction?: TradeConviction | null;
+    refreshMarks?: boolean;
+  },
   now = Date.now(),
 ): Promise<PaperPortfolioView> {
   const account = await ensurePaperAccount(db, userId, now);
   const status = opts?.status ?? "all";
+  const conviction = opts?.conviction ?? null;
   const refresh = opts?.refreshMarks !== false;
 
-  const rows = status === "all"
-    ? await db.prepare(
+  let rows: { results?: PaperPositionRow[] };
+  if (status === "all" && !conviction) {
+    rows = await db.prepare(
       `SELECT * FROM paper_positions WHERE user_id = ?1 ORDER BY opened_at DESC LIMIT 200`,
-    ).bind(userId).all<PaperPositionRow>()
-    : await db.prepare(
+    ).bind(userId).all<PaperPositionRow>();
+  } else if (status === "all" && conviction) {
+    rows = await db.prepare(
+      `SELECT * FROM paper_positions WHERE user_id = ?1 AND conviction = ?2 ORDER BY opened_at DESC LIMIT 200`,
+    ).bind(userId, conviction).all<PaperPositionRow>();
+  } else if (status !== "all" && !conviction) {
+    rows = await db.prepare(
       `SELECT * FROM paper_positions WHERE user_id = ?1 AND status = ?2 ORDER BY opened_at DESC LIMIT 200`,
     ).bind(userId, status).all<PaperPositionRow>();
+  } else {
+    rows = await db.prepare(
+      `SELECT * FROM paper_positions WHERE user_id = ?1 AND status = ?2 AND conviction = ?3 ORDER BY opened_at DESC LIMIT 200`,
+    ).bind(userId, status, conviction).all<PaperPositionRow>();
+  }
 
   const positions = rows.results ?? [];
   const views: PaperPositionView[] = [];
@@ -870,8 +893,9 @@ export function formatPaperPortfolioSummary(view: PaperPortfolioView): string {
     const legs = p.legs.length
       ? p.legs.map(formatTradeLeg).join(", ")
       : "no legs";
+    const lean = [p.bias, p.conviction].filter(Boolean).join("/") || "—";
     lines.push(
-      `- ${p.ticker} · ${p.status} · ${p.structure} · qty ${p.qty} · entry ${money(p.entry_value)} · mark ${money(p.mark_value)} · PnL ${money(pnl)} · ${legs}`,
+      `- ${p.ticker} · ${lean} · ${p.status} · ${p.structure} · qty ${p.qty} · entry ${money(p.entry_value)} · mark ${money(p.mark_value)} · PnL ${money(pnl)} · ${legs}`,
     );
   }
   if (positions.length > 40) lines.push(`…and ${positions.length - 40} more`);

@@ -10,6 +10,7 @@ import { getSessionUser } from "./auth";
 import {
   closePosition,
   listPortfolio,
+  parseConviction,
   parseTrackBody,
   trackSuggestion,
   type LakeSql,
@@ -46,9 +47,11 @@ export async function handlePortfolio(
     const status = statusRaw === "open" || statusRaw === "closed" || statusRaw === "all"
       ? statusRaw
       : "all";
+    const conviction = parseConviction(url.searchParams.get("conviction"));
     const refresh = url.searchParams.get("refresh") !== "0";
     const view = await listPortfolio(env.SCHEMA_DB, lake, user.id, {
       status,
+      conviction,
       refreshMarks: refresh,
     });
     return json({ ok: true, ...view }, 200, "private");

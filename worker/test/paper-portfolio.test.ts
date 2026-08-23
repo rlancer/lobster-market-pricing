@@ -79,6 +79,17 @@ test("parseTrackBody rejects junk", () => {
   assert.deepEqual(parseTrackBody({ trade: { ticker: "X" } }), { error: "invalid trade" });
 });
 
+test("parseConviction accepts high|medium|low only", async () => {
+  const { parseConviction } = await import("../src/paper-portfolio.ts");
+  assert.equal(parseConviction("high"), "high");
+  assert.equal(parseConviction("medium"), "medium");
+  assert.equal(parseConviction("low"), "low");
+  assert.equal(parseConviction("HIGH"), null);
+  assert.equal(parseConviction(""), null);
+  assert.equal(parseConviction(null), null);
+  assert.equal(parseConviction(undefined), null);
+});
+
 test("autoTrackSuggestedTrades skips empty and missing owner", async () => {
   const { autoTrackSuggestedTrades } = await import("../src/paper-portfolio.ts");
 

@@ -62,11 +62,13 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
   get_paper_portfolio:
     "Read this chat owner's paper portfolio: cash, equity, open/realized PnL, and positions (from auto-tracked suggest_trades). " +
     "Call when the user asks about their book, paper PnL, tracked suggestions, or how suggested trades are doing. " +
+    "Optional conviction filter (high|medium|low) scopes positions and PnL. " +
     "Requires a signed-in chat owner — returns a clear error when anonymous/bot.",
   get_bot_trades:
     "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
     "Call when the user asks how @yololobster / @nowlobster / another bot's ideas are doing. " +
-    "Pass the bot handle without @. Separate from the signed-in paper portfolio.",
+    "Pass the bot handle without @. Optional conviction filter (high|medium|low) scopes performance. " +
+    "Separate from the signed-in paper portfolio.",
 } as const;
 
 const deskViewpointText = z.string().trim().min(40).max(2_400);
@@ -159,12 +161,16 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   get_paper_portfolio: z.object({
     status: z.enum(["open", "closed", "all"]).default("open")
       .describe("Which positions to include. Default open."),
+    conviction: z.enum(["high", "medium", "low"]).optional()
+      .describe("Optional conviction filter for positions and PnL."),
   }).strict(),
   get_bot_trades: z.object({
     handle: z.string().trim().min(1).max(32)
       .describe("Bot handle without @, e.g. yololobster or nowlobster."),
     status: z.enum(["open", "closed", "all"]).default("open")
       .describe("Which positions to include. Default open."),
+    conviction: z.enum(["high", "medium", "low"]).optional()
+      .describe("Optional conviction filter for positions and PnL."),
   }).strict(),
 } as const;
 

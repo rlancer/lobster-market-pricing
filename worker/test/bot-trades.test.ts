@@ -124,3 +124,79 @@ test("linkBotTradesShare updates rows for a chat", async () => {
   assert.equal(n, 2);
   assert.deepEqual(bound, ["share-1", "chat-xyz"]);
 });
+
+test("listBotTrades filters positions and tallies by conviction", async () => {
+  const { listBotTrades } = await import("../src/bot-trades.ts");
+  const statements: Array<{ sql: string; binds: unknown[] }> = [];
+  const openHigh = {
+    id: "bpos_high",
+    bot_handle: "yololobster",
+    status: "open",
+    chat_id: "c1",
+    share_id: null,
+    run_id: null,
+    suggestion_key: "sug_high",
+    ticker: "NVDA",
+    bias: "bullish",
+    conviction: "high",
+    structure: "long call",
+    rationale: "x",
+    liquidity: null,
+    legs_json: "[]",
+    qty: 1,
+    entry_value: 100,
+    entry_marked_at: 1,
+    mark_value: 150,
+    marked_at: 2,
+    realized_pnl: null,
+    opened_at: 10,
+    closed_at: null,
+  };
+
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...binds: unknown[]) {
+          statements.push({ sql, binds });
+          return this;
+        },
+        async all() {
+          const last = statements[statements.length - 1]!;
+          if (last.sql.includes("FROM bot_trade_positions") && last.sql.includes("SELECT *")) {
+            return { results: [openHigh] };
+          }
+          return { results: [] };
+        },
+        async first() {
+          const last = statements[statements.length - 1]!;
+          if (last.sql.includes("SUM(CASE WHEN status")) {
+            assert.ok(last.sql.includes("conviction = ?2"));
+            assert.equal(last.binds[1], "high");
+            return { open_count: 1, closed_count: 0, realized_pnl: 0 };
+          }
+          return null;
+        },
+        async run() {
+          return { meta: { changes: 0 } };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  const lake = async () => [];
+  const book = await listBotTrades(db, lake, "yololobster", {
+    status: "open",
+    conviction: "high",
+    refreshMarks: false,
+    backfill: false,
+  });
+  assert.ok(book);
+  assert.equal(book!.positions.length, 1);
+  assert.equal(book!.positions[0]?.conviction, "high");
+  assert.equal(book!.summary.open_count, 1);
+  assert.equal(book!.summary.open_pnl, 50);
+
+  const select = statements.find((s) => s.sql.includes("SELECT *") && s.sql.includes("conviction = ?3"));
+  assert.ok(select, "expected status+conviction select");
+  assert.deepEqual(select!.binds.slice(0, 3), ["yololobster", "open", "high"]);
+});
