@@ -336,6 +336,45 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
+  test('mobile shell uses a compact app bar and left navigation drawer', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+
+    await page.goto('/');
+
+    const appBar = page.getByRole('navigation', { name: 'Mobile navigation' });
+    const menu = page.getByTestId('mobile-nav-toggle');
+    const composer = page.getByRole('region', { name: 'Ask the Lobster' });
+    await expect(appBar).toBeVisible();
+    await expect(appBar.getByRole('link', { name: 'Lobster home' })).toContainText('Lobster MP');
+    await expect(menu).toBeVisible();
+
+    const appBarBox = await appBar.boundingBox();
+    const composerBox = await composer.boundingBox();
+    expect(appBarBox && composerBox).toBeTruthy();
+    expect(appBarBox!.height).toBeLessThanOrEqual(56);
+    expect(composerBox!.y).toBeGreaterThanOrEqual(appBarBox!.y + appBarBox!.height - 1);
+
+    await menu.click();
+    const drawer = page.locator('dialog[aria-label="Navigation"]');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Lobster home' })).toContainText('Lobster MP');
+    await expect(drawer.getByRole('button', { name: 'Close navigation' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
+
+    await drawer.getByRole('link', { name: 'Chat', exact: true }).click();
+    await expect(drawer).not.toBeVisible();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+
 
   test('GET /api/timeline/rail is public and returns a rail envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline/rail`);
