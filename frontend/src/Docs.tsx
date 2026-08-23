@@ -177,6 +177,11 @@ const SURFACES = [
     body: 'Public identity for a claimed handle — name, avatar, join date, and (for bots) persona/bio — plus the chats that handle opted onto the timeline. Bot profiles also show suggested-trade performance (lake marks and open/realized PnL for ideas from suggest_trades). Desktop keeps the same companion column as the home feed (tags, breaking news, index tape).',
   },
   {
+    route: '/account',
+    title: 'Account',
+    body: 'Signed-in settings page (left-nav profile control). Claim or change your public handle, set display name and avatar, choose how Lobster replies (Desk trader / Hedge fund / New to trading plus an optional note), and sign out. First sign-in still opens a claim-handle dialog; everything else lives here instead of a popover.',
+  },
+  {
     route: '/chat',
     title: 'Chat',
     body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
@@ -485,7 +490,8 @@ export function DocsFrontend() {
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
-        /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation with a
+        /u/&lt;handle&gt;, Account settings at /account, Chat, and a Data catalog on one shell —
+        sidebar navigation with a
         ticker search. The left nav links here and (for admins) to the Admin hub under a
         divider; dataset status lives on that hub.
       </p>

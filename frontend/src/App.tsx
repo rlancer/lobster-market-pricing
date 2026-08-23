@@ -285,7 +285,7 @@ function WorkspaceHelpNavItems({
 function WorkspaceAccountNav() {
   return (
     <VStack className="nav-account" gap={2} width="100%">
-      <AuthControls placement="above" alignment="start" />
+      <AuthControls />
     </VStack>
   );
 }

@@ -9,6 +9,7 @@ import DataPage from './DataPage';
 import AiChat from './AiChat';
 import TimelinePage from './Timeline';
 import ProfilePage from './Profile';
+import AccountPage from './Account';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
@@ -144,6 +145,12 @@ const profileRoute = createRoute({
   component: ProfilePage,
 });
 
+const accountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account',
+  component: AccountPage,
+});
+
 const brandRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/brand',
@@ -267,6 +274,7 @@ const routeTree = rootRoute.addChildren([
   chatIndexRoute,
   chatRoute,
   profileRoute,
+  accountRoute,
   dataRoute,
   labRoute,
   marketRoute,
