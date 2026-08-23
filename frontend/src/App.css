@@ -99,6 +99,8 @@ button, select { cursor: pointer; }
 .nav-research-search {
   width: 100%;
   min-width: 0;
+  /* Keep the typeahead clear of Timeline / Chat below (rail + mobile drawer). */
+  padding-block-end: var(--spacing-3);
 }
 
 .nav-account {
