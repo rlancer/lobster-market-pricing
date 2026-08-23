@@ -90,29 +90,28 @@ button, select { cursor: pointer; }
   align-items: stretch;
   padding-block-start: var(--spacing-2);
 }
-.nav-account .monitor-status {
+.nav-account .topbar-profile {
   width: 100%;
   justify-content: flex-start;
-  white-space: normal;
-}
-.nav-account .topbar-profile {
-  align-self: flex-start;
 }
 
-/* Top bar removed — profile/status live in .nav-account. */
+/* Top bar removed — profile lives in .nav-account. */
 .topbar-profile {
-  display: grid;
-  place-items: center;
-  width: var(--size-element-lg);
-  height: var(--size-element-lg);
-  padding: var(--spacing-0);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--size-element-lg);
+  padding: var(--spacing-1);
   border: var(--spacing-0);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--muted);
+  color: var(--color-text);
   text-decoration: none;
   cursor: pointer;
   overflow: hidden;
+  text-align: start;
   transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 .topbar-profile:hover {
@@ -125,11 +124,16 @@ button, select { cursor: pointer; }
 }
 .topbar-profile-icon {
   display: block;
+  flex-shrink: 0;
   width: var(--size-element-lg);
   height: var(--size-element-lg);
   border-radius: var(--radius-full);
   object-fit: cover;
   transition: transform var(--duration-fast) var(--ease-standard);
+}
+.topbar-profile-copy {
+  flex: 1;
+  min-width: 0;
 }
 .topbar-account-copy {
   flex: 1;
@@ -391,7 +395,6 @@ button, select { cursor: pointer; }
   .actions { grid-column: 1 / -1; justify-content: flex-end; margin-left: var(--spacing-0); }
 }
 @media (max-width: 768px) {
-  .topbar-profile,
   .topbar-profile-icon {
     width: var(--size-element-md);
     height: var(--size-element-md);

@@ -6,10 +6,9 @@ import { useWorkspace } from './workspace';
 import './MonitorStatus.css';
 
 /**
- * Consolidated dataset-status chip for the left-nav footer. Replaces the old trio of
- * (Dataset-ready dot · "As of …" · "Data · date · status" chip + popover) with
- * one element that folds all of it together and navigates to the full monitor
- * page (/monitor). The detail (loader loop, run history) lives on that page.
+ * Consolidated dataset-status chip for the Admin hub. Folds ready state, as-of
+ * date, and run status into one control that opens the full monitor page
+ * (/monitor) for loader loop and run history.
  */
 const toneOf = (status: string): string => {
   const s = status.toLowerCase();

@@ -2,3 +2,15 @@
   width: 100%;
   margin-inline: auto;
 }
+
+.admin-dataset {
+  width: 100%;
+  align-items: flex-start;
+}
+
+.admin-dataset .monitor-status {
+  width: auto;
+  max-width: 100%;
+  justify-content: flex-start;
+  white-space: normal;
+}
