@@ -13,13 +13,12 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
-import MonitorStatus from './MonitorStatus';
 import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
@@ -52,10 +51,10 @@ const SECTIONS: Section[] = [
   { to: '/portfolio', label: 'Portfolio', heading: 'Paper portfolio', icon: Briefcase },
 ];
 
-// Research, Data, Docs, Admin, dataset status, and account sit under a divider
-// at the bottom of the left nav (no top bar).
+// Data, Docs, Admin, and account sit under a divider at the bottom of the left
+// nav. Research lives behind the ticker search (no dedicated nav link). Dataset
+// status lives on the Admin hub.
 const BOTTOM_SECTIONS: Section[] = [
-  { to: '/research', label: 'Research', heading: 'Research', icon: LineChart },
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
@@ -255,11 +254,7 @@ function WorkspaceHelpNavItems({
           href={section.to}
           label={section.label}
           icon={section.icon}
-          isSelected={
-            section.to === '/research'
-              ? Boolean(activeTo?.startsWith('/research'))
-              : activeTo === section.to
-          }
+          isSelected={activeTo === section.to}
           onClick={closeMobileNav}
         />
       ))}
@@ -289,7 +284,6 @@ function WorkspaceHelpNavItems({
 function WorkspaceAccountNav() {
   return (
     <VStack className="nav-account" gap={2} width="100%">
-      <MonitorStatus />
       <AuthControls placement="above" alignment="start" />
     </VStack>
   );

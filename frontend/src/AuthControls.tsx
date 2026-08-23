@@ -12,7 +12,6 @@ import {
   Popover,
   Text,
   TextInput,
-  Tooltip,
   VStack,
 } from '@astryxdesign/core';
 import { AtSign, LogOut, UserRound } from 'lucide-react';
@@ -183,7 +182,7 @@ export function AuthControls({
   }
 
   const userId = user.id;
-  const displayName = profile?.name || user.name || user.email || 'Account';
+  const displayName = profile?.display_name || profile?.name || user.name || user.email || 'Account';
   const email = user.email && user.email !== displayName ? user.email : null;
   const currentHandle = profile?.handle ?? null;
   const canSaveHandle = !saving && !handleInputError(draft) && draft !== (currentHandle ?? '');
@@ -487,11 +486,21 @@ export function AuthControls({
           </VStack>
         }
       >
-        <Tooltip content="Account" hasHoverIndication={false}>
-          <button type="button" className="topbar-profile" aria-label="Account">
-            <UserAvatar avatarUrl={avatarDisplayUrl} className="topbar-profile-icon" alt="" />
-          </button>
-        </Tooltip>
+        <button
+          type="button"
+          className="topbar-profile"
+          aria-label={currentHandle ? `Account · ${displayName} (@${currentHandle})` : `Account · ${displayName}`}
+        >
+          <UserAvatar avatarUrl={avatarDisplayUrl} className="topbar-profile-icon" alt="" />
+          <VStack gap={0} className="topbar-profile-copy" hAlign="start">
+            <Text type="body" weight="semibold" maxLines={1}>{displayName}</Text>
+            {currentHandle ? (
+              <Text type="supporting" maxLines={1}>@{currentHandle}</Text>
+            ) : (
+              <Text type="supporting" maxLines={1}>Choose a handle</Text>
+            )}
+          </VStack>
+        </button>
       </Popover>
       <Dialog
         isOpen={claimOpen}

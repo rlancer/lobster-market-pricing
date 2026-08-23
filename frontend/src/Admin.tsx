@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Heading, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
 import { Bot, ChevronRight, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
+import MonitorStatus from './MonitorStatus';
 import { useIsAdmin } from './useAdmin';
 import './Admin.css';
 
@@ -83,6 +84,11 @@ export default function AdminPage() {
           Operator tools for bots, users, chats, suggested trades, Copilot
           internals, and brand. Open one from here instead of crowding the left nav.
         </Text>
+      </VStack>
+
+      <VStack className="admin-dataset" gap={2}>
+        <Text type="supporting" weight="semibold">Dataset</Text>
+        <MonitorStatus />
       </VStack>
 
       <List density="spacious" hasDividers header="Tools">

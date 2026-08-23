@@ -194,12 +194,12 @@ const SURFACES = [
   {
     route: '/monitor',
     title: 'Monitor',
-    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The status chip in the left nav jumps here.',
+    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. Open it from the dataset chip on the Admin hub.',
   },
   {
     route: '/admin',
     title: 'Admin',
-    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Copilot internals, and brand. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Copilot internals, brand, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
   },
 ];
 
@@ -485,9 +485,9 @@ export function DocsFrontend() {
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
-        /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation plus a
-        left-nav dataset status. The left nav links here and (for admins) to the Admin hub
-        under a divider.
+        /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation with a
+        ticker search. The left nav links here and (for admins) to the Admin hub under a
+        divider; dataset status lives on that hub.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
     </Section>
