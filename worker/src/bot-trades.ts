@@ -5,6 +5,8 @@
 
 import type { SuggestedTrades, TradeLeg } from "./copilot-trades";
 import { formatTradeLeg, normalizeSuggestedTrades } from "./copilot-trades";
+import { tradesFromToolArgs } from "./admin-trades";
+import { parseToolArgsJson } from "./copilot-tool-events";
 import {
   markStructure,
   suggestionKey,
@@ -203,7 +205,25 @@ export async function trackBotSuggestedTrades(
       continue;
     }
 
-    const mark = await markStructure(lake, idea.ticker, idea.legs, 1, now);
+    let mark: Awaited<ReturnType<typeof markStructure>>;
+    try {
+      mark = await markStructure(lake, idea.ticker, idea.legs, 1, now);
+    } catch (error) {
+      mark = {
+        value: null,
+        marked_at: now,
+        incomplete: true,
+        legs: [{
+          instrument: "option",
+          side: "buy",
+          qty: 1,
+          symbol: idea.ticker,
+          mid: null,
+          value: null,
+          error: error instanceof Error ? error.message : "mark failed",
+        }],
+      };
+    }
     // Bot book keeps the idea even when the lake cannot mark (e.g. expired 0DTE).
     // Personal paper cash requires a debit — bots do not.
     const markedAt = mark.value != null ? now : null;
@@ -363,6 +383,75 @@ export async function backfillBotTradesFromShares(
   return { scanned, tracked, already, failed };
 }
 
+/**
+ * Snapshot suggest_trades from copilot_tool_events for this bot's runs.
+ * Covers shares that dropped `trades` under the byte budget, and unshared runs.
+ */
+export async function backfillBotTradesFromToolEvents(
+  db: D1Database,
+  lake: LakeSql,
+  botHandleRaw: string,
+  opts?: { limit?: number; now?: number },
+): Promise<{ scanned: number; tracked: number; already: number; failed: number }> {
+  const parsed = parseHandle(botHandleRaw);
+  if (!parsed.ok) {
+    return { scanned: 0, tracked: 0, already: 0, failed: 0 };
+  }
+  const botHandle = parsed.handle;
+  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
+  const now = opts?.now ?? Date.now();
+
+  const events = await db.prepare(
+    `SELECT e.event_id, e.chat_id, e.args_json, e.created_at, r.run_id, r.share_id
+     FROM copilot_tool_events e
+     INNER JOIN bot_runs r ON r.chat_id = e.chat_id AND r.handle = ?1
+     WHERE e.tool_name = 'suggest_trades' AND e.ok = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM bot_trade_positions p WHERE p.chat_id = e.chat_id LIMIT 1
+       )
+     ORDER BY e.created_at DESC
+     LIMIT ?2`,
+  ).bind(botHandle, limit).all<{
+    event_id: string;
+    chat_id: string;
+    args_json: string;
+    created_at: number;
+    run_id: string;
+    share_id: string | null;
+  }>();
+
+  let scanned = 0;
+  let tracked = 0;
+  let already = 0;
+  let failed = 0;
+
+  for (const event of events.results ?? []) {
+    const ideas = tradesFromToolArgs(parseToolArgsJson(event.args_json));
+    if (ideas.length === 0) continue;
+    scanned += 1;
+    const payload = normalizeSuggestedTrades({ trades: ideas });
+    if (!payload || payload.trades.length === 0) continue;
+    const result = await trackBotSuggestedTrades(
+      db,
+      lake,
+      botHandle,
+      event.chat_id,
+      payload,
+      {
+        shareId: event.share_id,
+        runId: event.run_id,
+        now,
+        openedAt: Number.isFinite(event.created_at) ? event.created_at : now,
+      },
+    );
+    tracked += result.tracked;
+    already += result.already;
+    failed += result.failed;
+  }
+
+  return { scanned, tracked, already, failed };
+}
+
 export async function listBotTrades(
   db: D1Database,
   lake: LakeSql,
@@ -384,7 +473,10 @@ export async function listBotTrades(
 
   if (opts?.backfill !== false) {
     try {
-      await backfillBotTradesFromShares(db, lake, botHandle, { now });
+      // Shares first (when trades survived the byte budget), then tool events
+      // for the common case where share JSON dropped trades.
+      await backfillBotTradesFromShares(db, lake, botHandle, { now, limit: 15 });
+      await backfillBotTradesFromToolEvents(db, lake, botHandle, { now, limit: 25 });
     } catch (error) {
       console.warn("bot trades backfill skipped", error);
     }
