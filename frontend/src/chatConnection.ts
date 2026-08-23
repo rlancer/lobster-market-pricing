@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type AgentSocketState = 'open' | 'reconnecting' | 'offline';
+export type AgentSocketState = 'connecting' | 'open' | 'reconnecting' | 'offline';
 
 export interface ReconnectableAgent {
   addEventListener(type: string, listener: (event: Event) => void): void;
@@ -17,13 +17,16 @@ export function reconnectDelayMs(attempt: number): number {
   return Math.min(400 * 2 ** Math.max(0, attempt), 10_000);
 }
 
+/** Map WebSocket readyState → UI state. Initial CONNECTING is not a reconnect —
+ *  only report `reconnecting` after the socket has opened at least once. */
 export function socketStateFromReadyState(
   readyState: number,
   online = typeof navigator === 'undefined' ? true : navigator.onLine,
+  hadOpen = false,
 ): AgentSocketState {
   if (readyState === 1) return 'open';
   if (!online) return 'offline';
-  return 'reconnecting';
+  return hadOpen ? 'reconnecting' : 'connecting';
 }
 
 export function useAgentReconnect(agent: ReconnectableAgent): {
@@ -36,7 +39,10 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
   agentRef.current = agent;
   const quietRef = useRef(false);
   const attemptRef = useRef(0);
-  const [state, setState] = useState<AgentSocketState>(() => socketStateFromReadyState(agent.readyState));
+  const hadOpenRef = useRef(agent.readyState === 1);
+  const [state, setState] = useState<AgentSocketState>(() =>
+    socketStateFromReadyState(agent.readyState, undefined, hadOpenRef.current),
+  );
   const [attempt, setAttempt] = useState(0);
 
   const reconnect = useCallback((opts?: { quiet?: boolean; force?: boolean }) => {
@@ -46,11 +52,12 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
     if (quiet) quietRef.current = true;
     if (socket.readyState === 1 && !force) {
       quietRef.current = false;
+      hadOpenRef.current = true;
       setState('open');
       return;
     }
     if (!quiet && socket.readyState !== 1) {
-      setState(socketStateFromReadyState(socket.readyState));
+      setState(socketStateFromReadyState(socket.readyState, undefined, hadOpenRef.current));
     }
     socket.reconnect?.();
   }, []);
@@ -59,6 +66,7 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
     const onOpen = () => {
       quietRef.current = false;
       attemptRef.current = 0;
+      hadOpenRef.current = true;
       setAttempt(0);
       setState('open');
     };
@@ -69,10 +77,10 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
       }
       attemptRef.current += 1;
       setAttempt(attemptRef.current);
-      setState(socketStateFromReadyState(agentRef.current.readyState));
+      setState(socketStateFromReadyState(agentRef.current.readyState, undefined, hadOpenRef.current));
     };
     const onOnline = () => {
-      setState(socketStateFromReadyState(agentRef.current.readyState, true));
+      setState(socketStateFromReadyState(agentRef.current.readyState, true, hadOpenRef.current));
       reconnect();
     };
     const onOffline = () => {
@@ -81,6 +89,7 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       if (agentRef.current.readyState === 1) {
+        hadOpenRef.current = true;
         setState('open');
         return;
       }
@@ -92,7 +101,7 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     document.addEventListener('visibilitychange', onVisible);
-    setState(socketStateFromReadyState(agent.readyState));
+    setState(socketStateFromReadyState(agent.readyState, undefined, hadOpenRef.current));
 
     return () => {
       agent.removeEventListener('open', onOpen);
@@ -107,12 +116,14 @@ export function useAgentReconnect(agent: ReconnectableAgent): {
     if (state !== 'reconnecting') return;
     const socket = agentRef.current;
     if (socket.readyState === 1) {
+      hadOpenRef.current = true;
       setState('open');
       return;
     }
     const delay = reconnectDelayMs(attempt);
     const timer = window.setTimeout(() => {
       if (agentRef.current.readyState === 1) {
+        hadOpenRef.current = true;
         setState('open');
         return;
       }
