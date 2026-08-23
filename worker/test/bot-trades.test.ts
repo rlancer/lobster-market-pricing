@@ -84,6 +84,25 @@ test("formatBotTradesSummary lists handle and PnL", async () => {
   assert.match(text, /share_abc/);
 });
 
+test("extractTradesFromShareMessages reads assistant trades", async () => {
+  const { extractTradesFromShareMessages } = await import("../src/bot-trades.ts");
+  const json = JSON.stringify([
+    { role: "user", content: "scan" },
+    {
+      role: "assistant",
+      content: "yolo",
+      trades: {
+        trades: [sampleTrade],
+      },
+    },
+  ]);
+  const found = extractTradesFromShareMessages(json);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.trades[0]?.ticker, "NVDA");
+  assert.deepEqual(extractTradesFromShareMessages("not-json"), []);
+  assert.deepEqual(extractTradesFromShareMessages("[]"), []);
+});
+
 test("linkBotTradesShare updates rows for a chat", async () => {
   const { linkBotTradesShare } = await import("../src/bot-trades.ts");
   let bound: unknown[] = [];

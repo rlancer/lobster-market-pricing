@@ -156,7 +156,7 @@ export async function trackBotSuggestedTrades(
   botHandleRaw: string,
   chatId: string,
   payload: SuggestedTrades,
-  opts?: { shareId?: string | null; runId?: string | null; now?: number },
+  opts?: { shareId?: string | null; runId?: string | null; now?: number; openedAt?: number },
 ): Promise<BotTrackResult> {
   const parsed = parseHandle(botHandleRaw);
   if (!parsed.ok) {
@@ -169,6 +169,7 @@ export async function trackBotSuggestedTrades(
   }
 
   const now = opts?.now ?? Date.now();
+  const openedAt = opts?.openedAt ?? now;
   const chat = clip(chatId, 64);
   const shareId = opts?.shareId ? clip(opts.shareId, 64) : null;
   const runId = opts?.runId ? clip(opts.runId, 64) : null;
@@ -203,11 +204,9 @@ export async function trackBotSuggestedTrades(
     }
 
     const mark = await markStructure(lake, idea.ticker, idea.legs, 1, now);
-    if (mark.incomplete || mark.value == null) {
-      failed += 1;
-      errors.push(`${idea.ticker}: ${mark.legs.find((l) => l.error)?.error ?? "could not mark"}`);
-      continue;
-    }
+    // Bot book keeps the idea even when the lake cannot mark (e.g. expired 0DTE).
+    // Personal paper cash requires a debit — bots do not.
+    const markedAt = mark.value != null ? now : null;
 
     const id = newId("bpos");
     try {
@@ -221,7 +220,7 @@ export async function trackBotSuggestedTrades(
           ?1, ?2, 'open', ?3, ?4, ?5, ?6,
           ?7, ?8, ?9, ?10, ?11, ?12,
           ?13, 1, ?14, ?15, ?14, ?15,
-          NULL, ?15, NULL
+          NULL, ?16, NULL
         )`,
       ).bind(
         id,
@@ -238,9 +237,13 @@ export async function trackBotSuggestedTrades(
         idea.liquidity ? clip(idea.liquidity, 240) : null,
         JSON.stringify(idea.legs),
         mark.value,
-        now,
+        markedAt,
+        openedAt,
       ).run();
       tracked += 1;
+      if (mark.incomplete || mark.value == null) {
+        errors.push(`${idea.ticker}: opened without mark (${mark.legs.find((l) => l.error)?.error ?? "incomplete"})`);
+      }
     } catch {
       const raced = await db.prepare(
         `SELECT id FROM bot_trade_positions WHERE bot_handle = ?1 AND suggestion_key = ?2`,
@@ -270,11 +273,106 @@ export async function linkBotTradesShare(
   return result.meta.changes ?? 0;
 }
 
+/** Pull SuggestedTrades payloads from a shared_chats.messages JSON blob. */
+export function extractTradesFromShareMessages(messagesJson: string): SuggestedTrades[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(messagesJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: SuggestedTrades[] = [];
+  for (const row of parsed) {
+    if (!row || typeof row !== "object") continue;
+    const tradesRaw = (row as { trades?: unknown }).trades;
+    if (!tradesRaw || typeof tradesRaw !== "object") continue;
+    const normalized = normalizeSuggestedTrades(tradesRaw as { trades?: unknown; skip_reason?: unknown });
+    if (normalized && normalized.trades.length > 0) out.push(normalized);
+  }
+  return out;
+}
+
+/**
+ * Snapshot suggest_trades from recent public bot shares into the performance book.
+ * Idempotent via suggestion_key; skips chats that already have positions.
+ */
+export async function backfillBotTradesFromShares(
+  db: D1Database,
+  lake: LakeSql,
+  botHandleRaw: string,
+  opts?: { limit?: number; now?: number },
+): Promise<{ scanned: number; tracked: number; already: number; failed: number }> {
+  const parsed = parseHandle(botHandleRaw);
+  if (!parsed.ok) {
+    return { scanned: 0, tracked: 0, already: 0, failed: 0 };
+  }
+  const botHandle = parsed.handle;
+  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
+  const now = opts?.now ?? Date.now();
+
+  const shares = await db.prepare(
+    `SELECT share_id, chat_id, run_id, created_at, messages
+     FROM shared_chats
+     WHERE bot_handle = ?1
+       AND messages LIKE '%"legs"%'
+       AND NOT EXISTS (
+         SELECT 1 FROM bot_trade_positions p
+         WHERE p.share_id = shared_chats.share_id OR p.chat_id = shared_chats.chat_id
+         LIMIT 1
+       )
+     ORDER BY created_at DESC
+     LIMIT ?2`,
+  ).bind(botHandle, limit).all<{
+    share_id: string;
+    chat_id: string;
+    run_id: string | null;
+    created_at: number;
+    messages: string;
+  }>();
+
+  let scanned = 0;
+  let tracked = 0;
+  let already = 0;
+  let failed = 0;
+
+  for (const share of shares.results ?? []) {
+    const payloads = extractTradesFromShareMessages(share.messages);
+    if (payloads.length === 0) continue;
+    scanned += 1;
+    for (const payload of payloads) {
+      const result = await trackBotSuggestedTrades(
+        db,
+        lake,
+        botHandle,
+        share.chat_id,
+        payload,
+        {
+          shareId: share.share_id,
+          runId: share.run_id,
+          now,
+          openedAt: Number.isFinite(share.created_at) ? share.created_at : now,
+        },
+      );
+      tracked += result.tracked;
+      already += result.already;
+      failed += result.failed;
+    }
+  }
+
+  return { scanned, tracked, already, failed };
+}
+
 export async function listBotTrades(
   db: D1Database,
   lake: LakeSql,
   botHandleRaw: string,
-  opts?: { status?: "open" | "closed" | "all"; refreshMarks?: boolean; limit?: number },
+  opts?: {
+    status?: "open" | "closed" | "all";
+    refreshMarks?: boolean;
+    limit?: number;
+    backfill?: boolean;
+  },
   now = Date.now(),
 ): Promise<BotTradesBook | null> {
   const parsed = parseHandle(botHandleRaw);
@@ -283,6 +381,14 @@ export async function listBotTrades(
   const status = opts?.status ?? "open";
   const refresh = opts?.refreshMarks !== false;
   const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
+
+  if (opts?.backfill !== false) {
+    try {
+      await backfillBotTradesFromShares(db, lake, botHandle, { now });
+    } catch (error) {
+      console.warn("bot trades backfill skipped", error);
+    }
+  }
 
   const rows = status === "all"
     ? await db.prepare(
@@ -302,11 +408,20 @@ export async function listBotTrades(
         try {
           const mark = await markStructure(lake, row.ticker, legs, row.qty, now);
           if (mark.value != null) {
+            // First successful mark becomes entry when the idea opened unmarkable.
+            const entryValue = row.entry_value ?? mark.value;
+            const entryMarkedAt = row.entry_marked_at ?? now;
             await db.prepare(
-              `UPDATE bot_trade_positions SET mark_value = ?1, marked_at = ?2 WHERE id = ?3`,
+              `UPDATE bot_trade_positions
+               SET mark_value = ?1, marked_at = ?2,
+                   entry_value = COALESCE(entry_value, ?1),
+                   entry_marked_at = COALESCE(entry_marked_at, ?2)
+               WHERE id = ?3`,
             ).bind(mark.value, now, row.id).run();
             row.mark_value = mark.value;
             row.marked_at = now;
+            row.entry_value = entryValue;
+            row.entry_marked_at = entryMarkedAt;
           }
         } catch {
           // Keep last mark.
@@ -332,6 +447,19 @@ export async function listBotTrades(
   let openPnl = 0;
   for (const p of views) {
     if (p.status === "open" && p.unrealized_pnl != null) openPnl += p.unrealized_pnl;
+  }
+
+  // When viewing closed-only, still surface open PnL from a cheap open-position pass.
+  if (status === "closed" && Number(tallies?.open_count ?? 0) > 0) {
+    const openRows = await db.prepare(
+      `SELECT entry_value, mark_value FROM bot_trade_positions
+       WHERE bot_handle = ?1 AND status = 'open' AND entry_value IS NOT NULL AND mark_value IS NOT NULL`,
+    ).bind(botHandle).all<{ entry_value: number; mark_value: number }>();
+    openPnl = 0;
+    for (const r of openRows.results ?? []) {
+      const pnl = unrealizedPnl(r.entry_value, r.mark_value);
+      if (pnl != null) openPnl += pnl;
+    }
   }
 
   return {

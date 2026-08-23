@@ -66,8 +66,8 @@ export function BotTradesSection({ handle }: { handle: string }) {
         <VStack gap={1}>
           <Heading level={2}>Suggested trades</Heading>
           <Text type="supporting">
-            Ideas this bot published via suggest_trades, marked against the lake.
-            Not a cash paper book — performance of the suggestions themselves.
+            Ideas this bot published via suggest_trades, marked against the lake when quotes exist.
+            Expired or unquoted legs still list here without PnL. Not a cash paper book.
           </Text>
         </VStack>
         <HStack gap={2} wrap="wrap">
