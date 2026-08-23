@@ -64,7 +64,7 @@ export const KALSHI_MARKETS_FIELDS = [
   "source", "run_id", "fetched_at",
 ] as const;
 
-export const HTTP_RETRIES_DEFAULT = 5;
+export const HTTP_RETRIES_DEFAULT = 2;
 export const RETRY_BACKOFF_SECONDS_DEFAULT = 1;
 export const REQUEST_TIMEOUT_SECONDS_DEFAULT = 20;
 export const PAGE_LIMIT_DEFAULT = 200;
@@ -72,6 +72,8 @@ export const PAGE_LIMIT_DEFAULT = 200;
 export const MAX_PAGES_DEFAULT = 3;
 /** Floor gap between any two Kalshi GETs in this isolate (ms). */
 export const MIN_REQUEST_GAP_MS_DEFAULT = 400;
+/** Cap a single 429 sleep so one hot series cannot burn the whole pass budget. */
+export const MAX_429_WAIT_SECONDS = 12;
 
 export interface KalshiEnv {
   KALSHI_API_BASE?: string;
@@ -173,9 +175,15 @@ async function paceKalshiRequest(env: KalshiEnv): Promise<void> {
 
 function retryWaitSeconds(env: KalshiEnv, attempt: number, status: number, retryAfterHeader: string | null): number {
   const retryAfter = Number(retryAfterHeader);
-  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter;
-  // Kalshi often omits Retry-After; use a steeper floor for 429 than generic 5xx.
-  if (status === 429) return Math.max(backoffSeconds(env, attempt), 8 * 2 ** attempt);
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return Math.min(retryAfter, MAX_429_WAIT_SECONDS);
+  }
+  // Kalshi often omits Retry-After. Cap waits so 429 storms fail the series
+  // quickly and the pass can finish remaining tickers inside LOADER_RUN_TIMEOUT
+  // (a 600s abort previously zeroed the whole allowlist).
+  if (status === 429) {
+    return Math.min(MAX_429_WAIT_SECONDS, Math.max(backoffSeconds(env, attempt), 3 * 2 ** attempt));
+  }
   return backoffSeconds(env, attempt);
 }
 

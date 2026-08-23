@@ -34,8 +34,9 @@
     "LOADER_BACKOFF_CAP_SECONDS": 1800,
     // Safety net for a pass (runSymbols). On timeout the batch backs off and is
     // retried — the loop stays healthy. Sized for a full-universe concurrent
-    // pass (~3–6 min at batch 250 / concurrency 8).
-    "LOADER_RUN_TIMEOUT_SECONDS": 600,
+    // pass (~3–6 min at batch 250 / concurrency 8). Also covers paced Kalshi
+    // hourly (18 series × gap + capped 429 retries) without aborting mid-pass.
+    "LOADER_RUN_TIMEOUT_SECONDS": 900,
     // Concurrency for CBOE fetches + Pipeline publishes within a pass
     // (runSymbols promise semaphore). I/O-bound, so it scales near-linearly
     // without extra CPU.
