@@ -1,0 +1,29 @@
+{
+  "fields": [
+    {"name":"series_ticker","type":"string","required":true},
+    {"name":"market_ticker","type":"string","required":true},
+    {"name":"event_ticker","type":"string","required":false},
+    {"name":"title","type":"string","required":true},
+    {"name":"yes_subtitle","type":"string","required":false},
+    {"name":"theme","type":"string","required":true},
+    {"name":"category","type":"string","required":false},
+    {"name":"status","type":"string","required":true},
+    {"name":"market_type","type":"string","required":false},
+    {"name":"yes_bid","type":"float64","required":false},
+    {"name":"yes_ask","type":"float64","required":false},
+    {"name":"yes_last","type":"float64","required":false},
+    {"name":"no_bid","type":"float64","required":false},
+    {"name":"no_ask","type":"float64","required":false},
+    {"name":"volume","type":"float64","required":false},
+    {"name":"volume_24h","type":"float64","required":false},
+    {"name":"open_interest","type":"float64","required":false},
+    {"name":"liquidity","type":"float64","required":false},
+    {"name":"floor_strike","type":"float64","required":false},
+    {"name":"close_time","type":"string","required":false},
+    {"name":"expiration_time","type":"string","required":false},
+    {"name":"related_symbol","type":"string","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

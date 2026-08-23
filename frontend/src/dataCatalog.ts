@@ -161,8 +161,8 @@ export const TOOLS: CatalogItem[] = [
     title: 'suggest_trades',
     summary: 'Structured end-of-turn trade ideas',
     description:
-      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity, side buy|sell (long/short), optional qty, plus option right/strike/expiry. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence.',
-    tables: ['option_contracts'],
+      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity|kalshi, side buy|sell (long/short), optional qty, plus option right/strike/expiry or Kalshi market_ticker + contract_side (yes|no). The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute option strikes must come from option_contracts quote evidence; Kalshi legs must cite options.kalshi_markets quotes.',
+    tables: ['option_contracts', 'kalshi_markets'],
     tools: ['research_ticker', 'run_query', 'publish_desk'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
@@ -237,6 +237,18 @@ export const FEEDS: CatalogItem[] = [
     cadence: 'Daily (fred-yields-daily job)',
     tables: ['yields'],
     tools: ['run_query', 'render_chart'],
+  },
+  {
+    id: 'feed:kalshi',
+    kind: 'feed',
+    title: 'Kalshi event contracts',
+    summary: 'Curated Fed/CPI/index/crypto/oil prediction markets',
+    description:
+      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI. Not the full Kalshi catalog (sports/entertainment excluded). Each row carries yes/no bids, last, volume/OI, close_time, theme, and optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Use for market-implied probs on event-vol weeks and as the foundation for Kalshi trade suggestions.',
+    provider: 'Kalshi',
+    cadence: 'Hourly (kalshi-markets-hourly job)',
+    tables: ['kalshi_markets'],
+    tools: ['run_query', 'suggest_trades'],
   },
   {
     id: 'feed:federalreserve',
@@ -513,6 +525,13 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
       'series_id, date, value (percent / percentage points), title, tenor, kind (nominal|real|breakeven|spread|policy), source=fred. Constant-maturity DGS* curve, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR. ~10y of daily history; latest-wins on (series_id, date). Prefer this over bond ETF closes when the question is about the yield curve.',
     feeds: ['fred-yields'],
     tools: ['run_query', 'render_chart'],
+  },
+  kalshi_markets: {
+    summary: 'Curated Kalshi event-contract odds',
+    description:
+      'Investing-relevant Kalshi markets only (Fed/CPI/GDP/indexes/crypto/oil): series_ticker, market_ticker, title, theme, yes_bid/yes_ask/yes_last (0–1), volume/OI, close_time, related_symbol. Hourly snapshots; latest-wins on market_ticker. Join related_symbol to options.ohlc / option_contracts for event-vol context. Foundation for Kalshi legs in suggest_trades.',
+    feeds: ['kalshi'],
+    tools: ['run_query', 'suggest_trades'],
   },
   futures_settlements: {
     summary: 'CFE daily settlement prices (VX curve)',
