@@ -24,7 +24,7 @@ import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type Qu
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
-import { clearBotSession, clearPendingPrompt, ensureLiveChatId, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, startNewChatId } from './chatSession';
+import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
@@ -1464,10 +1464,18 @@ function AiChat() {
     rememberChatId(chatId);
   }, [chatId]);
   const newChat = useCallback(() => {
-    clearBotSession();
-    const created = startNewChatId();
+    const created = requestNewChat();
     setLiveId(created);
     if (routeChatId) void navigate({ to: '/chat' });
+  }, [navigate, routeChatId]);
+
+  useEffect(() => {
+    const onExternalNewChat = () => {
+      setLiveId(ensureLiveChatId());
+      if (routeChatId) void navigate({ to: '/chat' });
+    };
+    window.addEventListener(NEW_CHAT_EVENT, onExternalNewChat);
+    return () => window.removeEventListener(NEW_CHAT_EVENT, onExternalNewChat);
   }, [navigate, routeChatId]);
 
   // Saved chats may be account-owned — wait for auth before the agent
