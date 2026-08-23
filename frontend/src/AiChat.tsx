@@ -18,7 +18,6 @@ import {
   Timestamp,
   useChatStreamScroll,
   useMediaQuery,
-  VStack,
 } from '@astryxdesign/core';
 import { Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
@@ -1321,9 +1320,7 @@ function AiChatSession({
                   </section>
 
                   <footer className="ai-composer-wrap">
-                    <VStack gap={2}>
-                      {!botHandle && <ReplyStylePicker compact />}
-                      <ChatComposer
+                    <ChatComposer
                       value={input}
                       onChange={setInput}
                       onSubmit={send}
@@ -1341,9 +1338,9 @@ function AiChatSession({
                                   ? 'Start to resume, or ask a follow-up…'
                                   : 'Ask about liquidity, volatility, or a ticker…'
                       }
+                      footerActions={!botHandle ? <ReplyStylePicker compact /> : undefined}
                       sendButton={<ChatSendButton />}
                     />
-                    </VStack>
                   </footer>
 
         </section>

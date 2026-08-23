@@ -1,10 +1,26 @@
-import { Button, HStack, Text, TextArea, TextInput, VStack } from '@astryxdesign/core';
-import { REPLY_NOTE_MAX, REPLY_STYLE_OPTIONS } from './replyStyle';
+import {
+  Button,
+  Divider,
+  Popover,
+  RadioList,
+  RadioListItem,
+  Section,
+  Text,
+  TextArea,
+  VStack,
+} from '@astryxdesign/core';
+import { SlidersHorizontal } from 'lucide-react';
+import {
+  isReplyStyleId,
+  REPLY_NOTE_MAX,
+  REPLY_STYLE_OPTIONS,
+} from './replyStyle';
 import { useReplyStyle } from './useReplyStyle';
 
 /**
- * Canned Copilot audience + optional 240-char note.
- * Compact: chips + one-line note (chat composer). Full: same, with description (Account).
+ * Copilot voice + optional context.
+ * Compact keeps the composer lean with a preferences popover; full uses
+ * descriptive radio rows in Account so the choices are easier to compare.
  */
 export function ReplyStylePicker({
   compact = false,
@@ -12,51 +28,124 @@ export function ReplyStylePicker({
   compact?: boolean;
 }) {
   const { pref, setStyle, setNote, signedIn } = useReplyStyle();
+  const selectedStyle = REPLY_STYLE_OPTIONS.find((option) => option.id === pref.style)
+    ?? REPLY_STYLE_OPTIONS[0];
+  const onStyleChange = (value: string) => {
+    if (isReplyStyleId(value)) setStyle(value);
+  };
+
+  if (compact) {
+    return (
+      <Popover
+        placement="above"
+        alignment="start"
+        label="Reply preferences"
+        width="min(22rem, calc(100vw - var(--spacing-6)))"
+        content={
+          <VStack gap={3}>
+            <VStack gap={1}>
+              <Text type="body" weight="semibold">
+                How Lobster replies
+              </Text>
+              <Text type="supporting">
+                Choose the voice. The data and tools stay the same.
+              </Text>
+            </VStack>
+
+            <RadioList
+              label="Reply style"
+              value={pref.style}
+              onChange={onStyleChange}
+              size="sm"
+              isLabelHidden
+            >
+              {REPLY_STYLE_OPTIONS.map((option) => (
+                <RadioListItem
+                  key={option.id}
+                  value={option.id}
+                  label={option.label}
+                  description={option.hint}
+                />
+              ))}
+            </RadioList>
+
+            <Divider />
+
+            <TextArea
+              label="Your context"
+              value={pref.note}
+              onChange={(value) => setNote(value.slice(0, REPLY_NOTE_MAX))}
+              placeholder="“I trade SPX 0DTE” or “I’m learning verticals”"
+              rows={2}
+              size="sm"
+              maxLength={REPLY_NOTE_MAX}
+              isOptional
+            />
+          </VStack>
+        }
+      >
+        <Button
+          variant="ghost"
+          size="md"
+          label={`Reply style: ${selectedStyle.label}`}
+          icon={<SlidersHorizontal size={14} />}
+        />
+      </Popover>
+    );
+  }
 
   return (
-    <VStack gap={compact ? 2 : 3} className="reply-style-picker">
-      <VStack gap={1}>
-        <Text type={compact ? 'supporting' : 'body'} weight="semibold">
-          How Lobster replies
-        </Text>
-        {!compact && (
-          <Text type="supporting">
-            Same tools as everyone else — this only changes voice. Signed-in choices save to your account
-            {signedIn ? '' : '; sign in to keep them across devices'}.
+    <Section
+      variant="muted"
+      padding={4}
+      dividers={['top', 'bottom']}
+    >
+      <VStack gap={4}>
+        <VStack gap={1}>
+          <Text type="body" weight="semibold">
+            How Lobster replies
           </Text>
-        )}
-      </VStack>
-      <HStack gap={2} wrap="wrap">
-        {REPLY_STYLE_OPTIONS.map((option) => (
-          <Button
-            key={option.id}
-            size="sm"
-            variant={pref.style === option.id ? 'primary' : 'secondary'}
-            label={option.label}
-            onClick={() => setStyle(option.id)}
-          />
-        ))}
-      </HStack>
-      <Text type="supporting">
-        {REPLY_STYLE_OPTIONS.find((option) => option.id === pref.style)?.hint}
-        {` · ${pref.note.length}/${REPLY_NOTE_MAX}`}
-      </Text>
-      {compact ? (
-        <TextInput
-          label="Optional note"
-          value={pref.note}
-          onChange={(value) => setNote(value.slice(0, REPLY_NOTE_MAX))}
-          placeholder="e.g. I trade SPX 0DTE"
-        />
-      ) : (
+          <Text type="supporting">
+            Choose the voice. Market data, tools, and analysis stay the same.
+          </Text>
+        </VStack>
+
+        <RadioList
+          label="Reply style"
+          description="Choose how much market shorthand Lobster uses."
+          value={pref.style}
+          onChange={onStyleChange}
+        >
+          {REPLY_STYLE_OPTIONS.map((option) => (
+            <RadioListItem
+              key={option.id}
+              value={option.id}
+              label={option.label}
+              description={option.hint}
+            />
+          ))}
+        </RadioList>
+
+        <Divider />
+
         <TextArea
-          label="Optional note"
-          description={`Flavor only — ${REPLY_NOTE_MAX} characters max. e.g. “I trade SPX 0DTE” or “I’m learning verticals”.`}
+          label="Your context"
+          description="Share what you trade or what you’re learning. This shapes examples, not the analysis."
           value={pref.note}
           onChange={(value) => setNote(value.slice(0, REPLY_NOTE_MAX))}
-          placeholder="e.g. I trade SPX 0DTE"
+          placeholder="“I trade SPX 0DTE” or “I’m learning verticals”"
+          rows={3}
+          size="md"
+          maxLength={REPLY_NOTE_MAX}
+          isOptional
         />
-      )}
-    </VStack>
+
+        <Text type="supporting">
+          {signedIn
+            ? 'Saved to your account.'
+            : 'Saved in this browser. Sign in to sync across devices.'}
+        </Text>
+      </VStack>
+    </Section>
   );
 }
