@@ -160,6 +160,7 @@ test("snapOpenPositionMarks remakes open rows and writes history", async () => {
   };
 
   const history = new Map<string, Stored>();
+  const jobState = new Map<string, Stored>();
   const updates: Array<{ sql: string; binds: unknown[] }> = [];
 
   const db = {
@@ -183,22 +184,39 @@ test("snapOpenPositionMarks remakes open rows and writes history", async () => {
               source: binds[5],
             });
           }
+          if (sql.includes("INSERT INTO worker_job_passes")) {
+            // recorded via batch path below
+          }
           return { success: true };
         },
         async first() {
+          if (sql.includes("FROM worker_job_state")) {
+            return jobState.get(String(binds[0])) ?? null;
+          }
           return null;
         },
         async all() {
-          if (sql.includes("FROM paper_positions")) {
+          if (sql.includes("FROM paper_positions") && sql.includes("status = 'open'")) {
             return { results: [paperOpen] };
           }
-          if (sql.includes("FROM bot_trade_positions")) {
+          if (sql.includes("FROM bot_trade_positions") && sql.includes("status = 'open'")) {
+            return { results: [] };
+          }
+          if (sql.includes("FROM worker_job_passes")) {
             return { results: [] };
           }
           return { results: [] };
         },
       };
       return stmt;
+    },
+    async batch(stmts: Array<{ run?: () => Promise<unknown> }>) {
+      for (const s of stmts) {
+        if (typeof s.run === "function") await s.run();
+      }
+      // Mimic worker_job_state upsert from the second statement binds is awkward;
+      // recordWorkerJobPass is covered in worker-job-state tests.
+      return [];
     },
   } as unknown as D1Database;
 
@@ -212,6 +230,7 @@ test("snapOpenPositionMarks remakes open rows and writes history", async () => {
   const summary = await snapOpenPositionMarks(db, lake, {
     now: Date.UTC(2026, 7, 23, 18, 0, 0),
     limit: 10,
+    source: "cron",
   });
   assert.equal(summary.scanned, 1);
   assert.equal(summary.marked, 1);

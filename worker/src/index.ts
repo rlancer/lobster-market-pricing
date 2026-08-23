@@ -141,7 +141,7 @@ import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
 import { listBotTrades, trackBotSuggestedTrades } from "./bot-trades";
 import { listPositionMarkHistory } from "./position-mark-history";
-import { snapOpenPositionMarks } from "./position-mark-snap";
+import { getPositionMarkSnapStatus, snapOpenPositionMarks } from "./position-mark-snap";
 
 
 // ---------------------------------------------------------------------------
@@ -3701,6 +3701,31 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     return json(env, { ok: true, ...summary }, 200, "private");
   }
 
+  if (path === "/api/admin/position-marks/status" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const status = await getPositionMarkSnapStatus(env.SCHEMA_DB);
+    return json(env, status, 200, "private");
+  }
+
+  if (path === "/api/admin/position-marks/snap" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    try {
+      const summary = await snapOpenPositionMarks(
+        env.SCHEMA_DB,
+        (sql, key) => r2sql(env, sql, key),
+        { source: "admin" },
+      );
+      return json(env, { ok: true, ...summary }, 200, "private");
+    } catch (error) {
+      return json(env, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, 500, "private");
+    }
+  }
+
   const runPath = path.match(/^\/api\/admin\/bots\/runs\/([^/]+)$/);
   if (runPath) {
     const admin = await requireBotAdmin(env, req);
@@ -4096,7 +4121,7 @@ export default {
       }),
     );
     ctx.waitUntil(
-      snapOpenPositionMarks(env.SCHEMA_DB, (sql, key) => r2sql(env, sql, key)).then((summary) => {
+      snapOpenPositionMarks(env.SCHEMA_DB, (sql, key) => r2sql(env, sql, key), { source: "cron" }).then((summary) => {
         console.log(JSON.stringify({ positionMarkSnap: true, ...summary }));
       }).catch((error) => {
         console.error("position mark snap failed", error);

@@ -308,6 +308,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |
 | `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Copilot + auto-share to timeline. |
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
+| `GET /api/admin/position-marks/status` | Admin — last position-mark snap pass, open paper/bot book freshness, recent pass history (Dataset monitor). |
+| `POST /api/admin/position-marks/snap` | Admin — force one mark-snap pass now (same work as the hourly cron). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `GET /api/admin/trades` | Admin session (or `ADMIN_TOKEN`) — flattened suggested trades from successful `suggest_trades` tool events (~30 day retention). Legs are formal (`instrument`: `option` \| `equity`, `side` buy/sell = long/short, optional `qty`; options also carry right/strike/expiry). Optional `limit` (default 100, max 500) and `before` (ISO `created_at` cursor). Enriches with newest `share_id` / `bot_handle` when the chat was shared. Powers `/trades`. |
 
@@ -352,7 +354,8 @@ conviction (high / medium / low). Share/timeline viewers can still
 **daily mark history** (`position_mark_history`, one America/New_York day
 per position) is written on entry / refresh / close and by the hourly
 Worker cron so day-over-day PnL does not depend on someone opening the
-book. Suggestions alone are not a book —
+book. Cron passes are ledgered in `worker_job_state` and shown on
+`/monitor` (Force snap for admins). Suggestions alone are not a book —
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
 (`GET /api/bots/{handle}/trades`).

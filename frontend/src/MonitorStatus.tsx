@@ -8,7 +8,7 @@ import './MonitorStatus.css';
 /**
  * Consolidated dataset-status chip for the Admin hub. Folds ready state, as-of
  * date, and run status into one control that opens the full monitor page
- * (/monitor) for loader loop and run history.
+ * (/monitor) for loader loop, refresh runs, and position-mark snap health.
  */
 const toneOf = (status: string): string => {
   const s = status.toLowerCase();

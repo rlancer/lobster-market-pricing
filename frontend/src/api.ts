@@ -364,6 +364,69 @@ export interface LoaderStatus {
 
 export type LoaderFilter = 'all' | 'failing' | 'retrying' | 'stale' | 'disabled';
 
+/** Hourly position-mark snap job status from GET /api/admin/position-marks/status. */
+export interface PositionMarkSnapStatus {
+  ok: true;
+  job_id: string;
+  cron: string;
+  stale_after_ms: number;
+  state: {
+    job_id: string;
+    last_started_at: number | null;
+    last_finished_at: number | null;
+    last_ok: number | null;
+    consecutive_failures: number;
+    last_error: string | null;
+    last_scanned: number | null;
+    last_marked: number | null;
+    last_skipped: number | null;
+    last_failed: number | null;
+    last_paper_scanned: number | null;
+    last_bot_scanned: number | null;
+    last_duration_ms: number | null;
+    updated_at: number;
+  } | null;
+  books: {
+    paper_open: number;
+    bot_open: number;
+    open_total: number;
+    stale_open: number;
+    never_marked: number;
+    oldest_marked_at: number | null;
+    newest_marked_at: number | null;
+  };
+  recent_passes: Array<{
+    id: string;
+    job_id: string;
+    started_at: number;
+    finished_at: number;
+    ok: number;
+    scanned: number | null;
+    marked: number | null;
+    skipped: number | null;
+    failed: number | null;
+    paper_scanned: number | null;
+    bot_scanned: number | null;
+    duration_ms: number | null;
+    error: string | null;
+    source: string;
+  }>;
+}
+
+export interface PositionMarkSnapResult {
+  ok: true;
+  scanned: number;
+  marked: number;
+  skipped: number;
+  failed: number;
+  paper_scanned: number;
+  bot_scanned: number;
+  duration_ms?: number;
+  started_at?: number;
+  finished_at?: number;
+  source?: string;
+}
+
 export interface LoaderSymbol {
   symbol: string;
   enabled: number;
@@ -1217,6 +1280,8 @@ export const api = {
     sort?: 'symbol' | 'last_success_at' | 'consecutive_failures';
     order?: 'asc' | 'desc';
   }) => get<LoaderSymbolsResponse>(`/loader/symbols${qs(params ?? {})}`),
+  positionMarkStatus: () => get<PositionMarkSnapStatus>('/api/admin/position-marks/status'),
+  positionMarkSnap: () => post<PositionMarkSnapResult>('/api/admin/position-marks/snap', {}),
   // Save a completed Copilot chat turn to the lake (options.chat_history).
   // Best-effort: the Worker buffers into D1 when the pipeline hiccups, and
   // failures are swallowed by the caller — a chat is never blocked by history
