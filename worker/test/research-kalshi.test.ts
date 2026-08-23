@@ -87,6 +87,69 @@ describe("rank + select", () => {
     assert.deepEqual(ranked.map((r) => r.market_ticker), ["C", "B", "A"]);
   });
 
+  it("diversifies so one series cannot fill the whole rail", () => {
+    const items = selectResearchKalshiMarkets(
+      [
+        {
+          series_ticker: "KXFACEBOOKAPP",
+          market_ticker: "APP-1",
+          title: "Downloads > 100",
+          theme: "company_event",
+          status: "open",
+          volume_24h: 900,
+          close_time: "2027-01-01T00:00:00Z",
+          related_symbol: "META",
+        },
+        {
+          series_ticker: "KXFACEBOOKAPP",
+          market_ticker: "APP-2",
+          title: "Downloads > 99",
+          theme: "company_event",
+          status: "open",
+          volume_24h: 800,
+          close_time: "2027-01-01T00:00:00Z",
+          related_symbol: "META",
+        },
+        {
+          series_ticker: "KXFACEBOOKAPP",
+          market_ticker: "APP-3",
+          title: "Downloads > 98",
+          theme: "company_event",
+          status: "open",
+          volume_24h: 700,
+          close_time: "2027-01-01T00:00:00Z",
+          related_symbol: "META",
+        },
+        {
+          series_ticker: "KXMETAANTITRUST",
+          market_ticker: "ANTI-1",
+          title: "FTC antitrust revived?",
+          theme: "company_event",
+          status: "open",
+          volume_24h: 50,
+          close_time: "2027-01-01T00:00:00Z",
+          related_symbol: "META",
+        },
+        {
+          series_ticker: "KXMETAKIDSCASE",
+          market_ticker: "KIDS-1",
+          title: "Kids case damages?",
+          theme: "company_event",
+          status: "open",
+          volume_24h: 40,
+          close_time: "2027-01-01T00:00:00Z",
+          related_symbol: "META",
+        },
+      ],
+      4,
+    );
+    assert.equal(items.length, 4);
+    const series = items.map((i) => i.series_ticker);
+    assert.ok(series.includes("KXMETAANTITRUST"));
+    assert.ok(series.includes("KXMETAKIDSCASE"));
+    assert.equal(series.filter((s) => s === "KXFACEBOOKAPP").length, 2);
+  });
+
   it("filters settled / past-close markets and caps", () => {
     const now = Date.parse("2026-08-23T12:00:00Z");
     const items = selectResearchKalshiMarkets(
