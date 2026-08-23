@@ -1,56 +1,21 @@
-/* Shared-chat page — a public artifact, not the workspace shell. Reuses the
-   chat message/SQL classes from AiChat.css (imported below; Vite dedupes). */
+/* Shared-chat page — read-only transcript inside the workspace shell.
+   Reuses chat message/SQL classes from AiChat.css (imported below; Vite dedupes). */
 @import './AiChat.css';
 
-.share-app {
-  background: var(--panel);
-}
-.share-head {
-  min-height: var(--size-element-lg);
-  padding: var(--spacing-2) var(--spacing-4);
-  border-bottom: var(--border-width) solid var(--color-border);
-  background: var(--panel);
-}
-.share-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-3);
-  color: var(--text);
-  text-decoration: none;
-  flex-shrink: 0;
-}
-.share-brand-logo {
-  width: var(--size-element-lg);
-  height: var(--size-element-lg);
-  flex-shrink: 0;
-}
-.share-brand-name {
-  font-family: var(--font-family-heading);
-  font-size: var(--font-size-md);
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-}
-.share-brand-name b { color: var(--text); }
-.share-brand-name em {
-  font-style: normal;
-  color: var(--muted);
-  margin-inline-start: var(--spacing-1);
-}
-.share-head-spacer { flex: 1; }
-.share-open {
-  color: var(--accent);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.share-open:hover { text-decoration: underline; }
 .share-author {
   color: var(--accent);
   font-weight: 600;
   text-decoration: none;
 }
 .share-author:hover { text-decoration: underline; }
+
+.share-home {
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+.share-home:hover { text-decoration: underline; }
 
 .share-content {
   display: flex;
