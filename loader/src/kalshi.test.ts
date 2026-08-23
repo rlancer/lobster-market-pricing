@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applySeriesCategory,
+  buildKalshiAuthHeaders,
+  kalshiAuthConfigured,
   kalshiSeriesList,
+  kalshiSignPath,
   normalizeKalshiRecords,
   parseKalshiMarketsPayload,
   parseKalshiNumber,
@@ -30,6 +33,23 @@ const SAMPLE_MARKET = {
   close_time: "2027-04-28T17:55:00Z",
   expiration_time: "2027-05-05T18:05:00Z",
 };
+
+async function generateTestPem(): Promise<string> {
+  const pair = await crypto.subtle.generateKey(
+    {
+      name: "RSA-PSS",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+  const b64 = btoa(String.fromCharCode(...new Uint8Array(pkcs8)));
+  const lines = b64.match(/.{1,64}/g) || [];
+  return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----`;
+}
 
 describe("kalshi parse helpers", () => {
   it("parseKalshiNumber handles dollar strings and numbers", () => {
@@ -188,5 +208,71 @@ describe("publishKalshiSeries", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("attaches KALSHI-ACCESS-* headers when API key secrets are set", async () => {
+    const pem = await generateTestPem();
+    const seen: Record<string, string>[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/markets?")) {
+        const h = init?.headers as Record<string, string>;
+        seen.push(h || {});
+        return new Response(JSON.stringify({ markets: [SAMPLE_MARKET], cursor: "" }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    try {
+      await publishKalshiSeries("KXFED", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_ACCESS_KEY_ID: "test-key-id",
+        KALSHI_PRIVATE_KEY_PEM: pem,
+        now: () => 1_700_000_000_000,
+        runId: () => "run-auth",
+      });
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen[0]["KALSHI-ACCESS-KEY"]).toBe("test-key-id");
+      expect(seen[0]["KALSHI-ACCESS-TIMESTAMP"]).toBe("1700000000000");
+      expect(seen[0]["KALSHI-ACCESS-SIGNATURE"]).toMatch(/^[A-Za-z0-9+/=]+$/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("kalshi auth helpers", () => {
+  it("kalshiSignPath strips query and keeps /trade-api path", () => {
+    expect(kalshiSignPath("https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXFED"))
+      .toBe("/trade-api/v2/markets");
+  });
+
+  it("kalshiAuthConfigured requires both key id and pem", () => {
+    expect(kalshiAuthConfigured({})).toBe(false);
+    expect(kalshiAuthConfigured({ KALSHI_ACCESS_KEY_ID: "x" })).toBe(false);
+    expect(kalshiAuthConfigured({ KALSHI_PRIVATE_KEY_PEM: "y" })).toBe(false);
+    expect(kalshiAuthConfigured({ KALSHI_ACCESS_KEY_ID: "x", KALSHI_PRIVATE_KEY_PEM: "y" })).toBe(true);
+  });
+
+  it("buildKalshiAuthHeaders signs timestamp+METHOD+path", async () => {
+    const pem = await generateTestPem();
+    const headers = await buildKalshiAuthHeaders(
+      "GET",
+      "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXFED",
+      {
+        KALSHI_ACCESS_KEY_ID: "abc",
+        KALSHI_PRIVATE_KEY_PEM: pem,
+        now: () => 1_700_000_000_123,
+      },
+    );
+    expect(headers).not.toBeNull();
+    expect(headers!["KALSHI-ACCESS-KEY"]).toBe("abc");
+    expect(headers!["KALSHI-ACCESS-TIMESTAMP"]).toBe("1700000000123");
+    expect(headers!["KALSHI-ACCESS-SIGNATURE"].length).toBeGreaterThan(40);
   });
 });

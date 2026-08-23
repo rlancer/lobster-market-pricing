@@ -27,6 +27,9 @@
 #   npx wrangler secret put PIPELINE_ECON_URL           # stream cboe_econ_v2 (fred-econ-daily job)
 #   npx wrangler secret put PIPELINE_YIELDS_URL         # stream cboe_yields_v2 (fred-yields-daily job)
 #   npx wrangler secret put PIPELINE_KALSHI_MARKETS_URL # stream cboe_kalshi_markets_v2 (kalshi-markets-hourly)
+#   # Optional Kalshi API auth (read-only key is fine) — raises rate limits vs anonymous:
+#   npx wrangler secret put KALSHI_ACCESS_KEY_ID      # UUID from Kalshi Account → API Keys
+#   npx wrangler secret put KALSHI_PRIVATE_KEY_PEM    # full PEM (BEGIN PRIVATE KEY / RSA PRIVATE KEY)
 #   npx wrangler secret put PIPELINE_ETF_PROFILES_URL   # stream cboe_etf_profiles_v2 (etf-daily job)
 #   npx wrangler secret put PIPELINE_ETF_HOLDINGS_URL   # stream cboe_etf_holdings_v2 (etf-daily job)
 #   npx wrangler secret put PIPELINE_FUNDAMENTALS_URL   # stream cboe_fundamentals_v2 (fundamentals-daily job)
@@ -59,6 +62,9 @@ PIPELINE_EARNINGS_URL=
 PIPELINE_ECON_URL=
 PIPELINE_YIELDS_URL=
 PIPELINE_KALSHI_MARKETS_URL=
+# Optional — Kalshi RSA-PSS auth (read-only API key). Leave blank to use public GETs.
+KALSHI_ACCESS_KEY_ID=
+KALSHI_PRIVATE_KEY_PEM=
 PIPELINE_ETF_PROFILES_URL=
 PIPELINE_ETF_HOLDINGS_URL=
 PIPELINE_FUNDAMENTALS_URL=

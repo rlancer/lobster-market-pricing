@@ -77,6 +77,17 @@ export interface KalshiEnv {
   KALSHI_API_BASE?: string;
   /** Set to "1" to also fetch Get Series for category enrichment (extra API call). */
   KALSHI_FETCH_SERIES_META?: string;
+  /**
+   * Optional Kalshi API Key ID (UUID from Account → API Keys).
+   * With KALSHI_PRIVATE_KEY_PEM, market GETs are RSA-PSS signed — higher rate
+   * tiers than anonymous public GETs. Read-only keys are fine.
+   */
+  KALSHI_ACCESS_KEY_ID?: string;
+  /**
+   * Optional RSA private key PEM (PKCS#1 or PKCS#8). Wrangler secret only —
+   * never commit. Pair with KALSHI_ACCESS_KEY_ID.
+   */
+  KALSHI_PRIVATE_KEY_PEM?: string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   HTTP_RETRIES?: number;
@@ -168,6 +179,127 @@ function retryWaitSeconds(env: KalshiEnv, attempt: number, status: number, retry
   return backoffSeconds(env, attempt);
 }
 
+// ---------------------------------------------------------------------------
+// Optional RSA-PSS auth (Kalshi API Key ID + private key PEM)
+// ---------------------------------------------------------------------------
+function decodePemToDer(pem: string): Uint8Array {
+  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  if (!b64) throw new Error("kalshi auth: empty private key PEM");
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function asn1Length(n: number): Uint8Array {
+  if (n < 0x80) return Uint8Array.of(n);
+  if (n < 0x100) return Uint8Array.of(0x81, n);
+  if (n < 0x10000) return Uint8Array.of(0x82, (n >> 8) & 0xff, n & 0xff);
+  throw new Error("kalshi auth: DER length too large");
+}
+
+function asn1Wrap(tag: number, content: Uint8Array): Uint8Array {
+  const len = asn1Length(content.length);
+  const out = new Uint8Array(1 + len.length + content.length);
+  out[0] = tag;
+  out.set(len, 1);
+  out.set(content, 1 + len.length);
+  return out;
+}
+
+/** Wrap PKCS#1 RSAPrivateKey DER in a PKCS#8 PrivateKeyInfo for Web Crypto. */
+function pkcs1DerToPkcs8Der(pkcs1: Uint8Array): Uint8Array {
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  // AlgorithmIdentifier: rsaEncryption OID 1.2.840.113549.1.1.1 + NULL
+  const algId = Uint8Array.of(
+    0x30, 0x0d,
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+    0x05, 0x00,
+  );
+  const octet = asn1Wrap(0x04, pkcs1);
+  const body = new Uint8Array(version.length + algId.length + octet.length);
+  body.set(version, 0);
+  body.set(algId, version.length);
+  body.set(octet, version.length + algId.length);
+  return asn1Wrap(0x30, body);
+}
+
+function privateKeyPemToPkcs8Der(pem: string): Uint8Array {
+  const trimmed = pem.trim();
+  const der = decodePemToDer(trimmed);
+  if (trimmed.includes("BEGIN RSA PRIVATE KEY")) return pkcs1DerToPkcs8Der(der);
+  if (trimmed.includes("BEGIN PRIVATE KEY")) return der;
+  throw new Error("kalshi auth: PEM must be BEGIN PRIVATE KEY or BEGIN RSA PRIVATE KEY");
+}
+
+let cachedKeyPem: string | null = null;
+let cachedCryptoKey: CryptoKey | null = null;
+
+async function importKalshiPrivateKey(pem: string): Promise<CryptoKey> {
+  if (cachedCryptoKey && cachedKeyPem === pem) return cachedCryptoKey;
+  const pkcs8 = privateKeyPemToPkcs8Der(pem);
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    pkcs8.slice().buffer,
+    { name: "RSA-PSS", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  cachedKeyPem = pem;
+  cachedCryptoKey = key;
+  return key;
+}
+
+function bytesToBase64(bytes: ArrayBuffer): string {
+  const u8 = new Uint8Array(bytes);
+  let s = "";
+  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+  return btoa(s);
+}
+
+/** Path to sign: full URL pathname without query (e.g. /trade-api/v2/markets). */
+export function kalshiSignPath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    const noQuery = url.split("?")[0] || url;
+    const idx = noQuery.indexOf("/trade-api/");
+    return idx >= 0 ? noQuery.slice(idx) : noQuery;
+  }
+}
+
+export function kalshiAuthConfigured(env: KalshiEnv): boolean {
+  return !!(strip(env.KALSHI_ACCESS_KEY_ID) && strip(env.KALSHI_PRIVATE_KEY_PEM));
+}
+
+/**
+ * Build Kalshi signed access headers for one request.
+ * See https://docs.kalshi.com/getting_started/quick_start_authenticated_requests
+ */
+export async function buildKalshiAuthHeaders(
+  method: string,
+  url: string,
+  env: KalshiEnv,
+): Promise<Record<string, string> | null> {
+  const keyId = strip(env.KALSHI_ACCESS_KEY_ID);
+  const pem = strip(env.KALSHI_PRIVATE_KEY_PEM);
+  if (!keyId || !pem) return null;
+  const timestamp = String(env.now ? env.now() : Date.now());
+  const path = kalshiSignPath(url);
+  const message = `${timestamp}${method.toUpperCase()}${path}`;
+  const key = await importKalshiPrivateKey(pem);
+  const signature = await crypto.subtle.sign(
+    { name: "RSA-PSS", saltLength: 32 },
+    key,
+    new TextEncoder().encode(message),
+  );
+  return {
+    "KALSHI-ACCESS-KEY": keyId,
+    "KALSHI-ACCESS-TIMESTAMP": timestamp,
+    "KALSHI-ACCESS-SIGNATURE": bytesToBase64(signature),
+  };
+}
+
 function stripNones(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripNones);
   const rec = asRecord(value);
@@ -227,11 +359,18 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
       controller = new AbortController();
       const timer = setTimeout(() => controller?.abort(), timeoutMs);
       try {
+        const headers: Record<string, string> = {
+          accept: "application/json",
+          "user-agent": "cboe-to-r2/0.2",
+        };
+        try {
+          const auth = await buildKalshiAuthHeaders("GET", url, env);
+          if (auth) Object.assign(headers, auth);
+        } catch (authError) {
+          throw new Error(`kalshi auth sign failed: ${errMsg(authError)}`);
+        }
         const response = await fetch(url, {
-          headers: {
-            accept: "application/json",
-            "user-agent": "cboe-to-r2/0.2",
-          },
+          headers,
           signal: controller.signal,
         });
         if (response.ok) return await response.json();
@@ -250,6 +389,9 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
     } catch (error) {
       lastError = error;
       if (error instanceof Error && /returned HTTP 4\d\d/.test(error.message) && !/returned HTTP 429/.test(error.message)) {
+        throw error;
+      }
+      if (error instanceof Error && /kalshi auth sign failed/.test(error.message)) {
         throw error;
       }
       if (attempt < retries) await sleep(backoffSeconds(env, attempt) * 1000);

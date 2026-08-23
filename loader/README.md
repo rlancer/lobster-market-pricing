@@ -184,6 +184,12 @@ event odds move outside the US equity session. Series are paced
 429s; set `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
+**Optional API auth** — market GETs work anonymously, but a Kalshi
+**read-only** API key usually gets a higher rate tier. Set Wrangler secrets
+`KALSHI_ACCESS_KEY_ID` (Key ID UUID) and `KALSHI_PRIVATE_KEY_PEM` (full PEM;
+PKCS#1 or PKCS#8). The loader RSA-PSS-signs each GET
+(`KALSHI-ACCESS-*` headers). Never commit the PEM.
+
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity),
 `category`, `status`, `market_type`, `yes_bid` / `yes_ask` / `yes_last` /
