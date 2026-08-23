@@ -92,9 +92,8 @@ export function rankResearchKalshiMarkets(rows: KalshiMarketBrief[]): KalshiMark
 /**
  * Keep the research rail from filling with one series' threshold ladder
  * (e.g. five Facebook download strikes) so litigation / KPI / CEO catalysts
- * from other series still appear. Prefer up to `maxPerSeries` per
- * series_ticker in ranked order; only overflow past that cap when no other
- * series remain and slots are still open.
+ * from other series still appear. Cap at `maxPerSeries` per series_ticker
+ * while walking volume/soonest-close rank order.
  */
 export function diversifyResearchKalshiMarkets(
   ranked: KalshiMarketBrief[],
@@ -106,20 +105,14 @@ export function diversifyResearchKalshiMarkets(
   const picked: KalshiMarketBrief[] = [];
   const counts = new Map<string, number>();
   const seen = new Set<string>();
-
-  const tryPick = (row: KalshiMarketBrief, allowOverflow: boolean): boolean => {
-    if (picked.length >= lim || seen.has(row.market_ticker)) return false;
+  for (const row of ranked) {
+    if (picked.length >= lim) break;
+    if (seen.has(row.market_ticker)) continue;
     const n = counts.get(row.series_ticker) ?? 0;
-    if (n >= per && !allowOverflow) return false;
+    if (n >= per) continue;
     picked.push(row);
     seen.add(row.market_ticker);
     counts.set(row.series_ticker, n + 1);
-    return true;
-  };
-
-  for (const row of ranked) tryPick(row, false);
-  if (picked.length < lim) {
-    for (const row of ranked) tryPick(row, true);
   }
   return picked;
 }
