@@ -20,16 +20,6 @@
   margin-inline: auto;
 }
 
-.timeline-composer-sentinel {
-  width: 100%;
-  height: 1px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  pointer-events: none;
-  visibility: hidden;
-}
-
 .timeline-composer {
   position: sticky;
   top: 0;
@@ -40,23 +30,6 @@
   border-bottom: var(--border-width) solid var(--color-border-emphasized);
   background: color-mix(in srgb, var(--color-background-body) 92%, transparent);
   backdrop-filter: blur(10px);
-  transition:
-    padding-block var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
-}
-
-.timeline-composer.is-collapsed {
-  padding-block: var(--spacing-2);
-  border-bottom-color: var(--color-border);
-}
-
-.timeline-composer.is-sticky-open {
-  padding-block: var(--spacing-2);
-}
-
-.timeline-ask-chip {
-  width: 100%;
-  justify-content: flex-start;
 }
 
 .timeline-body {
@@ -322,15 +295,6 @@
 }
 
 @media (max-width: 760px) {
-  .timeline-composer {
-    margin-block-start: calc(var(--spacing-3) * -1);
-    padding-block: var(--spacing-3);
-  }
-
-  .timeline-composer.is-collapsed {
-    padding-block: var(--spacing-1-5);
-  }
-
   .timeline-post {
     padding-block: var(--spacing-5);
   }

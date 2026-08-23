@@ -219,7 +219,7 @@ test.describe('Public timeline', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   });
 
-  test('ask composer collapses to a chip after scrolling the feed', async ({ page }) => {
+  test('mobile timeline uses the app bar for new chat instead of a sticky ask chip', async ({ page }) => {
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       const items = Array.from({ length: 8 }, (_, index) => ({
         share_id: `TestShareId0000000000000${index}`,
@@ -246,12 +246,14 @@ test.describe('Public timeline', () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    const composer = page.getByRole('region', { name: 'Ask the Lobster' });
-    await expect(composer.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+
+    const appBar = page.getByRole('navigation', { name: 'Mobile navigation' });
+    await expect(appBar.getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(appBar.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
 
     await page.evaluate(() => {
-      const sentinel = document.querySelector('.timeline-composer-sentinel');
-      let current = sentinel?.parentElement ?? null;
+      let current: Element | null = document.querySelector('.timeline-feed');
       while (current) {
         const overflowY = getComputedStyle(current).overflowY;
         if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
@@ -262,13 +264,9 @@ test.describe('Public timeline', () => {
       }
       window.scrollBy(0, 1200);
     });
-    await expect(composer).toHaveAttribute('data-collapsed', 'true');
-    await expect(composer.getByRole('button', { name: 'Ask the Lobster' })).toBeVisible();
-    await expect(composer.getByRole('textbox', { name: 'Message input' })).toHaveCount(0);
 
-    await composer.getByRole('button', { name: 'Ask the Lobster' }).click();
-    await expect(composer).not.toHaveAttribute('data-collapsed', 'true');
-    await expect(composer.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+    await expect(appBar.getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ask the Lobster' })).toHaveCount(0);
   });
 
   test('desktop timeline shows a rail with tags, breaking news, and market highlights', async ({ page }) => {
@@ -332,11 +330,12 @@ test.describe('Public timeline', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
-  test('mobile shell offers chat from the app bar and keeps navigation in a left drawer', async ({ page }) => {
+  test('mobile shell offers new chat and search from the app bar and keeps navigation in a left drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
@@ -350,11 +349,12 @@ test.describe('Public timeline', () => {
 
     const appBar = page.getByRole('navigation', { name: 'Mobile navigation' });
     const menu = page.getByTestId('mobile-nav-toggle');
-    const composer = page.getByRole('region', { name: 'Ask the Lobster' });
     await expect(appBar).toBeVisible();
     await expect(appBar.getByRole('link', { name: 'Lobster home' })).toHaveCount(0);
     await expect(appBar.getByText('Lobster MP')).toHaveCount(0);
-    await expect(appBar.getByRole('button', { name: 'Open chat' })).toBeVisible();
+    await expect(appBar.getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(appBar.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
     await expect(menu).toBeVisible();
 
     const shellColors = await appBar.evaluate((element) => {
@@ -372,13 +372,16 @@ test.describe('Public timeline', () => {
     expect(shellColors.workspace).not.toBe(shellColors.nav);
 
     const appBarBox = await appBar.boundingBox();
-    const composerBox = await composer.boundingBox();
-    expect(appBarBox && composerBox).toBeTruthy();
+    expect(appBarBox).toBeTruthy();
     expect(appBarBox!.height).toBeLessThanOrEqual(56);
-    expect(composerBox!.y).toBeGreaterThanOrEqual(appBarBox!.y + appBarBox!.height - 1);
 
-    await appBar.getByRole('button', { name: 'Open chat' }).click();
+    await appBar.getByRole('button', { name: 'New chat' }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    await expect(page.getByRole('heading', { name: 'Ask the Lobster' })).toBeVisible();
+
+    await page.goto('/');
+    await appBar.getByRole('button', { name: 'Search tickers' }).click();
+    await expect(page.getByRole('dialog', { name: 'Search tickers' }).getByRole('combobox', { name: 'Ticker' })).toBeVisible();
 
     await menu.click();
     const drawer = page.locator('dialog[aria-label="Navigation"]');

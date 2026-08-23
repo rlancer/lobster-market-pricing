@@ -80,6 +80,15 @@ button, select { cursor: pointer; }
   height: calc(var(--size-element-lg) * 2 + var(--spacing-4));
   flex-shrink: 0;
 }
+.mobile-topbar-actions {
+  flex-shrink: 0;
+}
+
+.mobile-topbar-search {
+  min-width: min(18rem, calc(100vw - var(--spacing-10)));
+  padding-block-end: var(--spacing-0);
+}
+
 .nav-research-search {
   width: 100%;
   min-width: 0;

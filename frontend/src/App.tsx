@@ -6,6 +6,7 @@ import {
   HStack,
   Layout,
   MobileNav,
+  Popover,
   SideNav,
   SideNavItem,
   SideNavSection,
@@ -14,7 +15,7 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, MessageSquare, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -28,6 +29,7 @@ import {
   chatPath,
   groupUserChatsByRelativeTime,
   parseChatId,
+  requestNewChat,
   sortUserChats,
 } from './chatSession';
 import { DocumentMeta } from './DocumentMeta';
@@ -63,7 +65,14 @@ const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform d
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
 
 /** Global ticker jump — desktop rail on wide viewports, drawer on mobile. */
-function ResearchSearch({ className }: { className: string }) {
+function ResearchSearch({
+  className,
+  onSelectSymbol,
+}: {
+  className: string;
+  /** Optional hook after a ticker pick (e.g. close a mobile search popover). */
+  onSelectSymbol?: (symbol: string) => void;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const tickerMatch = location.pathname.match(/^\/research\/([^/]+)$/);
@@ -76,6 +85,7 @@ function ResearchSearch({ className }: { className: string }) {
       className={className}
       value={ticker}
       onSelect={(symbol) => {
+        onSelectSymbol?.(symbol);
         void navigate({ to: '/research/$ticker', params: { ticker: symbol } });
       }}
       onClear={() => {
@@ -115,20 +125,49 @@ function WorkspaceBrand() {
   );
 }
 
+/** Mobile app-bar actions — new chat + ticker search. Desktop SideNav keeps the brand. */
 function WorkspaceNavigationHeader() {
   const navigate = useNavigate();
   const { isMobile } = useAppShellMobile();
+  const [searchOpen, setSearchOpen] = useState(false);
 
   if (isMobile) {
     return (
-      <IconButton
-        variant="ghost"
-        size="sm"
-        label="Open chat"
-        tooltip="Open chat"
-        icon={<MessageSquare size={16} />}
-        onClick={() => { void navigate({ to: '/chat' }); }}
-      />
+      <HStack gap={1} vAlign="center" className="mobile-topbar-actions">
+        <IconButton
+          variant="ghost"
+          size="sm"
+          label="New chat"
+          tooltip="New chat"
+          icon={<SquarePen size={16} />}
+          onClick={() => {
+            requestNewChat();
+            void navigate({ to: '/chat' });
+          }}
+        />
+        <Popover
+          placement="below"
+          alignment="start"
+          label="Search tickers"
+          width="min(22rem, calc(100vw - var(--spacing-6)))"
+          isOpen={searchOpen}
+          onOpenChange={setSearchOpen}
+          content={
+            <ResearchSearch
+              className="nav-research-search mobile-topbar-search"
+              onSelectSymbol={() => setSearchOpen(false)}
+            />
+          }
+        >
+          <IconButton
+            variant="ghost"
+            size="sm"
+            label="Search tickers"
+            tooltip="Search tickers"
+            icon={<Search size={16} />}
+          />
+        </Popover>
+      </HStack>
     );
   }
 
@@ -423,8 +462,9 @@ function WorkspaceLayout() {
 
   // Responsive contract:
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
-  //   <= 768px AppShell renders a compact top bar and the SideNav becomes a
-  //            start-side drawer. Search, links, and account stay in the drawer.
+  //   <= 768px AppShell renders a compact top bar (New chat + ticker search) and
+  //            the SideNav becomes a start-side drawer. Full nav + account stay
+  //            in the drawer; the timeline ask composer is desktop-only.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell

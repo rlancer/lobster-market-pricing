@@ -8,6 +8,8 @@ export const PENDING_PROMPT_KEY = 'openinterest_copilot_pending_prompt';
 export const BOT_HANDLE_KEY = 'openinterest_copilot_bot_handle';
 export const BOT_RUN_KEY = 'openinterest_copilot_bot_run_id';
 export const CHATS_CHANGED_EVENT = 'lobster:chats-changed';
+/** Fired after `requestNewChat` so a mounted /chat session can remount onto the new id. */
+export const NEW_CHAT_EVENT = 'lobster:new-chat';
 
 export function parseChatId(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -133,6 +135,21 @@ export function startNewChatId(): string {
   const id = crypto.randomUUID();
   sessionStorage.setItem(LIVE_CHAT_KEY, id);
   return rememberChatId(id);
+}
+
+/**
+ * Start a fresh live chat and notify any mounted Chat session. Use this from
+ * chrome outside AiChat (mobile top bar) so /chat remounts onto the new id.
+ */
+export function requestNewChat(): string {
+  clearBotSession();
+  const id = startNewChatId();
+  try {
+    window.dispatchEvent(new Event(NEW_CHAT_EVENT));
+  } catch {
+    /* ignore — non-DOM environments */
+  }
+  return id;
 }
 
 /** Stash a prompt for `/chat` to auto-send once the agent socket is ready. */
