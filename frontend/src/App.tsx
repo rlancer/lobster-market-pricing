@@ -2,19 +2,19 @@ import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentPro
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
-  Center,
   Divider,
+  HStack,
   Layout,
   MobileNav,
-  MobileNavToggle,
   SideNav,
   SideNavItem,
   SideNavSection,
   IconButton,
+  Text,
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, MessageSquare, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -92,19 +92,47 @@ function ResearchSearch({ className }: { className: string }) {
 }
 
 function WorkspaceBrand() {
-  const { closeMobileNav } = useAppShellMobile();
+  const { closeMobileNav, isMobile } = useAppShellMobile();
   return (
-    <Center axis="horizontal" width="100%" className="nav-brand">
+    <HStack
+      hAlign={isMobile ? 'start' : 'center'}
+      vAlign="center"
+      width="100%"
+      className="nav-brand"
+    >
       <RouterLink
         href="/"
         className="nav-brand-link"
         aria-label="Lobster home"
         onClick={closeMobileNav}
       >
-        <BlueLobsterLogo className="nav-mascot" />
+        <HStack gap={2} vAlign="center">
+          <BlueLobsterLogo className="nav-mascot" />
+          {isMobile ? <Text type="body" weight="semibold">Lobster MP</Text> : null}
+        </HStack>
       </RouterLink>
-    </Center>
+    </HStack>
   );
+}
+
+function WorkspaceNavigationHeader() {
+  const navigate = useNavigate();
+  const { isMobile } = useAppShellMobile();
+
+  if (isMobile) {
+    return (
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Open chat"
+        tooltip="Open chat"
+        icon={<MessageSquare size={16} />}
+        onClick={() => { void navigate({ to: '/chat' }); }}
+      />
+    );
+  }
+
+  return <WorkspaceBrand />;
 }
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
@@ -324,7 +352,7 @@ function WorkspaceNavigation({
   return (
     <SideNav
       className="workspace-nav"
-      header={<WorkspaceBrand />}
+      header={<WorkspaceNavigationHeader />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
       footer={<WorkspaceHelpNav activeTo={activeTo} pathname={pathname} />}
     >
@@ -395,10 +423,8 @@ function WorkspaceLayout() {
 
   // Responsive contract:
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
-  //   <= 768px SideNav collapses to MobileNav. hasToggle is false so AppShell
-  //            does not invent an auto top bar (which would re-render the SideNav
-  //            header/lobster in "topbar" mode). A floating MobileNavToggle sits
-  //            over content instead; ticker search + account live in the drawer.
+  //   <= 768px AppShell renders a compact top bar and the SideNav becomes a
+  //            start-side drawer. Search, links, and account stay in the drawer.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
@@ -408,11 +434,10 @@ function WorkspaceLayout() {
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
-          hasToggle: false,
+          hasToggle: true,
           breakpoint: 'md',
           content: (
-            <MobileNav side="start" label="Lobster">
-              <WorkspaceBrand />
+            <MobileNav side="start" label="Navigation" header={<WorkspaceBrand />}>
               <ResearchSearch className="nav-research-search" />
               <WorkspaceNavItems
                 activeTo={navProps.activeTo}
@@ -424,7 +449,6 @@ function WorkspaceLayout() {
           ),
         }}
       >
-        <MobileNavToggle className="mobile-nav-fab" label="Open menu" />
         <Layout className="workspace-main" height="fill" padding={0}>
           <section className={isCopilot ? 'content content-copilot' : 'content'}>
             <Outlet />

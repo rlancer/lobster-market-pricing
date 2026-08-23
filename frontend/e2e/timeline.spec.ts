@@ -336,6 +336,64 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
+  test('mobile shell offers chat from the app bar and keeps navigation in a left drawer', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+
+    await page.goto('/');
+
+    const appBar = page.getByRole('navigation', { name: 'Mobile navigation' });
+    const menu = page.getByTestId('mobile-nav-toggle');
+    const composer = page.getByRole('region', { name: 'Ask the Lobster' });
+    await expect(appBar).toBeVisible();
+    await expect(appBar.getByRole('link', { name: 'Lobster home' })).toHaveCount(0);
+    await expect(appBar.getByText('Lobster MP')).toHaveCount(0);
+    await expect(appBar.getByRole('button', { name: 'Open chat' })).toBeVisible();
+    await expect(menu).toBeVisible();
+
+    const shellColors = await appBar.evaluate((element) => {
+      const shell = element.closest('.app');
+      const navSurface = element.querySelector('.workspace-nav');
+      const workspace = document.querySelector('.workspace-main');
+      return {
+        shell: shell ? getComputedStyle(shell).backgroundColor : null,
+        nav: navSurface ? getComputedStyle(navSurface).backgroundColor : null,
+        workspace: workspace ? getComputedStyle(workspace).backgroundColor : null,
+      };
+    });
+    expect(shellColors.shell).toBe(shellColors.nav);
+    expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
+    expect(shellColors.workspace).not.toBe(shellColors.nav);
+
+    const appBarBox = await appBar.boundingBox();
+    const composerBox = await composer.boundingBox();
+    expect(appBarBox && composerBox).toBeTruthy();
+    expect(appBarBox!.height).toBeLessThanOrEqual(56);
+    expect(composerBox!.y).toBeGreaterThanOrEqual(appBarBox!.y + appBarBox!.height - 1);
+
+    await appBar.getByRole('button', { name: 'Open chat' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+
+    await menu.click();
+    const drawer = page.locator('dialog[aria-label="Navigation"]');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Lobster home' })).toContainText('Lobster MP');
+    await expect(drawer.getByRole('button', { name: 'Close navigation' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
+
+    await drawer.getByRole('link', { name: 'Timeline' }).click();
+    await expect(drawer).not.toBeVisible();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+
 
   test('GET /api/timeline/rail is public and returns a rail envelope', async ({ request }) => {
     const res = await request.get(`${LOCAL_WORKER}/api/timeline/rail`);
