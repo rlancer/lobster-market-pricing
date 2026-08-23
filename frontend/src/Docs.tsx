@@ -160,6 +160,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows timeline listing' },
+  { method: 'GET', path: '/api/admin/position-marks/status', desc: 'Admin — position-mark snap job health (last pass, open book freshness, recent history) for the Dataset monitor' },
+  { method: 'POST', path: '/api/admin/position-marks/snap', desc: 'Admin — force one hourly mark-snap pass now' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all Copilot chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
@@ -199,7 +201,7 @@ const SURFACES = [
   {
     route: '/monitor',
     title: 'Monitor',
-    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. Open it from the dataset chip on the Admin hub.',
+    body: 'Refresh-run history from the lake, the live loader loop (per-symbol state, backoffs, market-hours gate), and the hourly position-mark snap job (open paper/bot book freshness plus Force snap). Open it from the dataset chip on the Admin hub.',
   },
   {
     route: '/admin',

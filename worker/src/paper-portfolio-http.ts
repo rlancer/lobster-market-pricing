@@ -4,6 +4,7 @@
  * GET  /api/portfolio              — account + positions (live marks)
  * POST /api/portfolio/track        — open a position from a suggested trade
  * POST /api/portfolio/positions/:id/close — close + realize PnL
+ * GET  /api/portfolio/positions/:id/marks — daily mark history + day PnL
  */
 
 import { getSessionUser } from "./auth";
@@ -15,6 +16,7 @@ import {
   trackSuggestion,
   type LakeSql,
 } from "./paper-portfolio";
+import { listPositionMarkHistory } from "./position-mark-history";
 
 type PortfolioEnv = {
   SCHEMA_DB: D1Database;
@@ -76,6 +78,19 @@ export async function handlePortfolio(
       position: result.position,
       account_cash: result.account_cash,
     }, result.created ? 201 : 200, "private");
+  }
+
+  const marksMatch = path.match(/^\/api\/portfolio\/positions\/([^/]+)\/marks$/);
+  if (marksMatch && req.method === "GET") {
+    const user = await getSessionUser(env, req);
+    if (!user) return json({ error: "unauthorized" }, 401, "private");
+    const positionId = decodeURIComponent(marksMatch[1]!);
+    const owned = await env.SCHEMA_DB.prepare(
+      `SELECT id FROM paper_positions WHERE id = ?1 AND user_id = ?2`,
+    ).bind(positionId, user.id).first<{ id: string }>();
+    if (!owned) return json({ error: "position not found" }, 404, "private");
+    const marks = await listPositionMarkHistory(env.SCHEMA_DB, "paper", positionId);
+    return json({ ok: true, position_id: positionId, marks }, 200, "private");
   }
 
   const closeMatch = path.match(/^\/api\/portfolio\/positions\/([^/]+)\/close$/);

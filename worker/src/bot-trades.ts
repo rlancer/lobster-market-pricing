@@ -15,6 +15,7 @@ import {
   type PaperPositionStatus,
   type TradeConviction,
 } from "./paper-portfolio";
+import { recordDailyMarkSafe } from "./position-mark-history";
 import { parseHandle } from "./profiles";
 
 export interface BotTradePositionRow {
@@ -262,6 +263,17 @@ export async function trackBotSuggestedTrades(
         openedAt,
       ).run();
       tracked += 1;
+      if (mark.value != null) {
+        await recordDailyMarkSafe(db, {
+          book: "bot",
+          positionId: id,
+          markValue: mark.value,
+          entryValue: mark.value,
+          markedAt: markedAt ?? now,
+          source: "entry",
+          legsJson: JSON.stringify(mark.legs),
+        });
+      }
       if (mark.incomplete || mark.value == null) {
         errors.push(`${idea.ticker}: opened without mark (${mark.legs.find((l) => l.error)?.error ?? "incomplete"})`);
       }
@@ -528,6 +540,15 @@ export async function listBotTrades(
             row.marked_at = now;
             row.entry_value = entryValue;
             row.entry_marked_at = entryMarkedAt;
+            await recordDailyMarkSafe(db, {
+              book: "bot",
+              positionId: row.id,
+              markValue: mark.value,
+              entryValue,
+              markedAt: now,
+              source: "refresh",
+              legsJson: JSON.stringify(mark.legs),
+            });
           }
         } catch {
           // Keep last mark.

@@ -180,7 +180,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Dataset monitor'),
       description:
-        'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate.',
+        'Refresh-run history, live loader loop, and hourly position-mark snap health for paper and bot books.',
       path: '/monitor',
     };
   }

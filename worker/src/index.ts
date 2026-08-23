@@ -140,6 +140,8 @@ import {
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
 import { listBotTrades, trackBotSuggestedTrades } from "./bot-trades";
+import { listPositionMarkHistory } from "./position-mark-history";
+import { getPositionMarkSnapStatus, snapOpenPositionMarks } from "./position-mark-snap";
 
 
 // ---------------------------------------------------------------------------
@@ -3467,6 +3469,19 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     });
   }
 
+  const publicTradeMarks = path.match(/^\/api\/bots\/([^/]+)\/trades\/([^/]+)\/marks$/);
+  if (publicTradeMarks && req.method === "GET") {
+    const bot = await getBotProfile(env.SCHEMA_DB, decodeURIComponent(publicTradeMarks[1]!));
+    if (!bot || !bot.enabled) return json(env, { error: "not found" }, 404);
+    const positionId = decodeURIComponent(publicTradeMarks[2]!);
+    const owned = await env.SCHEMA_DB.prepare(
+      `SELECT id FROM bot_trade_positions WHERE id = ?1 AND bot_handle = ?2`,
+    ).bind(positionId, bot.handle).first<{ id: string }>();
+    if (!owned) return json(env, { error: "not found" }, 404);
+    const marks = await listPositionMarkHistory(env.SCHEMA_DB, "bot", positionId);
+    return json(env, { ok: true, position_id: positionId, marks });
+  }
+
   const publicTrades = path.match(/^\/api\/bots\/([^/]+)\/trades$/);
   if (publicTrades && req.method === "GET") {
     const bot = await getBotProfile(env.SCHEMA_DB, decodeURIComponent(publicTrades[1]));
@@ -3684,6 +3699,31 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     const summary = await runDueBotSchedules(env, { waitUntil: (p) => ctx.waitUntil(p) });
     return json(env, { ok: true, ...summary }, 200, "private");
+  }
+
+  if (path === "/api/admin/position-marks/status" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const status = await getPositionMarkSnapStatus(env.SCHEMA_DB);
+    return json(env, status, 200, "private");
+  }
+
+  if (path === "/api/admin/position-marks/snap" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    try {
+      const summary = await snapOpenPositionMarks(
+        env.SCHEMA_DB,
+        (sql, key) => r2sql(env, sql, key),
+        { source: "admin" },
+      );
+      return json(env, { ok: true, ...summary }, 200, "private");
+    } catch (error) {
+      return json(env, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, 500, "private");
+    }
   }
 
   const runPath = path.match(/^\/api\/admin\/bots\/runs\/([^/]+)$/);
@@ -4068,8 +4108,9 @@ export default {
   },
 
   /**
-   * Hourly cron — process due bot schedules (market-gated hourly overviews).
-   * Actual cadence is per-row on bot_schedules; this tick just wakes the runner.
+   * Hourly cron — due bot schedules + open-book mark snaps into daily history.
+   * Schedule cadence is per-row on bot_schedules; mark snaps keep PnL durable
+   * even when nobody reads /api/portfolio or bot trades.
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -4077,6 +4118,13 @@ export default {
         console.log(JSON.stringify({ botSchedules: true, ...summary }));
       }).catch((error) => {
         console.error("bot schedules tick failed", error);
+      }),
+    );
+    ctx.waitUntil(
+      snapOpenPositionMarks(env.SCHEMA_DB, (sql, key) => r2sql(env, sql, key), { source: "cron" }).then((summary) => {
+        console.log(JSON.stringify({ positionMarkSnap: true, ...summary }));
+      }).catch((error) => {
+        console.error("position mark snap failed", error);
       }),
     );
   },

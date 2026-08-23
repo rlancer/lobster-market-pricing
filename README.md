@@ -276,6 +276,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
 | `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
+| `GET /api/portfolio/positions/{id}/marks` | Daily mark history for one paper position (`as_of_date` America/New_York, `mark_value`, `unrealized_pnl`, day-over-day `daily_pnl`, optional per-leg mids). Written on entry / refresh / close and by the hourly mark-snap cron. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}`, `{reply_style?}`, `{reply_note?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Reply style is a canned audience (desk trader / hedge fund / new to trading); `reply_note` is optional flavor, 240 chars max (blank clears). Reply prefs do not require a claimed handle. 400 if invalid/reserved, 409 if handle taken. |
 | `GET /api/reply-styles` | Public catalog of Copilot reply voices `{items:[{id,label,hint}], default, note_max}`. Prompt copy stays on the Worker. |
@@ -299,6 +300,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Copilot reads the same book via `get_bot_trades`. |
+| `GET /api/bots/{handle}/trades/{id}/marks` | Daily mark history for one bot suggested-trade position (same shape as paper marks). |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
@@ -306,6 +308,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |
 | `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Copilot + auto-share to timeline. |
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
+| `GET /api/admin/position-marks/status` | Admin — last position-mark snap pass, open paper/bot book freshness, recent pass history (Dataset monitor). |
+| `POST /api/admin/position-marks/snap` | Admin — force one mark-snap pass now (same work as the hourly cron). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `GET /api/admin/trades` | Admin session (or `ADMIN_TOKEN`) — flattened suggested trades from successful `suggest_trades` tool events (~30 day retention). Legs are formal (`instrument`: `option` \| `equity`, `side` buy/sell = long/short, optional `qty`; options also carry right/strike/expiry). Optional `limit` (default 100, max 500) and `before` (ISO `created_at` cursor). Enriches with newest `share_id` / `bot_handle` when the chat was shared. Powers `/trades`. |
 
@@ -346,7 +350,12 @@ those ideas auto-open paper positions at lake mid; Close realizes against
 $100k starting cash) and **Suggested trades** for public bot idea PnL
 (same book as `/u/{handle}` — no cash). Both filter by status and
 conviction (high / medium / low). Share/timeline viewers can still
-**Add to portfolio**. Suggestions alone are not a book —
+**Add to portfolio**. Entry marks and live MTM live on the position row;
+**daily mark history** (`position_mark_history`, one America/New_York day
+per position) is written on entry / refresh / close and by the hourly
+Worker cron so day-over-day PnL does not depend on someone opening the
+book. Cron passes are ledgered in `worker_job_state` and shown on
+`/monitor` (Force snap for admins). Suggestions alone are not a book —
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
 (`GET /api/bots/{handle}/trades`).

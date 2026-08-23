@@ -13,6 +13,7 @@ import AccountPage from './Account';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
+import PositionMarkStatus from './PositionMarkStatus';
 import ResearchPage from './ResearchPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 import BrandPage from './Brand';
@@ -34,6 +35,7 @@ function MonitorView() {
         <RefreshRuns />
       </section>
       <LoaderStatus />
+      <PositionMarkStatus />
     </div>
   );
 }
