@@ -14,7 +14,7 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, MessageSquare, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -113,6 +113,26 @@ function WorkspaceBrand() {
       </RouterLink>
     </HStack>
   );
+}
+
+function WorkspaceNavigationHeader() {
+  const navigate = useNavigate();
+  const { isMobile } = useAppShellMobile();
+
+  if (isMobile) {
+    return (
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Open chat"
+        tooltip="Open chat"
+        icon={<MessageSquare size={16} />}
+        onClick={() => { void navigate({ to: '/chat' }); }}
+      />
+    );
+  }
+
+  return <WorkspaceBrand />;
 }
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
@@ -332,7 +352,7 @@ function WorkspaceNavigation({
   return (
     <SideNav
       className="workspace-nav"
-      header={<WorkspaceBrand />}
+      header={<WorkspaceNavigationHeader />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
       footer={<WorkspaceHelpNav activeTo={activeTo} pathname={pathname} />}
     >

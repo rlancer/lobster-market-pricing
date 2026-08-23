@@ -336,7 +336,7 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
-  test('mobile shell uses a compact app bar and left navigation drawer', async ({ page }) => {
+  test('mobile shell offers chat from the app bar and keeps navigation in a left drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
@@ -352,7 +352,9 @@ test.describe('Public timeline', () => {
     const menu = page.getByTestId('mobile-nav-toggle');
     const composer = page.getByRole('region', { name: 'Ask the Lobster' });
     await expect(appBar).toBeVisible();
-    await expect(appBar.getByRole('link', { name: 'Lobster home' })).toContainText('Lobster MP');
+    await expect(appBar.getByRole('link', { name: 'Lobster home' })).toHaveCount(0);
+    await expect(appBar.getByText('Lobster MP')).toHaveCount(0);
+    await expect(appBar.getByRole('button', { name: 'Open chat' })).toBeVisible();
     await expect(menu).toBeVisible();
 
     const appBarBox = await appBar.boundingBox();
@@ -360,6 +362,9 @@ test.describe('Public timeline', () => {
     expect(appBarBox && composerBox).toBeTruthy();
     expect(appBarBox!.height).toBeLessThanOrEqual(56);
     expect(composerBox!.y).toBeGreaterThanOrEqual(appBarBox!.y + appBarBox!.height - 1);
+
+    await appBar.getByRole('button', { name: 'Open chat' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
 
     await menu.click();
     const drawer = page.locator('dialog[aria-label="Navigation"]');
@@ -369,9 +374,9 @@ test.describe('Public timeline', () => {
     await expect(drawer.getByRole('link', { name: 'Timeline' })).toBeVisible();
     await expect(drawer.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
 
-    await drawer.getByRole('link', { name: 'Chat', exact: true }).click();
+    await drawer.getByRole('link', { name: 'Timeline' }).click();
     await expect(drawer).not.toBeVisible();
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 
