@@ -88,8 +88,34 @@ export function BotTradesSection({
     void load(statusFilter, convictionFilter);
   }, [load, statusFilter, convictionFilter]);
 
-  const summary = book?.summary;
-  const rows = (book?.positions ?? []) as PositionRow[];
+  const allRows = (book?.positions ?? []) as PositionRow[];
+  const rows = convictionFilter === 'all'
+    ? allRows
+    : allRows.filter((row) => row.conviction === convictionFilter);
+
+  const summary = (() => {
+    if (!book?.summary) return null;
+    if (convictionFilter === 'all') return book.summary;
+    let openCount = 0;
+    let closedCount = 0;
+    let openPnl = 0;
+    let realized = 0;
+    for (const row of rows) {
+      if (row.status === 'open') {
+        openCount += 1;
+        if (row.unrealized_pnl != null) openPnl += row.unrealized_pnl;
+      } else {
+        closedCount += 1;
+        if (row.realized_pnl != null) realized += row.realized_pnl;
+      }
+    }
+    return {
+      open_count: openCount,
+      closed_count: closedCount,
+      open_pnl: openPnl,
+      realized_pnl: realized,
+    };
+  })();
 
   return (
     <VStack gap={3} className="profile-bot-trades" as="section" aria-label="Suggested trade performance">

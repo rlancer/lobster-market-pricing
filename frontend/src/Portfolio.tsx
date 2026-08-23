@@ -130,7 +130,42 @@ export default function PortfolioPage() {
   }
 
   const account = portfolio?.account;
-  const rows = (portfolio?.positions ?? []) as PositionRow[];
+  const allRows = (portfolio?.positions ?? []) as PositionRow[];
+  const rows = convictionFilter === 'all'
+    ? allRows
+    : allRows.filter((row) => row.conviction === convictionFilter);
+
+  const paperStats = (() => {
+    if (!account) return null;
+    if (convictionFilter === 'all') {
+      return {
+        cash: account.cash,
+        equity: account.equity,
+        open_pnl: account.open_pnl,
+        realized_pnl: account.realized_pnl,
+        filtered: false,
+      };
+    }
+    let openPnl = 0;
+    let realized = 0;
+    let openMarkSum = 0;
+    for (const row of rows) {
+      if (row.status === 'open') {
+        if (row.unrealized_pnl != null) openPnl += row.unrealized_pnl;
+        if (row.mark_value != null) openMarkSum += row.mark_value;
+        else if (row.entry_value != null) openMarkSum += row.entry_value;
+      } else if (row.realized_pnl != null) {
+        realized += row.realized_pnl;
+      }
+    }
+    return {
+      cash: account.cash,
+      equity: account.cash + openMarkSum,
+      open_pnl: openPnl,
+      realized_pnl: realized,
+      filtered: true,
+    };
+  })();
 
   return (
     <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5} maxWidth={1200}>
@@ -233,20 +268,20 @@ export default function PortfolioPage() {
             </HStack>
           </HStack>
 
-          {account ? (
+          {paperStats ? (
             <HStack gap={6} wrap="wrap" className="portfolio-summary">
               <VStack gap={0}>
                 <Text type="supporting" size="sm">Cash</Text>
                 <Text weight="semibold" hasTabularNumbers className="portfolio-stat">
-                  {money(account.cash)}
+                  {money(paperStats.cash)}
                 </Text>
               </VStack>
               <VStack gap={0}>
                 <Text type="supporting" size="sm">
-                  {convictionFilter === 'all' ? 'Equity' : 'Filtered equity'}
+                  {paperStats.filtered ? 'Filtered equity' : 'Equity'}
                 </Text>
                 <Text weight="semibold" hasTabularNumbers className="portfolio-stat">
-                  {money(account.equity)}
+                  {money(paperStats.equity)}
                 </Text>
               </VStack>
               <VStack gap={0}>
@@ -254,9 +289,9 @@ export default function PortfolioPage() {
                 <Text
                   weight="semibold"
                   hasTabularNumbers
-                  className={`portfolio-stat portfolio-pnl-${pnlTone(account.open_pnl)}`}
+                  className={`portfolio-stat portfolio-pnl-${pnlTone(paperStats.open_pnl)}`}
                 >
-                  {money(account.open_pnl)}
+                  {money(paperStats.open_pnl)}
                 </Text>
               </VStack>
               <VStack gap={0}>
@@ -264,9 +299,9 @@ export default function PortfolioPage() {
                 <Text
                   weight="semibold"
                   hasTabularNumbers
-                  className={`portfolio-stat portfolio-pnl-${pnlTone(account.realized_pnl)}`}
+                  className={`portfolio-stat portfolio-pnl-${pnlTone(paperStats.realized_pnl)}`}
                 >
-                  {money(account.realized_pnl)}
+                  {money(paperStats.realized_pnl)}
                 </Text>
               </VStack>
             </HStack>
