@@ -102,6 +102,23 @@ site and SameSite=Lax will not send it.
   waiting for the poll, publish through it directly or
   `POST /jobs/{id}/trigger?force=1` (Bearer `LOADER_TOKEN`). Lake sinks flush
   on a ~300 s roll interval — data appears up to ~5 min after ingest.
+- **`LOADER_TOKEN` is almost never in local `.env`.** It lives as a GitHub
+  Actions secret (and on the Worker). `gh secret` cannot read values back, so
+  agents cannot curl `/jobs/*/trigger` from the desktop unless the human
+  pastes the token. Force a pass via workflow instead:
+  - Most jobs: `gh workflow run "Force loader pass (market-closed override)" -f job=<id>`
+    (`.github/workflows/force-loader-pass.yml` — choice list may lag new jobs).
+  - **Kalshi** (`kalshi-markets-hourly`): prefer
+    `gh workflow run "Provision Kalshi markets pipeline" --ref <branch-with-workflow>`
+    (`.github/workflows/provision-kalshi-markets.yml`). It uses `LOADER_TOKEN`
+    from secrets, triggers with `?force=1&async=1`, and polls until the paced
+    pass finishes. Sync `?force=1` alone can hang past Action/curl limits.
+- **Kalshi API keys (multi-line PEM):** interactive `wrangler secret put`
+  mangles PEMs. From a machine with wrangler logged in and keys in root
+  `.env` (`KALSHI_ACCESS_KEY_ID` + `KALSHI_PRIVATE_KEY_PEM` or
+  `KALSHI_PRIVATE_KEY_FILE`): `cd loader && node tools/put_kalshi_secrets.mjs --deploy`.
+  Also `gh secret set` both names so CI never loses them. PEM body alone is
+  not enough — wrap with `BEGIN RSA PRIVATE KEY` / `END` before upload.
 - **Worker redeploys preserve secrets** (R2_SQL_TOKEN, PIPELINE_*_URL, …);
   CI needs only `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`.
 - **Edit-tool hazard:** `read`/`grep` elide long bodies as `{ … }` — never

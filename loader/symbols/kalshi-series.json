@@ -1,0 +1,135 @@
+{
+  "source": "curated Kalshi series for investing-relevant event contracts (kalshi-markets-hourly)",
+  "updated": "2026-08-22",
+  "note": "Kalshi has thousands of markets (sports, entertainment, politics). This allowlist is deliberately small and investing-focused: Fed/rates, inflation, growth, equity-index levels, crypto levels, oil, and Treasury yields. Each entry maps to a Kalshi series_ticker; the loader fetches open markets only and caps per series. related_symbol links the series to a lake instrument when one exists (SPY, BTC-USD, CL=F, …) for Copilot joins and future Kalshi trade suggestions. Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
+  "api_base": "https://api.elections.kalshi.com/trade-api/v2",
+  "max_markets_per_series_default": 80,
+  "series": [
+    {
+      "series_ticker": "KXFED",
+      "theme": "rates",
+      "title": "Fed funds rate (upper bound thresholds)",
+      "related_symbol": "TLT",
+      "max_markets": 100
+    },
+    {
+      "series_ticker": "KXFEDDECISION",
+      "theme": "rates",
+      "title": "Fed meeting rate decision",
+      "related_symbol": "TLT",
+      "max_markets": 80
+    },
+    {
+      "series_ticker": "KXFEDHIKE",
+      "theme": "rates",
+      "title": "Next Fed rate hike",
+      "related_symbol": "TLT",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXRATECUT",
+      "theme": "rates",
+      "title": "Fed rate cut before year-end",
+      "related_symbol": "TLT",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXFEDCOMBO",
+      "theme": "rates",
+      "title": "Fed decision + dissent combo",
+      "related_symbol": "TLT",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXFEDCHGCOUNT",
+      "theme": "rates",
+      "title": "Number of Fed rate changes",
+      "related_symbol": "TLT",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXSOFRD",
+      "theme": "rates",
+      "title": "Daily SOFR level",
+      "related_symbol": null,
+      "max_markets": 30
+    },
+    {
+      "series_ticker": "KXUST10A",
+      "theme": "rates",
+      "title": "UST 10-year weekly",
+      "related_symbol": "IEF",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXCPI",
+      "theme": "inflation",
+      "title": "CPI monthly print",
+      "related_symbol": "TIP",
+      "max_markets": 80
+    },
+    {
+      "series_ticker": "KXCPICOREYOY",
+      "theme": "inflation",
+      "title": "Core CPI YoY",
+      "related_symbol": "TIP",
+      "max_markets": 80
+    },
+    {
+      "series_ticker": "KXGDP",
+      "theme": "growth",
+      "title": "US real GDP growth",
+      "related_symbol": "SPY",
+      "max_markets": 60
+    },
+    {
+      "series_ticker": "KXINX",
+      "theme": "equity_index",
+      "title": "S&P 500 level / range",
+      "related_symbol": "SPY",
+      "max_markets": 80
+    },
+    {
+      "series_ticker": "KXINXY",
+      "theme": "equity_index",
+      "title": "S&P 500 yearly range",
+      "related_symbol": "SPY",
+      "max_markets": 60
+    },
+    {
+      "series_ticker": "KXRUT",
+      "theme": "equity_index",
+      "title": "Russell 2000 level",
+      "related_symbol": "IWM",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXDJIA",
+      "theme": "equity_index",
+      "title": "Dow Jones Industrial Average level",
+      "related_symbol": "DIA",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXBTC",
+      "theme": "crypto",
+      "title": "Bitcoin price range",
+      "related_symbol": "BTC-USD",
+      "max_markets": 60
+    },
+    {
+      "series_ticker": "KXETH",
+      "theme": "crypto",
+      "title": "Ethereum price range",
+      "related_symbol": "ETH-USD",
+      "max_markets": 60
+    },
+    {
+      "series_ticker": "KXWTI",
+      "theme": "commodity",
+      "title": "WTI crude oil settlement",
+      "related_symbol": "CL=F",
+      "max_markets": 60
+    }
+  ]
+}

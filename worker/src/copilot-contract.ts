@@ -118,11 +118,11 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
       structure: z.string().trim().min(1).max(160)
         .describe("Short structure label, e.g. bull call debit spread, long shares, covered call."),
       legs: z.array(z.object({
-        instrument: z.enum(["option", "equity"]).optional()
-          .describe("option = listed call/put; equity = stock or ETF shares. Infer option when right/strike present."),
+        instrument: z.enum(["option", "equity", "kalshi"]).optional()
+          .describe("option = listed call/put; equity = stock/ETF; kalshi = event contract from options.kalshi_markets."),
         side: z.enum(["buy", "sell"]).describe("buy = long, sell = short / write."),
         qty: z.number().int().positive().max(1_000_000).optional()
-          .describe("Contracts (option) or shares (equity). Prefer when the idea is sized."),
+          .describe("Contracts (option/kalshi) or shares (equity). Prefer when the idea is sized."),
         symbol: z.string().trim().min(1).max(16).optional()
           .describe("Leg symbol override when different from trade ticker (rare)."),
         // Option-only fields (required by normalize when instrument=option).
@@ -132,6 +132,11 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
           .describe("Relative strike when absolute unknown, e.g. ATM or ~5% OTM."),
         expiration: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("YYYY-MM-DD expiration."),
         dte: z.number().int().min(0).max(730).optional(),
+        // Kalshi-only fields.
+        market_ticker: z.string().trim().min(1).max(64).optional()
+          .describe("Kalshi market ticker from options.kalshi_markets (required for kalshi legs)."),
+        contract_side: z.enum(["yes", "no"]).optional()
+          .describe("Kalshi YES or NO side; defaults to yes."),
       }).strict()).max(4).optional(),
       rationale: z.string().trim().min(1).max(480).describe("Why this structure fits the shared evidence."),
       liquidity: z.string().trim().min(1).max(240).optional().describe("Quote quality from lake (spread, volume/OI)."),
