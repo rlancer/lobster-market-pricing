@@ -25,6 +25,7 @@ export const COPILOT_TOOL_LABELS = {
   publish_desk: "Desk viewpoints",
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
+  get_bot_trades: "Bot trade performance",
 } as const;
 
 /** Model-facing tool descriptions — single source for createTools + admin explore. */
@@ -56,11 +57,16 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Publish 0–3 structured trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity). " +
     "Call after publish_desk on ticker/trade analysis so the UI can show trades without parsing prose. " +
     "Use trades: [] with skip_reason when nothing is tradable. Absolute strikes must come from option_contracts evidence. " +
-    "Markable suggestions are auto-opened into the signed-in user's paper portfolio for PnL tracking.",
+    "Markable suggestions are auto-opened into the signed-in user's paper portfolio for PnL tracking. " +
+    "When this chat is a public bot (e.g. yololobster), the same suggestions are also snapshotted into that bot's public trade book.",
   get_paper_portfolio:
     "Read this chat owner's paper portfolio: cash, equity, open/realized PnL, and positions (from auto-tracked suggest_trades). " +
     "Call when the user asks about their book, paper PnL, tracked suggestions, or how suggested trades are doing. " +
     "Requires a signed-in chat owner — returns a clear error when anonymous/bot.",
+  get_bot_trades:
+    "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
+    "Call when the user asks how @yololobster / @nowlobster / another bot's ideas are doing. " +
+    "Pass the bot handle without @. Separate from the signed-in paper portfolio.",
 } as const;
 
 const deskViewpointText = z.string().trim().min(40).max(2_400);
@@ -146,6 +152,12 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
       .describe("Optional when trades is empty — why no tradable lean. Defaults if omitted."),
   }).strict(),
   get_paper_portfolio: z.object({
+    status: z.enum(["open", "closed", "all"]).default("open")
+      .describe("Which positions to include. Default open."),
+  }).strict(),
+  get_bot_trades: z.object({
+    handle: z.string().trim().min(1).max(32)
+      .describe("Bot handle without @, e.g. yololobster or nowlobster."),
     status: z.enum(["open", "closed", "all"]).default("open")
       .describe("Which positions to include. Default open."),
   }).strict(),

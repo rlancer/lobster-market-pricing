@@ -15,6 +15,7 @@ import { Newspaper } from 'lucide-react';
 import './Timeline.css';
 import './Profile.css';
 import { api, type TimelineAuthor, type TimelinePost } from './api';
+import { BotTradesSection } from './BotTradesSection';
 import { UserAvatar } from './UserAvatar';
 import { useIsAdmin } from './useAdmin';
 import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './TimelineFeed';
@@ -224,6 +225,8 @@ export default function ProfilePage() {
             {!loading && !missing && profile && (
               <>
                 <ProfileHeader profile={profile} onBack={goHome} />
+
+                {profile.is_bot ? <BotTradesSection handle={handle} /> : null}
 
                 <VStack gap={3} className="profile-chats" as="section" aria-label="Public chats">
                   <Heading level={2}>Public chats</Heading>

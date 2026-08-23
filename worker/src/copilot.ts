@@ -36,6 +36,7 @@ import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskVie
 import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { formatPaperPortfolioSummary } from "./paper-portfolio";
+import { formatBotTradesSummary } from "./bot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
@@ -254,12 +255,33 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   /**
+   * Snapshot suggest_trades into a bot performance book when this DO is a bot.
+   * Default no-op — Worker overrides when bot_session is set.
+   */
+  protected autoTrackBotSuggestedTrades(
+    _trades: SuggestedTrades,
+  ): Promise<import("./bot-trades").BotTrackResult | null> {
+    return Promise.resolve(null);
+  }
+
+  /**
    * Load the chat owner's paper book for get_paper_portfolio.
    * Default null = tool unavailable (tests / no lake binding).
    */
   protected loadPaperPortfolio(
     _status: "open" | "closed" | "all",
   ): Promise<import("./paper-portfolio").PaperPortfolioView | null> {
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Load a public bot suggested-trade book for get_bot_trades.
+   * Default null = tool unavailable (tests / no lake binding).
+   */
+  protected loadBotTrades(
+    _handle: string,
+    _status: "open" | "closed" | "all",
+  ): Promise<import("./bot-trades").BotTradesBook | null> {
     return Promise.resolve(null);
   }
 
@@ -1007,7 +1029,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
 
           let summary = formatTradesToolSummary(trades);
           if (trades.trades.length > 0) {
-            status("Tracking suggested trades in paper portfolio…");
+            status("Tracking suggested trades…");
             try {
               const tracked = await this.autoTrackSuggestedTrades(trades);
               if (tracked && tracked.skipped == null) {
@@ -1019,6 +1041,18 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               }
             } catch (error) {
               console.error("auto-track suggested trades failed", error);
+            }
+            try {
+              const botTracked = await this.autoTrackBotSuggestedTrades(trades);
+              if (botTracked && botTracked.skipped == null) {
+                const parts: string[] = [];
+                if (botTracked.tracked > 0) parts.push(`tracked ${botTracked.tracked}`);
+                if (botTracked.already > 0) parts.push(`${botTracked.already} already tracked`);
+                if (botTracked.failed > 0) parts.push(`${botTracked.failed} could not mark`);
+                if (parts.length) summary = `${summary}\nBot trade book: ${parts.join("; ")}.`;
+              }
+            } catch (error) {
+              console.error("auto-track bot suggested trades failed", error);
             }
           }
 
@@ -1038,6 +1072,22 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             });
           }
           return this.output(true, formatPaperPortfolioSummary(view), { error: null });
+        }),
+      }),
+      get_bot_trades: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_bot_trades,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_bot_trades,
+        execute: async (args) => runTool("get_bot_trades", TOOL_LABELS.get_bot_trades, args, async () => {
+          status("Loading bot trade performance…");
+          const handle = String(args.handle ?? "").trim();
+          const statusFilter = args.status ?? "open";
+          const book = await this.loadBotTrades(handle, statusFilter);
+          if (!book) {
+            return this.output(false, "Unknown or disabled bot handle — try yololobster, nowlobster, or macrolobster.", {
+              error: "not_found",
+            });
+          }
+          return this.output(true, formatBotTradesSummary(book), { error: null });
         }),
       }),
     };

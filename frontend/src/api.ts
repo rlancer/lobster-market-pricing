@@ -673,6 +673,47 @@ export interface TrackTradeResponse {
   account_cash: number;
 }
 
+/** Public bot suggested-trade performance (no cash book). */
+export interface BotTradePosition {
+  id: string;
+  bot_handle: string;
+  status: 'open' | 'closed';
+  chat_id: string | null;
+  share_id: string | null;
+  run_id: string | null;
+  suggestion_key: string;
+  ticker: string;
+  bias: string | null;
+  conviction: string | null;
+  structure: string;
+  rationale: string | null;
+  liquidity: string | null;
+  legs: TradeLeg[];
+  qty: number;
+  entry_value: number | null;
+  entry_marked_at: number | null;
+  mark_value: number | null;
+  marked_at: number | null;
+  unrealized_pnl: number | null;
+  realized_pnl: number | null;
+  opened_at: number;
+  opened_at_iso: string;
+  closed_at: number | null;
+  closed_at_iso: string | null;
+}
+
+export interface BotTradesBook {
+  ok: boolean;
+  bot_handle: string;
+  summary: {
+    open_count: number;
+    closed_count: number;
+    open_pnl: number;
+    realized_pnl: number;
+  };
+  positions: BotTradePosition[];
+}
+
 export interface BotRun {
   run_id: string;
   handle: string;
@@ -1274,6 +1315,13 @@ export const api = {
     post<{ ok: true; position: PaperPosition; account_cash: number }>(
       `/api/portfolio/positions/${encodeURIComponent(positionId)}/close`,
       {},
+    ),
+  botTrades: (handle: string, opts?: { status?: 'open' | 'closed' | 'all'; refresh?: boolean }) =>
+    get<BotTradesBook>(
+      `/api/bots/${encodeURIComponent(handle)}/trades${qs({
+        status: opts?.status,
+        refresh: opts?.refresh === false ? 0 : undefined,
+      })}`,
     ),
 };
 

@@ -31,6 +31,7 @@ const KNOWN_TOOLS = new Set([
   "publish_desk",
   "suggest_trades",
   "get_paper_portfolio",
+  "get_bot_trades",
 ]);
 
 export interface ToolEventInput {

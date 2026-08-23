@@ -295,6 +295,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
+| `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`) and `refresh=0` to skip re-marking. Powers the Suggested trades section on `/u/{handle}` for bots. Copilot reads the same book via `get_bot_trades`. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
@@ -340,7 +341,10 @@ settle on idle. Chat ticker chips (from `research_ticker`) link there.
 auto-open paper positions at lake mid; `/portfolio` marks unrealized PnL
 and Close realizes against $100k starting cash. Share/timeline viewers can
 still **Add to portfolio**. Suggestions alone are not a book —
-`copilot_tool_events` stays ~30d admin debug.
+`copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
+`@yololobster`) land in a separate performance book on `/u/{handle}`
+(`GET /api/bots/{handle}/trades`) — no cash account, just lake-marked PnL
+for suggested structures.
 **Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that
@@ -348,7 +352,8 @@ has not already been used on a prior run (next unused seed, or an invented
 question). Sharing stamps the post onto the public timeline under that handle.
 Schedules (e.g. `@nowlobster` hourly market overview, `@yololobster` hourly
 yolo scan) run headless on the Worker cron during US market hours and
-auto-share without a browser.
+auto-share without a browser; markable `suggest_trades` from those runs
+feed the bot trade book on the profile.
 **Admin** (`/admin`) is the left-nav hub for operator tools. **Users** (`/users`)
 and **Chats** (`/chats`) are admin directories — signed-up
 Google identities, and every lake Copilot conversation (profile when signed

@@ -161,9 +161,9 @@ export const TOOLS: CatalogItem[] = [
     title: 'suggest_trades',
     summary: 'Structured end-of-turn trade ideas',
     description:
-      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity, side buy|sell (long/short), optional qty, plus option right/strike/expiry. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking.',
+      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity, side buy|sell (long/short), optional qty, plus option right/strike/expiry. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking. For public bots, the same suggestions are snapshotted into that bot’s trade book on /u/{handle}.',
     tables: ['option_contracts'],
-    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio'],
+    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_bot_trades'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
@@ -179,6 +179,20 @@ export const TOOLS: CatalogItem[] = [
     endpoint: 'GET /api/portfolio',
     tools: ['suggest_trades'],
     params: [
+      { name: 'status', type: 'open|closed|all?', note: 'Default open' },
+    ],
+  },
+  {
+    id: 'tool:get_bot_trades',
+    kind: 'tool',
+    title: 'get_bot_trades',
+    summary: 'Read a public bot’s suggested-trade PnL',
+    description:
+      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /u/{handle} and via GET /api/bots/{handle}/trades.',
+    endpoint: 'GET /api/bots/{handle}/trades',
+    tools: ['suggest_trades'],
+    params: [
+      { name: 'handle', type: 'string', note: 'Bot handle without @' },
       { name: 'status', type: 'open|closed|all?', note: 'Default open' },
     ],
   },
