@@ -147,13 +147,19 @@ export default function PortfolioPage() {
             size="sm"
             variant={bookMode === 'paper' ? 'primary' : 'ghost'}
             label="Paper book"
-            onClick={() => setBookMode('paper')}
+            onClick={() => {
+              setError(null);
+              setBookMode('paper');
+            }}
           />
           <Button
             size="sm"
             variant={bookMode === 'suggested' ? 'primary' : 'ghost'}
             label="Suggested trades"
-            onClick={() => setBookMode('suggested')}
+            onClick={() => {
+              setError(null);
+              setBookMode('suggested');
+            }}
           />
         </HStack>
       </HStack>
