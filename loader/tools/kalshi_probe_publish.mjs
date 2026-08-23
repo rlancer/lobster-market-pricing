@@ -139,7 +139,7 @@ if (!PIPELINE_KALSHI_MARKETS_URL) {
 }
 
 const argv = process.argv.slice(2);
-const targets = argv.length > 0 ? argv : Object.keys(SERIES_META).slice(0, 4);
+const targets = argv.length > 0 ? argv : Object.keys(SERIES_META);
 const runId = crypto.randomUUID();
 const fetchedAt = new Date().toISOString();
 const results = [];

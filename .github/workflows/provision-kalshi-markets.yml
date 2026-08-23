@@ -271,7 +271,9 @@ jobs:
         working-directory: loader
         run: |
           set -euo pipefail
-          node tools/kalshi_probe_publish.mjs KXFED KXCPI KXINX KXBTC
+          # Full curated allowlist — not just a sample — so the lake is useful
+          # immediately even if the DO trigger races a main-branch loader deploy.
+          node tools/kalshi_probe_publish.mjs
 
       - name: Force kalshi-markets-hourly (Worker path)
         run: |

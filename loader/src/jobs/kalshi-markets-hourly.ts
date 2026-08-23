@@ -17,7 +17,7 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 //
 // Dry-run: without PIPELINE_KALSHI_MARKETS_URL the pass is a no-op.
 export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
-  const concurrency = Math.max(1, Math.floor(num(env, "KALSHI_CONCURRENCY", 2)));
+  const concurrency = Math.max(1, Math.floor(num(env, "KALSHI_CONCURRENCY", 1)));
   return {
     id: "kalshi-markets-hourly",
     marketGated: false,
