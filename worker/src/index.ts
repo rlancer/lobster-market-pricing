@@ -121,6 +121,10 @@ import {
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import {
+  selectResearchKalshiMarkets,
+  type KalshiMarketBrief,
+} from "./research-kalshi";
+import {
   getOrComputeEarningsIntel,
   type CompanyFactBrief,
   type EarningsResultBrief,
@@ -2755,6 +2759,39 @@ async function loadResearchFilings(
   }
 }
 
+/**
+ * Curated Kalshi event markets linked to this underlying via related_symbol.
+ * Latest-wins on market_ticker; live-only; ranked by volume then soonest close.
+ */
+async function loadResearchKalshi(
+  env: Env,
+  ticker: string,
+  limit = 12,
+): Promise<KalshiMarketBrief[]> {
+  const lim = Math.max(1, Math.min(50, Math.floor(limit)));
+  // Pull a wider latest-wins window so JS ranking can prefer liquid contracts
+  // without pushing ORDER BY volume into R2 SQL (nulls / dialect quirks).
+  const scan = Math.min(200, Math.max(40, lim * 8));
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, status,` +
+        `  yes_bid, yes_ask, yes_last, volume, volume_24h, open_interest, close_time, related_symbol` +
+        ` FROM (` +
+        `  SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, status,` +
+        `    yes_bid, yes_ask, yes_last, volume, volume_24h, open_interest, close_time, related_symbol,` +
+        `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.kalshi_markets WHERE related_symbol = ${lit(ticker)}` +
+        `) WHERE rn = 1 LIMIT ${scan}`,
+      "kalshi_" + ticker + "_" + lim,
+      QUERY_TTL_MS,
+    );
+    return selectResearchKalshiMarkets(rows, lim);
+  } catch {
+    return [];
+  }
+}
+
 async function loadResearchFundamentals(env: Env, ticker: string): Promise<FundamentalsBrief> {
   try {
     const rows = await r2sql(
@@ -3022,6 +3059,20 @@ async function handleResearchFilingsGet(env: Env, req: Request, tickerRaw: strin
   const url = new URL(req.url);
   const limit = num(url.searchParams.get("limit") ?? 20);
   const items = await loadResearchFilings(env, ticker, limit);
+  return json(
+    env,
+    { ticker, items, count: items.length },
+    200,
+    "private",
+  );
+}
+
+async function handleResearchKalshiGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
+  const ticker = parseTickerParam(tickerRaw);
+  if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+  const url = new URL(req.url);
+  const limit = num(url.searchParams.get("limit") ?? 12);
+  const items = await loadResearchKalshi(env, ticker, limit);
   return json(
     env,
     { ticker, items, count: items.length },
@@ -3834,6 +3885,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     }
     if (sub === "filings" && req.method === "GET") {
       return handleResearchFilingsGet(env, req, tickerPart);
+    }
+    if (sub === "kalshi" && req.method === "GET") {
+      return handleResearchKalshiGet(env, req, tickerPart);
     }
     if (!sub && (req.method === "GET" || req.method === "POST")) {
       return handleResearchGet(env, req, tickerPart, ctx);

@@ -181,6 +181,33 @@ export interface SecFilingsResponse {
   count: number;
 }
 
+/** One curated Kalshi event market from /api/research/{ticker}/kalshi. */
+export interface KalshiMarketItem {
+  series_ticker: string;
+  market_ticker: string;
+  event_ticker: string | null;
+  title: string;
+  yes_subtitle: string | null;
+  theme: string;
+  status: string;
+  yes_bid: number | null;
+  yes_ask: number | null;
+  yes_last: number | null;
+  volume: number | null;
+  volume_24h: number | null;
+  open_interest: number | null;
+  close_time: string | null;
+  related_symbol: string | null;
+  url: string | null;
+}
+
+/** Response of /api/research/{ticker}/kalshi — empty when no related markets. */
+export interface KalshiMarketsResponse {
+  ticker: string;
+  items: KalshiMarketItem[];
+  count: number;
+}
+
 /** One result from the Worker's /api/web_search proxy (Tavily general search). */
 export interface WebSearchResult {
   title: string;
@@ -966,6 +993,8 @@ export interface TickerResearch {
   }>;
   news: Array<{ title: string; link: string }>;
   filings?: SecFilingItem[];
+  /** Related Kalshi event markets (idle-loaded via /api/research/{ticker}/kalshi). */
+  kalshi?: KalshiMarketItem[];
   etf: {
     name: string | null;
     family: string | null;
@@ -1370,6 +1399,10 @@ export const api = {
   researchFilings: (ticker: string, limit?: number) =>
     get<SecFilingsResponse>(
       `/api/research/${encodeURIComponent(ticker.toUpperCase())}/filings${qs({ limit })}`,
+    ),
+  researchKalshi: (ticker: string, limit?: number) =>
+    get<KalshiMarketsResponse>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}/kalshi${qs({ limit })}`,
     ),
   chatTickers: (chatId: string) =>
     get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),

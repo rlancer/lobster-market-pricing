@@ -196,7 +196,8 @@ Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
 and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
 BTC/ETH ranges, WTI — each optionally linked to a lake `related_symbol`
-(SPY, TLT, BTC-USD, CL=F, …) for Copilot joins and future Kalshi trade ideas.
+(SPY, TLT, BTC-USD, CL=F, …) for Copilot joins, `/research/{ticker}` event
+markets (`GET /api/research/{ticker}/kalshi`), and Kalshi trade ideas.
 
 Public Trade API (no key): `GET /markets?series_ticker=…&status=open`. Each
 pass caps markets per series (volume-first), is batch-scoped / ungated, and
