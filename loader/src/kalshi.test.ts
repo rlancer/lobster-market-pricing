@@ -142,6 +142,7 @@ describe("publishKalshiSeries", () => {
         PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
+        KALSHI_FETCH_SERIES_META: "1",
         runId: () => "run-kalshi",
       });
       expect(result.published).toBe(true);

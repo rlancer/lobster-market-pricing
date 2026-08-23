@@ -72,6 +72,8 @@ export const MAX_PAGES_DEFAULT = 8;
 
 export interface KalshiEnv {
   KALSHI_API_BASE?: string;
+  /** Set to "1" to also fetch Get Series for category enrichment (extra API call). */
+  KALSHI_FETCH_SERIES_META?: string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   HTTP_RETRIES?: number;
