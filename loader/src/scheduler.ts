@@ -396,7 +396,11 @@ export class EtlScheduler {
     if (jobMatch) {
       const [, id, trigger] = jobMatch;
       if (trigger) {
-        return this.triggerJob(id, url.searchParams.get("force") === "1");
+        return this.triggerJob(
+          id,
+          url.searchParams.get("force") === "1",
+          url.searchParams.get("async") === "1",
+        );
       }
       return json(await this.jobStatus(id));
     }
@@ -849,7 +853,11 @@ export class EtlScheduler {
   // state, and reflect it. Auth is enforced at the Worker edge. `force` runs
   // the pass even when the market is closed (one-off "load the closing data"
   // override); the loop's own wake/sleep schedule is untouched afterwards.
-  async triggerJob(id: string, force = false): Promise<Response> {
+  //
+  // `background` (?async=1) returns as soon as the pass is accepted and runs
+  // it under waitUntil — required for long paced jobs (Kalshi) so provision
+  // curl does not sit on an open HTTP connection for the full pass.
+  async triggerJob(id: string, force = false, background = false): Promise<Response> {
     const spec = this.specFor(id);
     if (!spec) return json({ error: `unknown job: ${id}` }, 404);
     await this.seedJobs();
@@ -862,9 +870,27 @@ export class EtlScheduler {
       await this.ctx.storage.delete("passing");
     }
     await this.ctx.storage.put("passing", Date.now());
+    const row = (await this.jobRow(id)) ?? this.jobRowFromSpec(spec, Date.now());
+    const runTimeoutMs = this.runTimeoutMs();
+
+    if (background && typeof this.ctx.waitUntil === "function") {
+      this.ctx.waitUntil((async () => {
+        try {
+          await this.runJobPass(spec, row, runTimeoutMs, force);
+        } finally {
+          await this.ctx.storage.delete("passing");
+        }
+      })());
+      return json({
+        ok: true,
+        job: id,
+        background: true,
+        note: force ? "forced pass started" : "pass started",
+      });
+    }
+
     try {
-      const row = (await this.jobRow(id)) ?? this.jobRowFromSpec(spec, Date.now());
-      await this.runJobPass(spec, row, this.runTimeoutMs(), force);
+      await this.runJobPass(spec, row, runTimeoutMs, force);
     } finally {
       await this.ctx.storage.delete("passing");
     }
