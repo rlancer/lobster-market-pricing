@@ -98,9 +98,11 @@ jobs:
           try_list
 
           # Open-beta hard cap: 20 streams / 20 sinks / 20 pipelines per account.
-          # Free slots by deleting *retired* resources only (never live lake feeds).
-          # options.underlyings was retired 2026-08-08 in favor of securities +
-          # underlying_snapshots; symbol_load_errors is optional and often unwired.
+          # Free one slot for Kalshi by (1) deleting retired/orphaned resources,
+          # then (2) pausing reg_sho ingest (niche FINRA daily short-sale feed).
+          # options.reg_sho_daily Iceberg rows remain readable; the job dry-runs
+          # once PIPELINE_REG_SHO_URL is cleared. Re-provision after a Pipelines
+          # limit increase: https://developers.cloudflare.com/pipelines/platform/limits/
           echo "Current streams:"
           node -e 'const s=require("/tmp/streams.json"); const arr=Array.isArray(s)?s:(s.result||s.streams||[]); console.log("count="+arr.length); for (const x of arr) console.log(" -", x.name||x.id||JSON.stringify(x).slice(0,80));'
 
@@ -110,9 +112,6 @@ jobs:
               cboe_underlyings_pipeline cboe_symbol_load_errors_pipeline \
               cboe_underlyings_v1_pipeline cboe_instruments_pipeline; do
               if wrangler_pipelines pipelines get "$name" --json >/dev/null 2>&1; then
-                # instruments: table never landed in prod /api/tables — free the
-                # orphaned pipeline slot so Kalshi can provision. Re-add later
-                # after a Pipelines limit increase.
                 echo "Deleting pipeline $name (retired/orphaned — frees quota)"
                 wrangler_pipelines pipelines delete "$name" -y || true
               fi
@@ -135,7 +134,30 @@ jobs:
               fi
             done
           }
+
+          # Pause reg_sho ingest to free the 20th stream slot for Kalshi.
+          pause_reg_sho_for_quota() {
+            if wrangler_pipelines pipelines streams get "$STREAM" --json >/dev/null 2>&1; then
+              echo "Kalshi stream already exists — not touching reg_sho"
+              return 0
+            fi
+            if ! wrangler_pipelines pipelines streams get cboe_reg_sho_daily_v2 --json >/dev/null 2>&1; then
+              echo "reg_sho stream already absent"
+              return 0
+            fi
+            echo "Pausing reg_sho ingest (cboe_reg_sho_daily_*) to free Pipelines quota for Kalshi"
+            wrangler_pipelines pipelines delete cboe_reg_sho_daily_pipeline -y || true
+            wrangler_pipelines pipelines sinks delete cboe_reg_sho_daily_sink -y || true
+            wrangler_pipelines pipelines streams delete cboe_reg_sho_daily_v2 -y || true
+            # Clear loader secret so reg-sho-daily dry-runs (no failing POSTs).
+            printf '' | npx wrangler secret put PIPELINE_REG_SHO_URL || true
+          }
+
           free_retired_slot
+          pause_reg_sho_for_quota
+          try_list
+          echo "Streams after quota relief:"
+          node -e 'const s=require("/tmp/streams.json"); const arr=Array.isArray(s)?s:(s.result||s.streams||[]); console.log("count="+arr.length); for (const x of arr) console.log(" -", x.name||x.id);'
 
           create_stream() {
             wrangler_pipelines pipelines streams create "$STREAM" \

@@ -192,8 +192,16 @@ Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `cboe_kalshi_markets_sink` (creates `options.kalshi_markets`), pipeline
 `cboe_kalshi_markets_pipeline`, then
 `npx wrangler secret put PIPELINE_KALSHI_MARKETS_URL`. Or run
-`.github/workflows/provision-kalshi-markets.yml`. Dry-run until the secret is
-set. Probe: `node --experimental-strip-types tools/kalshi_probe.ts`.
+`.github/workflows/provision-kalshi-markets.yml`.
+
+> **Pipelines open-beta cap:** accounts are limited to **20 streams / sinks /
+> pipelines**. This account is at that cap; the provision workflow pauses
+> `cboe_reg_sho_daily_*` ingest (historical `options.reg_sho_daily` rows stay
+> queryable; `reg-sho-daily` dry-runs) to free a slot for Kalshi. Re-provision
+> Reg SHO after a [limit increase](https://developers.cloudflare.com/pipelines/platform/limits/).
+
+Dry-run until the Kalshi secret is set. Probe:
+`node --experimental-strip-types tools/kalshi_probe.ts`.
 
 ### ETF fund profiles + top holdings (`etf-daily`)
 
