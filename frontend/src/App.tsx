@@ -27,7 +27,13 @@ import MonitorStatus from './MonitorStatus';
 import { TickerTypeahead } from './TickerTypeahead';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
-import { CHATS_CHANGED_EVENT, chatPath, parseChatId, sortUserChats } from './chatSession';
+import {
+  CHATS_CHANGED_EVENT,
+  chatPath,
+  groupUserChatsByRelativeTime,
+  parseChatId,
+  sortUserChats,
+} from './chatSession';
 import { DocumentMeta } from './DocumentMeta';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
@@ -173,6 +179,7 @@ function WorkspaceNavItems({
   const history = useSavedChats();
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const historySelected = Boolean(activeChatId && history.some((chat) => chat.chat_id === activeChatId));
+  const historyGroups = groupUserChatsByRelativeTime(history);
   const isTimeline = activeTo === '/' || Boolean(activeTo?.startsWith('/u/'));
 
   return (
@@ -208,15 +215,19 @@ function WorkspaceNavItems({
         >
           {historyCollapsed
             ? null
-            : history.map((chat) => (
-                <SideNavItem
-                  key={chat.chat_id}
-                  as={RouterLink}
-                  href={chatPath(chat.chat_id)}
-                  label={chat.title.trim()}
-                  isSelected={activeChatId === chat.chat_id}
-                  onClick={closeMobileNav}
-                />
+            : historyGroups.map((group) => (
+                <SideNavSection key={group.label} title={group.label}>
+                  {group.items.map((chat) => (
+                    <SideNavItem
+                      key={chat.chat_id}
+                      as={RouterLink}
+                      href={chatPath(chat.chat_id)}
+                      label={chat.title.trim()}
+                      isSelected={activeChatId === chat.chat_id}
+                      onClick={closeMobileNav}
+                    />
+                  ))}
+                </SideNavSection>
               ))}
         </SideNavSection>
       ) : null}
