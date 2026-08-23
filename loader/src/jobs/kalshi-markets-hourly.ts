@@ -48,10 +48,9 @@ export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
               error: String((error && (error as Error).message) || error),
             });
           }
-          // Mild pacing — Kalshi public API + Pipelines ingest both rate-limit
-          // under a burst of series fetches.
+          // Pace series — Kalshi public API 429s under burst (too_many_requests).
           if (index + 1 < items.length) {
-            await new Promise((r) => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 1500));
           }
         }
       };

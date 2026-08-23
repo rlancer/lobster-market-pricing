@@ -212,7 +212,15 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
         lastError = new Error(`${label} returned HTTP ${code}: ${detail.slice(0, 160)}`);
         // Retry 429 / 5xx; other 4xx fail immediately.
         if (code !== 429 && code < 500) throw lastError;
-        if (attempt < retries) await sleep(backoffSeconds(env, attempt) * 1000);
+        if (attempt < retries) {
+          // Kalshi rate-limits aggressively; honor Retry-After when present,
+          // otherwise back off harder than the default 1/2/4s ladder.
+          const retryAfter = Number(response.headers.get("retry-after"));
+          const waitSec = Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter
+            : Math.max(backoffSeconds(env, attempt), code === 429 ? 5 * 2 ** attempt : 0);
+          await sleep(waitSec * 1000);
+        }
       } finally {
         clearTimeout(timer);
       }
@@ -359,15 +367,20 @@ export async function fetchKalshiSeriesMarkets(
   );
   const maxPages = Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
 
+  // Skip Get Series (category enrichment) by default — each series costs an
+  // extra public-API call and Kalshi 429s under the allowlist burst. Set
+  // KALSHI_FETCH_SERIES_META=1 to re-enable.
   let seriesPayload: unknown = null;
-  try {
-    seriesPayload = await fetchJson(
-      `${base}/series/${encodeURIComponent(seriesId)}`,
-      env,
-      `kalshi series ${seriesId}`,
-    );
-  } catch {
-    // Category enrichment is best-effort; markets fetch is the hard requirement.
+  if (String(env.KALSHI_FETCH_SERIES_META || "") === "1") {
+    try {
+      seriesPayload = await fetchJson(
+        `${base}/series/${encodeURIComponent(seriesId)}`,
+        env,
+        `kalshi series ${seriesId}`,
+      );
+    } catch {
+      // Category enrichment is best-effort.
+    }
   }
 
   const collected: KalshiMarketRow[] = [];
