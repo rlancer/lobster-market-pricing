@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Tooltip } from '@astryxdesign/core';
+import { Tooltip, useAppShellMobile } from '@astryxdesign/core';
 import { api, type RefreshRun } from './api';
 import { useWorkspace } from './workspace';
 import './MonitorStatus.css';
 
 /**
- * Consolidated dataset-status chip for the header. Replaces the old trio of
+ * Consolidated dataset-status chip for the left-nav footer. Replaces the old trio of
  * (Dataset-ready dot · "As of …" · "Data · date · status" chip + popover) with
  * one element that folds all of it together and navigates to the full monitor
  * page (/monitor). The detail (loader loop, run history) lives on that page.
@@ -20,6 +20,7 @@ const toneOf = (status: string): string => {
 
 export default function MonitorStatus() {
   const navigate = useNavigate();
+  const { closeMobileNav } = useAppShellMobile();
   const { stats } = useWorkspace();
   const [latest, setLatest] = useState<RefreshRun | null>(null);
 
@@ -43,7 +44,10 @@ export default function MonitorStatus() {
       <button
         type="button"
         className="monitor-status"
-        onClick={() => navigate({ to: '/monitor' })}
+        onClick={() => {
+          closeMobileNav();
+          void navigate({ to: '/monitor' });
+        }}
       >
         <span className={`ms-dot ${tone}`} aria-hidden="true" />
         <span className="ms-ready">{stats ? 'Dataset ready' : '…'}</span>

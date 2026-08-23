@@ -9,7 +9,7 @@
   --accent-2: var(--color-text-cyan);
   --call: var(--color-success);
   --put: var(--color-error);
-  --topbar-h: var(--size-element-lg);
+  --topbar-h: 0px;
   /* Shared reading/working column for research, timeline shell, share, docs. */
   --content-max: 72rem;
   /* Conversation column on /chat and the desktop timeline feed (composer + posts). */
@@ -38,8 +38,8 @@ body {
 button, input, select, textarea { font: inherit; }
 button, select { cursor: pointer; }
 
-/* The shell is intentionally quiet: one persistent app rail, one compact
-   toolbar, and the working surface. Detail belongs in the active app. */
+/* The shell is intentionally quiet: one persistent app rail and the working
+   surface. Account + dataset status live at the bottom of the rail. */
 .app {
   height: 100dvh;
   background: var(--bg);
@@ -84,29 +84,22 @@ button, select { cursor: pointer; }
   min-width: 0;
 }
 
-.topbar {
+.nav-account {
   width: 100%;
-  min-height: var(--topbar-h);
-  padding-inline: var(--spacing-5);
-  border-bottom: var(--border-width) solid var(--color-border);
-  background: color-mix(in srgb, var(--panel) 94%, transparent);
-  backdrop-filter: blur(var(--spacing-3));
-  -webkit-backdrop-filter: blur(var(--spacing-3));
-}
-.topbar-research-search {
-  flex: 1 1 auto;
   min-width: 0;
-  max-width: 20rem;
+  align-items: stretch;
+  padding-block-start: var(--spacing-2);
 }
-.topbar-tools {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
-  margin-inline-start: auto;
-  color: var(--muted);
-  font-family: var(--font-family-code);
-  font-size: var(--font-size-xs);
+.nav-account .monitor-status {
+  width: 100%;
+  justify-content: flex-start;
+  white-space: normal;
 }
+.nav-account .topbar-profile {
+  align-self: flex-start;
+}
+
+/* Top bar removed — profile/status live in .nav-account. */
 .topbar-profile {
   display: grid;
   place-items: center;
@@ -398,15 +391,6 @@ button, select { cursor: pointer; }
   .actions { grid-column: 1 / -1; justify-content: flex-end; margin-left: var(--spacing-0); }
 }
 @media (max-width: 768px) {
-  .topbar {
-    min-height: var(--topbar-h);
-    gap: var(--spacing-2);
-    padding-inline: var(--spacing-3);
-  }
-  .topbar-research-search {
-    max-width: none;
-  }
-  .topbar-tools { gap: var(--spacing-1); }
   .topbar-profile,
   .topbar-profile-icon {
     width: var(--size-element-md);
@@ -417,7 +401,6 @@ button, select { cursor: pointer; }
 }
 @media (max-width: 640px) {
   .ms-data { display: none; }
-  .topbar-tools { justify-content: flex-start; }
   .filter-heading { align-items: flex-start; }
   .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .actions { grid-column: 1 / -1; justify-content: stretch; margin-left: var(--spacing-0); }

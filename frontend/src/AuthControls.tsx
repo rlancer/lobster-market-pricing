@@ -88,7 +88,7 @@ function HandleField({
 }
 
 /**
- * Optional Google account controls for the app header. Chat stays anonymous
+ * Optional Google account controls for the left-nav footer. Chat stays anonymous
  * by default; this only appears when the Worker has Google OAuth configured,
  * or when a session is already present. First sign-in claims a public handle;
  * name and avatar edit once a handle exists.
