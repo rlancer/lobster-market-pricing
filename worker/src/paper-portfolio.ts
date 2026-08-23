@@ -357,9 +357,19 @@ export async function markStructure(
     const instrument = resolveInstrument(leg);
     const symbol = (leg.symbol ?? parent).toUpperCase();
     const qty = legQty(leg);
+    if (instrument === "unsupported") {
+      return {
+        index,
+        instrument: "option" as const,
+        side: leg.side,
+        qty,
+        symbol,
+        error: "kalshi legs cannot be marked in the paper book yet",
+      } as const;
+    }
     if (instrument === "equity") {
       equitySymbols.push(symbol);
-      return { index, instrument, side: leg.side, qty, symbol } as const;
+      return { index, instrument: "equity" as const, side: leg.side, qty, symbol } as const;
     }
     const right = "right" in leg ? leg.right : undefined;
     const strike = "strike" in leg ? leg.strike : undefined;
@@ -367,7 +377,7 @@ export async function markStructure(
     if (!right || strike == null || !expiration) {
       return {
         index,
-        instrument,
+        instrument: "option" as const,
         side: leg.side,
         qty,
         symbol,
@@ -380,7 +390,7 @@ export async function markStructure(
     optionLookups.push({ symbol, right, strike, expiration, index });
     return {
       index,
-      instrument,
+      instrument: "option" as const,
       side: leg.side,
       qty,
       symbol,
