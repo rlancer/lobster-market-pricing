@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  diversifyResearchKalshiMarkets,
   isLiveKalshiMarket,
   kalshiRelatedSymbolKeys,
   kalshiSeriesUrl,
@@ -148,6 +149,22 @@ describe("rank + select", () => {
     assert.ok(series.includes("KXMETAANTITRUST"));
     assert.ok(series.includes("KXMETAKIDSCASE"));
     assert.equal(series.filter((s) => s === "KXFACEBOOKAPP").length, 2);
+  });
+
+  it("does not overflow a series when other series can still fill the rail", () => {
+    const items = diversifyResearchKalshiMarkets(
+      [
+        brief({ market_ticker: "APP-1", series_ticker: "KXFACEBOOKAPP", volume_24h: 900 }),
+        brief({ market_ticker: "APP-2", series_ticker: "KXFACEBOOKAPP", volume_24h: 800 }),
+        brief({ market_ticker: "APP-3", series_ticker: "KXFACEBOOKAPP", volume_24h: 700 }),
+        brief({ market_ticker: "ANTI-1", series_ticker: "KXMETAANTITRUST", volume_24h: 50 }),
+        brief({ market_ticker: "KIDS-1", series_ticker: "KXMETAKIDSCASE", volume_24h: 40 }),
+      ],
+      5,
+      2,
+    );
+    assert.equal(items.length, 4);
+    assert.equal(items.filter((i) => i.series_ticker === "KXFACEBOOKAPP").length, 2);
   });
 
   it("filters settled / past-close markets and caps", () => {
