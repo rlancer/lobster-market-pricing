@@ -35,12 +35,13 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   `edgar_url` links), `instruments-daily` (batch, daily; manifest
   classification →   `options.instruments` with extendable `security_type`
   in {equity, etf, index, future, crypto} so OHLC queries filter by kind
-  instead of hand-listing tickers), `fred-yields-daily` (batch, daily;
+  instead of hand-listing tickers),   `fred-yields-daily` (batch, daily;
   FRED Treasury / rates curve observations → `options.yields`: DGS*
   constant-maturity, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR;
   ~10y lookback), and `kalshi-markets-hourly` (batch, hourly; curated Kalshi
-  Fed/CPI/index/crypto/oil event contracts → `options.kalshi_markets` from
-  `symbols/kalshi-series.json` — not the full Kalshi catalog).
+  Fed/CPI/index/crypto/oil + mega-cap company_event contracts →
+  `options.kalshi_markets` from `symbols/kalshi-series.json` — not the full
+  Kalshi catalog).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

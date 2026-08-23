@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   isLiveKalshiMarket,
+  kalshiRelatedSymbolKeys,
   kalshiSeriesUrl,
   kalshiYesProb,
   mapKalshiMarketBrief,
   rankResearchKalshiMarkets,
   selectResearchKalshiMarkets,
+  summarizeKalshiForResearch,
   type KalshiMarketBrief,
 } from "../src/research-kalshi";
 
@@ -143,5 +145,35 @@ describe("kalshiYesProb + isLive", () => {
   it("treats closed status as not live", () => {
     assert.equal(isLiveKalshiMarket(brief({ status: "closed" })), false);
     assert.equal(isLiveKalshiMarket(brief({ status: "open" })), true);
+  });
+});
+
+describe("kalshiRelatedSymbolKeys", () => {
+  it("expands Alphabet dual-class tickers", () => {
+    assert.deepEqual(kalshiRelatedSymbolKeys("GOOG"), ["GOOG", "GOOGL"]);
+    assert.deepEqual(kalshiRelatedSymbolKeys("googl"), ["GOOG", "GOOGL"]);
+    assert.deepEqual(kalshiRelatedSymbolKeys("META"), ["META"]);
+  });
+});
+
+describe("summarizeKalshiForResearch", () => {
+  it("formats YES odds for fundamental context", () => {
+    const text = summarizeKalshiForResearch([
+      brief({
+        market_ticker: "KXMETAANTITRUST-26DEC31",
+        series_ticker: "KXMETAANTITRUST",
+        title: "FTC antitrust case against Meta revived on appeal?",
+        theme: "company_event",
+        yes_last: 0.27,
+      }),
+    ]);
+    assert.ok(text);
+    assert.match(text!, /27% YES/);
+    assert.match(text!, /FTC antitrust/);
+    assert.match(text!, /company_event/);
+  });
+
+  it("returns null when empty", () => {
+    assert.equal(summarizeKalshiForResearch([]), null);
   });
 });

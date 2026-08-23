@@ -19,6 +19,11 @@ import {
   type ResearchEnv,
   type TickerResearch,
 } from "./research";
+import {
+  kalshiYesProb,
+  summarizeKalshiForResearch,
+  type KalshiMarketBrief,
+} from "./research-kalshi";
 
 export type CommentarySource = "llm" | "notes" | "insufficient";
 
@@ -48,6 +53,7 @@ export const COMMENTARY_SYSTEM = [
   "Write a short ticker takeaway for a detail page in Markdown.",
   "Use short paragraphs (1–2 sentences each) separated by blank lines — never one long wall of text.",
   "Lead with the spot or the move that matters. Ground every claim in the brief.",
+  "When the brief lists related Kalshi event markets (litigation, antitrust, KPI prints, CEO catalysts), fold the material YES odds into the fundamental read — do not ignore them or invent contracts that are not listed.",
   "Close with a Trade section exactly in this shape:",
   "**Trade — {Bullish|Bearish|Neutral} ({high|medium|low} conviction)**",
   "Then one short line naming the structure (e.g. bull call debit spread, put debit, iron condor, calendar), rough tenor (e.g. 30–45 DTE), and strike posture relative to spot (ATM / ~5% OTM / wings).",
@@ -283,7 +289,10 @@ export function formatTradeIdea(idea: TradeIdea): string {
  * Deterministic Lobster-voice blurb from structured research.
  * Thin briefs return the insufficient-data message — no invented lean.
  */
-export function synthesizeCommentary(r: TickerResearch): string {
+export function synthesizeCommentary(
+  r: TickerResearch,
+  kalshi: KalshiMarketBrief[] = [],
+): string {
   if (!hasEnoughDataForCommentary(r)) {
     return formatInsufficientDataCommentary(r);
   }
@@ -337,18 +346,27 @@ export function synthesizeCommentary(r: TickerResearch): string {
   if (s?.short_ratio != null) fundBits.push(`short vol ${(s.short_ratio * 100).toFixed(0)}%`);
   if (fundBits.length) paragraphs.push(`${fundBits.join(" · ")}.`);
 
+  const eventBits = kalshi.slice(0, 3).map((item) => {
+    const yes = kalshiYesProb(item);
+    const pct = yes != null ? `${Math.round(yes * 100)}% YES` : "odds n/a";
+    return `${pct} on ${item.title}`;
+  });
+  if (eventBits.length) {
+    paragraphs.push(`Event markets: ${eventBits.join("; ")}.`);
+  }
+
   // Keep the recap tight; always keep the trade closer last.
   const idea = suggestTradeIdea(r);
-  return [...paragraphs.slice(0, 3), formatTradeIdea(idea)].join("\n\n");
+  return [...paragraphs.slice(0, 4), formatTradeIdea(idea)].join("\n\n");
 }
 
 export async function generateLobsterCommentary(
   research: TickerResearch,
   model: LanguageModel,
-  opts?: { abortSignal?: AbortSignal },
+  opts?: { abortSignal?: AbortSignal; kalshi?: KalshiMarketBrief[] },
 ): Promise<string | null> {
   try {
-    const brief = compactBriefForPrompt(research);
+    const brief = compactBriefForPrompt(research, opts?.kalshi ?? []);
     const idea = suggestTradeIdea(research);
     const result = await generateText({
       model,
@@ -401,7 +419,7 @@ export function looksLikeStructuredCommentary(text: string): boolean {
   return /\*\*Trade\b/i.test(text) && /\n/.test(text);
 }
 
-function compactBriefForPrompt(r: TickerResearch): string {
+function compactBriefForPrompt(r: TickerResearch, kalshi: KalshiMarketBrief[] = []): string {
   const lines = [
     `${r.identity.ticker}${r.identity.name ? ` — ${r.identity.name}` : ""}`,
     r.identity.sector ? `Sector: ${r.identity.sector}` : null,
@@ -420,6 +438,7 @@ function compactBriefForPrompt(r: TickerResearch): string {
       ? `Earnings: ${r.earnings[0].earnings_date}${r.earnings[0].eps_forecast != null ? ` EPS est ${r.earnings[0].eps_forecast}` : ""}`
       : null,
     ...r.news.slice(0, 3).map((n) => `News: ${n.title}`),
+    summarizeKalshiForResearch(kalshi, { limit: 5 }),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -427,6 +446,8 @@ function compactBriefForPrompt(r: TickerResearch): string {
 export interface CommentaryDeps extends ResearchDeps {
   /** Optional LLM; when missing or failing, notes synthesis is used. */
   createModel?: () => LanguageModel | null;
+  /** Related Kalshi event markets for fundamental/catalyst context. */
+  loadKalshi?: (ticker: string) => Promise<KalshiMarketBrief[]>;
   now?: () => number;
 }
 
@@ -489,13 +510,16 @@ export async function getOrComputeCommentary(
 
   let commentary: string | null = null;
   let source: CommentarySource = "notes";
+  const kalshi = deps.loadKalshi
+    ? await deps.loadKalshi(research.identity.ticker).catch(() => [] as KalshiMarketBrief[])
+    : [];
   const model = deps.createModel?.() ?? null;
   if (model) {
-    commentary = await generateLobsterCommentary(research, model);
+    commentary = await generateLobsterCommentary(research, model, { kalshi });
     if (commentary) source = "llm";
   }
   if (!commentary) {
-    commentary = synthesizeCommentary(research);
+    commentary = synthesizeCommentary(research, kalshi);
     source = "notes";
   }
 

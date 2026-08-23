@@ -614,7 +614,8 @@ export function ResearchBriefView({
                     <VStack gap={2}>
                       <Heading level={3}>Event markets</Heading>
                       <Text type="supporting">
-                        Kalshi odds linked to {identity.ticker}
+                        Kalshi odds linked to {identity.ticker} (macro proxies and company
+                        events such as litigation or KPI prints when curated)
                       </Text>
                       <List density="compact" hasDividers className="research-news-list">
                         {kalshiVisible.map((item) => {

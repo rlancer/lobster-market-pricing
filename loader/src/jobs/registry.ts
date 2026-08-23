@@ -61,8 +61,9 @@ import { companyFactsDailyJob } from "./company-facts-daily.js";
 //     options.instruments (security_type equity|etf|index|future|crypto).
 //   - fred-yields-daily — batch, ungated, daily; FRED Treasury / rates curve
 //     observations → options.yields (DGS* + spreads + TIPS/breakevens + DFF/SOFR).
-//   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
-//     contracts (Fed/CPI/indexes/crypto/oil) → options.kalshi_markets.
+  //   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
+  //     contracts (Fed/CPI/indexes/crypto/oil + mega-cap company_event) →
+  //     options.kalshi_markets.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),

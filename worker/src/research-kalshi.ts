@@ -1,8 +1,16 @@
 /**
  * Research-page helpers for curated Kalshi event markets joined by
- * related_symbol (SPY, TLT, BTC-USD, …). Ranking mirrors the loader's
+ * related_symbol (SPY, TLT, META, BTC-USD, …). Ranking mirrors the loader's
  * volume-then-soonest-close preference so the rail stays skimable.
  */
+
+/** Dual-class / synonym keys so Alphabet events linked as GOOGL also show on GOOG. */
+export function kalshiRelatedSymbolKeys(ticker: string): string[] {
+  const t = String(ticker || "").trim().toUpperCase();
+  if (!t) return [];
+  if (t === "GOOG" || t === "GOOGL") return ["GOOG", "GOOGL"];
+  return [t];
+}
 
 export interface KalshiMarketBrief {
   series_ticker: string;
@@ -129,4 +137,22 @@ export function kalshiYesProb(row: KalshiMarketBrief): number | null {
   if (row.yes_bid != null && Number.isFinite(row.yes_bid)) return row.yes_bid;
   if (row.yes_ask != null && Number.isFinite(row.yes_ask)) return row.yes_ask;
   return null;
+}
+
+/** Compact text block for Copilot / Lobster commentary (YES % + title). */
+export function summarizeKalshiForResearch(
+  items: KalshiMarketBrief[],
+  opts?: { limit?: number },
+): string | null {
+  const lim = Math.max(1, Math.min(12, Math.floor(opts?.limit ?? 6)));
+  const lines: string[] = [];
+  for (const item of items.slice(0, lim)) {
+    const yes = kalshiYesProb(item);
+    const pct = yes != null && Number.isFinite(yes) ? `${Math.round(yes * 100)}% YES` : "YES n/a";
+    const theme = item.theme && item.theme !== "other" ? ` [${item.theme}]` : "";
+    const subtitle = item.yes_subtitle ? ` — ${item.yes_subtitle}` : "";
+    lines.push(`- ${pct}: ${item.title}${subtitle}${theme} (${item.market_ticker})`);
+  }
+  if (!lines.length) return null;
+  return ["Related Kalshi event markets (curated; use in fundamental / catalyst context):", ...lines].join("\n");
 }

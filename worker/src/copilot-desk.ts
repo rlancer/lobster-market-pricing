@@ -51,7 +51,7 @@ export const DESK_VIEWPOINT_LABELS: Record<DeskViewpointId, string> = {
 /** Specialist briefs shown in admin Copilot explore. */
 export const DESK_SPECIALIST_SUMMARIES: Record<DeskViewpointId, string> = {
   fundamental:
-    "Business quality, earnings catalysts, filings, sector/peer context, and lake fundamentals — or for spot crypto/indexes, adoption/flow drivers instead of earnings — not chart patterns.",
+    "Business quality, earnings catalysts, filings, sector/peer context, lake fundamentals, and — when present — curated Kalshi company-event odds (litigation, antitrust, KPI prints, CEO catalysts via related_symbol) — or for spot crypto/indexes, adoption/flow drivers instead of earnings — not chart patterns.",
   technical:
     "Price/volume structure, trend, consolidation/accumulation, realized vol, and levels — one voice among the active desk, never the whole desk. Spot crypto uses BTC-USD (etc.) bars in options.ohlc, not an ETF proxy.",
   options:
