@@ -703,7 +703,10 @@ function AiChatSession({
   }, [isSavedChat, user, chatAccess, messages.length, chatId, setMessages]);
 
   const busy = !paused && (chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation);
+  // Socket not ready for sends (includes quiet initial CONNECTING). Banner/status
+  // only for a real loss — initial handshake must not flash "Reconnecting".
   const disconnected = socketState !== 'open';
+  const connectionLost = socketState === 'reconnecting' || socketState === 'offline';
   const projectedMessages = useMemo(() => {
     const projected = messages.map(projectMessage).filter((message): message is Msg => message !== null);
     const withCharts = projected.map((message, index) => {
@@ -730,7 +733,7 @@ function AiChatSession({
     : undefined;
   const status = paused
     ? 'Paused — start to resume'
-    : disconnected
+    : connectionLost
       ? (socketState === 'offline' ? 'Offline — reconnecting when you are back…' : 'Reconnecting…')
       : isRecovering
         ? 'Recovering interrupted answer…'
@@ -1148,7 +1151,7 @@ function AiChatSession({
               </header>
       )}
 
-              {disconnected && !accessBlocked && (
+              {connectionLost && !accessBlocked && (
                 <div className={`ai-conn${socketState === 'offline' ? ' offline' : ''}`} role="status" aria-live="polite">
                   <StatusDot
                     variant={socketState === 'offline' ? 'warning' : 'accent'}
