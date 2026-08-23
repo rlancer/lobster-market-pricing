@@ -5,8 +5,6 @@ import {
   RadioList,
   RadioListItem,
   Section,
-  SegmentedControl,
-  SegmentedControlItem,
   Text,
   TextArea,
   VStack,
@@ -54,24 +52,22 @@ export function ReplyStylePicker({
               </Text>
             </VStack>
 
-            <VStack gap={1.5}>
-              <SegmentedControl
-                label="Reply style"
-                value={pref.style}
-                onChange={onStyleChange}
-                layout="fill"
-                size="sm"
-              >
-                {REPLY_STYLE_OPTIONS.map((option) => (
-                  <SegmentedControlItem
-                    key={option.id}
-                    value={option.id}
-                    label={option.label}
-                  />
-                ))}
-              </SegmentedControl>
-              <Text type="supporting">{selectedStyle.hint}</Text>
-            </VStack>
+            <RadioList
+              label="Reply style"
+              value={pref.style}
+              onChange={onStyleChange}
+              size="sm"
+              isLabelHidden
+            >
+              {REPLY_STYLE_OPTIONS.map((option) => (
+                <RadioListItem
+                  key={option.id}
+                  value={option.id}
+                  label={option.label}
+                  description={option.hint}
+                />
+              ))}
+            </RadioList>
 
             <Divider />
 
@@ -89,8 +85,8 @@ export function ReplyStylePicker({
         }
       >
         <Button
-          variant="secondary"
-          size="sm"
+          variant="ghost"
+          size="md"
           label={`Reply style: ${selectedStyle.label}`}
           icon={<SlidersHorizontal size={14} />}
         />
