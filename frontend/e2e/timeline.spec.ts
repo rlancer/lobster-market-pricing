@@ -369,7 +369,8 @@ test.describe('Public timeline', () => {
     });
     expect(shellColors.shell).toBe(shellColors.nav);
     expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
-    expect(shellColors.workspace).not.toBe(shellColors.nav);
+    // Body wash: shell, nav, and workspace share one canvas (no surface strip).
+    expect(shellColors.workspace).toBe(shellColors.nav);
 
     const appBarBox = await appBar.boundingBox();
     expect(appBarBox).toBeTruthy();
