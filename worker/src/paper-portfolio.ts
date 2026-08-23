@@ -3,11 +3,13 @@
  *
  * Suggestions alone are not a book (copilot_tool_events is ~30d debug).
  * Tracking snapshots legs into D1, marks against the lake (spot / option mid),
- * and maintains one cash account per signed-in user.
+ * and maintains one cash account per signed-in user. Daily mark history
+ * (position_mark_history + hourly cron) keeps day-over-day PnL durable.
  */
 
 import type { TradeLeg, SuggestedTrade, SuggestedTrades } from "./copilot-trades";
 import { formatTradeLeg, normalizeSuggestedTrades } from "./copilot-trades";
+import { recordDailyMarkSafe } from "./position-mark-history";
 
 export const DEFAULT_STARTING_CASH_CENTS = 100_000_00; // $100,000.00
 export const OPTION_MULTIPLIER = 100;
@@ -329,7 +331,11 @@ async function fetchOptionMids(
     const rows = await lake(
       `SELECT type, strike, expiration, bid, ask, last
        FROM options.option_contracts
-       WHERE symbol = ${lit(symbol)} AND expiration IN (${expList})`,
+       WHERE symbol = ${lit(symbol)} AND expiration IN (${expList})
+       QUALIFY ROW_NUMBER() OVER (
+         PARTITION BY type, strike, expiration
+         ORDER BY fetched_at DESC, run_id DESC
+       ) = 1`,
       `paper_opt_${symbol}_${expirations.join("_").slice(0, 40)}`,
     );
     for (const r of rows) {
@@ -689,6 +695,15 @@ export async function trackSuggestion(
   const row = await db.prepare(`SELECT * FROM paper_positions WHERE id = ?1`).bind(id).first<PaperPositionRow>();
   const refreshed = await ensurePaperAccount(db, userId, now);
   if (!row) return { ok: false, error: "failed to open position", status: 500 };
+  await recordDailyMarkSafe(db, {
+    book: "paper",
+    positionId: id,
+    markValue: mark.value,
+    entryValue: mark.value,
+    markedAt: now,
+    source: "entry",
+    legsJson: JSON.stringify(mark.legs),
+  });
   return {
     ok: true,
     position: rowToView(row),
@@ -747,6 +762,15 @@ export async function listPortfolio(
             ).bind(mark.value, now, row.id, userId).run();
             row.mark_value = mark.value;
             row.marked_at = now;
+            await recordDailyMarkSafe(db, {
+              book: "paper",
+              positionId: row.id,
+              markValue: mark.value,
+              entryValue: row.entry_value,
+              markedAt: now,
+              source: "refresh",
+              legsJson: JSON.stringify(mark.legs),
+            });
           }
         } catch {
           // Keep last persisted mark if lake is unavailable.
@@ -822,6 +846,16 @@ export async function closePosition(
        WHERE id = ?4 AND user_id = ?5`,
     ).bind(mark.value, now, realized, positionId, userId),
   ]);
+
+  await recordDailyMarkSafe(db, {
+    book: "paper",
+    positionId,
+    markValue: mark.value,
+    entryValue: row.entry_value,
+    markedAt: now,
+    source: "close",
+    legsJson: JSON.stringify(mark.legs),
+  });
 
   const updated = await db.prepare(`SELECT * FROM paper_positions WHERE id = ?1`).bind(positionId).first<PaperPositionRow>();
   const account = await ensurePaperAccount(db, userId, now);
