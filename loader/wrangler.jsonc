@@ -47,7 +47,13 @@
     "MARKET_HOURS_ENABLED": "true",
     "MARKET_OPEN_MINUTES": 570,
     "MARKET_CLOSE_MINUTES": 960,
-    "MARKET_EARLY_CLOSE_MINUTES": 780
+    "MARKET_EARLY_CLOSE_MINUTES": 780,
+    // Kalshi public Trade API is rate-limited (too_many_requests). Keep the
+    // hourly batch serial + paced so Worker egress does not burn the budget.
+    "KALSHI_CONCURRENCY": 1,
+    "KALSHI_SERIES_PACE_MS": 3000,
+    "KALSHI_MIN_REQUEST_GAP_MS": 400,
+    "KALSHI_MAX_PAGES": 3
   },
   "d1_databases": [
     {
