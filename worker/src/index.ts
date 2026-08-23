@@ -127,6 +127,7 @@ import {
   maybeEnrollMissingTicker,
   isEnrollableEquityTicker,
 } from "./enroll-symbol";
+import { handlePortfolio } from "./paper-portfolio-http";
 
 
 // ---------------------------------------------------------------------------
@@ -3601,6 +3602,14 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const me = await handleMe(env, req, path);
   if (me) return me;
+
+  const portfolio = await handlePortfolio(
+    env,
+    req,
+    path,
+    (sql, key) => r2sql(env, sql, key),
+  );
+  if (portfolio) return portfolio;
 
   const avatar = await handleAvatarGet(env, req, path);
   if (avatar) return avatar;

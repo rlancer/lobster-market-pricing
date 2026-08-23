@@ -1283,6 +1283,7 @@ function AiChatSession({
                               collapseSql={!isLive}
                               hideThinking={isLive}
                               hideTools={isLive}
+                              chatId={chatId}
                             />
                             {!isLive && (message.ts !== undefined || message.model) && (
                               <ChatMessageMetadata

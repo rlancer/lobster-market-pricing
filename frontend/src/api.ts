@@ -397,7 +397,7 @@ export interface ChatHistorySaveResponse {
 
 // ---------------------------------------------------------------------------
 // Copilot chat shares (Worker POST /api/share/chat → D1 shared_chats)
-import type { SuggestedTrades, TradeLeg } from './SuggestedTrades';
+import type { SuggestedTrade, SuggestedTrades, TradeLeg } from './SuggestedTrades';
 
 // ---------------------------------------------------------------------------
 /** Response of POST /api/share/chat — the share_id slug is the implicit capability (public, unlisted link). */
@@ -623,6 +623,54 @@ export interface AdminSuggestedTradesResponse {
   items: AdminSuggestedTrade[];
   next_before: string | null;
   as_of: string;
+}
+
+/** Paper portfolio position (tracked suggestion or manual). */
+export interface PaperPosition {
+  id: string;
+  status: 'open' | 'closed';
+  source: 'suggestion' | 'manual';
+  chat_id: string | null;
+  suggestion_key: string | null;
+  ticker: string;
+  bias: string | null;
+  conviction: string | null;
+  structure: string;
+  rationale: string | null;
+  liquidity: string | null;
+  legs: TradeLeg[];
+  qty: number;
+  entry_value: number | null;
+  entry_marked_at: number | null;
+  mark_value: number | null;
+  marked_at: number | null;
+  unrealized_pnl: number | null;
+  realized_pnl: number | null;
+  opened_at: number;
+  opened_at_iso: string;
+  closed_at: number | null;
+  closed_at_iso: string | null;
+}
+
+export interface PaperPortfolio {
+  ok: boolean;
+  account: {
+    cash: number;
+    starting_cash: number;
+    equity: number;
+    open_pnl: number;
+    realized_pnl: number;
+    created_at: number;
+    updated_at: number;
+  };
+  positions: PaperPosition[];
+}
+
+export interface TrackTradeResponse {
+  ok: boolean;
+  created: boolean;
+  position: PaperPosition;
+  account_cash: number;
 }
 
 export interface BotRun {
@@ -1209,6 +1257,24 @@ export const api = {
     get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),
   chatTranscript: (chatId: string) =>
     get<ChatTranscriptBackup>(`/api/chats/${encodeURIComponent(chatId)}/transcript`),
+  portfolio: (opts?: { status?: 'open' | 'closed' | 'all'; refresh?: boolean }) =>
+    get<PaperPortfolio>(
+      `/api/portfolio${qs({
+        status: opts?.status,
+        refresh: opts?.refresh === false ? 0 : undefined,
+      })}`,
+    ),
+  trackTrade: (body: {
+    trade: SuggestedTrade;
+    trade_index?: number;
+    chat_id?: string;
+    qty?: number;
+  }) => post<TrackTradeResponse>('/api/portfolio/track', body),
+  closePosition: (positionId: string) =>
+    post<{ ok: true; position: PaperPosition; account_cash: number }>(
+      `/api/portfolio/positions/${encodeURIComponent(positionId)}/close`,
+      {},
+    ),
 };
 
 import { useState, useEffect } from 'react';

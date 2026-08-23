@@ -643,6 +643,32 @@
   color: var(--muted);
   line-height: 1.4;
 }
+.ai-trade-track {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+.ai-trade-tracked {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-success, var(--text));
+  text-decoration: none;
+}
+.ai-trade-tracked:hover {
+  text-decoration: underline;
+}
+.ai-trade-track-note {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ai-trade-track-error {
+  font-size: 11px;
+  color: var(--color-error);
+  max-width: 14rem;
+}
 
 .ai-tool-row.fail { opacity: 0.72; }
 .ai-err { color: var(--color-error); font-size: 13px; }
