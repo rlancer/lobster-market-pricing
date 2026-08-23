@@ -216,7 +216,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Portfolio'),
       description:
-        'Paper book for your Copilot suggestions plus public bot suggested-trade performance, filterable by conviction.',
+        'Public lobster suggested-trade performance and an optional signed-in paper book, filterable by conviction.',
       path: '/portfolio',
     };
   }

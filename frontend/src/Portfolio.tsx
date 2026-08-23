@@ -53,13 +53,15 @@ function convictionColor(conviction: string | null): 'green' | 'orange' | 'gray'
 }
 
 /**
- * Portfolio hub — signed-in paper book plus public bot suggested-trade
- * performance, with status and conviction filters on both books.
+ * Portfolio hub — public bot suggested-trade performance by default
+ * (no sign-in), plus optional signed-in paper book. Status + conviction
+ * filters on both.
  */
 export default function PortfolioPage() {
   const { data: session, isPending } = authClient.useSession();
   const signedIn = Boolean(session?.user);
-  const [bookMode, setBookMode] = useState<BookMode>('paper');
+  // Public lobster books first — paper cash book is opt-in after Google.
+  const [bookMode, setBookMode] = useState<BookMode>('suggested');
   const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +92,6 @@ export default function PortfolioPage() {
   }, [signedIn, bookMode, statusFilter, convictionFilter, loadPaper]);
 
   useEffect(() => {
-    if (bookMode !== 'suggested') return;
     let cancelled = false;
     void (async () => {
       try {
@@ -99,14 +100,16 @@ export default function PortfolioPage() {
         setBots(items);
         setBotHandle((prev) => {
           if (prev && items.some((b) => b.handle === prev)) return prev;
-          return items[0]?.handle ?? null;
+          // Prefer yololobster when present — that's the high-conviction recs desk.
+          const yolo = items.find((b) => b.handle === 'yololobster');
+          return yolo?.handle ?? items[0]?.handle ?? null;
         });
       } catch (err) {
         if (!cancelled) setError(String((err as Error)?.message ?? err));
       }
     })();
     return () => { cancelled = true; };
-  }, [bookMode]);
+  }, []);
 
   const close = async (id: string) => {
     setClosingId(id);
@@ -173,20 +176,11 @@ export default function PortfolioPage() {
         <VStack gap={2}>
           <Heading level={1}>Portfolio</Heading>
           <Text type="supporting">
-            Your paper book from Copilot suggestions, plus public bot suggested-trade
-            performance. Filter either book by conviction.
+            Public lobster suggested-trade performance (no sign-in). Optionally
+            track your own paper book after Google sign-in. Filter by conviction.
           </Text>
         </VStack>
         <HStack gap={2} wrap="wrap" role="tablist" aria-label="Portfolio book">
-          <Button
-            size="sm"
-            variant={bookMode === 'paper' ? 'primary' : 'ghost'}
-            label="Paper book"
-            onClick={() => {
-              setError(null);
-              setBookMode('paper');
-            }}
-          />
           <Button
             size="sm"
             variant={bookMode === 'suggested' ? 'primary' : 'ghost'}
@@ -194,6 +188,15 @@ export default function PortfolioPage() {
             onClick={() => {
               setError(null);
               setBookMode('suggested');
+            }}
+          />
+          <Button
+            size="sm"
+            variant={bookMode === 'paper' ? 'primary' : 'ghost'}
+            label="My paper book"
+            onClick={() => {
+              setError(null);
+              setBookMode('paper');
             }}
           />
         </HStack>
@@ -230,9 +233,8 @@ export default function PortfolioPage() {
         </VStack>
       ) : !signedIn ? (
         <Text type="supporting">
-          Sign in with Google to track Copilot suggested trades and mark their PnL against the lake.
-          {' '}
-          Switch to Suggested trades above to browse public bot books without signing in.
+          Sign in with Google to open a personal paper book from your Copilot chats.
+          Suggested trades above stay public — no account needed.
         </Text>
       ) : (
         <>
