@@ -4,6 +4,12 @@ name: Provision earnings intel pipelines
 # set Worker secrets, redeploy loader, probe-publish sample rows, wait for sink
 # roll, assert via /api/query + /api/research/{ticker}/earnings.
 #
+# NOTE: Cloudflare Pipelines may return Quota exceeded [code: 1017] when the
+# account is at stream capacity. Until quota is freed, the research earnings
+# API live-fetches Yahoo earningsHistory + SEC companyfacts and caches the
+# AI summary in D1 (same lazy path as news). Re-run this workflow after
+# freeing stream quota to land durable lake tables.
+#
 # Required GitHub secrets:
 #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, R2_DATA_CATALOG_TOKEN,
 #   PIPELINE_AUTH_TOKEN, LOADER_TOKEN

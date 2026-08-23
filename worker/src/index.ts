@@ -125,6 +125,7 @@ import {
   type CompanyFactBrief,
   type EarningsResultBrief,
 } from "./earnings-intel";
+import { fetchLiveCompanyFacts, fetchLiveEarningsResults } from "./earnings-live";
 import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
 import {
@@ -2497,7 +2498,7 @@ async function loadResearchEarningsResults(
       "earn_res_" + ticker,
       QUERY_TTL_MS,
     );
-    return rows.map((r) => ({
+    const mapped = rows.map((r) => ({
       quarter_end: String(r.quarter_end),
       period_label: strOrNull(r.period_label),
       eps_actual: numOrNull(r.eps_actual),
@@ -2506,9 +2507,11 @@ async function loadResearchEarningsResults(
       surprise_pct: numOrNull(r.surprise_pct),
       currency: strOrNull(r.currency),
     }));
+    if (mapped.length) return mapped;
   } catch {
-    return [];
+    /* lake table missing or query failed — fall through to live */
   }
+  return fetchLiveEarningsResults(ticker);
 }
 
 async function loadResearchCompanyFacts(
@@ -2532,7 +2535,7 @@ async function loadResearchCompanyFacts(
       "co_facts_" + ticker,
       QUERY_TTL_MS,
     );
-    return rows.map((r) => ({
+    const mapped = rows.map((r) => ({
       period_end: String(r.period_end),
       period_type: String(r.period_type || "UNK"),
       fiscal_year: numOrNull(r.fiscal_year),
@@ -2550,9 +2553,11 @@ async function loadResearchCompanyFacts(
       finance_lease_liability: numOrNull(r.finance_lease_liability),
       interest_expense: numOrNull(r.interest_expense),
     }));
+    if (mapped.length) return mapped;
   } catch {
-    return [];
+    /* lake table missing or query failed — fall through to live */
   }
+  return fetchLiveCompanyFacts(ticker);
 }
 
 export interface SecFilingBrief {
