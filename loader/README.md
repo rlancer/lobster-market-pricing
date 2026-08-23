@@ -185,10 +185,24 @@ event odds move outside the US equity session. Series are paced
 Series is worth the extra call.
 
 **Optional API auth** — market GETs work anonymously, but a Kalshi
-**read-only** API key usually gets a higher rate tier. Set Wrangler secrets
-`KALSHI_ACCESS_KEY_ID` (Key ID UUID) and `KALSHI_PRIVATE_KEY_PEM` (full PEM;
-PKCS#1 or PKCS#8). The loader RSA-PSS-signs each GET
-(`KALSHI-ACCESS-*` headers). Never commit the PEM.
+**read-only** API key usually gets a higher rate tier. The loader RSA-PSS-signs
+each GET when secrets are set (`KALSHI-ACCESS-*` headers). Never commit the PEM.
+
+Interactive `wrangler secret put` is awkward for multi-line PEMs. On your
+desktop (with wrangler logged in):
+
+```bash
+cd loader
+cp .env.kalshi.example .env          # gitignored
+# Edit .env: set KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_FILE=./kalshi-readonly.key
+# Save the Kalshi-downloaded .key as loader/kalshi-readonly.key
+node tools/put_kalshi_secrets.mjs --deploy
+```
+
+That pipes the PEM via stdin into `wrangler secret put` (no interactive paste)
+and redeploys `cboe-to-r2`. Flags: `--pem ./path.key`, `--key-id <uuid>`,
+`--env-file ./other.env`. Also accepts `KALSHI_PRIVATE_KEY_PEM="-----BEGIN…"`
+(double-quoted multi-line) in `.env` / `.dev.vars`.
 
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity),
