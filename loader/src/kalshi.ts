@@ -64,11 +64,14 @@ export const KALSHI_MARKETS_FIELDS = [
   "source", "run_id", "fetched_at",
 ] as const;
 
-export const HTTP_RETRIES_DEFAULT = 3;
+export const HTTP_RETRIES_DEFAULT = 5;
 export const RETRY_BACKOFF_SECONDS_DEFAULT = 1;
 export const REQUEST_TIMEOUT_SECONDS_DEFAULT = 20;
 export const PAGE_LIMIT_DEFAULT = 200;
-export const MAX_PAGES_DEFAULT = 8;
+/** Cap pages — with limit=200 most series fit in 1–2 pages; fewer calls → fewer 429s. */
+export const MAX_PAGES_DEFAULT = 3;
+/** Floor gap between any two Kalshi GETs in this isolate (ms). */
+export const MIN_REQUEST_GAP_MS_DEFAULT = 400;
 
 export interface KalshiEnv {
   KALSHI_API_BASE?: string;
@@ -82,6 +85,8 @@ export interface KalshiEnv {
   KALSHI_MAX_MARKETS?: number;
   KALSHI_PAGE_LIMIT?: number;
   KALSHI_MAX_PAGES?: number;
+  /** Min ms between Kalshi GETs (default 400). */
+  KALSHI_MIN_REQUEST_GAP_MS?: number;
   now?: () => number;
   runId?: () => string;
 }
@@ -143,6 +148,26 @@ function sleep(ms: number): Promise<void> {
   return promise;
 }
 
+/** Serialize Kalshi GETs inside one DO/pass so bursts don't trip 429. */
+let lastKalshiRequestAt = 0;
+
+async function paceKalshiRequest(env: KalshiEnv): Promise<void> {
+  const gap = Math.floor(num(env.KALSHI_MIN_REQUEST_GAP_MS, MIN_REQUEST_GAP_MS_DEFAULT));
+  if (gap <= 0) return;
+  const now = Date.now();
+  const wait = lastKalshiRequestAt + gap - now;
+  if (wait > 0) await sleep(wait);
+  lastKalshiRequestAt = Date.now();
+}
+
+function retryWaitSeconds(env: KalshiEnv, attempt: number, status: number, retryAfterHeader: string | null): number {
+  const retryAfter = Number(retryAfterHeader);
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter;
+  // Kalshi often omits Retry-After; use a steeper floor for 429 than generic 5xx.
+  if (status === 429) return Math.max(backoffSeconds(env, attempt), 8 * 2 ** attempt);
+  return backoffSeconds(env, attempt);
+}
+
 function stripNones(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripNones);
   const rec = asRecord(value);
@@ -198,6 +223,7 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
   for (let attempt = 0; attempt <= retries; attempt++) {
     let controller: AbortController | null = null;
     try {
+      await paceKalshiRequest(env);
       controller = new AbortController();
       const timer = setTimeout(() => controller?.abort(), timeoutMs);
       try {
@@ -215,12 +241,7 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
         // Retry 429 / 5xx; other 4xx fail immediately.
         if (code !== 429 && code < 500) throw lastError;
         if (attempt < retries) {
-          // Kalshi rate-limits aggressively; honor Retry-After when present,
-          // otherwise back off harder than the default 1/2/4s ladder.
-          const retryAfter = Number(response.headers.get("retry-after"));
-          const waitSec = Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter
-            : Math.max(backoffSeconds(env, attempt), code === 429 ? 5 * 2 ** attempt : 0);
+          const waitSec = retryWaitSeconds(env, attempt, code, response.headers.get("retry-after"));
           await sleep(waitSec * 1000);
         }
       } finally {

@@ -18,9 +18,9 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 // Dry-run: without PIPELINE_KALSHI_MARKETS_URL the pass is a no-op.
 export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
   const concurrency = Math.max(1, Math.floor(num(env, "KALSHI_CONCURRENCY", 1)));
-  // Default 1.5s between series — Kalshi public API 429s under burst.
-  // Tests set KALSHI_SERIES_PACE_MS=0 to avoid wall-clock waits.
-  const seriesPaceMs = Math.floor(num(env, "KALSHI_SERIES_PACE_MS", 1500));
+  // Default 3s between series — Worker egress shares Kalshi's public rate
+  // budget; 1.5s still 429'd under provision burst. Tests use 0.
+  const seriesPaceMs = Math.floor(num(env, "KALSHI_SERIES_PACE_MS", 3000));
   return {
     id: "kalshi-markets-hourly",
     marketGated: false,

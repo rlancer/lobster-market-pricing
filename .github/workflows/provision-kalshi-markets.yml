@@ -273,25 +273,39 @@ jobs:
           set -euo pipefail
           # Full curated allowlist — not just a sample — so the lake is useful
           # immediately even if the DO trigger races a main-branch loader deploy.
+          # Paced (see tools/kalshi_probe_publish.mjs) to leave headroom for Force.
           node tools/kalshi_probe_publish.mjs
+
+      - name: Cooldown before Worker Force (Kalshi rate budget)
+        run: |
+          echo "Waiting 90s so Worker-path Force does not share a hot Kalshi rate window with direct publish."
+          sleep 90
 
       - name: Force kalshi-markets-hourly (Worker path)
         run: |
           set -euo pipefail
           sleep 5
+          # Trigger waits for the full paced pass; cap wait so provision can still
+          # assert lake rows if the DO is slow. 409 = pass already in flight.
+          set +e
           resp=$(curl -sS -X POST \
             -H "Authorization: Bearer $LOADER_TOKEN" \
+            -m 480 \
             -w '\n__HTTP_%{http_code}' \
             "$LOADER_URL/jobs/kalshi-markets-hourly/trigger?force=1")
-          body="${resp%__HTTP_*}"
-          code="${resp##*__HTTP_}"
-          echo "$body"
-          if [ "$code" = "409" ]; then
-            echo "Loader busy (409) — direct publish already landed rows; continuing."
-            exit 0
-          fi
-          if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
-            echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
+          curl_ec=$?
+          set -e
+          if [ "$curl_ec" -ne 0 ]; then
+            echo "::warning::Worker trigger curl exit $curl_ec (timeout/network) — polling job status"
+          else
+            body="${resp%__HTTP_*}"
+            code="${resp##*__HTTP_}"
+            echo "$body"
+            if [ "$code" = "409" ]; then
+              echo "Loader busy (409) — direct publish already landed rows; continuing."
+            elif [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+              echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
+            fi
           fi
           sleep 3
           status=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly")

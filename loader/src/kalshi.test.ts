@@ -143,6 +143,7 @@ describe("publishKalshiSeries", () => {
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
         KALSHI_FETCH_SERIES_META: "1",
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
         runId: () => "run-kalshi",
       });
       expect(result.published).toBe(true);
@@ -178,6 +179,7 @@ describe("publishKalshiSeries", () => {
         PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
         runId: () => "run-empty",
       });
       expect(result.published).toBe(false);

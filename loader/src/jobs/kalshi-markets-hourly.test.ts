@@ -73,6 +73,7 @@ describe("kalshi-markets-hourly job adapter", () => {
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
         KALSHI_SERIES_PACE_MS: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
         runId: () => "run-1",
       }));
       expect(run.failures).toEqual([]);
@@ -112,6 +113,7 @@ describe("kalshi-markets-hourly job adapter", () => {
         HTTP_RETRIES: 0,
         KALSHI_CONCURRENCY: 1,
         KALSHI_SERIES_PACE_MS: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
         runId: () => "run-1",
       }));
       expect(run.failures).toHaveLength(1);

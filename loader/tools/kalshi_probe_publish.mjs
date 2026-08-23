@@ -3,6 +3,9 @@
 //
 //   PIPELINE_KALSHI_MARKETS_URL=... PIPELINE_AUTH_TOKEN=... \
 //     node tools/kalshi_probe_publish.mjs KXFED KXCPI KXINX KXBTC
+//
+// Paces series and retries 429s so provision doesn't burn Kalshi's public
+// rate budget before the Worker-path Force trigger.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -16,6 +19,11 @@ const MANIFEST = JSON.parse(
 const API_BASE = (MANIFEST.api_base || "https://api.elections.kalshi.com/trade-api/v2").replace(/\/$/, "");
 const DEFAULT_CAP = MANIFEST.max_markets_per_series_default || 80;
 const SERIES_META = Object.fromEntries((MANIFEST.series || []).map((s) => [s.series_ticker, s]));
+const SERIES_PACE_MS = Number(process.env.KALSHI_SERIES_PACE_MS || 3000);
+const MIN_GAP_MS = Number(process.env.KALSHI_MIN_REQUEST_GAP_MS || 400);
+const MAX_PAGES = Number(process.env.KALSHI_MAX_PAGES || 3);
+const FETCH_SERIES_META = process.env.KALSHI_FETCH_SERIES_META === "1";
+const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 5);
 
 function secret(name) {
   if (process.env[name]) return process.env[name];
@@ -26,6 +34,10 @@ function secret(name) {
   } catch {
     return "";
   }
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function stripNones(value) {
@@ -47,12 +59,41 @@ function parseNum(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+let lastRequestAt = 0;
+async function paceRequest() {
+  if (!(MIN_GAP_MS > 0)) return;
+  const wait = lastRequestAt + MIN_GAP_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastRequestAt = Date.now();
+}
+
 async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "cboe-to-r2/0.2" },
-  });
-  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
-  return res.json();
+  let lastError = null;
+  for (let attempt = 0; attempt <= HTTP_RETRIES; attempt++) {
+    await paceRequest();
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: { accept: "application/json", "user-agent": "cboe-to-r2/0.2" },
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt < HTTP_RETRIES) await sleep(1000 * 2 ** attempt);
+      continue;
+    }
+    if (res.ok) return res.json();
+    const detail = await res.text();
+    lastError = new Error(`${url} → HTTP ${res.status}: ${detail.slice(0, 120)}`);
+    if (res.status !== 429 && res.status < 500) throw lastError;
+    if (attempt < HTTP_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitSec = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter
+        : Math.max(8 * 2 ** attempt, 1);
+      await sleep(waitSec * 1000);
+    }
+  }
+  throw lastError || new Error(`fetch failed: ${url}`);
 }
 
 async function publish(url, token, rows, idem) {
@@ -77,15 +118,17 @@ async function loadSeries(seriesId) {
   const meta = SERIES_META[seriesId];
   if (!meta) throw new Error(`unknown series ${seriesId}`);
   let category = null;
-  try {
-    const s = await fetchJson(`${API_BASE}/series/${encodeURIComponent(seriesId)}`);
-    category = s?.series?.category || s?.category || null;
-  } catch {
-    // optional
+  if (FETCH_SERIES_META) {
+    try {
+      const s = await fetchJson(`${API_BASE}/series/${encodeURIComponent(seriesId)}`);
+      category = s?.series?.category || s?.category || null;
+    } catch {
+      // optional
+    }
   }
   const markets = [];
   let cursor = "";
-  for (let page = 0; page < 8; page++) {
+  for (let page = 0; page < MAX_PAGES; page++) {
     let url =
       `${API_BASE}/markets?series_ticker=${encodeURIComponent(seriesId)}` +
       `&status=open&limit=200`;
@@ -144,22 +187,29 @@ const runId = crypto.randomUUID();
 const fetchedAt = new Date().toISOString();
 const results = [];
 
-for (const seriesId of targets) {
+for (let i = 0; i < targets.length; i++) {
+  const seriesId = targets[i];
   try {
     const rows = await loadSeries(seriesId);
     if (rows.length === 0) {
       results.push({ item: seriesId, row_count: 0, published: false });
-      continue;
+    } else {
+      const payload = rows.map((r) => ({ ...r, run_id: runId, fetched_at: fetchedAt }));
+      await publish(PIPELINE_KALSHI_MARKETS_URL, PIPELINE_AUTH_TOKEN, payload, `kalshi:${runId}:${seriesId}`);
+      results.push({ item: seriesId, row_count: rows.length, published: true });
     }
-    const payload = rows.map((r) => ({ ...r, run_id: runId, fetched_at: fetchedAt }));
-    await publish(PIPELINE_KALSHI_MARKETS_URL, PIPELINE_AUTH_TOKEN, payload, `kalshi:${runId}:${seriesId}`);
-    results.push({ item: seriesId, row_count: rows.length, published: true });
   } catch (error) {
     results.push({
       item: seriesId,
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  if (SERIES_PACE_MS > 0 && i + 1 < targets.length) {
+    await sleep(SERIES_PACE_MS);
+  }
 }
 
-console.log(JSON.stringify({ run_id: runId, results }, null, 2));
+const published = results.filter((r) => r.published).length;
+const errors = results.filter((r) => r.error).length;
+console.log(JSON.stringify({ run_id: runId, published, errors, results }, null, 2));
+if (published === 0) process.exit(1);
