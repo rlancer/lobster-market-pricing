@@ -80,6 +80,7 @@
   justify-content: space-between;
   min-height: var(--size-element-lg);
   padding: var(--spacing-2) var(--spacing-4);
+  padding-inline-start: max(var(--spacing-4), var(--mobile-menu-gutter));
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
   gap: var(--spacing-2);
@@ -858,7 +859,10 @@
      Body padding is for the desktop rail pairing; stacking it on mobile
      left empty side margins against the full-bleed chrome. */
   .ai-chat-body { padding-inline: 0; }
-  .ai-head { padding-inline: var(--spacing-3); }
+  .ai-head {
+    padding-inline: var(--spacing-3);
+    padding-inline-start: max(var(--spacing-3), var(--mobile-menu-gutter));
+  }
   .ai-conn { padding-inline: var(--spacing-3); }
   .ai-frames { padding-inline: var(--spacing-3); }
   .ai-messages { padding: var(--spacing-4) var(--spacing-3) var(--spacing-2); }

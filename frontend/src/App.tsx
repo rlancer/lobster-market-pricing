@@ -6,6 +6,7 @@ import {
   Divider,
   Layout,
   MobileNav,
+  MobileNavToggle,
   SideNav,
   SideNavItem,
   SideNavSection,
@@ -394,8 +395,10 @@ function WorkspaceLayout() {
 
   // Responsive contract:
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
-  //   <= 768px SideNav collapses to MobileNav; AppShell owns the menu toggle;
-  //            ticker search + account/status live in the drawer with the links.
+  //   <= 768px SideNav collapses to MobileNav. hasToggle is false so AppShell
+  //            does not invent an auto top bar (which would re-render the SideNav
+  //            header/lobster in "topbar" mode). A floating MobileNavToggle sits
+  //            over content instead; ticker search + account live in the drawer.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
@@ -405,7 +408,7 @@ function WorkspaceLayout() {
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
-          hasToggle: true,
+          hasToggle: false,
           breakpoint: 'md',
           content: (
             <MobileNav side="start" label="Lobster">
@@ -421,6 +424,7 @@ function WorkspaceLayout() {
           ),
         }}
       >
+        <MobileNavToggle className="mobile-nav-fab" label="Open menu" />
         <Layout className="workspace-main" height="fill" padding={0}>
           <section className={isCopilot ? 'content content-copilot' : 'content'}>
             <Outlet />

@@ -10,6 +10,8 @@
   --call: var(--color-success);
   --put: var(--color-error);
   --topbar-h: 0px;
+  /* Space reserved for the floating mobile menu button (0 on desktop). */
+  --mobile-menu-gutter: 0px;
   /* Shared reading/working column for research, timeline shell, share, docs. */
   --content-max: 72rem;
   /* Conversation column on /chat and the desktop timeline feed (composer + posts). */
@@ -39,10 +41,25 @@ button, input, select, textarea { font: inherit; }
 button, select { cursor: pointer; }
 
 /* The shell is intentionally quiet: one persistent app rail and the working
-   surface. Account + dataset status live at the bottom of the rail. */
+   surface. Account lives at the bottom of the rail. On mobile there is no
+   reserved top bar — only a floating menu button over the content. */
 .app {
   height: 100dvh;
   background: var(--bg);
+}
+
+/* Floating hamburger: fixed so it never reserves header height. MobileNavToggle
+   already returns null above the md breakpoint. Sticky page chrome can clear it
+   with --mobile-menu-gutter (set below the md breakpoint). */
+.mobile-nav-fab {
+  position: fixed;
+  z-index: 20;
+  top: max(var(--spacing-3), env(safe-area-inset-top, var(--spacing-0)));
+  inset-inline-start: max(var(--spacing-3), env(safe-area-inset-left, var(--spacing-0)));
+  background: var(--panel) !important;
+  border: var(--border-width) solid var(--color-border-emphasized);
+  box-shadow: var(--shadow-low);
+  border-radius: var(--radius-full);
 }
 .app-loading {
   display: grid;
@@ -395,6 +412,10 @@ button, select { cursor: pointer; }
   .actions { grid-column: 1 / -1; justify-content: flex-end; margin-left: var(--spacing-0); }
 }
 @media (max-width: 768px) {
+  :root {
+    /* Button size + edge inset — sticky chrome clears the floating menu. */
+    --mobile-menu-gutter: calc(var(--size-element-lg) + var(--spacing-6));
+  }
   .topbar-profile-icon {
     width: var(--size-element-md);
     height: var(--size-element-md);
