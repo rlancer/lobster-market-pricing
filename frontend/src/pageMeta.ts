@@ -214,9 +214,9 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
 
   if (path === '/portfolio') {
     return {
-      title: pageTitle('Paper portfolio'),
+      title: pageTitle('Portfolio'),
       description:
-        'Track Copilot suggested trades in a paper book and mark PnL against lake quotes.',
+        'Paper book for your Copilot suggestions plus public bot suggested-trade performance, filterable by conviction.',
       path: '/portfolio',
     };
   }

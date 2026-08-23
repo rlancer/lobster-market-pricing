@@ -13,6 +13,7 @@ import {
   unrealizedPnl,
   type LakeSql,
   type PaperPositionStatus,
+  type TradeConviction,
 } from "./paper-portfolio";
 import { parseHandle } from "./profiles";
 
@@ -458,6 +459,7 @@ export async function listBotTrades(
   botHandleRaw: string,
   opts?: {
     status?: "open" | "closed" | "all";
+    conviction?: TradeConviction | null;
     refreshMarks?: boolean;
     limit?: number;
     backfill?: boolean;
@@ -468,6 +470,7 @@ export async function listBotTrades(
   if (!parsed.ok) return null;
   const botHandle = parsed.handle;
   const status = opts?.status ?? "open";
+  const conviction = opts?.conviction ?? null;
   const refresh = opts?.refreshMarks !== false;
   const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
 
@@ -482,13 +485,24 @@ export async function listBotTrades(
     }
   }
 
-  const rows = status === "all"
-    ? await db.prepare(
+  let rows: { results?: BotTradePositionRow[] };
+  if (status === "all" && !conviction) {
+    rows = await db.prepare(
       `SELECT * FROM bot_trade_positions WHERE bot_handle = ?1 ORDER BY opened_at DESC LIMIT ?2`,
-    ).bind(botHandle, limit).all<BotTradePositionRow>()
-    : await db.prepare(
+    ).bind(botHandle, limit).all<BotTradePositionRow>();
+  } else if (status === "all" && conviction) {
+    rows = await db.prepare(
+      `SELECT * FROM bot_trade_positions WHERE bot_handle = ?1 AND conviction = ?2 ORDER BY opened_at DESC LIMIT ?3`,
+    ).bind(botHandle, conviction, limit).all<BotTradePositionRow>();
+  } else if (status !== "all" && !conviction) {
+    rows = await db.prepare(
       `SELECT * FROM bot_trade_positions WHERE bot_handle = ?1 AND status = ?2 ORDER BY opened_at DESC LIMIT ?3`,
     ).bind(botHandle, status, limit).all<BotTradePositionRow>();
+  } else {
+    rows = await db.prepare(
+      `SELECT * FROM bot_trade_positions WHERE bot_handle = ?1 AND status = ?2 AND conviction = ?3 ORDER BY opened_at DESC LIMIT ?4`,
+    ).bind(botHandle, status, conviction, limit).all<BotTradePositionRow>();
+  }
 
   const positions = rows.results ?? [];
   const views: BotTradePositionView[] = [];
@@ -523,30 +537,51 @@ export async function listBotTrades(
     views.push(rowToView(row));
   }
 
-  // Counts / PnL across the filtered list (and full open/closed tallies for summary).
-  const tallies = await db.prepare(
-    `SELECT
-       SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
-       SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed_count,
-       SUM(CASE WHEN status = 'closed' THEN COALESCE(realized_pnl, 0) ELSE 0 END) AS realized_pnl
-     FROM bot_trade_positions WHERE bot_handle = ?1`,
-  ).bind(botHandle).first<{
-    open_count: number | null;
-    closed_count: number | null;
-    realized_pnl: number | null;
-  }>();
+  // Book-wide tallies for this bot, optionally scoped by conviction so the
+  // performance strip matches the conviction filter while status still only
+  // narrows the table.
+  const tallies = conviction
+    ? await db.prepare(
+      `SELECT
+         SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
+         SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed_count,
+         SUM(CASE WHEN status = 'closed' THEN COALESCE(realized_pnl, 0) ELSE 0 END) AS realized_pnl
+       FROM bot_trade_positions WHERE bot_handle = ?1 AND conviction = ?2`,
+    ).bind(botHandle, conviction).first<{
+      open_count: number | null;
+      closed_count: number | null;
+      realized_pnl: number | null;
+    }>()
+    : await db.prepare(
+      `SELECT
+         SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_count,
+         SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) AS closed_count,
+         SUM(CASE WHEN status = 'closed' THEN COALESCE(realized_pnl, 0) ELSE 0 END) AS realized_pnl
+       FROM bot_trade_positions WHERE bot_handle = ?1`,
+    ).bind(botHandle).first<{
+      open_count: number | null;
+      closed_count: number | null;
+      realized_pnl: number | null;
+    }>();
 
   let openPnl = 0;
   for (const p of views) {
     if (p.status === "open" && p.unrealized_pnl != null) openPnl += p.unrealized_pnl;
   }
 
-  // When viewing closed-only, still surface open PnL from a cheap open-position pass.
+  // When viewing closed-only, still surface open PnL for the same conviction scope.
   if (status === "closed" && Number(tallies?.open_count ?? 0) > 0) {
-    const openRows = await db.prepare(
-      `SELECT entry_value, mark_value FROM bot_trade_positions
-       WHERE bot_handle = ?1 AND status = 'open' AND entry_value IS NOT NULL AND mark_value IS NOT NULL`,
-    ).bind(botHandle).all<{ entry_value: number; mark_value: number }>();
+    const openRows = conviction
+      ? await db.prepare(
+        `SELECT entry_value, mark_value FROM bot_trade_positions
+         WHERE bot_handle = ?1 AND status = 'open' AND conviction = ?2
+           AND entry_value IS NOT NULL AND mark_value IS NOT NULL`,
+      ).bind(botHandle, conviction).all<{ entry_value: number; mark_value: number }>()
+      : await db.prepare(
+        `SELECT entry_value, mark_value FROM bot_trade_positions
+         WHERE bot_handle = ?1 AND status = 'open'
+           AND entry_value IS NOT NULL AND mark_value IS NOT NULL`,
+      ).bind(botHandle).all<{ entry_value: number; mark_value: number }>();
     openPnl = 0;
     for (const r of openRows.results ?? []) {
       const pnl = unrealizedPnl(r.entry_value, r.mark_value);
@@ -586,8 +621,9 @@ export function formatBotTradesSummary(book: BotTradesBook): string {
     const pnl = p.status === "open" ? p.unrealized_pnl : p.realized_pnl;
     const legs = p.legs.length ? p.legs.map(formatTradeLeg).join(", ") : "no legs";
     const share = p.share_id ? ` · share ${p.share_id}` : "";
+    const lean = [p.bias, p.conviction].filter(Boolean).join("/") || "—";
     lines.push(
-      `- ${p.ticker} · ${p.status} · ${p.structure} · entry ${money(p.entry_value)} · mark ${money(p.mark_value)} · PnL ${money(pnl)} · ${legs}${share}`,
+      `- ${p.ticker} · ${lean} · ${p.status} · ${p.structure} · entry ${money(p.entry_value)} · mark ${money(p.mark_value)} · PnL ${money(pnl)} · ${legs}${share}`,
     );
   }
   if (positions.length > 40) lines.push(`…and ${positions.length - 40} more`);

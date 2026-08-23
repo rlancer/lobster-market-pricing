@@ -1375,10 +1375,15 @@ export const api = {
     get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),
   chatTranscript: (chatId: string) =>
     get<ChatTranscriptBackup>(`/api/chats/${encodeURIComponent(chatId)}/transcript`),
-  portfolio: (opts?: { status?: 'open' | 'closed' | 'all'; refresh?: boolean }) =>
+  portfolio: (opts?: {
+    status?: 'open' | 'closed' | 'all';
+    conviction?: 'high' | 'medium' | 'low';
+    refresh?: boolean;
+  }) =>
     get<PaperPortfolio>(
       `/api/portfolio${qs({
         status: opts?.status,
+        conviction: opts?.conviction,
         refresh: opts?.refresh === false ? 0 : undefined,
       })}`,
     ),
@@ -1393,10 +1398,19 @@ export const api = {
       `/api/portfolio/positions/${encodeURIComponent(positionId)}/close`,
       {},
     ),
-  botTrades: (handle: string, opts?: { status?: 'open' | 'closed' | 'all'; refresh?: boolean }) =>
+  bots: () => get<{ items: BotProfile[] }>('/api/bots'),
+  botTrades: (
+    handle: string,
+    opts?: {
+      status?: 'open' | 'closed' | 'all';
+      conviction?: 'high' | 'medium' | 'low';
+      refresh?: boolean;
+    },
+  ) =>
     get<BotTradesBook>(
       `/api/bots/${encodeURIComponent(handle)}/trades${qs({
         status: opts?.status,
+        conviction: opts?.conviction,
         refresh: opts?.refresh === false ? 0 : undefined,
       })}`,
     ),

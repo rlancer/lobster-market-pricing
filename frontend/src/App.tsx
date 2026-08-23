@@ -49,7 +49,7 @@ type Section = {
 const SECTIONS: Section[] = [
   { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
-  { to: '/portfolio', label: 'Portfolio', heading: 'Paper portfolio', icon: Briefcase },
+  { to: '/portfolio', label: 'Portfolio', heading: 'Portfolio', icon: Briefcase },
 ];
 
 // Data, Docs, Admin, and account sit under a divider at the bottom of the left

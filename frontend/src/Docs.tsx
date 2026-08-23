@@ -152,7 +152,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
-  { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (lake marks + open/realized PnL)' },
+  { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (lake marks + open/realized PnL; optional status + conviction filters)' },
   { method: 'GET', path: '/api/reply-styles', desc: 'Canned Copilot reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
@@ -188,8 +188,8 @@ const SURFACES = [
   },
   {
     route: '/portfolio',
-    title: 'Paper portfolio',
-    body: 'Signed-in paper book ($100k starting cash). When Copilot suggests markable trades in your chat, they open as paper positions automatically (lake mid). Close realizes against the current mark. Share viewers can still Add to portfolio. Bot idea performance lives on each bot’s /u/{handle} page, not here.',
+    title: 'Portfolio',
+    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark.',
   },
   {
     route: '/data',

@@ -175,11 +175,12 @@ export const TOOLS: CatalogItem[] = [
     title: 'get_paper_portfolio',
     summary: 'Read the signed-in paper book + PnL',
     description:
-      'Returns cash, equity, open/realized PnL, and positions from the chat owner’s paper portfolio (auto-tracked suggest_trades marks). Call when the user asks how their book or prior suggestions are doing. Requires a signed-in owner — anonymous/bot chats get a clear error.',
+      'Returns cash, equity, open/realized PnL, and positions from the chat owner’s paper portfolio (auto-tracked suggest_trades marks). Call when the user asks how their book or prior suggestions are doing. Optional conviction filter scopes positions and PnL. Requires a signed-in owner — anonymous/bot chats get a clear error.',
     endpoint: 'GET /api/portfolio',
     tools: ['suggest_trades'],
     params: [
       { name: 'status', type: 'open|closed|all?', note: 'Default open' },
+      { name: 'conviction', type: 'high|medium|low?', note: 'Optional performance filter' },
     ],
   },
   {
@@ -188,12 +189,13 @@ export const TOOLS: CatalogItem[] = [
     title: 'get_bot_trades',
     summary: 'Read a public bot’s suggested-trade PnL',
     description:
-      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /u/{handle} and via GET /api/bots/{handle}/trades.',
+      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /portfolio (Suggested trades) and /u/{handle}. Optional conviction filter scopes performance.',
     endpoint: 'GET /api/bots/{handle}/trades',
     tools: ['suggest_trades'],
     params: [
       { name: 'handle', type: 'string', note: 'Bot handle without @' },
       { name: 'status', type: 'open|closed|all?', note: 'Default open' },
+      { name: 'conviction', type: 'high|medium|low?', note: 'Optional performance filter' },
     ],
   },
   {

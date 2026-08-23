@@ -15,6 +15,8 @@ import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
 type PositionRow = BotTradePosition & Record<string, unknown>;
+type StatusFilter = 'open' | 'closed' | 'all';
+type ConvictionFilter = 'all' | 'high' | 'medium' | 'low';
 
 function money(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -30,21 +32,50 @@ function pnlTone(n: number | null | undefined): 'green' | 'red' | 'gray' {
   return n > 0 ? 'green' : 'red';
 }
 
+function biasColor(bias: string | null): 'green' | 'red' | 'gray' {
+  if (bias === 'bullish') return 'green';
+  if (bias === 'bearish') return 'red';
+  return 'gray';
+}
+
+function convictionColor(conviction: string | null): 'green' | 'orange' | 'gray' {
+  if (conviction === 'high') return 'green';
+  if (conviction === 'medium') return 'orange';
+  return 'gray';
+}
+
+export type BotTradesSectionProps = {
+  handle: string;
+  /** Controlled conviction filter (portfolio page). */
+  convictionFilter?: ConvictionFilter;
+  onConvictionFilterChange?: (value: ConvictionFilter) => void;
+};
+
 /**
- * Public bot suggested-trade performance on /u/{handle} — lake-marked PnL
- * for ideas from suggest_trades (separate from signed-in paper cash).
+ * Public bot suggested-trade performance on /u/{handle} and /portfolio —
+ * lake-marked PnL for ideas from suggest_trades (separate from signed-in paper cash).
  */
-export function BotTradesSection({ handle }: { handle: string }) {
+export function BotTradesSection({
+  handle,
+  convictionFilter: controlledConviction,
+  onConvictionFilterChange,
+}: BotTradesSectionProps) {
   const [book, setBook] = useState<BotTradesBook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'open' | 'closed' | 'all'>('open');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const [localConviction, setLocalConviction] = useState<ConvictionFilter>('all');
+  const convictionFilter = controlledConviction ?? localConviction;
+  const setConvictionFilter = onConvictionFilterChange ?? setLocalConviction;
 
-  const load = useCallback(async (status: 'open' | 'closed' | 'all') => {
+  const load = useCallback(async (status: StatusFilter, conviction: ConvictionFilter) => {
     setLoading(true);
     setError(null);
     try {
-      setBook(await api.botTrades(handle, { status }));
+      setBook(await api.botTrades(handle, {
+        status,
+        conviction: conviction === 'all' ? undefined : conviction,
+      }));
     } catch (err) {
       setError(String((err as Error)?.message ?? err));
       setBook(null);
@@ -54,8 +85,8 @@ export function BotTradesSection({ handle }: { handle: string }) {
   }, [handle]);
 
   useEffect(() => {
-    void load(statusFilter);
-  }, [load, statusFilter]);
+    void load(statusFilter, convictionFilter);
+  }, [load, statusFilter, convictionFilter]);
 
   const summary = book?.summary;
   const rows = (book?.positions ?? []) as PositionRow[];
@@ -66,7 +97,7 @@ export function BotTradesSection({ handle }: { handle: string }) {
         <VStack gap={1}>
           <Heading level={2}>Suggested trades</Heading>
           <Text type="supporting">
-            Ideas this bot published via suggest_trades, marked against the lake when quotes exist.
+            Ideas @{handle} published via suggest_trades, marked against the lake when quotes exist.
             Expired or unquoted legs still list here without PnL. Not a cash paper book.
           </Text>
         </VStack>
@@ -85,9 +116,21 @@ export function BotTradesSection({ handle }: { handle: string }) {
             variant="secondary"
             label="Refresh marks"
             isDisabled={loading}
-            onClick={() => void load(statusFilter)}
+            onClick={() => void load(statusFilter, convictionFilter)}
           />
         </HStack>
+      </HStack>
+
+      <HStack gap={2} wrap="wrap" aria-label="Conviction filter">
+        {(['all', 'high', 'medium', 'low'] as const).map((c) => (
+          <Button
+            key={c}
+            size="sm"
+            variant={convictionFilter === c ? 'primary' : 'ghost'}
+            label={c === 'all' ? 'All conviction' : c}
+            onClick={() => setConvictionFilter(c)}
+          />
+        ))}
       </HStack>
 
       {summary ? (
@@ -137,7 +180,9 @@ export function BotTradesSection({ handle }: { handle: string }) {
         </HStack>
       ) : rows.length === 0 ? (
         <Text type="supporting">
-          No tracked suggestions yet. When this bot publishes markable trades, they land here with live marks.
+          {convictionFilter === 'all'
+            ? 'No tracked suggestions yet. When this bot publishes markable trades, they land here with live marks.'
+            : `No ${convictionFilter}-conviction suggestions in this status filter.`}
         </Text>
       ) : (
         <Table
@@ -155,6 +200,34 @@ export function BotTradesSection({ handle }: { handle: string }) {
               width: pixel(72),
               renderCell: (row) => (
                 <Text weight="semibold" hasTabularNumbers>{row.ticker}</Text>
+              ),
+            },
+            {
+              key: 'bias',
+              header: 'Bias',
+              width: pixel(88),
+              renderCell: (row) => (
+                row.bias ? (
+                  <Token label={row.bias} color={biasColor(row.bias)} size="sm" />
+                ) : (
+                  <Text type="supporting" size="sm">—</Text>
+                )
+              ),
+            },
+            {
+              key: 'conviction',
+              header: 'Conviction',
+              width: pixel(96),
+              renderCell: (row) => (
+                row.conviction ? (
+                  <Token
+                    label={row.conviction}
+                    color={convictionColor(row.conviction)}
+                    size="sm"
+                  />
+                ) : (
+                  <Text type="supporting" size="sm">—</Text>
+                )
               ),
             },
             {

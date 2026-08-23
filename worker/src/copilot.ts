@@ -270,6 +270,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
    */
   protected loadPaperPortfolio(
     _status: "open" | "closed" | "all",
+    _conviction?: "high" | "medium" | "low" | null,
   ): Promise<import("./paper-portfolio").PaperPortfolioView | null> {
     return Promise.resolve(null);
   }
@@ -281,6 +282,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected loadBotTrades(
     _handle: string,
     _status: "open" | "closed" | "all",
+    _conviction?: "high" | "medium" | "low" | null,
   ): Promise<import("./bot-trades").BotTradesBook | null> {
     return Promise.resolve(null);
   }
@@ -1065,7 +1067,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         execute: async (args) => runTool("get_paper_portfolio", TOOL_LABELS.get_paper_portfolio, args, async () => {
           status("Loading paper portfolio…");
           const statusFilter = args.status ?? "open";
-          const view = await this.loadPaperPortfolio(statusFilter);
+          const conviction = args.conviction ?? null;
+          const view = await this.loadPaperPortfolio(statusFilter, conviction);
           if (!view) {
             return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
               error: "no_owner",
@@ -1081,7 +1084,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           status("Loading bot trade performance…");
           const handle = String(args.handle ?? "").trim();
           const statusFilter = args.status ?? "open";
-          const book = await this.loadBotTrades(handle, statusFilter);
+          const conviction = args.conviction ?? null;
+          const book = await this.loadBotTrades(handle, statusFilter, conviction);
           if (!book) {
             return this.output(false, "Unknown or disabled bot handle — try yololobster, nowlobster, or macrolobster.", {
               error: "not_found",
