@@ -1,7 +1,7 @@
 {
   "source": "curated Kalshi series for investing-relevant event contracts (kalshi-markets-hourly)",
-  "updated": "2026-08-22",
-  "note": "Kalshi has thousands of markets (sports, entertainment, politics). This allowlist is deliberately small and investing-focused: Fed/rates, inflation, growth, equity-index levels, crypto levels, oil, and Treasury yields. Each entry maps to a Kalshi series_ticker; the loader fetches open markets only and caps per series. related_symbol links the series to a lake instrument when one exists (SPY, BTC-USD, CL=F, …) for Copilot joins and future Kalshi trade suggestions. Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
+  "updated": "2026-08-23",
+  "note": "Kalshi has thousands of markets (sports, entertainment, politics). This allowlist is deliberately small and investing-focused: Fed/rates, inflation, growth, equity-index levels, crypto levels, oil, Treasury yields, plus a mega-cap company_event sleeve (litigation / antitrust / KPI / CEO catalysts linked via related_symbol for /research/{ticker} and Lobster fundamental takes). Each entry maps to a Kalshi series_ticker; the loader fetches open markets only and caps per series. related_symbol links the series to a lake instrument when one exists (SPY, META, BTC-USD, CL=F, …) for Copilot joins and Kalshi trade suggestions. Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
   "api_base": "https://api.elections.kalshi.com/trade-api/v2",
   "max_markets_per_series_default": 80,
   "series": [
@@ -130,6 +130,125 @@
       "title": "WTI crude oil settlement",
       "related_symbol": "CL=F",
       "max_markets": 60
+    },
+    {
+      "series_ticker": "KXMETAANTITRUST",
+      "theme": "company_event",
+      "title": "FTC antitrust case against Meta revived on appeal",
+      "related_symbol": "META",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXMETAKIDSCASE",
+      "theme": "company_event",
+      "title": "Meta ordered to pay in state AG child safety case",
+      "related_symbol": "META",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXMETAKIDSWIN",
+      "theme": "company_event",
+      "title": "Meta wins state AG child safety case",
+      "related_symbol": "META",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXMETA",
+      "theme": "company_event",
+      "title": "Meta KPI (ad impressions / growth)",
+      "related_symbol": "META",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXMETAA",
+      "theme": "company_event",
+      "title": "Meta annual KPI",
+      "related_symbol": "META",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXFACEBOOKAPP",
+      "theme": "company_event",
+      "title": "Facebook app downloads",
+      "related_symbol": "META",
+      "max_markets": 30
+    },
+    {
+      "series_ticker": "KXGOOG",
+      "theme": "company_event",
+      "title": "Alphabet / Google KPI",
+      "related_symbol": "GOOGL",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXGOOGA",
+      "theme": "company_event",
+      "title": "Alphabet annual KPI",
+      "related_symbol": "GOOGL",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXGOOGSHARE",
+      "theme": "company_event",
+      "title": "Google / Gemini AI market share",
+      "related_symbol": "GOOGL",
+      "max_markets": 30
+    },
+    {
+      "series_ticker": "KXAMZN",
+      "theme": "company_event",
+      "title": "Amazon KPI",
+      "related_symbol": "AMZN",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXAMZNA",
+      "theme": "company_event",
+      "title": "Amazon annual KPI",
+      "related_symbol": "AMZN",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXAAPLA",
+      "theme": "company_event",
+      "title": "Apple annual KPI",
+      "related_symbol": "AAPL",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXAAPLCEOCHANGE",
+      "theme": "company_event",
+      "title": "Tim Cook leaves Apple",
+      "related_symbol": "AAPL",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXTSLA",
+      "theme": "company_event",
+      "title": "Tesla KPI (production / deliveries)",
+      "related_symbol": "TSLA",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXTSLAYOFF",
+      "theme": "company_event",
+      "title": "Tesla layoffs",
+      "related_symbol": "TSLA",
+      "max_markets": 20
+    },
+    {
+      "series_ticker": "KXNVDAA",
+      "theme": "company_event",
+      "title": "NVIDIA annual KPI",
+      "related_symbol": "NVDA",
+      "max_markets": 40
+    },
+    {
+      "series_ticker": "KXVISADEBIT",
+      "theme": "company_event",
+      "title": "Visa debit antitrust court ruling",
+      "related_symbol": "V",
+      "max_markets": 20
     }
   ]
 }

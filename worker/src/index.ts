@@ -122,6 +122,8 @@ import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import {
   selectResearchKalshiMarkets,
+  summarizeKalshiForResearch,
+  kalshiRelatedSymbolKeys,
   type KalshiMarketBrief,
 } from "./research-kalshi";
 import {
@@ -2762,7 +2764,8 @@ async function loadResearchFilings(
 }
 
 /**
- * Curated Kalshi event markets linked to this underlying via related_symbol.
+ * Curated Kalshi event markets linked to this underlying via related_symbol
+ * (macro proxies + mega-cap company_event litigation/KPI series).
  * Latest-wins on market_ticker; live-only; ranked by volume then soonest close.
  */
 async function loadResearchKalshi(
@@ -2774,6 +2777,9 @@ async function loadResearchKalshi(
   // Pull a wider latest-wins window so JS ranking can prefer liquid contracts
   // without pushing ORDER BY volume into R2 SQL (nulls / dialect quirks).
   const scan = Math.min(200, Math.max(40, lim * 8));
+  const keys = kalshiRelatedSymbolKeys(ticker);
+  if (!keys.length) return [];
+  const relatedIn = keys.map((k) => lit(k)).join(", ");
   try {
     const rows = await r2sql(
       env,
@@ -2783,7 +2789,7 @@ async function loadResearchKalshi(
         `  SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, status,` +
         `    yes_bid, yes_ask, yes_last, volume, volume_24h, open_interest, close_time, related_symbol,` +
         `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
-        `  FROM options.kalshi_markets WHERE related_symbol = ${lit(ticker)}` +
+        `  FROM options.kalshi_markets WHERE related_symbol IN (${relatedIn})` +
         `) WHERE rn = 1 LIMIT ${scan}`,
       "kalshi_" + ticker + "_" + lim,
       QUERY_TTL_MS,
@@ -3003,6 +3009,9 @@ async function researchTickerForAgent(
       requestedBy: opts?.chatId || null,
     });
     let summary = summarizeResearch(research);
+    const kalshi = await loadResearchKalshi(env, research.identity.ticker, 8);
+    const kalshiBlock = summarizeKalshiForResearch(kalshi, { limit: 6 });
+    if (kalshiBlock) summary += `\n\n${kalshiBlock}`;
     if (research.price.spot == null && isEnrollableEquityTicker(research.identity.ticker)) {
       summary +=
         "\n\nLake data is thin for this ticker — it has been queued for on-demand " +
@@ -3184,6 +3193,7 @@ async function handleResearchCommentaryGet(env: Env, req: Request, tickerRaw: st
     const origin = new URL(req.url).origin;
     const commentary = await getOrComputeCommentary(env, ticker, {
       ...researchDepsFor(env),
+      loadKalshi: (t) => loadResearchKalshi(env, t, 8),
       createModel: () => {
         if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
         return createCopilotModel(

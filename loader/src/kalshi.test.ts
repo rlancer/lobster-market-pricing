@@ -130,7 +130,26 @@ describe("kalshi parse helpers", () => {
     expect(list).toContain("KXCPI");
     expect(list).toContain("KXINX");
     expect(list).toContain("KXBTC");
+    expect(list).toContain("KXMETAANTITRUST");
+    expect(list).toContain("KXGOOG");
     expect(list).not.toContain("KXSPORTS");
+  });
+
+  it("maps company_event Meta litigation series to related_symbol META", () => {
+    const rows = parseKalshiMarketsPayload("KXMETAANTITRUST", {
+      markets: [{
+        ticker: "KXMETAANTITRUST-26DEC31",
+        event_ticker: "KXMETAANTITRUST",
+        title: "FTC antitrust case against Meta revived on appeal?",
+        status: "active",
+        yes_bid_dollars: "0.2200",
+        yes_ask_dollars: "0.2800",
+        last_price_dollars: "0.2500",
+      }],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].theme).toBe("company_event");
+    expect(rows[0].related_symbol).toBe("META");
   });
 });
 

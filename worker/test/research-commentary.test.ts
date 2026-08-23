@@ -226,6 +226,32 @@ describe("synthesizeCommentary", () => {
     assert.ok(text.includes("\n\n"));
   });
 
+  it("folds related Kalshi event odds into the fundamental blurb", () => {
+    const text = synthesizeCommentary(sampleResearch(), [
+      {
+        series_ticker: "KXMETAANTITRUST",
+        market_ticker: "KXMETAANTITRUST-26DEC31",
+        event_ticker: null,
+        title: "FTC antitrust case against Meta revived on appeal?",
+        yes_subtitle: null,
+        theme: "company_event",
+        status: "open",
+        yes_bid: 0.2,
+        yes_ask: 0.3,
+        yes_last: 0.27,
+        volume: 100,
+        volume_24h: 10,
+        open_interest: 50,
+        close_time: "2026-12-31T00:00:00Z",
+        related_symbol: "META",
+        url: null,
+      },
+    ]);
+    assert.match(text, /Event markets:/);
+    assert.match(text, /27% YES/);
+    assert.match(text, /FTC antitrust/);
+  });
+
   it("returns a not-enough-data message instead of inventing a trade when the brief is thin", () => {
     const text = synthesizeCommentary(thinResearch());
     assert.equal(text, formatInsufficientDataCommentary(thinResearch()));

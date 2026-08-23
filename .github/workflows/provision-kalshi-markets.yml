@@ -370,6 +370,11 @@ jobs:
             "equity_index\|SPY\|KXINX" \
             "KXINX equity index"
 
+          assert_sql \
+            "SELECT series_ticker, theme, related_symbol FROM options.kalshi_markets WHERE related_symbol = 'META' ORDER BY fetched_at DESC LIMIT 10" \
+            "META\|company_event\|KXMETA" \
+            "META company_event markets"
+
           echo "Kalshi markets pipeline verified."
 
       # Main-branch deploy-loader can overwrite this feature-branch Worker mid-run.

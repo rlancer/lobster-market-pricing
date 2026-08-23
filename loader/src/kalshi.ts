@@ -2,7 +2,8 @@
 //
 // Kalshi lists thousands of markets (sports, entertainment, politics). Lobster
 // only wants investing-relevant series — Fed/rates, inflation, growth, equity
-// indexes, crypto levels, oil, Treasuries — from symbols/kalshi-series.json.
+// indexes, crypto levels, oil, Treasuries, plus mega-cap company_event
+// (litigation / KPI / CEO) — from symbols/kalshi-series.json.
 // Each pass fetches open markets for one series_ticker, caps the set, and
 // publishes to options.kalshi_markets via PIPELINE_KALSHI_MARKETS_URL.
 //
@@ -21,7 +22,8 @@ export type KalshiTheme =
   | "growth"
   | "equity_index"
   | "crypto"
-  | "commodity";
+  | "commodity"
+  | "company_event";
 
 export interface KalshiSeriesMeta {
   series_ticker: string;

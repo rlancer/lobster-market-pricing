@@ -1,8 +1,16 @@
 /**
  * Research-page helpers for curated Kalshi event markets joined by
- * related_symbol (SPY, TLT, BTC-USD, …). Ranking mirrors the loader's
+ * related_symbol (SPY, TLT, META, BTC-USD, …). Ranking mirrors the loader's
  * volume-then-soonest-close preference so the rail stays skimable.
  */
+
+/** Dual-class / synonym keys so Alphabet events linked as GOOGL also show on GOOG. */
+export function kalshiRelatedSymbolKeys(ticker: string): string[] {
+  const t = String(ticker || "").trim().toUpperCase();
+  if (!t) return [];
+  if (t === "GOOG" || t === "GOOGL") return ["GOOG", "GOOGL"];
+  return [t];
+}
 
 export interface KalshiMarketBrief {
   series_ticker: string;
@@ -82,6 +90,34 @@ export function rankResearchKalshiMarkets(rows: KalshiMarketBrief[]): KalshiMark
 }
 
 /**
+ * Keep the research rail from filling with one series' threshold ladder
+ * (e.g. five Facebook download strikes) so litigation / KPI / CEO catalysts
+ * from other series still appear. Cap at `maxPerSeries` per series_ticker
+ * while walking volume/soonest-close rank order.
+ */
+export function diversifyResearchKalshiMarkets(
+  ranked: KalshiMarketBrief[],
+  limit: number,
+  maxPerSeries = 2,
+): KalshiMarketBrief[] {
+  const lim = Math.max(1, Math.min(50, Math.floor(limit)));
+  const per = Math.max(1, Math.floor(maxPerSeries));
+  const picked: KalshiMarketBrief[] = [];
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const row of ranked) {
+    if (picked.length >= lim) break;
+    if (seen.has(row.market_ticker)) continue;
+    const n = counts.get(row.series_ticker) ?? 0;
+    if (n >= per) continue;
+    picked.push(row);
+    seen.add(row.market_ticker);
+    counts.set(row.series_ticker, n + 1);
+  }
+  return picked;
+}
+
+/**
  * Drop settled / past-close markets so the research rail focuses on live odds.
  * Unknown status with a future (or missing) close_time is kept.
  */
@@ -100,7 +136,7 @@ export function isLiveKalshiMarket(
   return true;
 }
 
-/** Latest-wins rows → ranked live briefs, capped. */
+/** Latest-wins rows → ranked live briefs, series-diversified, capped. */
 export function selectResearchKalshiMarkets(
   rows: Record<string, unknown>[],
   limit: number,
@@ -112,7 +148,7 @@ export function selectResearchKalshiMarkets(
     const brief = mapKalshiMarketBrief(row);
     if (brief && isLiveKalshiMarket(brief, nowMs)) mapped.push(brief);
   }
-  return rankResearchKalshiMarkets(mapped).slice(0, lim);
+  return diversifyResearchKalshiMarkets(rankResearchKalshiMarkets(mapped), lim);
 }
 
 /** Implied YES probability for display (prefer last, else mid bid/ask). */
@@ -129,4 +165,22 @@ export function kalshiYesProb(row: KalshiMarketBrief): number | null {
   if (row.yes_bid != null && Number.isFinite(row.yes_bid)) return row.yes_bid;
   if (row.yes_ask != null && Number.isFinite(row.yes_ask)) return row.yes_ask;
   return null;
+}
+
+/** Compact text block for Copilot / Lobster commentary (YES % + title). */
+export function summarizeKalshiForResearch(
+  items: KalshiMarketBrief[],
+  opts?: { limit?: number },
+): string | null {
+  const lim = Math.max(1, Math.min(12, Math.floor(opts?.limit ?? 6)));
+  const lines: string[] = [];
+  for (const item of items.slice(0, lim)) {
+    const yes = kalshiYesProb(item);
+    const pct = yes != null && Number.isFinite(yes) ? `${Math.round(yes * 100)}% YES` : "YES n/a";
+    const theme = item.theme && item.theme !== "other" ? ` [${item.theme}]` : "";
+    const subtitle = item.yes_subtitle ? ` — ${item.yes_subtitle}` : "";
+    lines.push(`- ${pct}: ${item.title}${subtitle}${theme} (${item.market_ticker})`);
+  }
+  if (!lines.length) return null;
+  return ["Related Kalshi event markets (curated; use in fundamental / catalyst context):", ...lines].join("\n");
 }

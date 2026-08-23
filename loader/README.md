@@ -195,9 +195,12 @@ block above with `schemas/yields.json`, or run
 Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
 and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
-BTC/ETH ranges, WTI — each optionally linked to a lake `related_symbol`
-(SPY, TLT, BTC-USD, CL=F, …) for Copilot joins, `/research/{ticker}` event
-markets (`GET /api/research/{ticker}/kalshi`), and Kalshi trade ideas.
+BTC/ETH ranges, WTI, plus a mega-cap `company_event` sleeve (Meta litigation,
+Alphabet/Amazon/Apple/Tesla/Nvidia KPI and catalyst series, Visa debit
+antitrust, …) — each optionally linked to a lake `related_symbol`
+(SPY, TLT, META, BTC-USD, CL=F, …) for Copilot joins, `/research/{ticker}` event
+markets (`GET /api/research/{ticker}/kalshi`), Lobster fundamental takes, and
+Kalshi trade ideas.
 
 Public Trade API (no key): `GET /markets?series_ticker=…&status=open`. Each
 pass caps markets per series (volume-first), is batch-scoped / ungated, and
@@ -229,7 +232,7 @@ and redeploys `cboe-to-r2`. Flags: `--pem ./path.key`, `--key-id <uuid>`,
 (double-quoted multi-line) in `.env` / `.dev.vars`.
 
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
-`yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity),
+`yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity|company_event),
 `category`, `status`, `market_type`, `yes_bid` / `yes_ask` / `yes_last` /
 `no_bid` / `no_ask` (0–1 dollars), `volume`, `volume_24h`, `open_interest`,
 `liquidity`, `floor_strike`, `close_time`, `expiration_time`, `related_symbol`,
