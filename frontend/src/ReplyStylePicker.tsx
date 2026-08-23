@@ -87,7 +87,8 @@ export function ReplyStylePicker({
         <Button
           variant="ghost"
           size="md"
-          label={`Reply style: ${selectedStyle.label}`}
+          label={selectedStyle.label}
+          tooltip={`Reply style: ${selectedStyle.label}`}
           icon={<SlidersHorizontal size={14} />}
         />
       </Popover>

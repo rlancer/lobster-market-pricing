@@ -16,6 +16,7 @@ import {
   StatusDot,
   Switch,
   Timestamp,
+  useAppShellMobile,
   useChatStreamScroll,
   useMediaQuery,
 } from '@astryxdesign/core';
@@ -1070,6 +1071,7 @@ function AiChatSession({
 
   const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
   const isDesktop = useMediaQuery('(min-width: 56rem)');
+  const { isMobile } = useAppShellMobile();
   const composerBlocked = accessBlocked || scopeLocked;
   const showWelcome = projectedMessages.length === 0 && !accessBlocked && !isSavedChat && !scopeLocked;
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
@@ -1135,7 +1137,10 @@ function AiChatSession({
                     isLoading={shareBusy}
                     onClick={shareChat}
                   />
-                  <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
+                  {/* Mobile app bar already owns New chat — keep this desktop-only. */}
+                  {!isMobile && (
+                    <IconButton variant="ghost" size="sm" label="New chat" icon={<SquarePen size={16} />} tooltip="New chat" onClick={onNewChat} />
+                  )}
                 </section>
               </header>
 
