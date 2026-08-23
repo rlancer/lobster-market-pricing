@@ -178,7 +178,10 @@ BTC/ETH ranges, WTI — each optionally linked to a lake `related_symbol`
 Public Trade API (no key): `GET /markets?series_ticker=…&status=open`. Each
 pass caps markets per series (volume-first), is batch-scoped / ungated, and
 runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
-event odds move outside the US equity session.
+event odds move outside the US equity session. Series are paced
+(`KALSHI_SERIES_PACE_MS`, default 1500; `KALSHI_CONCURRENCY` default 1) to
+avoid Kalshi `too_many_requests` 429s; set `KALSHI_FETCH_SERIES_META=1` only
+when category enrichment from Get Series is worth the extra call.
 
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity),
