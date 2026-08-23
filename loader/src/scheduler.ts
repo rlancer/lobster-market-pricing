@@ -744,6 +744,11 @@ export class EtlScheduler {
       succeeded: successItems.length,
       failed: batch.length - successItems.length,
       batch,
+      // Cap stored failures so loader_meta stays small; enough to debug a pass.
+      failures: failures.slice(0, 40).map((f) => ({
+        symbol: f.symbol,
+        error: String(f.error || "").slice(0, 240),
+      })),
       transport_error: transportError,
       duration_ms: Date.now() - started,
     };

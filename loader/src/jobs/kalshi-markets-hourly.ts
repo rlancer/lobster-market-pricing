@@ -48,6 +48,11 @@ export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
               error: String((error && (error as Error).message) || error),
             });
           }
+          // Mild pacing — Kalshi public API + Pipelines ingest both rate-limit
+          // under a burst of series fetches.
+          if (index + 1 < items.length) {
+            await new Promise((r) => setTimeout(r, 250));
+          }
         }
       };
       await Promise.all(
