@@ -960,6 +960,12 @@ export interface TickerEarningsIntel {
   results: EarningsResultItem[];
   facts: CompanyFactItem[];
   quality: EarningsQuality;
+  report: {
+    form_type: string;
+    filed_at: string;
+    edgar_url: string;
+    description: string | null;
+  } | null;
   summary: string | null;
   summary_source: 'llm' | 'notes' | 'insufficient' | null;
   summary_computed_at: string | null;

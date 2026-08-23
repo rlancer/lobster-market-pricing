@@ -2998,6 +2998,7 @@ async function handleResearchEarningsGet(env: Env, req: Request, tickerRaw: stri
       ...researchDepsFor(env),
       loadEarningsResults: (t) => loadResearchEarningsResults(env, t),
       loadCompanyFacts: (t) => loadResearchCompanyFacts(env, t),
+      loadFilings: (t) => loadResearchFilings(env, t, 12),
       createModel: () => {
         if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
         return createCopilotModel(

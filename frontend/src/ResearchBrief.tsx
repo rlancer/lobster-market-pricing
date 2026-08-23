@@ -113,6 +113,19 @@ function EarningsIntelSection({
             AI summary{intel.summary_source ? ` · ${intel.summary_source}` : ''}
           </Text>
           <div className="ai-text"><Markdown>{summary}</Markdown></div>
+          {intel.report?.edgar_url ? (
+            <Text type="supporting">
+              Grounded in{' '}
+              <a
+                href={intel.report.edgar_url}
+                target="_blank"
+                rel="noreferrer"
+                className="research-chip-link"
+              >
+                {intel.report.form_type} · {intel.report.filed_at}
+              </a>
+            </Text>
+          ) : null}
         </VStack>
       ) : null}
 

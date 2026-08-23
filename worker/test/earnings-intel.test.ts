@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEarningsQuality,
+  htmlToPlainText,
+  pickEarningsReportFiling,
   synthesizeEarningsSummary,
   type CompanyFactBrief,
   type EarningsResultBrief,
@@ -62,5 +64,41 @@ describe("synthesizeEarningsSummary", () => {
     const text = synthesizeEarningsSummary("AAPL", results, [baseFact()], [], quality);
     expect(text).toMatch(/AAPL printed EPS 1\.85/);
     expect(text).toMatch(/Stock-based compensation|SBC/i);
+  });
+});
+
+describe("pickEarningsReportFiling", () => {
+  it("prefers 8-K descriptions that look like earnings releases", () => {
+    const pick = pickEarningsReportFiling([
+      {
+        form_type: "10-Q",
+        description: "Quarterly report",
+        edgar_url: "https://sec.gov/10q",
+        filed_at: "2026-07-01",
+      },
+      {
+        form_type: "8-K",
+        description: "Other events",
+        edgar_url: "https://sec.gov/other",
+        filed_at: "2026-07-20",
+      },
+      {
+        form_type: "8-K",
+        description: "Results of Operations and Financial Condition",
+        edgar_url: "https://sec.gov/earnings",
+        filed_at: "2026-07-31",
+      },
+    ]);
+    expect(pick?.edgar_url).toBe("https://sec.gov/earnings");
+  });
+});
+
+describe("htmlToPlainText", () => {
+  it("strips tags and scripts", () => {
+    const text = htmlToPlainText(
+      "<html><script>evil()</script><body><p>Revenue&nbsp;<b>grew</b></p></body></html>",
+    );
+    expect(text).toBe("Revenue grew");
+    expect(text).not.toMatch(/script|evil/i);
   });
 });

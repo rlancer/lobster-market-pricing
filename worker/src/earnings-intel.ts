@@ -72,6 +72,13 @@ export interface EarningsQualityBrief {
   flags: EarningsQualityFlag[];
 }
 
+export interface EarningsReportRef {
+  form_type: string;
+  filed_at: string;
+  edgar_url: string;
+  description: string | null;
+}
+
 export interface TickerEarningsIntel {
   ticker: string;
   security_id: string;
@@ -79,6 +86,8 @@ export interface TickerEarningsIntel {
   results: EarningsResultBrief[];
   facts: CompanyFactBrief[];
   quality: EarningsQualityBrief;
+  /** 8-K (or similar) used to ground the AI summary, when available. */
+  report: EarningsReportRef | null;
   summary: string | null;
   summary_source: EarningsSummarySource | null;
   summary_computed_at: string | null;
@@ -87,9 +96,11 @@ export interface TickerEarningsIntel {
 
 export const EARNINGS_SUMMARY_SYSTEM = [
   "You are Lobster MP — a senior equity analyst writing a short earnings-quality brief.",
-  "Ground every claim in the structured facts provided. Do not invent numbers, guidance, or news.",
+  "Ground every claim in the structured facts and any earnings-report excerpt provided. Do not invent numbers, guidance, or news.",
   "Use short Markdown paragraphs (1–2 sentences) separated by blank lines.",
   "Lead with the latest reported print (beat/miss) or the next calendar date if no results yet.",
+  "When an 8-K / earnings-release excerpt is present, summarize the company narrative in 2–3 sentences,",
+  "then reconcile it with the XBRL facts (especially stock-based compensation and debt).",
   "Call out earnings-quality tells when present: stock-based compensation vs net income,",
   "SBC-adjusted earnings, net debt vs cash, lease liabilities alongside reported debt,",
   "and operating cash flow vs GAAP net income.",
@@ -98,6 +109,62 @@ export const EARNINGS_SUMMARY_SYSTEM = [
   "No code fences, no tables, no headings (#), no emoji. No 'as an AI'.",
 ].join("\n");
 
+/** Prefer 8-K current reports that look like earnings releases. */
+export function pickEarningsReportFiling(
+  filings: Array<{ form_type: string; description: string | null; edgar_url: string; filed_at: string }>,
+): { form_type: string; description: string | null; edgar_url: string; filed_at: string } | null {
+  const earningsish = /result|earning|financial|operating|item\s*2\.02|press/i;
+  const eights = filings.filter((f) => /^8-K/i.test(f.form_type) && f.edgar_url);
+  const scored = eights.find((f) => earningsish.test(f.description || ""));
+  return scored || eights[0] || null;
+}
+
+/**
+ * Fetch an EDGAR primary document and return a plain-text excerpt suitable for
+ * an LLM prompt. Best-effort: network/HTML failures return null.
+ */
+export async function fetchEdgarReportExcerpt(
+  edgarUrl: string,
+  opts?: { maxChars?: number; fetchImpl?: typeof fetch; userAgent?: string },
+): Promise<string | null> {
+  const maxChars = opts?.maxChars ?? 8_000;
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const ua = opts?.userAgent || "LobsterMarketPricing/0.1 (research; contact: rob@lobster.mp)";
+  try {
+    const res = await fetchImpl(edgarUrl, {
+      headers: {
+        "user-agent": ua,
+        accept: "text/html,application/xhtml+xml,text/plain,*/*",
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) return null;
+    const raw = await res.text();
+    const text = htmlToPlainText(raw);
+    if (!text || text.length < 80) return null;
+    return text.slice(0, maxChars);
+  } catch (e) {
+    console.error("edgar report excerpt fetch failed", e);
+    return null;
+  }
+}
+
+/** Strip tags / scripts and collapse whitespace for prompt grounding. */
+export function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
 function fmtUsd(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return "—";
   const abs = Math.abs(v);
@@ -313,6 +380,8 @@ function compactEarningsPrompt(
   facts: CompanyFactBrief[],
   calendar: EarningsBrief[],
   quality: EarningsQualityBrief,
+  reportExcerpt?: string | null,
+  reportMeta?: { form_type: string; filed_at: string; edgar_url: string } | null,
 ): string {
   const lines = [
     `${ticker}${name ? ` — ${name}` : ""}`,
@@ -335,6 +404,12 @@ function compactEarningsPrompt(
     ),
     ...quality.flags.map((f) => `Flag [${f.severity}] ${f.title}: ${f.detail}`),
   ];
+  if (reportMeta && reportExcerpt) {
+    lines.push(
+      `Report ${reportMeta.form_type} filed ${reportMeta.filed_at}: ${reportMeta.edgar_url}`,
+      `Report excerpt: ${reportExcerpt}`,
+    );
+  }
   return lines.filter(Boolean).join("\n");
 }
 
@@ -346,13 +421,24 @@ async function generateEarningsSummary(
   calendar: EarningsBrief[],
   quality: EarningsQualityBrief,
   model: LanguageModel,
+  reportExcerpt?: string | null,
+  reportMeta?: { form_type: string; filed_at: string; edgar_url: string } | null,
 ): Promise<string | null> {
   try {
     const { text } = await generateText({
       model,
       system: EARNINGS_SUMMARY_SYSTEM,
-      prompt: compactEarningsPrompt(ticker, name, results, facts, calendar, quality),
-      maxOutputTokens: 500,
+      prompt: compactEarningsPrompt(
+        ticker,
+        name,
+        results,
+        facts,
+        calendar,
+        quality,
+        reportExcerpt,
+        reportMeta,
+      ),
+      maxOutputTokens: 650,
     });
     const trimmed = text?.trim() ?? "";
     return trimmed || null;
@@ -365,7 +451,12 @@ async function generateEarningsSummary(
 export interface EarningsIntelDeps extends ResearchDeps {
   loadEarningsResults: (ticker: string) => Promise<EarningsResultBrief[]>;
   loadCompanyFacts: (ticker: string) => Promise<CompanyFactBrief[]>;
+  /** Optional SEC filings (for 8-K earnings-release grounding). */
+  loadFilings?: (
+    ticker: string,
+  ) => Promise<Array<{ form_type: string; description: string | null; edgar_url: string; filed_at: string }>>;
   createModel?: () => LanguageModel | null;
+  fetchImpl?: typeof fetch;
   now?: () => number;
 }
 
@@ -414,7 +505,7 @@ async function persistEarningsSummary(
 
 /**
  * Build earnings intel for a ticker: lake results + facts + quality flags +
- * cached AI/notes summary.
+ * optional 8-K report excerpt + cached AI/notes summary.
  */
 export async function getOrComputeEarningsIntel(
   env: ResearchEnv,
@@ -425,12 +516,22 @@ export async function getOrComputeEarningsIntel(
   const now = deps.now?.() ?? Date.now();
   const research = await getOrComputeResearch(env, rawTicker, deps, { force: false });
   const ticker = research.identity.ticker;
-  const [results, facts] = await Promise.all([
+  const [results, facts, filings] = await Promise.all([
     deps.loadEarningsResults(ticker),
     deps.loadCompanyFacts(ticker),
+    deps.loadFilings ? deps.loadFilings(ticker) : Promise.resolve([]),
   ]);
   const calendar = research.earnings ?? [];
   const quality = buildEarningsQuality(facts);
+  const reportPick = pickEarningsReportFiling(filings);
+  const report: EarningsReportRef | null = reportPick
+    ? {
+        form_type: reportPick.form_type,
+        filed_at: reportPick.filed_at,
+        edgar_url: reportPick.edgar_url,
+        description: reportPick.description,
+      }
+    : null;
   const cached = researchSummaryFields(research);
   const enough = hasEnoughDataForEarningsSummary(results, facts, calendar);
 
@@ -443,6 +544,7 @@ export async function getOrComputeEarningsIntel(
       results,
       facts,
       quality,
+      report,
       summary,
       summary_source: "insufficient",
       summary_computed_at: new Date(now).toISOString(),
@@ -458,11 +560,19 @@ export async function getOrComputeEarningsIntel(
       results,
       facts,
       quality,
+      report,
       summary: cached.summary,
       summary_source: cached.source,
       summary_computed_at: cached.computed_at,
       cache_hit: true,
     };
+  }
+
+  let reportExcerpt: string | null = null;
+  if (report) {
+    reportExcerpt = await fetchEdgarReportExcerpt(report.edgar_url, {
+      fetchImpl: deps.fetchImpl,
+    });
   }
 
   let summary: string | null = null;
@@ -477,11 +587,16 @@ export async function getOrComputeEarningsIntel(
       calendar,
       quality,
       model,
+      reportExcerpt,
+      report,
     );
     if (summary) source = "llm";
   }
   if (!summary) {
     summary = synthesizeEarningsSummary(ticker, results, facts, calendar, quality);
+    if (report) {
+      summary += `\n\nGrounded filing: ${report.form_type} (${report.filed_at}) — ${report.edgar_url}`;
+    }
     source = "notes";
   }
 
@@ -495,6 +610,7 @@ export async function getOrComputeEarningsIntel(
     results,
     facts,
     quality,
+    report,
     summary,
     summary_source: source,
     summary_computed_at: computedAt,
