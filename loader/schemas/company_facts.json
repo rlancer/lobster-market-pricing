@@ -1,0 +1,27 @@
+{
+  "fields": [
+    {"name":"ticker","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"cik","type":"string","required":true},
+    {"name":"period_end","type":"string","required":true},
+    {"name":"period_type","type":"string","required":true},
+    {"name":"fiscal_year","type":"int64","required":false},
+    {"name":"form","type":"string","required":false},
+    {"name":"filed_at","type":"string","required":false},
+    {"name":"frame","type":"string","required":false},
+    {"name":"revenue","type":"float64","required":false},
+    {"name":"net_income","type":"float64","required":false},
+    {"name":"operating_cash_flow","type":"float64","required":false},
+    {"name":"diluted_eps","type":"float64","required":false},
+    {"name":"share_based_compensation","type":"float64","required":false},
+    {"name":"long_term_debt","type":"float64","required":false},
+    {"name":"long_term_debt_current","type":"float64","required":false},
+    {"name":"cash","type":"float64","required":false},
+    {"name":"operating_lease_liability","type":"float64","required":false},
+    {"name":"finance_lease_liability","type":"float64","required":false},
+    {"name":"interest_expense","type":"float64","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

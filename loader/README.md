@@ -97,6 +97,29 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/jobs/earnings-daily/tr
 Once `options.earnings` exists it auto-appears in the Worker's `/api/tables`,
 so the AI Copilot can query it (and join it to chains) with no further wiring.
 
+### Reported EPS results (`earnings-results-daily`)
+
+Yahoo `quoteSummary` module `earningsHistory` → `options.earnings_results`
+(actual vs estimate EPS + surprise for the last ~4 quarters). Complements the
+Nasdaq calendar in `options.earnings`. Batch, ungated, daily; equity sleeve ∪
+enrolled. Dry-run unless `PIPELINE_EARNINGS_RESULTS_URL` is set. Provisioning
+recipe: `cboe_earnings_results_v2` / `cboe_earnings_results_sink` /
+`cboe_earnings_results_pipeline` (`schemas/earnings_results.json`), or run
+`.github/workflows/provision-earnings-intel.yml`.
+
+### SEC companyfacts / earnings quality (`company-facts-daily`)
+
+SEC XBRL `companyfacts` for the equity sleeve → `options.company_facts`:
+framed revenue, net income, operating cash flow, diluted EPS, **share-based
+compensation**, long-term debt, cash, and lease liabilities. Research uses
+these for “what they might be hiding” flags (SBC vs GAAP NI, net debt, leases
+vs headline debt) and the AI earnings summary on
+`GET /api/research/{ticker}/earnings`. Batch, ungated, daily; SEC fair-access
+concurrency defaults to 2. Dry-run unless `PIPELINE_COMPANY_FACTS_URL` is set.
+Provisioning: `cboe_company_facts_v2` / `cboe_company_facts_sink` /
+`cboe_company_facts_pipeline` (`schemas/company_facts.json`), same workflow as
+earnings-results above.
+
 ### Econ / FOMC calendar (`fred-econ-daily`)
 
 Fetches the scheduled **high-impact macro releases** (CPI, PPI, Employment

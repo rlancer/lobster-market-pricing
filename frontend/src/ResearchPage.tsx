@@ -11,6 +11,7 @@ import {
   type ChatTickerLink,
   type ChainContract,
   type OhlcBar,
+  type TickerEarningsIntel,
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
@@ -27,6 +28,8 @@ export default function ResearchPage() {
   const [commentary, setCommentary] = useState<string | null>(null);
   const [commentaryLoading, setCommentaryLoading] = useState(false);
   const [commentaryActive, setCommentaryActive] = useState(false);
+  const [earningsIntel, setEarningsIntel] = useState<TickerEarningsIntel | null>(null);
+  const [earningsLoading, setEarningsLoading] = useState(false);
   const [related, setRelated] = useState<ChatTickerLink[]>([]);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
   const [ohlcLoading, setOhlcLoading] = useState(false);
@@ -54,6 +57,8 @@ export default function ResearchPage() {
     setCommentary(null);
     setCommentaryLoading(false);
     setCommentaryActive(false);
+    setEarningsIntel(null);
+    setEarningsLoading(false);
     setRelated([]);
     setOhlc([]);
     setOhlcLoading(false);
@@ -160,6 +165,29 @@ export default function ResearchPage() {
     };
   }, [tickerParam, briefReady]);
 
+  // Earnings intel (results + SEC facts + AI summary) — equities only, idle.
+  useEffect(() => {
+    if (!tickerParam || !briefReady || !research || research.etf) return;
+    let active = true;
+    setEarningsLoading(true);
+    const cancel = whenIdle(() => {
+      api.researchEarnings(tickerParam)
+        .then((intel) => {
+          if (active) setEarningsIntel(intel);
+        })
+        .catch(() => {
+          if (active) setEarningsIntel(null);
+        })
+        .finally(() => {
+          if (active) setEarningsLoading(false);
+        });
+    });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [tickerParam, briefReady, research?.etf, research?.computed_at]);
+
   // 2) OHLC — start with the brief (chart sits above the fold; parts=ohlc is
   //    a single date-bounded lake query, not the full enrichment suite).
   useEffect(() => {
@@ -263,6 +291,8 @@ export default function ResearchPage() {
           relatedChats={related}
           commentary={commentary}
           commentaryLoading={commentaryLoading}
+          earningsIntel={earningsIntel}
+          earningsLoading={earningsLoading}
           ohlc={ohlc}
           ohlcLoading={ohlcLoading}
           contracts={contracts}

@@ -29,6 +29,8 @@ name: Deploy loader (Worker)
 #   npx wrangler secret put PIPELINE_ERRORS_URL        # empty to disable
 #   npx wrangler secret put PIPELINE_AUTH_TOKEN        # required (streams are authenticated)
 #   npx wrangler secret put PIPELINE_SEC_FILINGS_URL   # stream cboe_sec_filings_v2 (sec-filings-daily)
+#   npx wrangler secret put PIPELINE_EARNINGS_RESULTS_URL # stream cboe_earnings_results_v2
+#   npx wrangler secret put PIPELINE_COMPANY_FACTS_URL # stream cboe_company_facts_v2
 
 # Cancel superseded runs on the same ref so we don't pile up deploys.
 concurrency:

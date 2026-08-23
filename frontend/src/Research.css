@@ -477,6 +477,25 @@
   padding-top: var(--spacing-3);
 }
 
+.research-earnings-intel {
+  width: 100%;
+}
+
+.research-earnings-subhead {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+
+.research-earnings-summary-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.research-quality-list {
+  width: 100%;
+}
+
 .research-meta {
   width: 100%;
 }

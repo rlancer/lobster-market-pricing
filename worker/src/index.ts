@@ -120,6 +120,12 @@ import {
 } from "./research";
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
+import {
+  getOrComputeEarningsIntel,
+  type CompanyFactBrief,
+  type EarningsResultBrief,
+} from "./earnings-intel";
+import { fetchLiveCompanyFacts, fetchLiveEarningsResults } from "./earnings-live";
 import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
 import {
@@ -2624,6 +2630,83 @@ async function loadResearchEarnings(env: Env, ticker: string): Promise<EarningsB
   }
 }
 
+async function loadResearchEarningsResults(
+  env: Env,
+  ticker: string,
+): Promise<EarningsResultBrief[]> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT quarter_end, period_label, eps_actual, eps_estimate, eps_difference, surprise_pct, currency FROM (` +
+        `  SELECT quarter_end, period_label, eps_actual, eps_estimate, eps_difference, surprise_pct, currency,` +
+        `    ROW_NUMBER() OVER (PARTITION BY symbol, quarter_end ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.earnings_results WHERE symbol = ${lit(ticker)}` +
+        `) WHERE rn = 1 ORDER BY quarter_end DESC LIMIT 8`,
+      "earn_res_" + ticker,
+      QUERY_TTL_MS,
+    );
+    const mapped = rows.map((r) => ({
+      quarter_end: String(r.quarter_end),
+      period_label: strOrNull(r.period_label),
+      eps_actual: numOrNull(r.eps_actual),
+      eps_estimate: numOrNull(r.eps_estimate),
+      eps_difference: numOrNull(r.eps_difference),
+      surprise_pct: numOrNull(r.surprise_pct),
+      currency: strOrNull(r.currency),
+    }));
+    if (mapped.length) return mapped;
+  } catch {
+    /* lake table missing or query failed — fall through to live */
+  }
+  return fetchLiveEarningsResults(ticker);
+}
+
+async function loadResearchCompanyFacts(
+  env: Env,
+  ticker: string,
+): Promise<CompanyFactBrief[]> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT period_end, period_type, fiscal_year, form, filed_at, revenue, net_income,` +
+        `  operating_cash_flow, diluted_eps, share_based_compensation, long_term_debt,` +
+        `  long_term_debt_current, cash, operating_lease_liability, finance_lease_liability,` +
+        `  interest_expense FROM (` +
+        `  SELECT period_end, period_type, fiscal_year, form, filed_at, revenue, net_income,` +
+        `    operating_cash_flow, diluted_eps, share_based_compensation, long_term_debt,` +
+        `    long_term_debt_current, cash, operating_lease_liability, finance_lease_liability,` +
+        `    interest_expense,` +
+        `    ROW_NUMBER() OVER (PARTITION BY ticker, period_end, period_type ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.company_facts WHERE ticker = ${lit(ticker)}` +
+        `) WHERE rn = 1 ORDER BY period_end DESC LIMIT 12`,
+      "co_facts_" + ticker,
+      QUERY_TTL_MS,
+    );
+    const mapped = rows.map((r) => ({
+      period_end: String(r.period_end),
+      period_type: String(r.period_type || "UNK"),
+      fiscal_year: numOrNull(r.fiscal_year),
+      form: strOrNull(r.form),
+      filed_at: strOrNull(r.filed_at),
+      revenue: numOrNull(r.revenue),
+      net_income: numOrNull(r.net_income),
+      operating_cash_flow: numOrNull(r.operating_cash_flow),
+      diluted_eps: numOrNull(r.diluted_eps),
+      share_based_compensation: numOrNull(r.share_based_compensation),
+      long_term_debt: numOrNull(r.long_term_debt),
+      long_term_debt_current: numOrNull(r.long_term_debt_current),
+      cash: numOrNull(r.cash),
+      operating_lease_liability: numOrNull(r.operating_lease_liability),
+      finance_lease_liability: numOrNull(r.finance_lease_liability),
+      interest_expense: numOrNull(r.interest_expense),
+    }));
+    if (mapped.length) return mapped;
+  } catch {
+    /* lake table missing or query failed — fall through to live */
+  }
+  return fetchLiveCompanyFacts(ticker);
+}
+
 export interface SecFilingBrief {
   form_type: string;
   accession: string;
@@ -3050,6 +3133,33 @@ async function handleResearchCommentaryGet(env: Env, req: Request, tickerRaw: st
       },
     }, { force });
     return json(env, commentary, 200, "private");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return json(env, { error: message }, 502, "private");
+  }
+}
+
+async function handleResearchEarningsGet(env: Env, req: Request, tickerRaw: string): Promise<Response> {
+  const ticker = parseTickerParam(tickerRaw);
+  if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+  try {
+    const origin = new URL(req.url).origin;
+    const intel = await getOrComputeEarningsIntel(env, ticker, {
+      ...researchDepsFor(env),
+      loadEarningsResults: (t) => loadResearchEarningsResults(env, t),
+      loadCompanyFacts: (t) => loadResearchCompanyFacts(env, t),
+      loadFilings: (t) => loadResearchFilings(env, t, 12),
+      createModel: () => {
+        if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
+        return createCopilotModel(
+          { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+          origin,
+        );
+      },
+    }, { force });
+    return json(env, intel, 200, "private");
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return json(env, { error: message }, 502, "private");
@@ -3710,6 +3820,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     }
     if (sub === "commentary" && req.method === "GET") {
       return handleResearchCommentaryGet(env, req, tickerPart);
+    }
+    if (sub === "earnings" && req.method === "GET") {
+      return handleResearchEarningsGet(env, req, tickerPart);
     }
     if (sub === "filings" && req.method === "GET") {
       return handleResearchFilingsGet(env, req, tickerPart);

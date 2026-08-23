@@ -15,7 +15,7 @@ import {
 import { Button } from '@astryxdesign/core/Button';
 import { AssistantMark } from './Sunglasses';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
-import type { ChatTickerLink, OhlcBar, ChainContract, TickerResearch } from './api';
+import type { ChatTickerLink, OhlcBar, ChainContract, TickerEarningsIntel, TickerResearch } from './api';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
@@ -62,11 +62,163 @@ function Stat({ label, value }: { label: string; value: string }) {
 /** How many SEC filings / prospectuses show before "Show N more". */
 const FILINGS_PREVIEW = 3;
 
+function EarningsIntelSection({
+  intel,
+  loading,
+}: {
+  intel: TickerEarningsIntel | null;
+  loading: boolean;
+}) {
+  if (loading && !intel) {
+    return (
+      <VStack gap={2} className="research-section research-earnings-intel">
+        <Heading level={3}>Earnings & quality</Heading>
+        <HStack gap={2} vAlign="center">
+          <Spinner size="sm" />
+          <Text type="supporting">Loading earnings intel…</Text>
+        </HStack>
+      </VStack>
+    );
+  }
+  if (!intel) return null;
+
+  const { results, facts, quality, summary, calendar } = intel;
+  const hasBody =
+    results.length > 0 ||
+    facts.length > 0 ||
+    quality.flags.length > 0 ||
+    Boolean(summary?.trim()) ||
+    calendar.length > 0;
+  if (!hasBody) return null;
+
+  const watchFlags = quality.flags.filter((f) => f.severity !== 'info');
+  const infoFlags = quality.flags.filter((f) => f.severity === 'info');
+
+  return (
+    <VStack gap={3} className="research-section research-earnings-intel">
+      <VStack gap={1}>
+        <Heading level={3}>Earnings & quality</Heading>
+        <Text type="supporting">
+          Reported EPS vs estimates, SEC XBRL facts, and what non-GAAP often hides
+          {quality.period_end
+            ? ` · facts as of ${quality.period_end}${quality.period_type ? ` (${quality.period_type})` : ''}`
+            : ''}
+          .
+        </Text>
+      </VStack>
+
+      {summary?.trim() ? (
+        <VStack gap={1} className="research-earnings-summary">
+          <Text type="supporting" className="research-earnings-summary-label">
+            AI summary{intel.summary_source ? ` · ${intel.summary_source}` : ''}
+          </Text>
+          <div className="ai-text"><Markdown>{summary}</Markdown></div>
+          {intel.report?.edgar_url ? (
+            <Text type="supporting">
+              Grounded in{' '}
+              <a
+                href={intel.report.edgar_url}
+                target="_blank"
+                rel="noreferrer"
+                className="research-chip-link"
+              >
+                {intel.report.form_type} · {intel.report.filed_at}
+              </a>
+            </Text>
+          ) : null}
+        </VStack>
+      ) : null}
+
+      {(watchFlags.length > 0 || infoFlags.length > 0) && (
+        <VStack gap={2} className="research-quality-flags">
+          <Text className="research-earnings-subhead">What they might be hiding</Text>
+          <List density="compact" hasDividers className="research-quality-list">
+            {[...watchFlags, ...infoFlags].map((flag) => (
+              <ListItem
+                key={flag.id}
+                label={`${flag.severity === 'alert' ? 'Alert' : flag.severity === 'watch' ? 'Watch' : 'Note'} · ${flag.title}`}
+                description={flag.detail}
+              />
+            ))}
+          </List>
+        </VStack>
+      )}
+
+      {results.length > 0 ? (
+        <VStack gap={2}>
+          <Text className="research-earnings-subhead">Reported EPS</Text>
+          <div className="research-holdings-wrap">
+            <table className="research-holdings-table">
+              <thead>
+                <tr>
+                  <th scope="col">Quarter</th>
+                  <th scope="col" className="right">Actual</th>
+                  <th scope="col" className="right">Est</th>
+                  <th scope="col" className="right">Surprise</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.slice(0, 4).map((row) => (
+                  <tr key={row.quarter_end}>
+                    <td>{row.quarter_end}</td>
+                    <td className="right">{fmtNum(row.eps_actual, 2)}</td>
+                    <td className="right">{fmtNum(row.eps_estimate, 2)}</td>
+                    <td className={`right ${changeClass(row.surprise_pct)}`}>
+                      {row.surprise_pct != null ? fmtFracPct(row.surprise_pct, 1) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </VStack>
+      ) : null}
+
+      {facts.length > 0 ? (
+        <VStack gap={2}>
+          <Text className="research-earnings-subhead">SEC period facts</Text>
+          <div className="research-holdings-wrap">
+            <table className="research-holdings-table">
+              <thead>
+                <tr>
+                  <th scope="col">Period</th>
+                  <th scope="col" className="right">Revenue</th>
+                  <th scope="col" className="right">Net income</th>
+                  <th scope="col" className="right">SBC</th>
+                  <th scope="col" className="right">LT debt</th>
+                  <th scope="col" className="right">Cash</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facts.slice(0, 4).map((row) => (
+                  <tr key={`${row.period_end}-${row.period_type}`}>
+                    <td>
+                      {row.period_end}
+                      {row.period_type ? ` · ${row.period_type}` : ''}
+                    </td>
+                    <td className="right">{fmtNum(row.revenue)}</td>
+                    <td className="right">{fmtNum(row.net_income)}</td>
+                    <td className="right">{fmtNum(row.share_based_compensation)}</td>
+                    <td className="right">{fmtNum(row.long_term_debt)}</td>
+                    <td className="right">{fmtNum(row.cash)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </VStack>
+      ) : null}
+    </VStack>
+  );
+}
+
 export function ResearchBriefView({
   research,
   relatedChats,
   commentary,
   commentaryLoading = false,
+  earningsIntel = null,
+  earningsLoading = false,
   ohlc = [],
   ohlcLoading = false,
   contracts = [],
@@ -84,6 +236,8 @@ export function ResearchBriefView({
   relatedChats?: ChatTickerLink[];
   commentary?: string | null;
   commentaryLoading?: boolean;
+  earningsIntel?: TickerEarningsIntel | null;
+  earningsLoading?: boolean;
   ohlc?: OhlcBar[];
   ohlcLoading?: boolean;
   contracts?: ChainContract[];
@@ -282,6 +436,10 @@ export function ResearchBriefView({
                 <TickerChart bars={ohlc} spot={spot} ticker={identity.ticker} />
               )}
             </VStack>
+
+            {!etf ? (
+              <EarningsIntelSection intel={earningsIntel} loading={earningsLoading} />
+            ) : null}
           </VStack>
 
           <aside className="research-rail" aria-label="The Lobster's Take and headlines">

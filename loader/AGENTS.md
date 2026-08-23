@@ -13,7 +13,10 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   daily), `fred-econ-daily` (batch, daily), `etf-daily` (batch, daily;
   Yahoo fund profile + top holdings → `options.etf_profiles` /
   `options.etf_holdings`), `fundamentals-daily` (batch, daily; Yahoo
-  equity quoteSummary → `options.fundamentals`), `futures-ohlc-daily` (batch,
+  equity quoteSummary → `options.fundamentals`), `earnings-results-daily`
+  (batch, daily; Yahoo earningsHistory → `options.earnings_results`),
+  `company-facts-daily` (batch, daily; SEC companyfacts XBRL →
+  `options.company_facts` for SBC / debt / NI / OCF quality), `futures-ohlc-daily` (batch,
   daily; Yahoo continuous futures `=F` from `symbols/futures.json` →
   `options.ohlc` / `options.realized_vol`), `cfe-futures-daily` (batch,
   daily; CBOE CFE settlement CSV + delayed monthals →
@@ -204,6 +207,8 @@ Securities:  <PIPELINE_SECURITIES_URL secret — stream cboe_securities_v2>
 SymbolHistory: <PIPELINE_SYMBOL_HISTORY_URL secret — stream cboe_symbol_history_v2>
 UnderlyingSnapshots: <PIPELINE_UNDERLYING_SNAPSHOTS_URL secret — stream cboe_underlying_snapshots_v2>
 Earnings:          <PIPELINE_EARNINGS_URL secret — stream cboe_earnings_v2>  # provisioned 2026-08-09
+EarningsResults:   <PIPELINE_EARNINGS_RESULTS_URL secret — stream cboe_earnings_results_v2>
+CompanyFacts:      <PIPELINE_COMPANY_FACTS_URL secret — stream cboe_company_facts_v2>
 EtfProfiles:       <PIPELINE_ETF_PROFILES_URL secret — stream cboe_etf_profiles_v2>
 EtfHoldings:       <PIPELINE_ETF_HOLDINGS_URL secret — stream cboe_etf_holdings_v2>
 Fundamentals:      <PIPELINE_FUNDAMENTALS_URL secret — stream cboe_fundamentals_v2>
@@ -224,6 +229,7 @@ Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
          cboe_etf_profiles_v2, cboe_etf_holdings_v2, cboe_fundamentals_v2,
+         cboe_earnings_results_v2, cboe_company_facts_v2,
          cboe_futures_settlements_v2, cboe_futures_quotes_v2,
          cboe_short_interest_v2, cboe_reg_sho_daily_v2, cboe_sec_filings_v2,
          cboe_instruments_v2, cboe_yields_v2, cboe_kalshi_markets_v2
@@ -231,6 +237,7 @@ Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
          cboe_etf_profiles_sink, cboe_etf_holdings_sink, cboe_fundamentals_sink,
+         cboe_earnings_results_sink, cboe_company_facts_sink,
          cboe_futures_settlements_sink, cboe_futures_quotes_sink,
          cboe_short_interest_sink, cboe_reg_sho_daily_sink, cboe_sec_filings_sink,
          cboe_instruments_sink, cboe_yields_sink, cboe_kalshi_markets_sink
@@ -238,6 +245,7 @@ Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots,
         options.etf_profiles, options.etf_holdings, options.fundamentals,
+        options.earnings_results, options.company_facts,
         options.futures_settlements, options.futures_quotes,
         options.short_interest, options.reg_sho_daily, options.sec_filings,
         options.instruments, options.yields, options.kalshi_markets

@@ -996,6 +996,71 @@ export interface TickerCommentary {
   cache_hit: boolean;
 }
 
+export interface EarningsResultItem {
+  quarter_end: string;
+  period_label: string | null;
+  eps_actual: number | null;
+  eps_estimate: number | null;
+  eps_difference: number | null;
+  surprise_pct: number | null;
+  currency: string | null;
+}
+
+export interface CompanyFactItem {
+  period_end: string;
+  period_type: string;
+  fiscal_year: number | null;
+  form: string | null;
+  filed_at: string | null;
+  revenue: number | null;
+  net_income: number | null;
+  operating_cash_flow: number | null;
+  diluted_eps: number | null;
+  share_based_compensation: number | null;
+  long_term_debt: number | null;
+  long_term_debt_current: number | null;
+  cash: number | null;
+  operating_lease_liability: number | null;
+  finance_lease_liability: number | null;
+  interest_expense: number | null;
+}
+
+export interface EarningsQualityFlag {
+  id: string;
+  severity: 'info' | 'watch' | 'alert';
+  title: string;
+  detail: string;
+}
+
+export interface EarningsQuality {
+  period_end: string | null;
+  period_type: string | null;
+  sbc_pct_of_net_income: number | null;
+  sbc_adjusted_net_income: number | null;
+  net_debt: number | null;
+  lease_liabilities: number | null;
+  flags: EarningsQualityFlag[];
+}
+
+export interface TickerEarningsIntel {
+  ticker: string;
+  security_id: string;
+  calendar: TickerResearch['earnings'];
+  results: EarningsResultItem[];
+  facts: CompanyFactItem[];
+  quality: EarningsQuality;
+  report: {
+    form_type: string;
+    filed_at: string;
+    edgar_url: string;
+    description: string | null;
+  } | null;
+  summary: string | null;
+  summary_source: 'llm' | 'notes' | 'insufficient' | null;
+  summary_computed_at: string | null;
+  cache_hit: boolean;
+}
+
 export interface ChatTickerLink {
   chat_id: string;
   security_id: string;
@@ -1283,6 +1348,12 @@ export const api = {
   researchCommentary: (ticker: string, opts?: { force?: boolean }) =>
     get<TickerCommentary>(
       `/api/research/${encodeURIComponent(ticker.toUpperCase())}/commentary${qs({
+        force: opts?.force ? 1 : undefined,
+      })}`,
+    ),
+  researchEarnings: (ticker: string, opts?: { force?: boolean }) =>
+    get<TickerEarningsIntel>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}/earnings${qs({
         force: opts?.force ? 1 : undefined,
       })}`,
     ),

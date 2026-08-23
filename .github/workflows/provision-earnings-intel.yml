@@ -1,0 +1,241 @@
+name: Provision earnings intel pipelines
+
+# One-shot: create earnings_results + company_facts streams/sinks/pipelines,
+# set Worker secrets, redeploy loader, probe-publish sample rows, wait for sink
+# roll, assert via /api/query + /api/research/{ticker}/earnings.
+#
+# NOTE: Cloudflare Pipelines may return Quota exceeded [code: 1017] when the
+# account is at stream capacity. Until quota is freed, the research earnings
+# API live-fetches Yahoo earningsHistory + SEC companyfacts and caches the
+# AI summary in D1 (same lazy path as news). Re-run this workflow after
+# freeing stream quota to land durable lake tables.
+#
+# Required GitHub secrets:
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, R2_DATA_CATALOG_TOKEN,
+#   PIPELINE_AUTH_TOKEN, LOADER_TOKEN
+# Optional: PIPELINES_ADMIN_TOKEN
+#
+# Trigger: workflow_dispatch, or push to cursor/run-provision-earnings-intel-26dc
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['cursor/run-provision-earnings-intel-26dc']
+
+concurrency:
+  group: provision-earnings-intel
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
+      LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+      BUCKET: cboe-options-data
+      LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+      WORKER_QUERY_URL: https://api.lobster.mp/api/query
+      WORKER_EARNINGS_URL: https://api.lobster.mp/api/research
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN LOADER_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Secrets present (values not printed)."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Provision earnings_results + company_facts
+        working-directory: loader
+        run: |
+          set -euo pipefail
+
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+
+          wrangler_pipelines() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler "$@"
+          }
+
+          try_list() {
+            wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+              && return 0
+            if [ "$PIPELINES_TOKEN" != "$R2_DATA_CATALOG_TOKEN" ]; then
+              echo "Deploy token cannot list pipelines — retrying with R2_DATA_CATALOG_TOKEN"
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+                && return 0
+            fi
+            echo "::error::No available token can manage Pipelines (need Pipelines Edit)."
+            cat /tmp/streams.err >&2 || true
+            return 1
+          }
+          try_list
+
+          provision_one() {
+            local STREAM="$1" SINK="$2" PIPELINE="$3" SCHEMA="$4" TABLE="$5" ENV_NAME="$6"
+            if wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json" 2>/dev/null; then
+              echo "Stream $STREAM already exists"
+            else
+              echo "Creating stream $STREAM"
+              wrangler_pipelines pipelines streams create "$STREAM" \
+                --schema-file "$SCHEMA" \
+                --http-enabled true \
+                --http-auth true
+              wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json"
+            fi
+            ENDPOINT=$(node -e "const s=require('/tmp/${STREAM}.json'); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)")
+            echo "${ENV_NAME}=$ENDPOINT" >> "$GITHUB_ENV"
+            echo "Captured $ENV_NAME (value not printed)."
+
+            if wrangler_pipelines pipelines sinks get "$SINK" --json >"/tmp/${SINK}.json" 2>/dev/null; then
+              echo "Sink $SINK already exists"
+            else
+              echo "Creating sink $SINK (creates options.${TABLE})"
+              wrangler_pipelines pipelines sinks create "$SINK" \
+                --type r2-data-catalog \
+                --bucket "$BUCKET" \
+                --namespace options \
+                --table "$TABLE" \
+                --catalog-token "$R2_DATA_CATALOG_TOKEN" \
+                --format parquet \
+                --roll-interval 300
+            fi
+
+            if wrangler_pipelines pipelines get "$PIPELINE" --json >"/tmp/${PIPELINE}.json" 2>/dev/null; then
+              echo "Pipeline $PIPELINE already exists"
+            else
+              echo "Creating pipeline $PIPELINE"
+              wrangler_pipelines pipelines create "$PIPELINE" \
+                --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
+            fi
+          }
+
+          provision_one \
+            cboe_earnings_results_v2 cboe_earnings_results_sink cboe_earnings_results_pipeline \
+            schemas/earnings_results.json earnings_results PIPELINE_EARNINGS_RESULTS_URL
+
+          provision_one \
+            cboe_company_facts_v2 cboe_company_facts_sink cboe_company_facts_pipeline \
+            schemas/company_facts.json company_facts PIPELINE_COMPANY_FACTS_URL
+
+      - name: Set Worker secrets
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          printf '%s' "$PIPELINE_EARNINGS_RESULTS_URL" | npx wrangler secret put PIPELINE_EARNINGS_RESULTS_URL
+          printf '%s' "$PIPELINE_COMPANY_FACTS_URL" | npx wrangler secret put PIPELINE_COMPANY_FACTS_URL
+          echo "Worker secrets updated."
+
+      - name: Redeploy loader
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          npx wrangler deploy
+          echo "cboe-to-r2 redeployed."
+
+      - name: Probe-publish sample rows
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          node tools/earnings_results_probe_publish.mjs AAPL MSFT
+          node tools/company_facts_probe_publish.mjs AAPL MSFT
+
+      - name: Force daily jobs
+        run: |
+          set -euo pipefail
+          sleep 5
+          for job in earnings-results-daily company-facts-daily; do
+            resp=$(curl -sS -X POST \
+              -H "Authorization: Bearer $LOADER_TOKEN" \
+              -w '\n__HTTP_%{http_code}' \
+              "$LOADER_URL/jobs/${job}/trigger?force=1")
+            body="${resp%__HTTP_*}"
+            code="${resp##*__HTTP_}"
+            echo "$job → HTTP $code"
+            echo "$body" | head -c 400; echo
+            if [ "$code" = "409" ]; then
+              echo "Loader busy (409) — direct publish already landed rows; continuing."
+            fi
+          done
+
+      - name: Wait for sink roll (~5 min)
+        run: |
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s."
+          sleep 360
+
+      - name: Assert lake + API
+        run: |
+          set -euo pipefail
+          assert_sql() {
+            local sql="$1" expect="$2" label="$3"
+            body=$(jq -nc --arg sql "$sql" '{sql:$sql, limit:20}')
+            resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+              -H 'content-type: application/json' \
+              -d "$body" \
+              -w '\n__HTTP_%{http_code}')
+            http="${resp##*__HTTP_}"
+            json="${resp%__HTTP_*}"
+            echo "== $label =="
+            echo "$json" | head -c 1500; echo
+            if [ "$http" != "200" ]; then
+              echo "::error::$label HTTP $http"
+              exit 1
+            fi
+            if echo "$json" | grep -qi 'iceberg table not found'; then
+              echo "::error::$label table missing after sink roll"
+              exit 1
+            fi
+            if ! echo "$json" | grep -qi "$expect"; then
+              echo "::error::$label missing expected marker '$expect'"
+              exit 1
+            fi
+          }
+
+          assert_sql \
+            "SELECT symbol, quarter_end, eps_actual FROM options.earnings_results WHERE symbol = 'AAPL' ORDER BY quarter_end DESC LIMIT 5" \
+            "AAPL" \
+            "AAPL earnings_results"
+
+          assert_sql \
+            "SELECT ticker, period_end, share_based_compensation FROM options.company_facts WHERE ticker = 'AAPL' ORDER BY period_end DESC LIMIT 5" \
+            "AAPL" \
+            "AAPL company_facts"
+
+          resp=$(curl -sS "$WORKER_EARNINGS_URL/AAPL/earnings")
+          echo "== API AAPL earnings =="
+          echo "$resp" | head -c 1200; echo
+          if ! echo "$resp" | grep -qi 'quality'; then
+            echo "::error::/api/research/AAPL/earnings missing quality block"
+            exit 1
+          fi
+
+          echo "Earnings intel pipelines verified."
