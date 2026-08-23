@@ -1,0 +1,20 @@
+.notebook-page {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: var(--spacing-4);
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+}
+
+.notebook-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 36rem;
+  border: var(--spacing-0-5) solid var(--color-border-emphasized);
+  border-radius: var(--radius-container);
+  background: var(--color-background-surface);
+}

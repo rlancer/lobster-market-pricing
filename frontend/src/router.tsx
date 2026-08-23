@@ -21,6 +21,7 @@ import ChatsPage from './Chats';
 import TradesPage from './Trades';
 import CopilotExplorePage from './CopilotExplore';
 import AdminPage from './Admin';
+import NotebookPage from './NotebookPage';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -71,6 +72,12 @@ const dataRoute = createRoute({
     item: typeof search.item === 'string' ? search.item : undefined,
   }),
   component: DataPage,
+});
+
+const notebookRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notebook',
+  component: NotebookPage,
 });
 
 // Former SQL Lab / screener / research URLs keep working.
@@ -261,6 +268,7 @@ const routeTree = rootRoute.addChildren([
   chatRoute,
   profileRoute,
   dataRoute,
+  notebookRoute,
   labRoute,
   marketRoute,
   researchRoute,

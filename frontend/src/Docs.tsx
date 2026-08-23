@@ -185,6 +185,11 @@ const SURFACES = [
     body: 'Catalog of everything that can feed an answer: Copilot tools, upstream APIs (CBOE, FRED, Fed, Tavily, Yahoo OHLC + ETF profiles, Nasdaq, OpenFIGI), Iceberg lake tables, and a read-only SQL editor.',
   },
   {
+    route: '/notebook',
+    title: 'Notebook',
+    body: 'Prototype marimo WASM notebook (Pyodide in the browser via CDN islands). Charts live /api/sectors and runs a small /api/query against the lake — no Python on the Worker. Source in notebooks/; regenerate with notebooks/export-islands.sh.',
+  },
+  {
     route: '/monitor',
     title: 'Monitor',
     body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The header chip jumps here.',

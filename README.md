@@ -32,12 +32,16 @@ tier) so repeat/cached responses are instant.
 ```
 lobster-market-pricing/
 ├── mise.toml              # tool versions + tasks (Node, wrangler)
+├── notebooks/             # marimo WASM prototypes (islands → frontend/public)
+│   ├── lake_sectors.py    # sectors chart + small lake SQL via /api/*
+│   └── export-islands.sh  # regenerate CDN-backed HTML
 ├── worker/                # Cloudflare Worker backend (R2 SQL → JSON)
 │   ├── src/index.ts        # all endpoints, R2 SQL client, in-isolate cache
 │   ├── wrangler.jsonc       # Worker config (R2_SQL_ACCOUNT_ID, R2_SQL_BUCKET vars)
 │   └── .dev.vars            # local-dev R2_SQL_TOKEN (gitignored)
 ├── frontend/              # Vite + React + TS UI
 │   ├── src/{App.tsx, api.ts, App.css, DataPage.tsx, AiChat.tsx, …}
+│   ├── public/notebooks/   # exported marimo islands HTML (served by Pages)
 │   ├── .env                # VITE_API_BASE → deployed Worker URL
 │   └── vite.config.ts
 └── loader/                # CBOE → Pipelines → R2 Data Catalog loader (Worker + Container)

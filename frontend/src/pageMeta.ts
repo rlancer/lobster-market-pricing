@@ -176,6 +176,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return dataMeta('/data', path === '/market' ? new URLSearchParams() : params);
   }
 
+  if (path === '/notebook') {
+    return {
+      title: pageTitle('Notebook'),
+      description:
+        'Marimo WASM prototype — Pyodide in the browser charts live lake sectors and a small SQL query via the screener Worker.',
+      path: '/notebook',
+    };
+  }
+
   if (path === '/monitor') {
     return {
       title: pageTitle('Dataset monitor'),

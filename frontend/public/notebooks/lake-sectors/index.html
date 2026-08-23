@@ -1,0 +1,125 @@
+<!doctype html>
+                <html lang="en">
+                    <head>
+                      <meta charset="UTF-8" />
+                      <title> Lake sectors · marimo WASM </title>
+                        <script type="module" src="https://cdn.jsdelivr.net/npm/@marimo-team/islands@0.24.0/dist/main.js"></script>
+<link
+    href="https://cdn.jsdelivr.net/npm/@marimo-team/islands@0.24.0/dist/style.css"
+    rel="stylesheet"
+    title="marimo-islands"
+    crossorigin="anonymous"
+/>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+/>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&amp;family=Lora&amp;family=PT+Sans:wght@400;700&amp;display=swap" rel="stylesheet" />
+<link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css"
+    integrity="sha384-wcIxkf4k558AjM3Yz3BBFQUbk/zgIYC2R0QpeeYb+TwlBVMrlgLqwRjRtGZiK7ww"
+    crossorigin="anonymous"
+/>
+<marimo-filename hidden></marimo-filename>
+                    </head>
+                    <body>
+                      <div style="margin: auto; max-width: 1110px;">
+                  <marimo-island
+        data-app-id="main"
+        data-cell-id="SFPL"
+        data-reactive="false"
+    >
+        <marimo-cell-output>
+
+<div class="marimo">
+  <div class="flex flex-col flex-1 items-center justify-center">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class="size-20 animate-spin text-primary"
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+    </svg>
+    <div>Initializing...</div>
+  </div>
+</div>
+
+        </marimo-cell-output>
+        <marimo-cell-code hidden></marimo-cell-code>
+    </marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="Hbol"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='c76d4872-ac61-1687-e5f5-b628c20a377b' random-id='c76d4872-ac61-1687-e5f5-b628c20a377b'><marimo-code-editor data-initial-value='&quot;import json&#92;n&#92;nimport altair as alt&#92;nimport marimo as mo&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="MJUe"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='474403f3-3918-4c74-3f49-06236986bf0d' random-id='474403f3-3918-4c74-3f49-06236986bf0d'><marimo-code-editor data-initial-value='&quot;mo.md(&#92;n    r&#92;&quot;&#92;&quot;&#92;&quot;&#92;n# Lake sectors (WASM)&#92;n&#92;nRuns entirely in your browser via **marimo + Pyodide**. It fetches live JSON from&#92;nthe screener Worker (`/api/sectors` + a small `/api/query`) and charts it with Altair —&#92;nno Python backend for the notebook itself.&#92;n&#92;&quot;&#92;&quot;&#92;&quot;&#92;n)&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="vblA"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='88ddb0da-de2d-fe83-b5a5-a95f5d6d66ba' random-id='88ddb0da-de2d-fe83-b5a5-a95f5d6d66ba'><marimo-code-editor data-initial-value='&quot;def resolve_api_base() -&#92;u003e str:&#92;n    &#92;&quot;&#92;&quot;&#92;&quot;Match how the Vite app picks prod vs dev Worker URLs.&#92;&quot;&#92;&quot;&#92;&quot;&#92;n    try:&#92;n        from js import window  # type: ignore[attr-defined]&#92;n&#92;n        host = str(window.location.hostname).lower()&#92;n    except Exception:&#92;n        return &#92;&quot;https://api-dev.lobster.mp&#92;&quot;&#92;n&#92;n    if host in (&#92;&quot;localhost&#92;&quot;, &#92;&quot;127.0.0.1&#92;&quot;):&#92;n        # Vite proxies /api → local Worker when serving the SPA; the notebook&#92;n        # asset path is same-origin so relative /api works too.&#92;n        return &#92;&quot;&#92;&quot;&#92;n    if (&#92;n        host == &#92;&quot;robs-options-slop-dev.pages.dev&#92;&quot;&#92;n        or host.endswith(&#92;&quot;.robs-options-slop-dev.pages.dev&#92;&quot;)&#92;n        or host == &#92;&quot;dev.lobster.mp&#92;&quot;&#92;n        or host.startswith(&#92;&quot;api-dev.&#92;&quot;)&#92;n    ):&#92;n        return &#92;&quot;https://api-dev.lobster.mp&#92;&quot;&#92;n    return &#92;&quot;https://api.lobster.mp&#92;&quot;&#92;n&#92;nAPI_BASE = resolve_api_base()&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="bkHC"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='1e10a9e0-7fec-058f-c72e-c6451fc8d838' random-id='1e10a9e0-7fec-058f-c72e-c6451fc8d838'><marimo-code-editor data-initial-value='&quot;from pyodide.http import pyfetch&#92;n&#92;nasync def api_get(path: str):&#92;n    url = f&#92;&quot;{API_BASE}{path}&#92;&quot;&#92;n    r = await pyfetch(url)&#92;n    if r.status &#92;u003e= 400:&#92;n        text = await r.text()&#92;n        raise RuntimeError(f&#92;&quot;GET {path} → {r.status}: {text[:240]}&#92;&quot;)&#92;n    return await r.json()&#92;n&#92;nasync def api_query(sql: str, limit: int = 50):&#92;n    url = f&#92;&quot;{API_BASE}/api/query&#92;&quot;&#92;n    r = await pyfetch(&#92;n        url,&#92;n        method=&#92;&quot;POST&#92;&quot;,&#92;n        headers={&#92;&quot;Content-Type&#92;&quot;: &#92;&quot;application/json&#92;&quot;},&#92;n        body=json.dumps({&#92;&quot;sql&#92;&quot;: sql, &#92;&quot;limit&#92;&quot;: limit}),&#92;n    )&#92;n    if r.status &#92;u003e= 400:&#92;n        text = await r.text()&#92;n        raise RuntimeError(f&#92;&quot;POST /api/query → {r.status}: {text[:240]}&#92;&quot;)&#92;n    return await r.json()&#92;n&#92;nwith mo.status.spinner(title=&#92;&quot;Loading /api/sectors…&#92;&quot;):&#92;n    sectors = await api_get(&#92;&quot;/api/sectors&#92;&quot;)&#92;n&#92;nmo.md(f&#92;&quot;API base: `{API_BASE or &#x27;(same origin)&#x27;}` · **{len(sectors)}** sectors&#92;&quot;)&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="lEQa"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='d38df833-bb6b-1b99-4049-3c150e456cc5' random-id='d38df833-bb6b-1b99-4049-3c150e456cc5'><marimo-code-editor data-initial-value='&quot;sorted_sectors = sorted(sectors, key=lambda r: int(r[&#92;&quot;symbols&#92;&quot;]), reverse=True)&#92;nchart = (&#92;n    alt.Chart(sorted_sectors)&#92;n    .mark_bar()&#92;n    .encode(&#92;n        x=alt.X(&#92;&quot;symbols:Q&#92;&quot;, title=&#92;&quot;Underlyings (latest snapshot)&#92;&quot;),&#92;n        y=alt.Y(&#92;&quot;sector:N&#92;&quot;, sort=&#92;&quot;-x&#92;&quot;, title=None),&#92;n        tooltip=[&#92;&quot;sector&#92;&quot;, &#92;&quot;symbols&#92;&quot;, alt.Tooltip(&#92;&quot;avg_spot:Q&#92;&quot;, format=&#92;&quot;.2f&#92;&quot;)],&#92;n    )&#92;n    .properties(height=420, title=&#92;&quot;Symbols per sector&#92;&quot;)&#92;n)&#92;nchart&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="PKri"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='753e2c2a-dfe8-0bb4-38d2-409741add28f' random-id='753e2c2a-dfe8-0bb4-38d2-409741add28f'><marimo-code-editor data-initial-value='&quot;sql = &#92;&quot;&#92;&quot;&#92;&quot;&#92;nSELECT ticker AS symbol, name, sector, spot_price&#92;nFROM options.underlying_snapshots&#92;nWHERE sector = &#x27;Information Technology&#x27;&#92;nQUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY fetched_at DESC) = 1&#92;nORDER BY spot_price DESC NULLS LAST&#92;nLIMIT 15&#92;n&#92;&quot;&#92;&quot;&#92;&quot;&#92;nwith mo.status.spinner(title=&#92;&quot;Running lake SQL…&#92;&quot;):&#92;n    result = await api_query(sql, limit=15)&#92;n&#92;nrows = result.get(&#92;&quot;rows&#92;&quot;) or []&#92;nmo.md(&#92;&quot;### Top IT underlyings by spot (live `/api/query`)&#92;&quot;)&#92;nrows&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+<marimo-island
+    data-app-id="main"
+    data-cell-id="Xref"
+    data-reactive="true"
+>
+    <marimo-cell-output>
+    </marimo-cell-output>
+    <marimo-ui-element object-id='82b864e5-2e1c-5980-ba6e-c5e58f65cb6d' random-id='82b864e5-2e1c-5980-ba6e-c5e58f65cb6d'><marimo-code-editor data-initial-value='&quot;mo.accordion({&#92;&quot;SQL used&#92;&quot;: mo.md(f&#92;&quot;```sql&#92;&#92;n{sql.strip()}&#92;&#92;n```&#92;&quot;)})&quot;' data-label='null' data-language='&quot;python&quot;' data-placeholder='&quot;&quot;' data-disabled='false' data-show-copy-button='true' data-debounce='false'></marimo-code-editor></marimo-ui-element>
+</marimo-island>
+                </div>
+                    </body>
+                </html>

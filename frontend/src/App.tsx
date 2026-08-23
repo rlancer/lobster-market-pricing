@@ -17,7 +17,7 @@ import {
   useAppShellMobile,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, Database, LineChart, Lock, Newspaper, NotebookPen, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -49,6 +49,7 @@ const SECTIONS: Section[] = [
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
   { to: '/research', label: 'Research', heading: 'Research', icon: LineChart },
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
+  { to: '/notebook', label: 'Notebook', heading: 'Notebook', icon: NotebookPen },
 ];
 
 // Monitor stays in the header chip; Docs + Admin sit under a divider in the left nav.
