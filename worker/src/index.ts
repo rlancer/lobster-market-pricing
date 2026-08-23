@@ -128,7 +128,7 @@ import {
   isEnrollableEquityTicker,
 } from "./enroll-symbol";
 import { handlePortfolio } from "./paper-portfolio-http";
-import { autoTrackSuggestedTrades as applySuggestedTradesToPaper } from "./paper-portfolio";
+import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, resolvePaperOwnerUserId } from "./paper-portfolio";
 
 
 // ---------------------------------------------------------------------------
@@ -2490,6 +2490,39 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       chatId,
       trades,
       { userId, title },
+    );
+  }
+
+  /** Load paper book for get_paper_portfolio (same owner resolution as auto-track). */
+  protected override async loadPaperPortfolio(status: "open" | "closed" | "all") {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    let sessionUserId: string | null = null;
+    try {
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      const hint = this.sql<{ user_id: string }>`
+        SELECT user_id FROM paper_session_hint WHERE singleton = 1
+      `[0];
+      sessionUserId = hint?.user_id ?? null;
+    } catch {
+      sessionUserId = null;
+    }
+
+    const userId = await resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, sessionUserId);
+    if (!userId) return null;
+
+    return listPortfolio(
+      this.env.SCHEMA_DB,
+      (sql, key) => r2sql(this.env, sql, key),
+      userId,
+      { status, refreshMarks: true },
     );
   }
 }

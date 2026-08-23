@@ -7,7 +7,7 @@
  */
 
 import type { TradeLeg, SuggestedTrade, SuggestedTrades } from "./copilot-trades";
-import { normalizeSuggestedTrades } from "./copilot-trades";
+import { formatTradeLeg, normalizeSuggestedTrades } from "./copilot-trades";
 
 export const DEFAULT_STARTING_CASH_CENTS = 100_000_00; // $100,000.00
 export const OPTION_MULTIPLIER = 100;
@@ -815,4 +815,53 @@ export function parseTrackBody(body: unknown): TrackSuggestionInput | { error: s
     chat_id: typeof rec.chat_id === "string" ? rec.chat_id : null,
     qty: typeof rec.qty === "number" ? rec.qty : undefined,
   };
+}
+
+function money(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+}
+
+/**
+ * Resolve the signed-in paper-book owner for a chat.
+ * Prefers user_chats; falls back to a session hint (first-turn claim race).
+ */
+export async function resolvePaperOwnerUserId(
+  db: D1Database,
+  chatId: string,
+  sessionUserId?: string | null,
+): Promise<string | null> {
+  const owner = await db.prepare(
+    `SELECT user_id, deleted_at FROM user_chats WHERE chat_id = ?1`,
+  ).bind(chatId).first<{ user_id: string; deleted_at: number | null }>();
+  if (owner && owner.deleted_at == null) {
+    if (sessionUserId && owner.user_id !== sessionUserId) return null;
+    return owner.user_id;
+  }
+  return sessionUserId?.trim() || null;
+}
+
+/** Compact text book for Copilot tool output / prompt grounding. */
+export function formatPaperPortfolioSummary(view: PaperPortfolioView): string {
+  const { account, positions } = view;
+  const lines = [
+    "Paper portfolio",
+    `Cash ${money(account.cash)} · Equity ${money(account.equity)} · Open PnL ${money(account.open_pnl)} · Realized ${money(account.realized_pnl)}`,
+  ];
+  if (positions.length === 0) {
+    lines.push("No positions in this filter.");
+    return lines.join("\n");
+  }
+  lines.push(`Positions (${positions.length}):`);
+  for (const p of positions.slice(0, 40)) {
+    const pnl = p.status === "open" ? p.unrealized_pnl : p.realized_pnl;
+    const legs = p.legs.length
+      ? p.legs.map(formatTradeLeg).join(", ")
+      : "no legs";
+    lines.push(
+      `- ${p.ticker} · ${p.status} · ${p.structure} · qty ${p.qty} · entry ${money(p.entry_value)} · mark ${money(p.mark_value)} · PnL ${money(pnl)} · ${legs}`,
+    );
+  }
+  if (positions.length > 40) lines.push(`…and ${positions.length - 40} more`);
+  return lines.join("\n");
 }

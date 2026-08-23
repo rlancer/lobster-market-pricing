@@ -104,3 +104,47 @@ test("autoTrackSuggestedTrades skips empty and missing owner", async () => {
   });
   assert.equal(noOwner.skipped, "no_owner");
 });
+
+test("formatPaperPortfolioSummary lists cash and positions", async () => {
+  const { formatPaperPortfolioSummary } = await import("../src/paper-portfolio.ts");
+  const text = formatPaperPortfolioSummary({
+    account: {
+      cash: 99_000,
+      starting_cash: 100_000,
+      equity: 100_250,
+      open_pnl: 250,
+      realized_pnl: 0,
+      created_at: 1,
+      updated_at: 1,
+    },
+    positions: [{
+      id: "pos_1",
+      status: "open",
+      source: "suggestion",
+      chat_id: "chat-1",
+      suggestion_key: "sug_abc",
+      ticker: "AAPL",
+      bias: "bullish",
+      conviction: "high",
+      structure: "bull call debit spread",
+      rationale: "Momentum",
+      liquidity: null,
+      legs: sampleTrade.legs!,
+      qty: 1,
+      entry_value: 150,
+      entry_marked_at: 1,
+      mark_value: 400,
+      marked_at: 2,
+      unrealized_pnl: 250,
+      realized_pnl: null,
+      opened_at: 1,
+      opened_at_iso: "2026-01-01T00:00:00.000Z",
+      closed_at: null,
+      closed_at_iso: null,
+    }],
+  });
+  assert.match(text, /Paper portfolio/);
+  assert.match(text, /AAPL/);
+  assert.match(text, /Open PnL/);
+  assert.match(text, /bull call debit spread/);
+});

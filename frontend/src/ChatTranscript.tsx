@@ -23,6 +23,7 @@ const TOOL_LABELS: Record<string, string> = {
   research_ticker: 'Ticker research',
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
+  get_paper_portfolio: 'Paper portfolio',
 };
 
 /**

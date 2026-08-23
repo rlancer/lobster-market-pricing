@@ -35,6 +35,7 @@ import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilo
 import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskViewpointId } from "./copilot-desk";
 import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
@@ -249,6 +250,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected autoTrackSuggestedTrades(
     _trades: SuggestedTrades,
   ): Promise<import("./paper-portfolio").AutoTrackResult | null> {
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Load the chat owner's paper book for get_paper_portfolio.
+   * Default null = tool unavailable (tests / no lake binding).
+   */
+  protected loadPaperPortfolio(
+    _status: "open" | "closed" | "all",
+  ): Promise<import("./paper-portfolio").PaperPortfolioView | null> {
     return Promise.resolve(null);
   }
 
@@ -1012,6 +1023,21 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           }
 
           return this.output(true, summary, { error: null, trades });
+        }),
+      }),
+      get_paper_portfolio: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_paper_portfolio,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_paper_portfolio,
+        execute: async (args) => runTool("get_paper_portfolio", TOOL_LABELS.get_paper_portfolio, args, async () => {
+          status("Loading paper portfolio…");
+          const statusFilter = args.status ?? "open";
+          const view = await this.loadPaperPortfolio(statusFilter);
+          if (!view) {
+            return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
+              error: "no_owner",
+            });
+          }
+          return this.output(true, formatPaperPortfolioSummary(view), { error: null });
         }),
       }),
     };

@@ -161,12 +161,25 @@ export const TOOLS: CatalogItem[] = [
     title: 'suggest_trades',
     summary: 'Structured end-of-turn trade ideas',
     description:
-      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity, side buy|sell (long/short), optional qty, plus option right/strike/expiry. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence.',
+      'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity, side buy|sell (long/short), optional qty, plus option right/strike/expiry. The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute strikes must come from option_contracts quote evidence. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking.',
     tables: ['option_contracts'],
-    tools: ['research_ticker', 'run_query', 'publish_desk'],
+    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
+    ],
+  },
+  {
+    id: 'tool:get_paper_portfolio',
+    kind: 'tool',
+    title: 'get_paper_portfolio',
+    summary: 'Read the signed-in paper book + PnL',
+    description:
+      'Returns cash, equity, open/realized PnL, and positions from the chat owner’s paper portfolio (auto-tracked suggest_trades marks). Call when the user asks how their book or prior suggestions are doing. Requires a signed-in owner — anonymous/bot chats get a clear error.',
+    endpoint: 'GET /api/portfolio',
+    tools: ['suggest_trades'],
+    params: [
+      { name: 'status', type: 'open|closed|all?', note: 'Default open' },
     ],
   },
   {
