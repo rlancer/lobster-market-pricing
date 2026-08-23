@@ -1073,6 +1073,12 @@ export interface ChatTickerLink {
   composite_figi?: string | null;
 }
 
+/** Shared, titled chat for research "Related chats" (capability URL via share_id). */
+export interface ResearchChatLink extends ChatTickerLink {
+  share_id: string;
+  title: string;
+}
+
 export interface ChatTickerList {
   chat_id: string;
   items: ChatTickerLink[];
@@ -1081,7 +1087,7 @@ export interface ChatTickerList {
 export interface ResearchChatsResponse {
   ticker: string;
   security_id: string;
-  items: ChatTickerLink[];
+  items: ResearchChatLink[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

@@ -8,7 +8,7 @@ import {
 } from '@astryxdesign/core';
 import {
   api,
-  type ChatTickerLink,
+  type ResearchChatLink,
   type ChainContract,
   type OhlcBar,
   type TickerEarningsIntel,
@@ -30,7 +30,7 @@ export default function ResearchPage() {
   const [commentaryActive, setCommentaryActive] = useState(false);
   const [earningsIntel, setEarningsIntel] = useState<TickerEarningsIntel | null>(null);
   const [earningsLoading, setEarningsLoading] = useState(false);
-  const [related, setRelated] = useState<ChatTickerLink[]>([]);
+  const [related, setRelated] = useState<ResearchChatLink[]>([]);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
   const [ohlcLoading, setOhlcLoading] = useState(false);
   const [contracts, setContracts] = useState<ChainContract[]>([]);

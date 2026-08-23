@@ -15,7 +15,7 @@ import {
 import { Button } from '@astryxdesign/core/Button';
 import { AssistantMark } from './Sunglasses';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
-import type { ChatTickerLink, OhlcBar, ChainContract, TickerEarningsIntel, TickerResearch } from './api';
+import type { ResearchChatLink, OhlcBar, ChainContract, TickerEarningsIntel, TickerResearch } from './api';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
@@ -61,6 +61,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 /** How many SEC filings / prospectuses show before "Show N more". */
 const FILINGS_PREVIEW = 3;
+/** How many related chats show before "Show N more". */
+const RELATED_CHATS_PREVIEW = 3;
 
 function EarningsIntelSection({
   intel,
@@ -233,7 +235,7 @@ export function ResearchBriefView({
   onChainNearSpotChange,
 }: {
   research: TickerResearch;
-  relatedChats?: ChatTickerLink[];
+  relatedChats?: ResearchChatLink[];
   commentary?: string | null;
   commentaryLoading?: boolean;
   earningsIntel?: TickerEarningsIntel | null;
@@ -255,10 +257,12 @@ export function ResearchBriefView({
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
   const [filingsExpanded, setFilingsExpanded] = useState(false);
+  const [relatedExpanded, setRelatedExpanded] = useState(false);
   const { identity, price, technicals, fundamentals, shorting, earnings, news, filings = [], realized_vol, etf } = research;
 
   useEffect(() => {
     setFilingsExpanded(false);
+    setRelatedExpanded(false);
   }, [identity.ticker]);
 
   // Newest first; collapse to a short preview so the rail stays skimable.
@@ -269,6 +273,11 @@ export function ResearchBriefView({
     ? filingsSorted
     : filingsSorted.slice(0, FILINGS_PREVIEW);
   const filingsOverflow = filingsSorted.length > FILINGS_PREVIEW;
+  const relatedSorted = relatedChats ?? [];
+  const relatedVisible = relatedExpanded
+    ? relatedSorted
+    : relatedSorted.slice(0, RELATED_CHATS_PREVIEW);
+  const relatedOverflow = relatedSorted.length > RELATED_CHATS_PREVIEW;
   const etfHoldings = etf?.holdings ?? [];
   const resolvedCommentary = commentary?.trim() || research.commentary?.trim() || null;
   const insufficientCommentary =
@@ -555,14 +564,32 @@ export function ResearchBriefView({
                       ))}
                     </VStack>
                   )}
-                  {relatedChats && relatedChats.length > 0 && (
+                  {relatedSorted.length > 0 && (
                     <VStack gap={2}>
                       <Heading level={3}>Related chats</Heading>
-                      {relatedChats.map((chat) => (
-                        <Link key={chat.chat_id} to="/chat/$chatId" params={{ chatId: chat.chat_id }} className="research-chat-link">
-                          {chat.ticker} · {chat.mention_count} mention{chat.mention_count === 1 ? '' : 's'}
+                      {relatedVisible.map((chat) => (
+                        <Link
+                          key={chat.share_id}
+                          to="/share/$shareId"
+                          params={{ shareId: chat.share_id }}
+                          className="research-chat-link"
+                        >
+                          {chat.title}
                         </Link>
                       ))}
+                      {relatedOverflow && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-expanded={relatedExpanded}
+                          label={
+                            relatedExpanded
+                              ? 'Show less'
+                              : `Show ${relatedSorted.length - RELATED_CHATS_PREVIEW} more`
+                          }
+                          onClick={() => setRelatedExpanded((value) => !value)}
+                        />
+                      )}
                     </VStack>
                   )}
                 </VStack>

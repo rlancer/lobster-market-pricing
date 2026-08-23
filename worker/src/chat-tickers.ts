@@ -17,6 +17,12 @@ export interface ChatTickerLink {
   composite_figi?: string | null;
 }
 
+/** Shared, titled chat linked to a security — research "Related chats" rows. */
+export interface ResearchChatLink extends ChatTickerLink {
+  share_id: string;
+  title: string;
+}
+
 export async function linkChatTicker(
   db: D1Database,
   chatId: string,
@@ -102,27 +108,67 @@ export async function listChatTickers(db: D1Database, chatId: string): Promise<C
   }));
 }
 
+/**
+ * Chats linked to a security that are worth surfacing on research:
+ * shared (capability URL), non-expired, non-empty title, and publicly
+ * listable (timeline post or enabled bot share). Skips anonymous
+ * research_ticker / Lobster-take follow-up shells that only exist as
+ * chat_tickers rows.
+ */
 export async function listSecurityChats(
   db: D1Database,
   securityId: string,
   limit = 20,
-): Promise<ChatTickerLink[]> {
+  now = Date.now(),
+): Promise<ResearchChatLink[]> {
   const capped = Math.max(1, Math.min(100, limit));
   const rows = await db.prepare(
-    `SELECT chat_id, security_id, ticker, first_seen_at, last_seen_at, mention_count
-     FROM chat_tickers
-     WHERE security_id = ?1
-     ORDER BY last_seen_at DESC
-     LIMIT ?2`,
-  ).bind(securityId, capped).all<{
+    `WITH titled AS (
+       SELECT chat_id, share_id, title, created_at, bot_handle,
+              ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC) AS rn
+       FROM shared_chats
+       WHERE (expires_at IS NULL OR expires_at > ?2)
+         AND LENGTH(TRIM(COALESCE(title, ''))) > 0
+     )
+     SELECT ct.chat_id, ct.security_id, ct.ticker, ct.first_seen_at, ct.last_seen_at,
+            ct.mention_count, t.share_id, TRIM(t.title) AS title
+     FROM chat_tickers ct
+     JOIN titled t ON t.chat_id = ct.chat_id AND t.rn = 1
+     WHERE ct.security_id = ?1
+       AND (
+         EXISTS (SELECT 1 FROM timeline_posts p WHERE p.share_id = t.share_id)
+         OR (
+           t.bot_handle IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM bot_profiles b
+             WHERE b.handle = t.bot_handle AND b.enabled = 1
+           )
+         )
+       )
+     ORDER BY ct.last_seen_at DESC
+     LIMIT ?3`,
+  ).bind(securityId, now, capped).all<{
     chat_id: string;
     security_id: string;
     ticker: string;
     first_seen_at: number;
     last_seen_at: number;
     mention_count: number;
+    share_id: string;
+    title: string;
   }>();
-  return rows.results ?? [];
+  return (rows.results ?? [])
+    .filter((row) => row.share_id && row.title?.trim())
+    .map((row) => ({
+      chat_id: row.chat_id,
+      security_id: row.security_id,
+      ticker: row.ticker,
+      first_seen_at: row.first_seen_at,
+      last_seen_at: row.last_seen_at,
+      mention_count: row.mention_count,
+      share_id: row.share_id,
+      title: row.title.trim(),
+    }));
 }
 
 /**
