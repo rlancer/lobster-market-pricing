@@ -188,7 +188,7 @@ const SURFACES = [
   {
     route: '/monitor',
     title: 'Monitor',
-    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The header chip jumps here.',
+    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The status chip in the left nav jumps here.',
   },
   {
     route: '/admin',
@@ -480,7 +480,7 @@ export function DocsFrontend() {
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
         /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation plus a
-        header with dataset status. The left nav links here and (for admins) to the Admin hub
+        left-nav dataset status. The left nav links here and (for admins) to the Admin hub
         under a divider.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />
