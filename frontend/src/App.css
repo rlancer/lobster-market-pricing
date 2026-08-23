@@ -38,11 +38,11 @@ body {
 button, input, select, textarea { font: inherit; }
 button, select { cursor: pointer; }
 
-/* The shell uses a persistent rail on desktop and a compact app bar + drawer
-   on mobile. Account lives at the bottom of the desktop rail. */
+/* AppShell's section variant owns the surface-colored shell chrome. The nested
+   workspace restores the body surface for route content; keeping these layers
+   separate prevents transparent mobile controls from revealing a second shade. */
 .app {
   height: 100dvh;
-  background: var(--bg);
 }
 .app-loading {
   display: grid;
@@ -58,6 +58,7 @@ button, select { cursor: pointer; }
 .workspace-main {
   height: 100%;
   min-height: 0;
+  background: var(--bg);
 }
 .nav-brand {
   width: 100%;

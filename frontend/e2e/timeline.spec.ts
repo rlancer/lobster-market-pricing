@@ -357,6 +357,20 @@ test.describe('Public timeline', () => {
     await expect(appBar.getByRole('button', { name: 'Open chat' })).toBeVisible();
     await expect(menu).toBeVisible();
 
+    const shellColors = await appBar.evaluate((element) => {
+      const shell = element.closest('.app');
+      const navSurface = element.querySelector('.workspace-nav');
+      const workspace = document.querySelector('.workspace-main');
+      return {
+        shell: shell ? getComputedStyle(shell).backgroundColor : null,
+        nav: navSurface ? getComputedStyle(navSurface).backgroundColor : null,
+        workspace: workspace ? getComputedStyle(workspace).backgroundColor : null,
+      };
+    });
+    expect(shellColors.shell).toBe(shellColors.nav);
+    expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
+    expect(shellColors.workspace).not.toBe(shellColors.nav);
+
     const appBarBox = await appBar.boundingBox();
     const composerBox = await composer.boundingBox();
     expect(appBarBox && composerBox).toBeTruthy();
