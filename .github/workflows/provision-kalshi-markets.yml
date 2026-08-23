@@ -307,8 +307,8 @@ jobs:
               echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
             fi
           fi
-          # Poll until last_pass.run_id advances or ~10 min elapses.
-          for i in $(seq 1 40); do
+          # Poll until last_pass.run_id advances or ~15 min elapses (run timeout 900s).
+          for i in $(seq 1 60); do
             status=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly")
             after=$(echo "$status" | jq -r '.job.last_pass.run_id // empty')
             failed=$(echo "$status" | jq -r '.job.last_pass.failed // 0')
