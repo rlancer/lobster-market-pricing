@@ -17,6 +17,8 @@ import { secFilingsDailyJob } from "./sec-filings-daily.js";
 import { instrumentsDailyJob } from "./instruments-daily.js";
 import { fredYieldsDailyJob } from "./fred-yields-daily.js";
 import { kalshiMarketsHourlyJob } from "./kalshi-markets-hourly.js";
+import { earningsResultsDailyJob } from "./earnings-results-daily.js";
+import { companyFactsDailyJob } from "./company-facts-daily.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -31,6 +33,10 @@ import { kalshiMarketsHourlyJob } from "./kalshi-markets-hourly.js";
 //   - earnings-daily  — batch, ungated, daily cadence; ~2-week Nasdaq
 //     earnings-calendar window filtered to the merged universe
 //     (wraps publishEarningsDate).
+//   - earnings-results-daily — batch, ungated, daily; Yahoo earningsHistory
+//     actual vs estimate → options.earnings_results.
+//   - company-facts-daily — batch, ungated, daily; SEC companyfacts XBRL
+//     (SBC, debt, NI, OCF, …) → options.company_facts.
 //   - etf-daily       — batch, ungated, daily cadence; Yahoo fundProfile +
 //     topHoldings for symbols/etfs.json → options.etf_profiles / etf_holdings.
 //   - fundamentals-daily — batch, ungated, daily cadence; Yahoo quoteSummary
@@ -63,6 +69,8 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     ohlcDailyJob(env),
     ohlcBackfillJob(env),
     earningsDailyJob(env),
+    earningsResultsDailyJob(env),
+    companyFactsDailyJob(env),
     fredEconDailyJob(env),
     etfDailyJob(env),
     fundamentalsDailyJob(env),

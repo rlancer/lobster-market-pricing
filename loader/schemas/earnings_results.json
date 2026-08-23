@@ -1,0 +1,16 @@
+{
+  "fields": [
+    {"name":"symbol","type":"string","required":true},
+    {"name":"security_id","type":"string","required":true},
+    {"name":"quarter_end","type":"string","required":true},
+    {"name":"period_label","type":"string","required":false},
+    {"name":"eps_actual","type":"float64","required":false},
+    {"name":"eps_estimate","type":"float64","required":false},
+    {"name":"eps_difference","type":"float64","required":false},
+    {"name":"surprise_pct","type":"float64","required":false},
+    {"name":"currency","type":"string","required":false},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

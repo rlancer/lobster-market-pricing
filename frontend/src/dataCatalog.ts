@@ -375,6 +375,32 @@ export const FEEDS: CatalogItem[] = [
     tools: ['run_query', 'research_ticker'],
   },
   {
+    id: 'feed:yahoo-earnings-results',
+    kind: 'feed',
+    title: 'Yahoo earnings results',
+    summary: 'Reported EPS actual vs estimate and surprise',
+    description:
+      'Daily Yahoo quoteSummary earningsHistory for the equity sleeve. Lands in options.earnings_results (latest-wins per symbol + quarter_end). Powers the research earnings section and GET /api/research/{ticker}/earnings.',
+    provider: 'Yahoo Finance',
+    cadence: 'Daily (earnings-results-daily job)',
+    tables: ['earnings_results'],
+    tools: ['run_query'],
+    endpoint: 'GET /api/research/{ticker}/earnings',
+  },
+  {
+    id: 'feed:edgar-company-facts',
+    kind: 'feed',
+    title: 'SEC companyfacts (XBRL)',
+    summary: 'SBC, debt, NI, OCF, and related quality metrics',
+    description:
+      'Daily SEC companyfacts ingest for the equity sleeve. Framed us-gaap tags (revenue, net income, share-based compensation, long-term debt, cash, leases, OCF) land in options.company_facts. Research uses these to flag SBC exclusions and debt that headline D/E can miss.',
+    provider: 'SEC EDGAR',
+    cadence: 'Daily (company-facts-daily job)',
+    tables: ['company_facts'],
+    tools: ['run_query'],
+    endpoint: 'GET /api/research/{ticker}/earnings',
+  },
+  {
     id: 'feed:edgar',
     kind: 'feed',
     title: 'SEC EDGAR filings',
@@ -503,6 +529,20 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
     description:
       'Upcoming and recent earnings: earnings_date, time (BMO/AMC), fiscal quarter, eps_forecast, last_year_eps. Chat joins this to chains for event-vol questions.',
     feeds: ['nasdaq'],
+    tools: ['run_query'],
+  },
+  earnings_results: {
+    summary: 'Reported EPS actual vs estimate',
+    description:
+      'Yahoo earningsHistory rows: quarter_end, eps_actual, eps_estimate, surprise_pct. Latest-wins per (symbol, quarter_end). Powers /research/{ticker} earnings intel.',
+    feeds: ['yahoo-earnings-results'],
+    tools: ['run_query'],
+  },
+  company_facts: {
+    summary: 'SEC XBRL quality metrics (SBC, debt, NI, OCF)',
+    description:
+      'Framed companyfacts periods: revenue, net_income, share_based_compensation, long_term_debt, cash, lease liabilities, operating_cash_flow. Latest-wins per (ticker, period_end, period_type). Used for earnings-quality flags on research.',
+    feeds: ['edgar-company-facts'],
     tools: ['run_query'],
   },
   sec_filings: {

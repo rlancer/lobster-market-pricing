@@ -306,7 +306,9 @@ describe("EtlScheduler — due-scan", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const due = await scheduler.dueJobs(Date.now());
     expect(due.map((r) => r.job_id)).toEqual([
-      "cboe-options", "ohlc-daily", "ohlc-backfill", "earnings-daily", "fred-econ-daily", "etf-daily",
+      "cboe-options", "ohlc-daily", "ohlc-backfill", "earnings-daily",
+      "earnings-results-daily", "company-facts-daily",
+      "fred-econ-daily", "etf-daily",
       "fundamentals-daily", "futures-ohlc-daily", "cfe-futures-daily", "indices-ohlc-daily",
       "crypto-spot-ohlc-daily", "short-interest-daily", "reg-sho-daily", "research-briefs-daily",
       "sec-filings-daily", "instruments-daily", "fred-yields-daily", "kalshi-markets-hourly",
@@ -374,7 +376,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(18);
+    expect(list.jobs).toHaveLength(20);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -395,6 +397,16 @@ describe("EtlScheduler — job observability routes", () => {
     expect(earnings.enabled).toBe(1);
     expect(earnings.market_gated).toBe(0);
     expect(earnings.cadence_seconds).toBe(86400);
+    const earningsResults = byId.get("earnings-results-daily")!;
+    expect(earningsResults.scope).toBe("batch");
+    expect(earningsResults.enabled).toBe(1);
+    expect(earningsResults.market_gated).toBe(0);
+    expect(earningsResults.cadence_seconds).toBe(86400);
+    const companyFacts = byId.get("company-facts-daily")!;
+    expect(companyFacts.scope).toBe("batch");
+    expect(companyFacts.enabled).toBe(1);
+    expect(companyFacts.market_gated).toBe(0);
+    expect(companyFacts.cadence_seconds).toBe(86400);
     const econ = byId.get("fred-econ-daily")!;
     expect(econ.scope).toBe("batch");
     expect(econ.enabled).toBe(1);
