@@ -19,9 +19,9 @@ export default function NotebookPage() {
           </Link>
         </HStack>
         <Text color="secondary" size="sm">
-          Marimo WASM prototype — Pyodide in the browser charts live{' '}
-          <code>/api/sectors</code> and a small lake SQL query. No Python on the
-          Worker.
+          Marimo WASM prototype — first load downloads Pyodide (~30s). Then it
+          charts live <code>/api/sectors</code> and runs a small lake SQL query.
+          No Python on the Worker.
         </Text>
       </VStack>
       <iframe

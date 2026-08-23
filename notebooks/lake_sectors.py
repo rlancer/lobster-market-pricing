@@ -2,13 +2,16 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo",
-#     "altair",
+#     "matplotlib",
+#     "numpy",
 # ]
 # ///
 """WASM prototype: pull a thin slice from the lobster lake API and chart it.
 
 Static islands HTML lives at frontend/public/notebooks/lake-sectors/ (CDN
 runtime). Python runs in the browser via Pyodide — the Worker only serves /api/*.
+
+Uses matplotlib (not Altair) so WASM formatting does not depend on pandas/IPython.
 """
 
 import marimo
@@ -21,10 +24,11 @@ app = marimo.App(width="medium", app_title="Lake sectors · marimo WASM")
 def _():
     import json
 
-    import altair as alt
     import marimo as mo
+    import matplotlib.pyplot as plt
+    import numpy as np
 
-    return alt, json, mo
+    return json, mo, np, plt
 
 
 @app.cell
@@ -34,8 +38,8 @@ def _(mo):
 # Lake sectors (WASM)
 
 Runs entirely in your browser via **marimo + Pyodide**. It fetches live JSON from
-the screener Worker (`/api/sectors` + a small `/api/query`) and charts it with Altair —
-no Python backend for the notebook itself.
+the screener Worker (`/api/sectors` + a small `/api/query`) and charts it with
+matplotlib — no Python backend for the notebook itself.
 """
     )
     return
@@ -94,28 +98,27 @@ async def _(API_BASE, json, mo):
             raise RuntimeError(f"POST /api/query → {r.status}: {text[:240]}")
         return await r.json()
 
-    with mo.status.spinner(title="Loading /api/sectors…"):
-        sectors = await api_get("/api/sectors")
-
+    sectors = await api_get("/api/sectors")
     mo.md(f"API base: `{API_BASE or '(same origin)'}` · **{len(sectors)}** sectors")
     return api_get, api_query, sectors
 
 
 @app.cell
-def _(alt, sectors):
+def _(np, plt, sectors):
     sorted_sectors = sorted(sectors, key=lambda r: int(r["symbols"]), reverse=True)
-    chart = (
-        alt.Chart(sorted_sectors)
-        .mark_bar()
-        .encode(
-            x=alt.X("symbols:Q", title="Underlyings (latest snapshot)"),
-            y=alt.Y("sector:N", sort="-x", title=None),
-            tooltip=["sector", "symbols", alt.Tooltip("avg_spot:Q", format=".2f")],
-        )
-        .properties(height=420, title="Symbols per sector")
-    )
-    chart
-    return chart, sorted_sectors
+    labels = [str(r["sector"]) for r in sorted_sectors]
+    values = [int(r["symbols"]) for r in sorted_sectors]
+
+    fig, ax = plt.subplots(figsize=(8, max(4, 0.35 * len(labels))))
+    y = np.arange(len(labels))
+    ax.barh(y, values, color="#c45c26")
+    ax.set_yticks(y, labels=labels)
+    ax.invert_yaxis()
+    ax.set_xlabel("Underlyings (latest snapshot)")
+    ax.set_title("Symbols per sector")
+    fig.tight_layout()
+    fig
+    return fig, labels, sorted_sectors, values
 
 
 @app.cell
@@ -128,9 +131,7 @@ async def _(api_query, mo):
     ORDER BY spot_price DESC NULLS LAST
     LIMIT 15
     """
-    with mo.status.spinner(title="Running lake SQL…"):
-        result = await api_query(sql, limit=15)
-
+    result = await api_query(sql, limit=15)
     rows = result.get("rows") or []
     mo.md("### Top IT underlyings by spot (live `/api/query`)")
     rows

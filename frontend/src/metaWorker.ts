@@ -57,6 +57,10 @@ export default {
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('text/html')) return response;
 
+    // Marimo islands / html-wasm pages own their <title> and head; rewriting
+    // them for SPA OG tags can confuse the WASM bootstrap UI.
+    if (url.pathname.startsWith('/notebooks/')) return response;
+
     const meta = pageMetaForUrl(url.pathname, url.search);
     return rewritePageMeta(response, meta, url.origin);
   },

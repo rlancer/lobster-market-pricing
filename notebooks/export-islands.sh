@@ -12,7 +12,9 @@ gen = MarimoIslandGenerator.from_file(
     "$ROOT/notebooks/lake_sectors.py",
     display_code=True,
 )
-html = gen.render_html(include_init_island=True)
+# include_init_island=False: the standalone "Initializing…" island can stick
+# around after a cell error and looks like a permanent hang.
+html = gen.render_html(include_init_island=False)
 path = "$OUT/index.html"
 with open(path, "w", encoding="utf-8") as f:
     f.write(html)
