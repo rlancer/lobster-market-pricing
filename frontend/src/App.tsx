@@ -460,12 +460,14 @@ function WorkspaceLayout() {
   //   <= 768px AppShell renders a compact top bar (New chat + ticker search) and
   //            the SideNav becomes a start-side drawer. Full nav + account stay
   //            in the drawer; the timeline ask composer is desktop-only.
+  // Shell chrome uses AppShell `wash` (body canvas) so nav and route content
+  // share one background — no leftover surface strip beside research/etc.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
         className="app"
         height="fill"
-        variant="section"
+        variant="wash"
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
