@@ -31,6 +31,71 @@ export function sortUserChats<T extends { chat_id: string; created_at: number; u
   return [...items].sort(compareUserChats);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startOfLocalDay(ms: number): number {
+  const day = new Date(ms);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/**
+ * Relative-time label for left-nav chat history, keyed off `updated_at`
+ * (ms epoch). Buckets match common chat UIs: Today → Yesterday → Last 7
+ * days → Last 30 days → calendar month (with year when not current).
+ */
+export function chatHistoryTimeLabel(updatedAtMs: number, nowMs: number = Date.now()): string {
+  if (!Number.isFinite(updatedAtMs)) return 'Older';
+
+  const todayStart = startOfLocalDay(nowMs);
+  const yesterdayStart = todayStart - DAY_MS;
+  // Inclusive 7 / 30 calendar-day windows measured from start of today.
+  const last7Start = todayStart - 6 * DAY_MS;
+  const last30Start = todayStart - 29 * DAY_MS;
+
+  if (updatedAtMs >= todayStart) return 'Today';
+  if (updatedAtMs >= yesterdayStart) return 'Yesterday';
+  if (updatedAtMs >= last7Start) return 'Last 7 days';
+  if (updatedAtMs >= last30Start) return 'Last 30 days';
+
+  const when = new Date(updatedAtMs);
+  const now = new Date(nowMs);
+  if (when.getFullYear() === now.getFullYear()) {
+    return when.toLocaleString(undefined, { month: 'long' });
+  }
+  return when.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+}
+
+export type ChatHistoryTimeGroup<T> = {
+  label: string;
+  items: T[];
+};
+
+/**
+ * Group already-sorted chats into relative-time buckets. Preserves input
+ * order within each bucket and emits buckets in first-seen (newest) order.
+ */
+export function groupUserChatsByRelativeTime<T extends { updated_at: number }>(
+  items: T[],
+  nowMs: number = Date.now(),
+): ChatHistoryTimeGroup<T>[] {
+  const groups = new Map<string, T[]>();
+  const order: string[] = [];
+
+  for (const item of items) {
+    const label = chatHistoryTimeLabel(item.updated_at, nowMs);
+    const existing = groups.get(label);
+    if (existing) {
+      existing.push(item);
+      continue;
+    }
+    groups.set(label, [item]);
+    order.push(label);
+  }
+
+  return order.map((label) => ({ label, items: groups.get(label) ?? [] }));
+}
+
 export function chatPath(chatId: string): string {
   return `/chat/${chatId}`;
 }

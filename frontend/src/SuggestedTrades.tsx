@@ -2,7 +2,7 @@
  * Structured suggested trades — shared by live chat, share, and timeline.
  * Dense rows (not cards): bias/conviction tokens + structure + optional legs.
  *
- * Legs are formal: instrument option|equity (stock/ETF), side buy/sell
+ * Legs are formal: instrument option|equity|kalshi, side buy/sell
  * (long/short), optional qty. Worker normalize always sets instrument;
  * optional here so legacy share payloads still typecheck.
  *
@@ -20,11 +20,13 @@ export type TradeBias = 'bullish' | 'bearish' | 'neutral';
 export type TradeConviction = 'high' | 'medium' | 'low';
 export type OptionRight = 'call' | 'put';
 export type TradeSide = 'buy' | 'sell';
-export type LegInstrument = 'option' | 'equity';
+export type KalshiContractSide = 'yes' | 'no';
+export type LegInstrument = 'option' | 'equity' | 'kalshi';
 
 /**
  * Flat leg shape for UI + API wire.
- * Prefer instrument + (for options) right + strike|strike_rel.
+ * Prefer instrument + (for options) right + strike|strike_rel;
+ * for Kalshi, market_ticker + optional contract_side.
  */
 export interface TradeLeg {
   instrument?: LegInstrument;
@@ -36,6 +38,8 @@ export interface TradeLeg {
   strike_rel?: string;
   expiration?: string;
   dte?: number;
+  market_ticker?: string;
+  contract_side?: KalshiContractSide;
 }
 
 export interface SuggestedTrade {
@@ -54,7 +58,10 @@ export interface SuggestedTrades {
 }
 
 function resolveInstrument(leg: TradeLeg): LegInstrument {
-  if (leg.instrument === 'option' || leg.instrument === 'equity') return leg.instrument;
+  if (leg.instrument === 'option' || leg.instrument === 'equity' || leg.instrument === 'kalshi') {
+    return leg.instrument;
+  }
+  if (leg.market_ticker) return 'kalshi';
   if (leg.right || leg.strike != null || leg.strike_rel) return 'option';
   return 'equity';
 }
@@ -62,8 +69,14 @@ function resolveInstrument(leg: TradeLeg): LegInstrument {
 export function formatTradeLeg(leg: TradeLeg): string {
   const qty = leg.qty != null ? `${leg.qty} ` : '';
   const sym = leg.symbol ? ` ${leg.symbol}` : '';
-  if (resolveInstrument(leg) === 'equity') {
+  const kind = resolveInstrument(leg);
+  if (kind === 'equity') {
     return `${leg.side} ${qty}shares${sym}`.replace(/\s+/g, ' ').trim();
+  }
+  if (kind === 'kalshi') {
+    const side = (leg.contract_side ?? 'yes').toUpperCase();
+    const ticker = leg.market_ticker ?? '?';
+    return `${leg.side} ${qty}${side} ${ticker}${sym}`.replace(/\s+/g, ' ').trim();
   }
   const strike = leg.strike != null
     ? String(leg.strike)

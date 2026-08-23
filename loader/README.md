@@ -167,6 +167,66 @@ block above with `schemas/yields.json`, or run
 `.github/workflows/provision-fred-yields.yml`. Dry-run until the secret is set
 (no FRED fetches). Probe: `node --experimental-strip-types tools/yields_probe.ts`.
 
+### Kalshi event contracts (`kalshi-markets-hourly`)
+
+Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
+and publishes to `options.kalshi_markets`. The allowlist lives in
+`symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
+BTC/ETH ranges, WTI — each optionally linked to a lake `related_symbol`
+(SPY, TLT, BTC-USD, CL=F, …) for Copilot joins and future Kalshi trade ideas.
+
+Public Trade API (no key): `GET /markets?series_ticker=…&status=open`. Each
+pass caps markets per series (volume-first), is batch-scoped / ungated, and
+runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
+event odds move outside the US equity session. Series are paced
+(`KALSHI_SERIES_PACE_MS`, default 3000; `KALSHI_CONCURRENCY` default 1;
+`KALSHI_MIN_REQUEST_GAP_MS` default 400) to avoid Kalshi `too_many_requests`
+429s; set `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
+Series is worth the extra call.
+
+**Optional API auth** — market GETs work anonymously, but a Kalshi
+**read-only** API key usually gets a higher rate tier. The loader RSA-PSS-signs
+each GET when secrets are set (`KALSHI-ACCESS-*` headers). Never commit the PEM.
+
+Interactive `wrangler secret put` is awkward for multi-line PEMs. On your
+desktop (with wrangler logged in):
+
+```bash
+cd loader
+cp .env.kalshi.example .env          # gitignored
+# Edit .env: set KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_FILE=./kalshi-readonly.key
+# Save the Kalshi-downloaded .key as loader/kalshi-readonly.key
+node tools/put_kalshi_secrets.mjs --deploy
+```
+
+That pipes the PEM via stdin into `wrangler secret put` (no interactive paste)
+and redeploys `cboe-to-r2`. Flags: `--pem ./path.key`, `--key-id <uuid>`,
+`--env-file ./other.env`. Also accepts `KALSHI_PRIVATE_KEY_PEM="-----BEGIN…"`
+(double-quoted multi-line) in `.env` / `.dev.vars`.
+
+Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
+`yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity),
+`category`, `status`, `market_type`, `yes_bid` / `yes_ask` / `yes_last` /
+`no_bid` / `no_ask` (0–1 dollars), `volume`, `volume_24h`, `open_interest`,
+`liquidity`, `floor_strike`, `close_time`, `expiration_time`, `related_symbol`,
+`source` (`kalshi`), `run_id`, `fetched_at`. Latest-wins on
+`(market_ticker)` via `QUALIFY ROW_NUMBER() … ORDER BY fetched_at DESC`.
+
+**Provision after merge** — stream `cboe_kalshi_markets_v2`, sink
+`cboe_kalshi_markets_sink` (creates `options.kalshi_markets`), pipeline
+`cboe_kalshi_markets_pipeline`, then
+`npx wrangler secret put PIPELINE_KALSHI_MARKETS_URL`. Or run
+`.github/workflows/provision-kalshi-markets.yml`.
+
+> **Pipelines open-beta cap:** accounts are limited to **20 streams / sinks /
+> pipelines**. This account is at that cap; the provision workflow pauses
+> `cboe_reg_sho_daily_*` ingest (historical `options.reg_sho_daily` rows stay
+> queryable; `reg-sho-daily` dry-runs) to free a slot for Kalshi. Re-provision
+> Reg SHO after a [limit increase](https://developers.cloudflare.com/pipelines/platform/limits/).
+
+Dry-run until the Kalshi secret is set. Probe:
+`node --experimental-strip-types tools/kalshi_probe.ts`.
+
 ### ETF fund profiles + top holdings (`etf-daily`)
 
 Yahoo chart v8 already stores ETF **distributions** on `options.corporate_actions`

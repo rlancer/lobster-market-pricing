@@ -17,6 +17,7 @@ interface SchedulerTestStorage {
 
 interface TestCtx {
   storage: SchedulerTestStorage;
+  waitUntil?(promise: Promise<unknown>): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +213,13 @@ function makeStorage(initial: Record<string, unknown> = {}): SchedulerTestStorag
 }
 
 function ctx(storage: SchedulerTestStorage): TestCtx {
-  return { storage };
+  return {
+    storage,
+    // Run background triggers inline so async=1 tests can await completion.
+    waitUntil(promise: Promise<unknown>) {
+      void promise;
+    },
+  };
 }
 
 function env(db: unknown, overrides: Record<string, unknown> = {}): SchedulerEnv {
@@ -302,7 +309,7 @@ describe("EtlScheduler — due-scan", () => {
       "cboe-options", "ohlc-daily", "ohlc-backfill", "earnings-daily", "fred-econ-daily", "etf-daily",
       "fundamentals-daily", "futures-ohlc-daily", "cfe-futures-daily", "indices-ohlc-daily",
       "crypto-spot-ohlc-daily", "short-interest-daily", "reg-sho-daily", "research-briefs-daily",
-      "sec-filings-daily", "instruments-daily", "fred-yields-daily",
+      "sec-filings-daily", "instruments-daily", "fred-yields-daily", "kalshi-markets-hourly",
     ]);
   });
 });
@@ -367,7 +374,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(17);
+    expect(list.jobs).toHaveLength(18);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -443,6 +450,11 @@ describe("EtlScheduler — job observability routes", () => {
     expect(yields.enabled).toBe(1);
     expect(yields.market_gated).toBe(0);
     expect(yields.cadence_seconds).toBe(86400);
+    const kalshi = byId.get("kalshi-markets-hourly")!;
+    expect(kalshi.scope).toBe("batch");
+    expect(kalshi.enabled).toBe(1);
+    expect(kalshi.market_gated).toBe(0);
+    expect(kalshi.cadence_seconds).toBe(3600);
   });
 
   it("unknown job returns an error; trigger returns 404", async () => {
@@ -467,6 +479,31 @@ describe("EtlScheduler — job observability routes", () => {
     expect(pass.failed).toBe(0);
     const row = db.jobState.get("ohlc-daily")!;
     expect(Number(row.last_success_at)).toBeGreaterThan(0);
+  });
+
+  it("/jobs/{id}/trigger?async=1 accepts and runs under waitUntil", async () => {
+    const db = new FakeDb();
+    const pending: Promise<unknown>[] = [];
+    const storage = makeStorage();
+    const scheduler = new EtlScheduler(
+      {
+        storage,
+        waitUntil(p: Promise<unknown>) {
+          pending.push(p);
+        },
+      },
+      env(db) as never,
+    );
+    const res = await scheduler.fetch(new Request("http://x/jobs/ohlc-daily/trigger?async=1"));
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; background?: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.background).toBe(true);
+    expect(pending).toHaveLength(1);
+    await pending[0];
+    const pass = JSON.parse(db.meta.get("last_pass:ohlc-daily") ?? "{}");
+    expect(pass.attempted).toBeGreaterThan(0);
+    expect(await storage.get("passing")).toBeNull();
   });
 });
 

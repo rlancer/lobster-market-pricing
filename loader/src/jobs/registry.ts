@@ -16,6 +16,7 @@ import { regShoDailyJob } from "./reg-sho-daily.js";
 import { secFilingsDailyJob } from "./sec-filings-daily.js";
 import { instrumentsDailyJob } from "./instruments-daily.js";
 import { fredYieldsDailyJob } from "./fred-yields-daily.js";
+import { kalshiMarketsHourlyJob } from "./kalshi-markets-hourly.js";
 
 // Job registry — the single place to add an ETL job. Each entry is a
 // self-contained JobSpec (scope, cadence, market-gate policy, handler). The
@@ -54,6 +55,8 @@ import { fredYieldsDailyJob } from "./fred-yields-daily.js";
 //     options.instruments (security_type equity|etf|index|future|crypto).
 //   - fred-yields-daily — batch, ungated, daily; FRED Treasury / rates curve
 //     observations → options.yields (DGS* + spreads + TIPS/breakevens + DFF/SOFR).
+//   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
+//     contracts (Fed/CPI/indexes/crypto/oil) → options.kalshi_markets.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -73,5 +76,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     secFilingsDailyJob(env),
     instrumentsDailyJob(env),
     fredYieldsDailyJob(env),
+    kalshiMarketsHourlyJob(env),
   ];
 }

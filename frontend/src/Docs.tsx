@@ -125,10 +125,11 @@ const JOBS = [
   ['futures-ohlc-daily', 'Daily', 'Yahoo continuous CME/CBOT futures (=F) OHLC into options.ohlc / realized_vol (incl. BTC=F / ETH=F / micros).'],
   ['instruments-daily', 'Daily', 'Manifest classification → options.instruments (security_type equity|etf|index|future|crypto) for type-filtered OHLC queries.'],
   ['fred-yields-daily', 'Daily', 'FRED Treasury / rates curve → options.yields (DGS* constant-maturity, spreads, TIPS/breakevens, DFF/SOFR).'],
+  ['kalshi-markets-hourly', 'Hourly', 'Curated Kalshi event contracts (Fed/CPI/indexes/crypto/oil) → options.kalshi_markets.'],
 ];
 
 const TABLES =
-  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes · yields';
+  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes · yields · kalshi_markets';
 
 const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },
@@ -178,7 +179,7 @@ const SURFACES = [
   {
     route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history; opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. From the share dialog, signed-in authors can post a chat onto the public timeline.',
   },
   {
     route: '/portfolio',
@@ -193,7 +194,7 @@ const SURFACES = [
   {
     route: '/monitor',
     title: 'Monitor',
-    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The header chip jumps here.',
+    body: 'Refresh-run history from the lake, plus the live loader loop — per-symbol state, backoffs, and the market-hours gate. The status chip in the left nav jumps here.',
   },
   {
     route: '/admin',
@@ -485,7 +486,7 @@ export function DocsFrontend() {
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
         /u/&lt;handle&gt;, Chat, and a Data catalog on one shell — sidebar navigation plus a
-        header with dataset status. The left nav links here and (for admins) to the Admin hub
+        left-nav dataset status. The left nav links here and (for admins) to the Admin hub
         under a divider.
       </p>
       <Cards items={SURFACES.map((s) => ({ title: s.title, sub: s.route, body: s.body }))} />

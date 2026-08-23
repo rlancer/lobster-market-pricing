@@ -3,21 +3,24 @@
  *
  * Emitted via the suggest_trades tool so the UI can render concrete legs
  * without parsing freeform markdown. Legs are a formal discriminant:
- * option contracts (call/put + strike) or equity (stock/ETF long/short).
- * Absolute option strikes must come from lake evidence (option_contracts).
+ * option contracts (call/put + strike), equity (stock/ETF long/short), or
+ * Kalshi event contracts (market_ticker + yes/no side). Absolute option
+ * strikes must come from lake evidence (option_contracts); Kalshi legs from
+ * options.kalshi_markets.
  */
 
 export type TradeBias = "bullish" | "bearish" | "neutral";
 export type TradeConviction = "high" | "medium" | "low";
 export type OptionRight = "call" | "put";
 export type TradeSide = "buy" | "sell";
-/** Option contract vs underlying shares (stock or ETF). */
-export type LegInstrument = "option" | "equity";
+export type KalshiContractSide = "yes" | "no";
+/** Option contract vs underlying shares vs Kalshi event contract. */
+export type LegInstrument = "option" | "equity" | "kalshi";
 
 interface TradeLegBase {
   side: TradeSide;
   /**
-   * Size: option contracts or equity shares.
+   * Size: option contracts, equity shares, or Kalshi contracts.
    * Optional at suggestion time; preferred when the idea is sized.
    */
   qty?: number;
@@ -46,13 +49,22 @@ export interface EquityTradeLeg extends TradeLegBase {
   instrument: "equity";
 }
 
-export type TradeLeg = OptionTradeLeg | EquityTradeLeg;
+/** Kalshi binary event contract — buy/sell YES or NO. */
+export interface KalshiTradeLeg extends TradeLegBase {
+  instrument: "kalshi";
+  /** Full Kalshi market ticker from options.kalshi_markets (e.g. KXFED-27APR-T4.25). */
+  market_ticker: string;
+  /** Which side of the binary; defaults to yes. */
+  contract_side?: KalshiContractSide;
+}
+
+export type TradeLeg = OptionTradeLeg | EquityTradeLeg | KalshiTradeLeg;
 
 export interface SuggestedTrade {
   ticker: string;
   bias: TradeBias;
   conviction: TradeConviction;
-  /** Short structure label (bull call debit spread, long shares, covered call, …). */
+  /** Short structure label (bull call debit spread, long shares, buy Kalshi YES, …). */
   structure: string;
   legs?: TradeLeg[];
   rationale: string;
@@ -72,6 +84,7 @@ const LIQUIDITY_MAX = 240;
 const SKIP_REASON_MAX = 320;
 const STRIKE_REL_MAX = 40;
 const TICKER_MAX = 16;
+const MARKET_TICKER_MAX = 64;
 const TRADES_MAX = 3;
 const LEGS_MAX = 4;
 const QTY_MAX = 1_000_000;
@@ -80,7 +93,8 @@ const BIASES = new Set<TradeBias>(["bullish", "bearish", "neutral"]);
 const CONVICTIONS = new Set<TradeConviction>(["high", "medium", "low"]);
 const RIGHTS = new Set<OptionRight>(["call", "put"]);
 const SIDES = new Set<TradeSide>(["buy", "sell"]);
-const INSTRUMENTS = new Set<LegInstrument>(["option", "equity"]);
+const INSTRUMENTS = new Set<LegInstrument>(["option", "equity", "kalshi"]);
+const CONTRACT_SIDES = new Set<KalshiContractSide>(["yes", "no"]);
 
 function clip(text: string, max: number): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
@@ -106,6 +120,14 @@ function asRight(value: unknown): OptionRight | null {
   return typeof value === "string" && RIGHTS.has(value as OptionRight) ? value as OptionRight : null;
 }
 
+function asContractSide(value: unknown): KalshiContractSide | undefined {
+  if (typeof value !== "string") return undefined;
+  const lower = value.trim().toLowerCase();
+  return CONTRACT_SIDES.has(lower as KalshiContractSide)
+    ? lower as KalshiContractSide
+    : undefined;
+}
+
 function asQty(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > QTY_MAX) {
     return undefined;
@@ -118,14 +140,20 @@ function asSymbol(value: unknown): string | undefined {
   return clip(value.toUpperCase(), TICKER_MAX);
 }
 
+function asMarketTicker(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return clip(value.toUpperCase(), MARKET_TICKER_MAX);
+}
+
 /**
  * Resolve instrument. Explicit wins; otherwise legacy option legs (had `right`)
- * stay options, and side-only legs become equity.
+ * stay options, kalshi when market_ticker present, and side-only legs become equity.
  */
 function resolveInstrument(rec: Record<string, unknown>): LegInstrument | null {
   if (typeof rec.instrument === "string" && INSTRUMENTS.has(rec.instrument as LegInstrument)) {
     return rec.instrument as LegInstrument;
   }
+  if (asMarketTicker(rec.market_ticker)) return "kalshi";
   if (asRight(rec.right) || rec.strike != null || (typeof rec.strike_rel === "string" && rec.strike_rel.trim())) {
     return "option";
   }
@@ -179,6 +207,22 @@ function normalizeEquityLeg(rec: Record<string, unknown>, side: TradeSide): Equi
   };
 }
 
+function normalizeKalshiLeg(rec: Record<string, unknown>, side: TradeSide): KalshiTradeLeg | null {
+  const market_ticker = asMarketTicker(rec.market_ticker);
+  if (!market_ticker) return null;
+  const contract_side = asContractSide(rec.contract_side) ?? "yes";
+  const qty = asQty(rec.qty);
+  const symbol = asSymbol(rec.symbol);
+  return {
+    instrument: "kalshi",
+    side,
+    market_ticker,
+    contract_side,
+    ...(qty != null ? { qty } : {}),
+    ...(symbol ? { symbol } : {}),
+  };
+}
+
 function normalizeLeg(raw: unknown): TradeLeg | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const rec = raw as Record<string, unknown>;
@@ -190,6 +234,9 @@ function normalizeLeg(raw: unknown): TradeLeg | null {
 
   if (instrument === "equity") {
     return normalizeEquityLeg(rec, side);
+  }
+  if (instrument === "kalshi") {
+    return normalizeKalshiLeg(rec, side);
   }
   return normalizeOptionLeg(rec, side);
 }
@@ -266,6 +313,12 @@ export function formatTradeLeg(leg: TradeLeg): string {
   if (leg.instrument === "equity") {
     return `${leg.side} ${qty}shares${sym}`.replace(/\s+/g, " ").trim();
   }
+  if (leg.instrument === "kalshi") {
+    const side = leg.contract_side ?? "yes";
+    return `${leg.side} ${qty}${side.toUpperCase()} ${leg.market_ticker}${sym}`
+      .replace(/\s+/g, " ")
+      .trim();
+  }
   const strike = leg.strike != null
     ? String(leg.strike)
     : (leg.strike_rel ?? "?");
@@ -284,16 +337,21 @@ export function isEquityLeg(leg: TradeLeg): leg is EquityTradeLeg {
   return leg.instrument === "equity";
 }
 
+export function isKalshiLeg(leg: TradeLeg): leg is KalshiTradeLeg {
+  return leg.instrument === "kalshi";
+}
+
 /** Prompt block: emit trades only via suggest_trades (no freeform parsing). */
 export function tradesSuggestBlock(): string {
   return [
     "Suggested trades (structured — never freeform-only):",
     "- After publish_desk on ticker / trade analysis, MUST call suggest_trades before final prose. The UI renders trades from this tool only — do not bury legs in markdown.",
     "- Each trade needs ticker, bias (bullish|bearish|neutral), conviction (high|medium|low), structure label, and rationale grounded in shared evidence.",
-    "- Prefer 1–2 defined-risk ideas. Include legs when evidence supports them. Each leg needs instrument (option|equity) + side (buy|sell).",
+    "- Prefer 1–2 defined-risk ideas. Include legs when evidence supports them. Each leg needs instrument (option|equity|kalshi) + side (buy|sell).",
     "- Option legs: right (call|put) + strike or strike_rel + expiration/dte. Absolute strikes/expiries MUST come from a prior option_contracts query with two-sided quotes (bid>0, ask>=bid), tight-ish spread, and volume/OI interest. Put that quote quality in liquidity.",
     "- Equity legs: stock or ETF shares of the trade ticker (or leg.symbol override). buy = long, sell = short. Optional qty = share count. Use for outright long/short, covered calls, collars, etc.",
-    "- Optional qty on option legs = contract count. Prefer sized legs when the idea implies a unit.",
+    "- Kalshi legs: instrument=kalshi + market_ticker from options.kalshi_markets (curated Fed/CPI/index/crypto/oil series only) + optional contract_side yes|no (default yes). buy/sell is the Kalshi contract side. Prefer two-sided yes_bid/yes_ask with demonstrated volume. Trade ticker may be the related_symbol (SPY, TLT, BTC-USD) or the series_ticker (KXFED).",
+    "- Optional qty on option/Kalshi legs = contract count. Prefer sized legs when the idea implies a unit.",
     "- If nothing is tradable, pass trades: [] (skip_reason optional). Never invent fills or far-OTM lottery tickets.",
     "- After suggest_trades, final message text stays the desk overview only (1–4 sentences). Do not re-list the trades in prose.",
   ].join("\n");

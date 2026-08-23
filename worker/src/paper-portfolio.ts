@@ -163,9 +163,11 @@ export function quoteMid(bid: number | null, ask: number | null, last: number | 
   return null;
 }
 
-function resolveInstrument(leg: TradeLeg): "option" | "equity" {
+function resolveInstrument(leg: TradeLeg): "option" | "equity" | "unsupported" {
+  if (leg.instrument === "kalshi") return "unsupported";
   if (leg.instrument === "option" || leg.instrument === "equity") return leg.instrument;
-  const rec = leg as TradeLeg & { right?: string; strike?: number; strike_rel?: string };
+  const rec = leg as TradeLeg & { right?: string; strike?: number; strike_rel?: string; market_ticker?: string };
+  if (rec.market_ticker) return "unsupported";
   if (rec.right || rec.strike != null || rec.strike_rel) return "option";
   return "equity";
 }

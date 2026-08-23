@@ -4,6 +4,7 @@ import {
   formatTradeLeg,
   formatTradesToolSummary,
   isEquityLeg,
+  isKalshiLeg,
   isOptionLeg,
   normalizeSuggestedTrades,
   tradesSuggestBlock,
@@ -203,6 +204,55 @@ test("normalizeSuggestedTrades drops equity legs missing side", () => {
   assert.equal(payload.trades[0]!.legs, undefined);
 });
 
+test("normalizeSuggestedTrades accepts Kalshi event-contract legs", () => {
+  const payload = normalizeSuggestedTrades({
+    trades: [{
+      ticker: "TLT",
+      bias: "bullish",
+      conviction: "medium",
+      structure: "buy Kalshi YES on Fed cut path",
+      legs: [{
+        instrument: "kalshi",
+        side: "buy",
+        market_ticker: "KXFED-27APR-T3.50",
+        contract_side: "yes",
+        qty: 10,
+      }],
+      rationale: "Market-implied odds align with a shallower path than forwards",
+      liquidity: "yes 0.37/0.42, volume 22k",
+    }],
+  });
+  assert.ok(payload);
+  const leg = payload.trades[0]!.legs![0]!;
+  assert.equal(leg.instrument, "kalshi");
+  assert.ok(isKalshiLeg(leg));
+  assert.equal(leg.market_ticker, "KXFED-27APR-T3.50");
+  assert.equal(leg.contract_side, "yes");
+  assert.equal(formatTradeLeg(leg), "buy 10 YES KXFED-27APR-T3.50");
+});
+
+test("normalizeSuggestedTrades infers kalshi instrument from market_ticker", () => {
+  const payload = normalizeSuggestedTrades({
+    trades: [{
+      ticker: "SPY",
+      bias: "bearish",
+      conviction: "low",
+      structure: "buy Kalshi NO on SPX threshold",
+      legs: [{
+        side: "buy",
+        market_ticker: "kxinx-26aug28h1600-t6500",
+        contract_side: "no",
+      }],
+      rationale: "Index threshold odds rich vs spot",
+    }],
+  });
+  assert.ok(payload);
+  const leg = payload.trades[0]!.legs![0]!;
+  assert.equal(leg.instrument, "kalshi");
+  assert.equal(leg.market_ticker, "KXINX-26AUG28H1600-T6500");
+  assert.equal(leg.contract_side, "no");
+});
+
 test("tradesSuggestBlock requires suggest_trades after desk and documents equity", () => {
   const block = tradesSuggestBlock();
   assert.match(block, /suggest_trades/);
@@ -210,4 +260,6 @@ test("tradesSuggestBlock requires suggest_trades after desk and documents equity
   assert.match(block, /option_contracts/);
   assert.match(block, /instrument/);
   assert.match(block, /equity/);
+  assert.match(block, /kalshi/);
+  assert.match(block, /kalshi_markets/);
 });
