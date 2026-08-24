@@ -22,7 +22,7 @@ import ChatsPage from './Chats';
 import TradesPage from './Trades';
 import PortfolioPage from './Portfolio';
 import CopilotExplorePage from './CopilotExplore';
-import AdminPage from './Admin';
+import AdminPage from './AdminPage';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import { parseChatId } from './chatSession';

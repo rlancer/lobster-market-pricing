@@ -10,6 +10,7 @@
   --call: var(--color-success);
   --put: var(--color-error);
   --topbar-h: 0px;
+  --mobile-bottom-nav-height: var(--spacing-0);
   /* Shared reading/working column for research, timeline shell, share, docs. */
   --content-max: 72rem;
   /* Conversation column on /chat and the desktop timeline feed (composer + posts). */
@@ -38,10 +39,9 @@ body {
 button, input, select, textarea { font: inherit; }
 button, select { cursor: pointer; }
 
-/* One page canvas: body wash for shell, nav, and workspace. AppShell `wash`
-   paints the shell; nav/workspace match so desktop research (and every other
-   route) no longer shows a leftover surface strip beside content, and
-   transparent mobile chrome cannot reveal a second shade. */
+/* AppShell's section variant owns the surface-colored shell chrome. The nested
+   workspace restores the body surface for route content; keeping these layers
+   separate prevents transparent mobile controls from revealing a second shade. */
 .app {
   height: 100dvh;
 }
@@ -52,11 +52,9 @@ button, select { cursor: pointer; }
 }
 
 .workspace-nav {
-  background: var(--bg);
+  background: var(--panel);
   height: 100%;
   min-height: 100%;
-  /* Wash has no AppShell divider — keep a hairline so the rail reads as a region. */
-  border-inline-end: var(--border-width) solid var(--color-border);
 }
 .workspace-main {
   height: 100%;
@@ -83,13 +81,13 @@ button, select { cursor: pointer; }
   height: calc(var(--size-element-lg) * 2 + var(--spacing-4));
   flex-shrink: 0;
 }
-.mobile-topbar-actions {
-  flex-shrink: 0;
-}
-
-.mobile-topbar-search {
+.mobile-bottom-nav-search {
   min-width: min(18rem, calc(100vw - var(--spacing-10)));
   padding-block-end: var(--spacing-0);
+}
+
+.mobile-bottom-nav {
+  display: none;
 }
 
 .nav-research-search {
@@ -412,7 +410,60 @@ button, select { cursor: pointer; }
 }
 @media (max-width: 768px) {
   :root {
-    --topbar-h: var(--spacing-12);
+    --mobile-bottom-nav-height: calc(
+      var(--size-element-lg) + var(--spacing-3) + env(safe-area-inset-bottom)
+    );
+  }
+  .mobile-bottom-nav {
+    position: fixed;
+    z-index: 40;
+    inset-inline: 0;
+    bottom: 0;
+    display: flex;
+    min-height: var(--mobile-bottom-nav-height);
+    padding: var(--spacing-1) var(--spacing-2)
+      calc(var(--spacing-1) + env(safe-area-inset-bottom));
+    border-top: var(--border-width) solid
+      color-mix(in srgb, var(--color-border-emphasized) 85%, transparent);
+    background: color-mix(in srgb, var(--panel) 80%, transparent);
+    box-shadow: var(--shadow-high);
+    backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
+    -webkit-backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
+    pointer-events: none;
+  }
+  /* Portal to <body> so backdrop-filter samples scrolling page content instead
+     of the opaque AppShell scroll pane sitting behind an in-tree fixed bar. */
+  .mobile-bottom-nav > * {
+    pointer-events: auto;
+    flex: 1;
+    min-width: 0;
+  }
+  .mobile-bottom-nav-link,
+  .mobile-bottom-nav-action.astryx-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--size-element-lg);
+    padding: var(--spacing-1);
+    border-radius: var(--radius-element);
+    color: var(--color-text-secondary);
+    text-align: center;
+    text-decoration: none;
+  }
+  .mobile-bottom-nav-action.astryx-button:hover,
+  .mobile-bottom-nav-link:hover {
+    color: var(--color-text-primary);
+    background: var(--color-overlay-hover);
+  }
+  .mobile-bottom-nav-action[data-selected='true'],
+  .mobile-bottom-nav-link[data-selected='true'] {
+    color: var(--color-text-accent);
+    background: var(--color-accent-muted);
+  }
+  .mobile-bottom-nav-new-chat {
+    color: var(--color-text-accent);
   }
   .nav-brand {
     padding-block: var(--spacing-0);
@@ -425,8 +476,13 @@ button, select { cursor: pointer; }
     width: var(--size-element-md);
     height: var(--size-element-md);
   }
-  .content { padding: var(--spacing-4) var(--spacing-3); }
-  .content-copilot { padding: var(--spacing-0); }
+  .content {
+    padding: var(--spacing-4) var(--spacing-3)
+      calc(var(--mobile-bottom-nav-height) + var(--spacing-4));
+  }
+  .content-copilot {
+    padding: var(--spacing-0) var(--spacing-0) var(--mobile-bottom-nav-height);
+  }
 }
 @media (max-width: 640px) {
   .ms-data { display: none; }

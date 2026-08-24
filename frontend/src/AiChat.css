@@ -882,7 +882,10 @@
     height: calc(var(--size-element-lg) + var(--size-element-lg) + var(--size-element-lg));
   }
   .ai-examples { grid-template-columns: 1fr; gap: var(--spacing-0); }
-  .ai-composer-wrap { padding: var(--spacing-2) var(--spacing-3); }
+  .ai-composer-wrap {
+    bottom: var(--mobile-bottom-nav-height);
+    padding: var(--spacing-2) var(--spacing-3);
+  }
   /* Reclaim the avatar column — tables/SQL need every horizontal pixel. */
   .ai-msg.ai-assistant .ai-msg-mark { display: none; }
   .ai-msg.ai-assistant .ai-bubble { max-width: 100%; }
