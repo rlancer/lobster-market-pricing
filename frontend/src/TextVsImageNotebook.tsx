@@ -11,7 +11,20 @@ import {
 } from '@astryxdesign/core';
 import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import { useIsAdmin } from './useAdmin';
-import { DEFAULT_PROBE_MODEL } from './notebooks/experiment';
+import {
+  buildCrossModelConclusion,
+  type CrossModelConclusion,
+  type RunSummaryForConclusion,
+} from './notebooks/crossModelConclusion';
+import {
+  DEFAULT_PROBE_MODEL,
+  RECENT_PROBE_MODELS,
+} from './notebooks/experiment';
+import {
+  buildHybridRepresentations,
+  isHybridRepId,
+  type HybridRep,
+} from './notebooks/hybridRepresentations';
 import {
   buildImageRepresentations,
   type ImageRep,
@@ -96,8 +109,11 @@ export default function TextVsImageNotebookPage() {
   const [saving, setSaving] = useState(false);
   const [matrix, setMatrix] = useState<Matrix>({});
   const [localImages, setLocalImages] = useState<ImageRep[]>([]);
+  const [localHybrids, setLocalHybrids] = useState<HybridRep[]>([]);
   const [savedRun, setSavedRun] = useState<ExperimentRunPayload | null>(null);
   const [runList, setRunList] = useState<ExperimentRunSummary[]>([]);
+  const [crossCut, setCrossCut] = useState<CrossModelConclusion | null>(null);
+  const [crossCutState, setCrossCutState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -142,11 +158,82 @@ export default function TextVsImageNotebookPage() {
   const tickers = useMemo(() => universe.series.map((s) => s.ticker), [universe]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!runList.length) {
+      setCrossCut(null);
+      setCrossCutState('idle');
+      return;
+    }
+
+    void (async () => {
+      setCrossCutState('loading');
+      try {
+        const enriched: RunSummaryForConclusion[] = [];
+        const seenModels = new Set<string>();
+        for (const row of runList) {
+          if (seenModels.has(row.model)) continue;
+          seenModels.add(row.model);
+          if (row.rep_accuracy?.length) {
+            enriched.push({
+              id: row.id,
+              model: row.model,
+              created_at: row.created_at,
+              cells_correct: row.cells_correct,
+              cells_done: row.cells_done,
+              cells_total: row.cells_total,
+              rep_accuracy: row.rep_accuracy,
+              rep_order: row.rep_order,
+            });
+            continue;
+          }
+          // Older Worker list responses omit per-rep stats — pull results only.
+          const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, { images: false });
+          const byRep = new Map<string, { correct: number; done: number }>();
+          for (const cell of full.results.cells) {
+            if (cell.status !== 'done') continue;
+            const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
+            cur.done += 1;
+            if (cell.correct) cur.correct += 1;
+            byRep.set(cell.rep_id, cur);
+          }
+          enriched.push({
+            id: full.id,
+            model: full.model,
+            created_at: full.created_at,
+            cells_correct: row.cells_correct,
+            cells_done: row.cells_done,
+            cells_total: row.cells_total,
+            rep_order: full.results.rep_order,
+            rep_accuracy: (full.results.rep_order.length
+              ? full.results.rep_order
+              : [...byRep.keys()]
+            ).map((repId) => {
+              const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
+              return { rep_id: repId, correct: stats.correct, done: stats.done };
+            }),
+          });
+        }
+        if (cancelled) return;
+        setCrossCut(buildCrossModelConclusion(enriched));
+        setCrossCutState('ready');
+      } catch {
+        if (cancelled) return;
+        setCrossCut(null);
+        setCrossCutState('error');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [runList]);
+
+  useEffect(() => {
     try {
       setLocalImages(buildImageRepresentations(universe));
+      setLocalHybrids(buildHybridRepresentations(universe));
     } catch (error) {
       console.error(error);
       setLocalImages([]);
+      setLocalHybrids([]);
     }
   }, [universe]);
 
@@ -184,19 +271,60 @@ export default function TextVsImageNotebookPage() {
     () => (savedRun ? imagesFromRun(savedRun) : []),
     [savedRun],
   );
-  const displayImages = viewSource === 'saved' && savedImages.length
-    ? savedImages
-    : localImages;
+  const savedHybrids: HybridRep[] = useMemo(() => {
+    if (!savedRun) return [];
+    const textById = new Map(
+      (savedRun.results.text_reps ?? []).map((r) => [r.id, r]),
+    );
+    return savedRun.images
+      .filter((img) => isHybridRepId(img.id) && textById.has(img.id))
+      .map((img) => {
+        const text = textById.get(img.id)!;
+        return {
+          id: img.id as HybridRep['id'],
+          label: img.label,
+          description: img.description,
+          width: img.width,
+          height: img.height,
+          dataUrl: img.data_url,
+          textContext: text.body,
+          approxTokens: text.approx_tokens ?? Math.ceil(text.body.length / 4),
+        };
+      });
+  }, [savedRun]);
+
+  const displayHybrids = viewSource === 'saved' && savedHybrids.length
+    ? savedHybrids
+    : localHybrids;
+
+  const displayImages = useMemo(() => {
+    const base = viewSource === 'saved' && savedImages.length
+      ? savedImages
+      : localImages;
+    // Gallery shows classic labeled charts plus hybrid textless PNGs.
+    const hybridImgs: ImageRep[] = displayHybrids.map((h) => ({
+      id: h.id as ImageRep['id'],
+      label: h.label,
+      description: h.description,
+      width: h.width,
+      height: h.height,
+      dataUrl: h.dataUrl,
+    }));
+    const classic = base.filter((img) => !isHybridRepId(img.id));
+    return [...classic, ...hybridImgs];
+  }, [viewSource, savedImages, localImages, displayHybrids]);
 
   const displayTextReps: TextRep[] = useMemo(() => {
     if (viewSource === 'saved' && savedRun?.results.text_reps?.length) {
-      return savedRun.results.text_reps.map((r) => ({
-        id: r.id as TextRep['id'],
-        label: r.label,
-        description: r.description,
-        approxTokens: r.approx_tokens ?? Math.ceil(r.body.length / 4),
-        body: r.body,
-      }));
+      return savedRun.results.text_reps
+        .filter((r) => !isHybridRepId(r.id))
+        .map((r) => ({
+          id: r.id as TextRep['id'],
+          label: r.label,
+          description: r.description,
+          approxTokens: r.approx_tokens ?? Math.ceil(r.body.length / 4),
+          body: r.body,
+        }));
     }
     return textReps;
   }, [viewSource, savedRun, textReps]);
@@ -220,9 +348,9 @@ export default function TextVsImageNotebookPage() {
     return questions;
   }, [viewSource, savedRun, questions]);
 
-  const allReps: Array<TextRep | ImageRep> = useMemo(
-    () => [...displayTextReps, ...displayImages],
-    [displayTextReps, displayImages],
+  const allReps: Array<TextRep | ImageRep | HybridRep> = useMemo(
+    () => [...displayTextReps, ...displayImages.filter((img) => !isHybridRepId(img.id)), ...displayHybrids],
+    [displayTextReps, displayImages, displayHybrids],
   );
   const repIds = useMemo(() => {
     if (viewSource === 'saved' && savedRun?.results.rep_order?.length) {
@@ -239,7 +367,10 @@ export default function TextVsImageNotebookPage() {
   }, [repIds, questions, viewSource]);
 
   const selectedText = displayTextReps.find((r) => r.id === selectedRep) ?? null;
-  const selectedImage = displayImages.find((r) => r.id === selectedRep) ?? null;
+  const selectedHybrid = displayHybrids.find((r) => r.id === selectedRep) ?? null;
+  const selectedImage = selectedHybrid
+    ? null
+    : (displayImages.find((r) => r.id === selectedRep) ?? null);
 
   const updateCell = (repId: string, questionId: string, patch: Partial<ProbeCell>) => {
     setMatrix((prev) => ({
@@ -254,23 +385,33 @@ export default function TextVsImageNotebookPage() {
   const runOne = async (repId: string, question: ExperimentQuestion) => {
     const text = textReps.find((r) => r.id === repId);
     const image = localImages.find((r) => r.id === repId);
+    const hybrid = localHybrids.find((r) => r.id === repId);
     updateCell(repId, question.id, { status: 'running', error: undefined });
     try {
-      const result = text
+      const result = hybrid
         ? await api.adminNotebookProbe({
             model,
-            mode: 'text',
+            mode: 'multimodal',
             question: question.prompt,
             system: SYSTEM_PROBE,
-            text_context: text.body,
+            text_context: hybrid.textContext,
+            image_data_url: hybrid.dataUrl,
           })
-        : await api.adminNotebookProbe({
-            model,
-            mode: 'image',
-            question: question.prompt,
-            system: SYSTEM_PROBE,
-            image_data_url: image!.dataUrl,
-          });
+        : text
+          ? await api.adminNotebookProbe({
+              model,
+              mode: 'text',
+              question: question.prompt,
+              system: SYSTEM_PROBE,
+              text_context: text.body,
+            })
+          : await api.adminNotebookProbe({
+              model,
+              mode: 'image',
+              question: question.prompt,
+              system: SYSTEM_PROBE,
+              image_data_url: image!.dataUrl,
+            });
       const scored = scoreAnswer(question, result.answer, tickers);
       updateCell(repId, question.id, {
         status: 'done',
@@ -292,7 +433,11 @@ export default function TextVsImageNotebookPage() {
     setViewSource('local');
     setRunning(true);
     setSaveMessage(null);
-    const ids = [...textReps.map((r) => r.id), ...localImages.map((r) => r.id)];
+    const ids = [
+      ...textReps.map((r) => r.id),
+      ...localImages.map((r) => r.id),
+      ...localHybrids.map((r) => r.id),
+    ];
     setMatrix(emptyMatrix(ids, questions.map((q) => q.id)));
     try {
       for (const repId of ids) {
@@ -309,7 +454,11 @@ export default function TextVsImageNotebookPage() {
 
   const publishRun = async () => {
     if (!localImages.length) return;
-    const ids = [...textReps.map((r) => r.id), ...localImages.map((r) => r.id)];
+    const ids = [
+      ...textReps.map((r) => r.id),
+      ...localImages.map((r) => r.id),
+      ...localHybrids.map((r) => r.id),
+    ];
     const cells = [];
     for (const repId of ids) {
       for (const q of questions) {
@@ -345,24 +494,45 @@ export default function TextVsImageNotebookPage() {
             prompt: q.prompt,
             expected: String(q.expected),
           })),
-          text_reps: textReps.map((r) => ({
-            id: r.id,
-            label: r.label,
-            description: r.description,
-            approx_tokens: r.approxTokens,
-            body: r.body,
-          })),
+          text_reps: [
+            ...textReps.map((r) => ({
+              id: r.id,
+              label: r.label,
+              description: r.description,
+              approx_tokens: r.approxTokens,
+              body: r.body,
+            })),
+            // Hybrid companion legends share the hybrid id so loaders can
+            // reassemble multimodal reps from text_reps + images.
+            ...localHybrids.map((h) => ({
+              id: h.id,
+              label: h.label,
+              description: h.description,
+              approx_tokens: h.approxTokens,
+              body: h.textContext,
+            })),
+          ],
           cells,
           rep_order: ids,
         },
-        images: localImages.map((img) => ({
-          id: img.id,
-          label: img.label,
-          description: img.description,
-          width: img.width,
-          height: img.height,
-          data_url: img.dataUrl,
-        })),
+        images: [
+          ...localImages.map((img) => ({
+            id: img.id,
+            label: img.label,
+            description: img.description,
+            width: img.width,
+            height: img.height,
+            data_url: img.dataUrl,
+          })),
+          ...localHybrids.map((h) => ({
+            id: h.id,
+            label: h.label,
+            description: h.description,
+            width: h.width,
+            height: h.height,
+            data_url: h.dataUrl,
+          })),
+        ],
       });
       setSavedRun(response.run);
       setMatrix(matrixFromRun(response.run));
@@ -413,9 +583,10 @@ export default function TextVsImageNotebookPage() {
         <Heading level={1}>Text vs image context for market panels</Heading>
         <Text type="supporting">
           The same deterministic 20-name synthetic equity panel is shown to a multimodal
-          model either as Copilot-style text summaries or as chart images. Answers are
-          scored against ground truth so we can see which encodings survive LLM context
-          before changing production Copilot framing.
+          model either as Copilot-style text summaries, as chart images, or as textless
+          charts paired with a markdown color key (so the model does not need OCR).
+          Answers are scored against ground truth so we can see which encodings survive
+          LLM context before changing production Copilot framing.
         </Text>
       </VStack>
 
@@ -520,6 +691,134 @@ export default function TextVsImageNotebookPage() {
         ) : null}
       </VStack>
 
+      <VStack className="notebook-section notebook-crosscut" gap={3}>
+        <Heading level={2}>Cross-model conclusion</Heading>
+        {crossCutState === 'loading' || crossCutState === 'idle' ? (
+          <Text type="supporting">Aggregating published runs…</Text>
+        ) : null}
+        {crossCutState === 'error' ? (
+          <Text type="supporting">Could not build the cross-model summary.</Text>
+        ) : null}
+        {crossCut && crossCutState === 'ready' ? (
+          <>
+            <Text type="supporting">{crossCut.summary}</Text>
+            <HStack gap={2} style={{ flexWrap: 'wrap' }}>
+              {crossCut.winningFamily ? (
+                <Token
+                  label={`Winner family: ${crossCut.winningFamily.label} (${
+                    crossCut.winningFamily.meanAccuracy == null
+                      ? '—'
+                      : `${Math.round(crossCut.winningFamily.meanAccuracy * 100)}%`
+                  })`}
+                  color="teal"
+                  size="sm"
+                />
+              ) : null}
+              {crossCut.winningRep ? (
+                <Token
+                  label={`Best encoding: ${crossCut.winningRep.label} (${
+                    crossCut.winningRep.meanAccuracy == null
+                      ? '—'
+                      : `${Math.round(crossCut.winningRep.meanAccuracy * 100)}%`
+                  })`}
+                  color="teal"
+                  size="sm"
+                />
+              ) : null}
+            </HStack>
+            <div className="notebook-results notebook-results-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Representation</th>
+                    <th>Family</th>
+                    <th className="num">Mean</th>
+                    {crossCut.models.map((m) => (
+                      <th key={m.runId} className="num">
+                        <code>{m.model.includes('/') ? m.model.split('/')[1] : m.model}</code>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {crossCut.rows.map((row) => {
+                    const isWinner = crossCut.winningRep?.repId === row.repId;
+                    return (
+                      <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
+                        <td>{row.label}</td>
+                        <td>{row.family.replace('_', ' ')}</td>
+                        <td className="num">
+                          {row.meanAccuracy == null
+                            ? '—'
+                            : `${Math.round(row.meanAccuracy * 100)}%`}
+                        </td>
+                        {row.byModel.map((cell) => (
+                          <td key={`${row.repId}-${cell.runId}`} className="num">
+                            {cell.done
+                              ? `${cell.correct}/${cell.done}`
+                              : '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <td><strong>Overall</strong></td>
+                    <td />
+                    <td className="num">
+                      {(() => {
+                        const accs = crossCut.models
+                          .map((m) => m.overallAccuracy)
+                          .filter((a): a is number => a != null);
+                        if (!accs.length) return '—';
+                        const mean = accs.reduce((a, b) => a + b, 0) / accs.length;
+                        return `${Math.round(mean * 100)}%`;
+                      })()}
+                    </td>
+                    {crossCut.models.map((m) => (
+                      <td key={`overall-${m.runId}`} className="num">
+                        {m.cells_done
+                          ? `${m.cells_correct}/${m.cells_done}`
+                          : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="notebook-results">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Method family</th>
+                    <th className="num">Mean accuracy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {crossCut.families.map((f) => (
+                    <tr
+                      key={f.family}
+                      className={
+                        crossCut.winningFamily?.family === f.family
+                          ? 'notebook-row-winner'
+                          : undefined
+                      }
+                    >
+                      <td>{f.label}</td>
+                      <td className="num">
+                        {f.meanAccuracy == null
+                          ? '—'
+                          : `${Math.round(f.meanAccuracy * 100)}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+      </VStack>
+
       <VStack className="notebook-section" gap={3}>
         <Heading level={2}>1. Setup</Heading>
         <Text type="supporting">
@@ -569,6 +868,7 @@ export default function TextVsImageNotebookPage() {
           {viewSource === 'saved' && savedImages.length
             ? ' in the published run (byte-identical to what OpenRouter received).'
             : ' when probes run (rendered in this browser as canvas PNGs).'}
+          {' '}Textless hybrids omit labels; ticker identity lives in the companion markdown key.
         </Text>
         {!displayImages.length ? (
           <Text type="supporting">No images available yet.</Text>
@@ -593,8 +893,9 @@ export default function TextVsImageNotebookPage() {
       <VStack className="notebook-section" gap={3}>
         <Heading level={2}>3. Representations</Heading>
         <Text type="supporting">
-          Text packs mirror today&apos;s Copilot tool summary. Pick one to inspect the
-          payload; image encodings are shown above as fed to the model.
+          Text packs mirror today&apos;s Copilot tool summary. Image encodings are labeled
+          charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
+          (no OCR). Pick one to inspect the payload.
         </Text>
         <HStack gap={2} style={{ flexWrap: 'wrap' }}>
           {allReps.map((rep) => (
@@ -616,6 +917,19 @@ export default function TextVsImageNotebookPage() {
               {selectedText.body.slice(0, 6_000)}
               {selectedText.body.length > 6_000 ? '\n…' : ''}
             </pre>
+          </VStack>
+        ) : null}
+        {selectedHybrid ? (
+          <VStack gap={2}>
+            <Text type="supporting">{selectedHybrid.description}</Text>
+            <Text type="supporting">Markdown color key sent with the image:</Text>
+            <pre className="notebook-code">
+              {selectedHybrid.textContext.slice(0, 6_000)}
+              {selectedHybrid.textContext.length > 6_000 ? '\n…' : ''}
+            </pre>
+            <div className="notebook-figure">
+              <img src={selectedHybrid.dataUrl} alt={selectedHybrid.label} />
+            </div>
           </VStack>
         ) : null}
         {selectedImage ? (
@@ -671,6 +985,23 @@ export default function TextVsImageNotebookPage() {
                   onChange={setModel}
                 />
               </div>
+              {RECENT_PROBE_MODELS.map((slug) => (
+                <Button
+                  key={slug}
+                  size="sm"
+                  variant={model === slug ? 'primary' : 'secondary'}
+                  label={slug.replace(/^[^/]+\//, '')}
+                  isDisabled={running || saving}
+                  onClick={() => setModel(slug)}
+                />
+              ))}
+              <Button
+                size="sm"
+                variant={model === DEFAULT_PROBE_MODEL ? 'primary' : 'secondary'}
+                label="gpt-4o-mini (baseline)"
+                isDisabled={running || saving}
+                onClick={() => setModel(DEFAULT_PROBE_MODEL)}
+              />
               <Button
                 variant="primary"
                 label={running ? 'Running…' : 'Run full matrix'}
@@ -747,11 +1078,12 @@ export default function TextVsImageNotebookPage() {
       <VStack className="notebook-section" gap={2}>
         <Heading level={2}>6. Reading the results</Heading>
         <Text type="supporting">
-          Compare <code>tool_summary</code> (today&apos;s Copilot framing) against the image
-          encodings. Ranked bars and small multiples should dominate who-won / who-lost
-          questions; heatmaps help regime/crash reads; crowded overlays often lose ticker
-          identity. If images beat text on the same multimodal model, production may want
-          an optional chart-as-context path for panel questions — without dropping SQL tools.
+          Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
+          image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
+          markdown color key). If hybrids beat labeled images on the same model, OCR was the
+          bottleneck — production can send color legends in text and keep charts visual-only.
+          Ranked bars and small multiples should dominate who-won / who-lost questions;
+          heatmaps help regime/crash reads; crowded overlays often lose ticker identity.
         </Text>
       </VStack>
     </VStack>

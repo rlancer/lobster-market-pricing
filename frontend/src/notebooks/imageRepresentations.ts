@@ -3,13 +3,16 @@
  * Browser-only (uses document.createElement('canvas')).
  */
 
+import { paletteHex } from './palette.ts';
 import { type SynthUniverse, universeStats } from './syntheticSeries.ts';
 
 export type ImageRepId =
   | 'overlay_normalized'
   | 'small_multiples'
   | 'returns_heatmap'
-  | 'ranked_bars';
+  | 'ranked_bars'
+  | 'overlay_textless'
+  | 'ranked_bars_textless';
 
 export interface ImageRep {
   id: ImageRepId;
@@ -19,13 +22,6 @@ export interface ImageRep {
   height: number;
   dataUrl: string;
 }
-
-const PALETTE = [
-  '#35D0BA', '#4C8DFF', '#E0A84C', '#C56E8F', '#9B7EE0',
-  '#58B6C9', '#E07A5F', '#81B29A', '#F2CC8F', '#3D405B',
-  '#E9C46A', '#2A9D8F', '#E76F51', '#264653', '#A8DADC',
-  '#457B9D', '#1D3557', '#F4A261', '#2B2D42', '#8D99AE',
-];
 
 function makeCanvas(width: number, height: number): {
   canvas: HTMLCanvasElement;
@@ -63,7 +59,7 @@ function legend(
     const row = Math.floor(i / columns);
     const lx = x + col * 90;
     const ly = y + row * 16;
-    ctx.fillStyle = PALETTE[i % PALETTE.length]!;
+    ctx.fillStyle = paletteHex(i);
     ctx.fillRect(lx, ly - 8, 10, 10);
     ctx.fillStyle = '#C8D7D3';
     ctx.fillText(label, lx + 14, ly);
@@ -110,7 +106,7 @@ export function renderOverlayNormalized(universe: SynthUniverse): ImageRep {
   }
 
   rebased.forEach((series, idx) => {
-    ctx.strokeStyle = PALETTE[idx % PALETTE.length]!;
+    ctx.strokeStyle = paletteHex(idx);
     ctx.lineWidth = 1.75;
     ctx.beginPath();
     series.forEach((v, i) => {
@@ -128,6 +124,67 @@ export function renderOverlayNormalized(universe: SynthUniverse): ImageRep {
     id: 'overlay_normalized',
     label: 'Overlay (normalized)',
     description: 'All 20 names rebased to 100. Strong for relative ranking; weak for absolute levels.',
+    width,
+    height,
+    dataUrl: canvas.toDataURL('image/png'),
+  };
+}
+
+/**
+ * Same geometry as overlay_normalized but zero glyphs — no title, axes, or
+ * ticker legend. Identity must come from a companion markdown color key.
+ */
+export function renderOverlayTextless(universe: SynthUniverse): ImageRep {
+  const width = 1100;
+  const height = 560;
+  const { canvas, ctx } = makeCanvas(width, height);
+  paintBg(ctx, width, height);
+
+  const pad = { top: 24, right: 24, bottom: 24, left: 24 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+
+  const rebased = universe.series.map((s) => {
+    const base = s.bars[0]!.close;
+    return s.bars.map((b) => (b.close / base) * 100);
+  });
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const series of rebased) {
+    for (const v of series) {
+      minV = Math.min(minV, v);
+      maxV = Math.max(maxV, v);
+    }
+  }
+  const span = Math.max(maxV - minV, 1);
+
+  ctx.strokeStyle = '#1E2F3C';
+  ctx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const y = pad.top + (plotH * g) / 4;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+  }
+
+  rebased.forEach((series, idx) => {
+    ctx.strokeStyle = paletteHex(idx);
+    ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    series.forEach((v, i) => {
+      const x = pad.left + (i / Math.max(series.length - 1, 1)) * plotW;
+      const y = pad.top + ((maxV - v) / span) * plotH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  return {
+    id: 'overlay_textless',
+    label: 'Overlay (textless)',
+    description: 'Normalized overlay with no labels — pair with a markdown color key.',
     width,
     height,
     dataUrl: canvas.toDataURL('image/png'),
@@ -171,7 +228,7 @@ export function renderSmallMultiples(universe: SynthUniverse): ImageRep {
     const span = Math.max(maxV - minV, 1e-6);
     const plotW = cellW - 26;
     const plotH = cellH - 48;
-    ctx.strokeStyle = PALETTE[idx % PALETTE.length]!;
+    ctx.strokeStyle = paletteHex(idx);
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     closes.forEach((v, i) => {
@@ -292,6 +349,50 @@ export function renderRankedBars(universe: SynthUniverse): ImageRep {
   };
 }
 
+/**
+ * Sorted return bars with no ticker or percent glyphs — only colored bar
+ * geometry. Pair with markdown color key for identity.
+ */
+export function renderRankedBarsTextless(universe: SynthUniverse): ImageRep {
+  const stats = universeStats(universe).slice().sort((a, b) => b.totalReturnPct - a.totalReturnPct);
+  const width = 900;
+  const height = 24 + stats.length * 26 + 24;
+  const { canvas, ctx } = makeCanvas(width, height);
+  paintBg(ctx, width, height);
+
+  const maxAbs = Math.max(...stats.map((s) => Math.abs(s.totalReturnPct)), 1);
+  const left = 40;
+  const barMax = width - left - 40;
+  const mid = left + barMax / 2;
+
+  stats.forEach((s, i) => {
+    const y = 24 + i * 26;
+    const w = (Math.abs(s.totalReturnPct) / maxAbs) * (barMax / 2);
+    const seriesIdx = universe.series.findIndex((ser) => ser.ticker === s.ticker);
+    ctx.fillStyle = seriesIdx >= 0
+      ? paletteHex(seriesIdx)
+      : (s.totalReturnPct >= 0 ? '#49D89D' : '#FF806F');
+    if (s.totalReturnPct >= 0) ctx.fillRect(mid, y + 4, w, 14);
+    else ctx.fillRect(mid - w, y + 4, w, 14);
+  });
+
+  ctx.strokeStyle = '#1E2F3C';
+  ctx.beginPath();
+  ctx.moveTo(mid, 20);
+  ctx.lineTo(mid, height - 12);
+  ctx.stroke();
+
+  return {
+    id: 'ranked_bars_textless',
+    label: 'Ranked bars (textless)',
+    description: 'Sorted return bars with no labels — pair with a markdown color key.',
+    width,
+    height,
+    dataUrl: canvas.toDataURL('image/png'),
+  };
+}
+
+/** Classic labeled chart encodings (probed as image-only). */
 export function buildImageRepresentations(universe: SynthUniverse): ImageRep[] {
   return [
     renderOverlayNormalized(universe),

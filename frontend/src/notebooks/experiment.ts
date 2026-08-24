@@ -2,12 +2,13 @@
  * Shared experiment types for the text-vs-image notebook UI + API client.
  */
 
+import type { HybridRepId } from './hybridRepresentations.ts';
 import type { ImageRepId } from './imageRepresentations.ts';
 import type { TextRepId } from './textRepresentations.ts';
 
-export type RepresentationId = TextRepId | ImageRepId;
+export type RepresentationId = TextRepId | ImageRepId | HybridRepId;
 
-export type ProbeMode = 'text' | 'image';
+export type ProbeMode = 'text' | 'image' | 'multimodal';
 
 export interface ProbeRequest {
   model?: string;
@@ -29,8 +30,22 @@ export interface ProbeError {
   error: string;
 }
 
-/** Default multimodal OpenRouter slug for the experiment. */
+/** Baseline multimodal OpenRouter slug (kept for A/B against newer models). */
 export const DEFAULT_PROBE_MODEL = 'openai/gpt-4o-mini';
+
+/**
+ * Recent multimodal OpenRouter slugs for quick re-runs.
+ * Prefer models created within the last few months (vision-capable).
+ */
+export const RECENT_PROBE_MODELS = [
+  'google/gemini-3.7-flash',
+  'openai/gpt-5.6-luna',
+  'anthropic/claude-sonnet-4.6',
+  'x-ai/grok-4.6',
+] as const;
+
+/** Primary comparison model when re-running against the gpt-4o-mini baseline. */
+export const COMPARISON_PROBE_MODEL = RECENT_PROBE_MODELS[0];
 
 export const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   tool_summary: 'Tool summary (text)',
@@ -40,4 +55,8 @@ export const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   small_multiples: 'Small multiples',
   returns_heatmap: 'Returns heatmap',
   ranked_bars: 'Ranked bars',
+  overlay_textless: 'Overlay (textless)',
+  ranked_bars_textless: 'Ranked bars (textless)',
+  overlay_color_keyed: 'Overlay + color key',
+  ranked_bars_color_keyed: 'Ranked bars + color key',
 };

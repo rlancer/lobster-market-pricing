@@ -360,7 +360,10 @@ export async function getLatestExperimentRun(
 }
 
 /** Public JSON shape for GET latest / GET by id. */
-export function experimentRunToPublicJson(run: ExperimentRunRecord) {
+export function experimentRunToPublicJson(
+  run: ExperimentRunRecord,
+  opts?: { omitImages?: boolean },
+) {
   return {
     id: run.id,
     experiment_slug: run.experiment_slug,
@@ -369,15 +372,23 @@ export function experimentRunToPublicJson(run: ExperimentRunRecord) {
     created_at: run.created_at,
     created_by: run.created_by,
     results: run.results,
-    images: run.images.map((img) => ({
-      id: img.id,
-      label: img.label,
-      description: img.description,
-      width: img.width,
-      height: img.height,
-      data_url: img.data_url,
-    })),
+    images: opts?.omitImages
+      ? []
+      : run.images.map((img) => ({
+          id: img.id,
+          label: img.label,
+          description: img.description,
+          width: img.width,
+          height: img.height,
+          data_url: img.data_url,
+        })),
   };
+}
+
+export interface ExperimentRunRepAccuracy {
+  rep_id: string;
+  correct: number;
+  done: number;
 }
 
 export interface ExperimentRunSummary {
@@ -390,25 +401,71 @@ export interface ExperimentRunSummary {
   cells_done: number;
   cells_correct: number;
   cells_total: number;
+  /** Per-representation accuracy for cross-model conclusions (no image blobs). */
+  rep_accuracy: ExperimentRunRepAccuracy[];
+  rep_order: string[];
 }
 
 function summarizeResultsJson(resultsJson: string): {
   cells_done: number;
   cells_correct: number;
   cells_total: number;
+  rep_accuracy: ExperimentRunRepAccuracy[];
+  rep_order: string[];
 } {
   try {
     const results = JSON.parse(resultsJson) as ExperimentRunResults;
     const cells = Array.isArray(results.cells) ? results.cells : [];
     const done = cells.filter((c) => c.status === "done");
+    const byRep = new Map<string, { correct: number; done: number }>();
+    for (const cell of done) {
+      const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
+      cur.done += 1;
+      if (cell.correct) cur.correct += 1;
+      byRep.set(cell.rep_id, cur);
+    }
+    const rep_order = Array.isArray(results.rep_order)
+      ? results.rep_order.filter((x): x is string => typeof x === "string" && Boolean(x.trim()))
+      : [...byRep.keys()];
+    const rep_accuracy: ExperimentRunRepAccuracy[] = [];
+    const seen = new Set<string>();
+    for (const rid of rep_order) {
+      if (seen.has(rid)) continue;
+      seen.add(rid);
+      const stats = byRep.get(rid) ?? { correct: 0, done: 0 };
+      rep_accuracy.push({ rep_id: rid, correct: stats.correct, done: stats.done });
+    }
+    for (const [rid, stats] of byRep) {
+      if (seen.has(rid)) continue;
+      rep_accuracy.push({ rep_id: rid, correct: stats.correct, done: stats.done });
+    }
     return {
       cells_total: cells.length,
       cells_done: done.length,
       cells_correct: done.filter((c) => c.correct).length,
+      rep_accuracy,
+      rep_order,
     };
   } catch {
-    return { cells_total: 0, cells_done: 0, cells_correct: 0 };
+    return {
+      cells_total: 0,
+      cells_done: 0,
+      cells_correct: 0,
+      rep_accuracy: [],
+      rep_order: [],
+    };
   }
+}
+
+/** Exported for unit tests — parse results_json into list-summary fields. */
+export function summarizeExperimentResultsJson(resultsJson: string): {
+  cells_done: number;
+  cells_correct: number;
+  cells_total: number;
+  rep_accuracy: ExperimentRunRepAccuracy[];
+  rep_order: string[];
+} {
+  return summarizeResultsJson(resultsJson);
 }
 
 /** List published runs (newest first) without image blobs — for model comparison. */

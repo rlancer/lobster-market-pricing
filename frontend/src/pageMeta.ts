@@ -270,7 +270,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Text vs image experiment'),
       description:
-        'Compare Copilot-style text summaries with chart images for multimodal LLM accuracy on synthetic equity panels. View the exact images fed to the model and a server-saved run.',
+        'Compare Copilot-style text, labeled chart images, and textless charts with a markdown color key for multimodal LLM accuracy on synthetic equity panels.',
       path: path.startsWith('/notebooks') ? path : '/experiments/text-vs-image',
     };
   }
