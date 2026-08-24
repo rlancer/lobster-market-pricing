@@ -3541,7 +3541,13 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
         if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
         const run = await getExperimentRunById(env.SCHEMA_DB, slug, runId);
         if (!run) return json(env, { error: "run not found" }, 404);
-        return json(env, experimentRunToPublicJson(run), 200, "public");
+        const omitImages = new URL(req.url).searchParams.get("images") === "0";
+        return json(
+          env,
+          experimentRunToPublicJson(run, { omitImages }),
+          200,
+          "public",
+        );
       }
     }
   }

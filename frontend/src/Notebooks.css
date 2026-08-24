@@ -127,6 +127,18 @@
   font-family: var(--font-family-code);
 }
 
+.notebook-results-scroll {
+  overflow-x: auto;
+}
+
+.notebook-row-winner td {
+  background: color-mix(in srgb, var(--color-success, #2a9d8f) 14%, transparent);
+}
+
+.notebook-crosscut {
+  max-width: 100%;
+}
+
 .notebook-answer {
   max-width: 28ch;
   color: var(--muted);

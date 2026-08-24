@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/assert-backdrop-filter.mjs",
     "lint": "oxlint",
-    "test:unit": "node --experimental-strip-types --test src/admin.test.ts src/notebooks/syntheticSeries.test.ts src/chatConnection.test.ts src/chatSession.test.ts src/pageMeta.test.ts src/prepareAvatar.test.ts src/tickerChartRange.test.ts src/replyStyle.test.ts",
+    "test:unit": "node --experimental-strip-types --test src/admin.test.ts src/notebooks/syntheticSeries.test.ts src/notebooks/crossModelConclusion.test.ts src/chatConnection.test.ts src/chatSession.test.ts src/pageMeta.test.ts src/prepareAvatar.test.ts src/tickerChartRange.test.ts src/replyStyle.test.ts",
     "og:render": "node scripts/render-og.mjs",
     "test:e2e": "node node_modules/@playwright/test/cli.js test",
     "preview": "vite preview"

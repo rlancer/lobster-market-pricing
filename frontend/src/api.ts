@@ -1200,6 +1200,9 @@ export interface ExperimentRunSummary {
   cells_done: number;
   cells_correct: number;
   cells_total: number;
+  /** Present on newer Worker deploys — used for cross-model conclusions. */
+  rep_accuracy?: Array<{ rep_id: string; correct: number; done: number }>;
+  rep_order?: string[];
 }
 
 export interface SaveExperimentRunBody {
@@ -1351,9 +1354,11 @@ export const api = {
       `/api/experiments/${encodeURIComponent(slug)}/runs${qs({ limit })}`,
     ),
   /** Public: one published run by id. */
-  experimentRun: (slug: string, runId: string) =>
+  experimentRun: (slug: string, runId: string, opts?: { images?: boolean }) =>
     get<ExperimentRunPayload>(
-      `/api/experiments/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
+      `/api/experiments/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}${
+        opts?.images === false ? '?images=0' : ''
+      }`,
     ),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>

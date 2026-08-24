@@ -12,6 +12,11 @@ import {
 import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import { useIsAdmin } from './useAdmin';
 import {
+  buildCrossModelConclusion,
+  type CrossModelConclusion,
+  type RunSummaryForConclusion,
+} from './notebooks/crossModelConclusion';
+import {
   DEFAULT_PROBE_MODEL,
   RECENT_PROBE_MODELS,
 } from './notebooks/experiment';
@@ -107,6 +112,8 @@ export default function TextVsImageNotebookPage() {
   const [localHybrids, setLocalHybrids] = useState<HybridRep[]>([]);
   const [savedRun, setSavedRun] = useState<ExperimentRunPayload | null>(null);
   const [runList, setRunList] = useState<ExperimentRunSummary[]>([]);
+  const [crossCut, setCrossCut] = useState<CrossModelConclusion | null>(null);
+  const [crossCutState, setCrossCutState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -149,6 +156,75 @@ export default function TextVsImageNotebookPage() {
   const textReps = useMemo(() => buildTextRepresentations(universe), [universe]);
   const questions = useMemo(() => buildQuestions(universe), [universe]);
   const tickers = useMemo(() => universe.series.map((s) => s.ticker), [universe]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!runList.length) {
+      setCrossCut(null);
+      setCrossCutState('idle');
+      return;
+    }
+
+    void (async () => {
+      setCrossCutState('loading');
+      try {
+        const enriched: RunSummaryForConclusion[] = [];
+        const seenModels = new Set<string>();
+        for (const row of runList) {
+          if (seenModels.has(row.model)) continue;
+          seenModels.add(row.model);
+          if (row.rep_accuracy?.length) {
+            enriched.push({
+              id: row.id,
+              model: row.model,
+              created_at: row.created_at,
+              cells_correct: row.cells_correct,
+              cells_done: row.cells_done,
+              cells_total: row.cells_total,
+              rep_accuracy: row.rep_accuracy,
+              rep_order: row.rep_order,
+            });
+            continue;
+          }
+          // Older Worker list responses omit per-rep stats — pull results only.
+          const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, { images: false });
+          const byRep = new Map<string, { correct: number; done: number }>();
+          for (const cell of full.results.cells) {
+            if (cell.status !== 'done') continue;
+            const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
+            cur.done += 1;
+            if (cell.correct) cur.correct += 1;
+            byRep.set(cell.rep_id, cur);
+          }
+          enriched.push({
+            id: full.id,
+            model: full.model,
+            created_at: full.created_at,
+            cells_correct: row.cells_correct,
+            cells_done: row.cells_done,
+            cells_total: row.cells_total,
+            rep_order: full.results.rep_order,
+            rep_accuracy: (full.results.rep_order.length
+              ? full.results.rep_order
+              : [...byRep.keys()]
+            ).map((repId) => {
+              const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
+              return { rep_id: repId, correct: stats.correct, done: stats.done };
+            }),
+          });
+        }
+        if (cancelled) return;
+        setCrossCut(buildCrossModelConclusion(enriched));
+        setCrossCutState('ready');
+      } catch {
+        if (cancelled) return;
+        setCrossCut(null);
+        setCrossCutState('error');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [runList]);
 
   useEffect(() => {
     try {
@@ -612,6 +688,134 @@ export default function TextVsImageNotebookPage() {
               />
             ) : null}
           </HStack>
+        ) : null}
+      </VStack>
+
+      <VStack className="notebook-section notebook-crosscut" gap={3}>
+        <Heading level={2}>Cross-model conclusion</Heading>
+        {crossCutState === 'loading' || crossCutState === 'idle' ? (
+          <Text type="supporting">Aggregating published runs…</Text>
+        ) : null}
+        {crossCutState === 'error' ? (
+          <Text type="supporting">Could not build the cross-model summary.</Text>
+        ) : null}
+        {crossCut && crossCutState === 'ready' ? (
+          <>
+            <Text type="supporting">{crossCut.summary}</Text>
+            <HStack gap={2} style={{ flexWrap: 'wrap' }}>
+              {crossCut.winningFamily ? (
+                <Token
+                  label={`Winner family: ${crossCut.winningFamily.label} (${
+                    crossCut.winningFamily.meanAccuracy == null
+                      ? '—'
+                      : `${Math.round(crossCut.winningFamily.meanAccuracy * 100)}%`
+                  })`}
+                  color="teal"
+                  size="sm"
+                />
+              ) : null}
+              {crossCut.winningRep ? (
+                <Token
+                  label={`Best encoding: ${crossCut.winningRep.label} (${
+                    crossCut.winningRep.meanAccuracy == null
+                      ? '—'
+                      : `${Math.round(crossCut.winningRep.meanAccuracy * 100)}%`
+                  })`}
+                  color="teal"
+                  size="sm"
+                />
+              ) : null}
+            </HStack>
+            <div className="notebook-results notebook-results-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Representation</th>
+                    <th>Family</th>
+                    <th className="num">Mean</th>
+                    {crossCut.models.map((m) => (
+                      <th key={m.runId} className="num">
+                        <code>{m.model.includes('/') ? m.model.split('/')[1] : m.model}</code>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {crossCut.rows.map((row) => {
+                    const isWinner = crossCut.winningRep?.repId === row.repId;
+                    return (
+                      <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
+                        <td>{row.label}</td>
+                        <td>{row.family.replace('_', ' ')}</td>
+                        <td className="num">
+                          {row.meanAccuracy == null
+                            ? '—'
+                            : `${Math.round(row.meanAccuracy * 100)}%`}
+                        </td>
+                        {row.byModel.map((cell) => (
+                          <td key={`${row.repId}-${cell.runId}`} className="num">
+                            {cell.done
+                              ? `${cell.correct}/${cell.done}`
+                              : '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <td><strong>Overall</strong></td>
+                    <td />
+                    <td className="num">
+                      {(() => {
+                        const accs = crossCut.models
+                          .map((m) => m.overallAccuracy)
+                          .filter((a): a is number => a != null);
+                        if (!accs.length) return '—';
+                        const mean = accs.reduce((a, b) => a + b, 0) / accs.length;
+                        return `${Math.round(mean * 100)}%`;
+                      })()}
+                    </td>
+                    {crossCut.models.map((m) => (
+                      <td key={`overall-${m.runId}`} className="num">
+                        {m.cells_done
+                          ? `${m.cells_correct}/${m.cells_done}`
+                          : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="notebook-results">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Method family</th>
+                    <th className="num">Mean accuracy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {crossCut.families.map((f) => (
+                    <tr
+                      key={f.family}
+                      className={
+                        crossCut.winningFamily?.family === f.family
+                          ? 'notebook-row-winner'
+                          : undefined
+                      }
+                    >
+                      <td>{f.label}</td>
+                      <td className="num">
+                        {f.meanAccuracy == null
+                          ? '—'
+                          : `${Math.round(f.meanAccuracy * 100)}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : null}
       </VStack>
 
