@@ -19,7 +19,7 @@ import {
   useFocusTrap,
   useScrollLock,
 } from '@astryxdesign/core';
-import { Beaker, BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, FlaskConical, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath, isExperimentsNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -69,7 +69,7 @@ const EXPERIMENTS_HEADING: Section = {
   to: '/experiments',
   label: 'Experiments',
   heading: 'Experiments',
-  icon: Beaker,
+  icon: FlaskConical,
 };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
