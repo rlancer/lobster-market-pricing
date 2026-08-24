@@ -82,8 +82,13 @@ button, select { cursor: pointer; }
   flex-shrink: 0;
 }
 .mobile-bottom-nav-search {
-  min-width: min(18rem, calc(100vw - var(--spacing-10)));
+  width: 100%;
+  min-width: 0;
   padding-block-end: var(--spacing-0);
+}
+
+.mobile-ticker-search-modal {
+  display: none;
 }
 
 .mobile-bottom-nav {
@@ -430,6 +435,23 @@ button, select { cursor: pointer; }
     backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
     -webkit-backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
     pointer-events: none;
+  }
+  /* Full-screen search fills the viewport above the bottom nav. z-index stays
+     under the nav so the tab bar remains visible and tappable. */
+  .mobile-ticker-search-modal {
+    position: fixed;
+    z-index: 35;
+    inset: 0 0 var(--mobile-bottom-nav-height) 0;
+    display: flex;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    background: var(--color-background-surface);
+    box-shadow: var(--shadow-high);
+  }
+  .mobile-ticker-search-modal .mobile-bottom-nav-search {
+    padding-block-end: var(--spacing-0);
   }
   /* Portal to <body> so backdrop-filter samples scrolling page content instead
      of the opaque AppShell scroll pane sitting behind an in-tree fixed bar. */

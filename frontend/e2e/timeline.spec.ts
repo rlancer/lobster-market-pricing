@@ -394,7 +394,15 @@ test.describe('Public timeline', () => {
 
     await page.goto('/');
     await bottomNav.getByRole('button', { name: 'Search tickers' }).click();
-    await expect(page.getByRole('dialog', { name: 'Search tickers' }).getByRole('combobox', { name: 'Ticker' })).toBeVisible();
+    const searchDialog = page.getByRole('dialog', { name: 'Search tickers' });
+    await expect(searchDialog.getByRole('combobox', { name: 'Ticker' })).toBeVisible();
+    const searchBox = await searchDialog.boundingBox();
+    const navBoxWhileSearch = await bottomNav.boundingBox();
+    expect(searchBox && navBoxWhileSearch).toBeTruthy();
+    expect(searchBox!.y).toBeLessThan(navBoxWhileSearch!.y);
+    expect(searchBox!.y + searchBox!.height).toBeLessThanOrEqual(navBoxWhileSearch!.y + 1);
+    await expect(bottomNav.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
 
     await menu.click();
     const drawer = page.locator('dialog[aria-label="Navigation"]');
