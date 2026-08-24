@@ -30,11 +30,22 @@ export interface ProbeError {
   error: string;
 }
 
-/** Default multimodal OpenRouter slug for the experiment. */
+/** Baseline multimodal OpenRouter slug (kept for A/B against newer models). */
 export const DEFAULT_PROBE_MODEL = 'openai/gpt-4o-mini';
 
-/** Comparison model used when re-running against the gpt-4o-mini baseline. */
-export const COMPARISON_PROBE_MODEL = 'openai/gpt-4.1';
+/**
+ * Recent multimodal OpenRouter slugs for quick re-runs.
+ * Prefer models created within the last few months (vision-capable).
+ */
+export const RECENT_PROBE_MODELS = [
+  'google/gemini-3.7-flash',
+  'openai/gpt-5.6-luna',
+  'anthropic/claude-sonnet-4.6',
+  'x-ai/grok-4.6',
+] as const;
+
+/** Primary comparison model when re-running against the gpt-4o-mini baseline. */
+export const COMPARISON_PROBE_MODEL = RECENT_PROBE_MODELS[0];
 
 export const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   tool_summary: 'Tool summary (text)',
