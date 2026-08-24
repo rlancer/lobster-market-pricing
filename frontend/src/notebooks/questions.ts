@@ -194,7 +194,8 @@ export function scoreAnswer(
 
 export const SYSTEM_PROBE = [
   'You are grading a market-data reading test.',
-  'Use ONLY the provided context (text table/summary or chart image).',
+  'Use ONLY the provided context (text table/summary, chart image, and/or markdown color key).',
+  'When a color key is provided, the chart image has no text labels — map colors to tickers via the key.',
   'Do not use outside knowledge of real tickers or prices — these series are synthetic.',
   'Follow the answer format in the question exactly. Be concise.',
 ].join(' ');

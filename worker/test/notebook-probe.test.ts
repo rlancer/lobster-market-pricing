@@ -29,6 +29,20 @@ test("parseNotebookProbeBody accepts image data URLs", () => {
   assert.equal(parsed.mode, "image");
 });
 
+test("parseNotebookProbeBody accepts multimodal text + image", () => {
+  const parsed = parseNotebookProbeBody({
+    mode: "multimodal",
+    question: "Who won?",
+    text_context: "| Color | Ticker |\n| teal | AERO |",
+    image_data_url: "data:image/png;base64,aaa",
+  });
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.mode, "multimodal");
+  assert.ok(parsed.text_context?.includes("AERO"));
+  assert.ok(parsed.image_data_url?.startsWith("data:image/"));
+});
+
 test("parseNotebookProbeBody rejects missing fields", () => {
   const missingQ = parseNotebookProbeBody({ mode: "text", text_context: "x" });
   assert.equal(missingQ.ok, false);
@@ -44,6 +58,13 @@ test("parseNotebookProbeBody rejects missing fields", () => {
     image_data_url: "http://example.com/x.png",
   });
   assert.equal(badImage.ok, false);
+
+  const multimodalMissingText = parseNotebookProbeBody({
+    mode: "multimodal",
+    question: "q",
+    image_data_url: "data:image/png;base64,aaa",
+  });
+  assert.equal(multimodalMissingText.ok, false);
 });
 
 test("DEFAULT_NOTEBOOK_MODEL is a multimodal OpenRouter slug", () => {

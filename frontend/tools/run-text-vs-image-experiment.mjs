@@ -27,6 +27,7 @@ const API_BASE = (process.env.API_BASE ?? 'https://api-dev.lobster.mp').replace(
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const MODEL = process.env.MODEL ?? 'openai/gpt-4o-mini';
 const SLUG = process.env.SLUG ?? 'text-vs-image';
+const INCLUDE_HYBRIDS = (process.env.INCLUDE_HYBRIDS ?? '1') !== '0';
 
 if (!ADMIN_TOKEN) {
   console.error('ADMIN_TOKEN is required');
@@ -45,11 +46,13 @@ async function bundleBrowserHarness() {
 import { buildSynthUniverse } from ${JSON.stringify(join(NOTEBOOKS, 'syntheticSeries.ts'))};
 import { buildTextRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'textRepresentations.ts'))};
 import { buildImageRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'imageRepresentations.ts'))};
+import { buildHybridRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'hybridRepresentations.ts'))};
 import { buildQuestions, scoreAnswer, SYSTEM_PROBE } from ${JSON.stringify(join(NOTEBOOKS, 'questions.ts'))};
 
 const universe = buildSynthUniverse();
 const textReps = buildTextRepresentations(universe);
 const images = buildImageRepresentations(universe);
+const hybrids = buildHybridRepresentations(universe);
 const questions = buildQuestions(universe);
 const tickers = universe.series.map((s) => s.ticker);
 const system = Array.isArray(SYSTEM_PROBE) ? SYSTEM_PROBE.join(' ') : String(SYSTEM_PROBE);
@@ -72,6 +75,16 @@ globalThis.__TVSI__ = {
     width: r.width,
     height: r.height,
     data_url: r.dataUrl,
+  })),
+  hybrids: hybrids.map((h) => ({
+    id: h.id,
+    label: h.label,
+    description: h.description,
+    width: h.width,
+    height: h.height,
+    data_url: h.dataUrl,
+    text_context: h.textContext,
+    approx_tokens: h.approxTokens,
   })),
   questions: questions.map((q) => ({
     id: q.id,
@@ -129,6 +142,7 @@ async function main() {
   console.log(`API_BASE=${API_BASE}`);
   console.log(`MODEL=${MODEL}`);
   console.log(`SLUG=${SLUG}`);
+  console.log(`INCLUDE_HYBRIDS=${INCLUDE_HYBRIDS}`);
 
   const harness = await bundleBrowserHarness();
   const browser = await chromium.launch({
@@ -143,15 +157,21 @@ async function main() {
     if (!payload?.images?.length || !payload?.questions?.length) {
       throw new Error('harness did not produce images/questions');
     }
+    const hybrids = INCLUDE_HYBRIDS ? (payload.hybrids ?? []) : [];
+    if (!INCLUDE_HYBRIDS) {
+      console.log('INCLUDE_HYBRIDS=0 — skipping textless color-keyed multimodal reps');
+    }
     console.log(
-      `seed=${payload.seed} textReps=${payload.textReps.length} images=${payload.images.length} questions=${payload.questions.length}`,
+      `seed=${payload.seed} textReps=${payload.textReps.length} images=${payload.images.length} hybrids=${hybrids.length} questions=${payload.questions.length}`,
     );
 
     const textById = Object.fromEntries(payload.textReps.map((r) => [r.id, r]));
     const imageById = Object.fromEntries(payload.images.map((r) => [r.id, r]));
+    const hybridById = Object.fromEntries(hybrids.map((r) => [r.id, r]));
     const repOrder = [
       ...payload.textReps.map((r) => r.id),
       ...payload.images.map((r) => r.id),
+      ...hybrids.map((r) => r.id),
     ];
 
     const cells = [];
@@ -159,29 +179,42 @@ async function main() {
       for (const question of payload.questions) {
         const text = textById[repId];
         const image = imageById[repId];
+        const hybrid = hybridById[repId];
         process.stdout.write(`probe ${repId} × ${question.id}… `);
         try {
-          const result = text
+          const result = hybrid
             ? await api('/api/admin/notebooks/probe', {
                 method: 'POST',
                 body: {
                   model: MODEL,
-                  mode: 'text',
+                  mode: 'multimodal',
                   question: question.prompt,
                   system: payload.system,
-                  text_context: text.body,
+                  text_context: hybrid.text_context,
+                  image_data_url: hybrid.data_url,
                 },
               })
-            : await api('/api/admin/notebooks/probe', {
-                method: 'POST',
-                body: {
-                  model: MODEL,
-                  mode: 'image',
-                  question: question.prompt,
-                  system: payload.system,
-                  image_data_url: image.data_url,
-                },
-              });
+            : text
+              ? await api('/api/admin/notebooks/probe', {
+                  method: 'POST',
+                  body: {
+                    model: MODEL,
+                    mode: 'text',
+                    question: question.prompt,
+                    system: payload.system,
+                    text_context: text.body,
+                  },
+                })
+              : await api('/api/admin/notebooks/probe', {
+                  method: 'POST',
+                  body: {
+                    model: MODEL,
+                    mode: 'image',
+                    question: question.prompt,
+                    system: payload.system,
+                    image_data_url: image.data_url,
+                  },
+                });
           const scored = await page.evaluate(
             ({ questionId, answer }) => globalThis.__TVSI__.score(questionId, answer),
             { questionId: question.id, answer: result.answer },
@@ -227,11 +260,30 @@ async function main() {
             prompt: q.prompt,
             expected: q.expected,
           })),
-          text_reps: payload.textReps,
+          text_reps: [
+            ...payload.textReps,
+            ...hybrids.map((h) => ({
+              id: h.id,
+              label: h.label,
+              description: h.description,
+              approx_tokens: h.approx_tokens,
+              body: h.text_context,
+            })),
+          ],
           cells,
           rep_order: repOrder,
         },
-        images: payload.images,
+        images: [
+          ...payload.images,
+          ...hybrids.map((h) => ({
+            id: h.id,
+            label: h.label,
+            description: h.description,
+            width: h.width,
+            height: h.height,
+            data_url: h.data_url,
+          })),
+        ],
       },
     });
 

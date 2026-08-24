@@ -1328,7 +1328,7 @@ export const api = {
     ),
   adminNotebookProbe: (body: {
     model?: string;
-    mode: 'text' | 'image';
+    mode: 'text' | 'image' | 'multimodal';
     question: string;
     system?: string;
     text_context?: string;
