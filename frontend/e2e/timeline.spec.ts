@@ -362,13 +362,16 @@ test.describe('Public timeline', () => {
 
     const bottomNavStyles = await bottomNav.evaluate((element) => {
       const styles = getComputedStyle(element);
+      const frosted = getComputedStyle(element, '::before');
       return {
+        parentTag: element.parentElement?.tagName ?? null,
         position: styles.position,
         bottom: styles.bottom,
-        backdropFilter: styles.backdropFilter,
-        webkitBackdropFilter: styles.webkitBackdropFilter,
+        backdropFilter: frosted.backdropFilter,
+        webkitBackdropFilter: frosted.webkitBackdropFilter,
       };
     });
+    expect(bottomNavStyles.parentTag).toBe('BODY');
     expect(bottomNavStyles.position).toBe('fixed');
     expect(bottomNavStyles.bottom).toBe('0px');
     expect(

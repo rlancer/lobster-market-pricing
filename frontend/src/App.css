@@ -416,7 +416,7 @@ button, select { cursor: pointer; }
   }
   .mobile-bottom-nav {
     position: fixed;
-    z-index: 20;
+    z-index: 40;
     inset-inline: 0;
     bottom: 0;
     display: flex;
@@ -424,12 +424,26 @@ button, select { cursor: pointer; }
     padding: var(--spacing-1) var(--spacing-2)
       calc(var(--spacing-1) + env(safe-area-inset-bottom));
     border-top: var(--border-width) solid
-      color-mix(in srgb, var(--color-border-emphasized) 55%, transparent);
-    background: color-mix(in srgb, var(--panel) 42%, transparent);
+      color-mix(in srgb, var(--color-border-emphasized) 45%, transparent);
+    background: transparent;
+    box-shadow: none;
+    pointer-events: none;
+  }
+  /* Portal to <body> so backdrop-filter samples scrolling page content instead
+     of the opaque AppShell scroll pane sitting behind an in-tree fixed bar. */
+  .mobile-bottom-nav::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: color-mix(in srgb, var(--panel) 24%, transparent);
     box-shadow: var(--shadow-med);
-    isolation: isolate;
-    backdrop-filter: blur(20px) saturate(1.35);
-    -webkit-backdrop-filter: blur(20px) saturate(1.35);
+    backdrop-filter: blur(24px) saturate(1.65);
+    -webkit-backdrop-filter: blur(24px) saturate(1.65);
+    pointer-events: none;
+  }
+  .mobile-bottom-nav > * {
+    pointer-events: auto;
   }
   .mobile-bottom-nav > * {
     flex: 1;
