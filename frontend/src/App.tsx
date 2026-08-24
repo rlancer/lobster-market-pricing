@@ -7,7 +7,6 @@ import {
   Divider,
   HStack,
   Layout,
-  LayoutContent,
   Link as AstryxLink,
   MobileNav,
   SideNav,
@@ -390,28 +389,25 @@ function MobileTickerSearchModal({
   if (!isOpen) return null;
 
   return createPortal(
-    <Layout
+    <VStack
       ref={containerRef}
       role="dialog"
       aria-modal="true"
       aria-label="Search tickers"
       className="mobile-ticker-search-modal"
-      height="100%"
-      header={
-        <DialogHeader
-          title="Search tickers"
-          onOpenChange={onOpenChange}
-        />
-      }
-      content={
-        <LayoutContent>
-          <ResearchSearch
-            className="nav-research-search mobile-bottom-nav-search"
-            onSelectSymbol={() => onOpenChange(false)}
-          />
-        </LayoutContent>
-      }
-    />,
+      gap={3}
+      width="100%"
+      padding={3}
+    >
+      <DialogHeader
+        title="Search tickers"
+        onOpenChange={onOpenChange}
+      />
+      <ResearchSearch
+        className="nav-research-search mobile-bottom-nav-search"
+        onSelectSymbol={() => onOpenChange(false)}
+      />
+    </VStack>,
     document.body,
   );
 }

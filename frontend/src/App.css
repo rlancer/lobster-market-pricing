@@ -445,6 +445,8 @@ button, select { cursor: pointer; }
     display: flex;
     width: 100%;
     max-width: none;
+    height: auto;
+    max-height: none;
     background: var(--color-background-surface);
     box-shadow: var(--shadow-high);
   }
