@@ -78,3 +78,16 @@ test("parseSaveExperimentRunBody rejects non-data-url images", () => {
   }, "text-vs-image");
   assert.equal(parsed.ok, false);
 });
+
+test("summarize helpers stay on parseSaveExperimentRunBody happy path", () => {
+  const parsed = parseSaveExperimentRunBody({
+    model: "openai/gpt-4o-mini",
+    seed: 1,
+    results: minimalResults,
+    images: [minimalImage],
+  }, "text-vs-image");
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const done = parsed.input.results.cells.filter((c) => c.status === "done");
+  assert.ok(done.length >= 1);
+});

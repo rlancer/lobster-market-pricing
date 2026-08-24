@@ -59,7 +59,9 @@ import { createCopilotModel } from "./copilot-contract";
 import { parseNotebookProbeBody, runNotebookProbe } from "./notebook-probe";
 import {
   experimentRunToPublicJson,
+  getExperimentRunById,
   getLatestExperimentRun,
+  listExperimentRuns,
   parseSaveExperimentRunBody,
   saveExperimentRun,
 } from "./experiment-runs";
@@ -3512,6 +3514,35 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       const run = await getLatestExperimentRun(env.SCHEMA_DB, slug);
       if (!run) return json(env, { error: "no published run" }, 404);
       return json(env, experimentRunToPublicJson(run), 200, "public");
+    }
+  }
+
+  // Public: list published runs (metadata only — pick a model/run to compare).
+  {
+    const listMatch = path.match(/^\/api\/experiments\/([^/]+)\/runs$/);
+    if (listMatch && req.method === "GET") {
+      const slug = decodeURIComponent(listMatch[1]!);
+      if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
+      const limitRaw = Number(new URL(req.url).searchParams.get("limit") ?? 20);
+      const items = await listExperimentRuns(env.SCHEMA_DB, slug, limitRaw);
+      return json(env, { items }, 200, "public");
+    }
+  }
+
+  // Public: one published run by id (full results + images).
+  {
+    const oneMatch = path.match(/^\/api\/experiments\/([^/]+)\/runs\/([^/]+)$/);
+    if (oneMatch && req.method === "GET") {
+      const slug = decodeURIComponent(oneMatch[1]!);
+      const runId = decodeURIComponent(oneMatch[2]!);
+      if (runId === "latest") {
+        // handled above
+      } else {
+        if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
+        const run = await getExperimentRunById(env.SCHEMA_DB, slug, runId);
+        if (!run) return json(env, { error: "run not found" }, 404);
+        return json(env, experimentRunToPublicJson(run), 200, "public");
+      }
     }
   }
 

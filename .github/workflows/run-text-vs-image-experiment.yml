@@ -1,0 +1,118 @@
+name: Run text-vs-image experiment
+
+# Publishes a server-saved Experiments run (probes + exact chart images) so the
+# public /experiments/text-vs-image page has results without visitors spending
+# OpenRouter credits. Re-dispatch with a different `model` to compare models.
+#
+# Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
+# already be set on the target Worker (synced by deploy.yml).
+#
+# Trigger: workflow_dispatch, or push to cursor/run-text-vs-image-experiment-ca84
+# (gh workflow_dispatch is 403 for the Cursor integration token).
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'OpenRouter model slug'
+        type: string
+        default: 'openai/gpt-4o-mini'
+      api_base:
+        description: 'Worker API origin'
+        type: choice
+        options:
+          - https://api-dev.lobster.mp
+          - https://api.lobster.mp
+        default: https://api-dev.lobster.mp
+  push:
+    branches: ['cursor/run-text-vs-image-experiment-ca84']
+
+concurrency:
+  group: run-text-vs-image-experiment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run-experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      MODEL: ${{ inputs.model || 'openai/gpt-4o-mini' }}
+      API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
+      SLUG: text-vs-image
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require ADMIN_TOKEN
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          echo "ADMIN_TOKEN present (value not printed)."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Install Playwright Chromium
+        run: cd frontend && npx playwright install --with-deps chromium
+
+      - name: Wait for experiment list route (Worker may still be rolling)
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /tmp/exp-list.json -w '%{http_code}' \
+              "$API_BASE/api/experiments/$SLUG/runs" || true)
+            if [ "$code" = "200" ]; then
+              echo "list endpoint ready (HTTP 200)"
+              cat /tmp/exp-list.json
+              exit 0
+            fi
+            echo "attempt $i: HTTP $code — waiting for Worker route…"
+            sleep 10
+          done
+          echo "::error::list endpoint never returned 200"
+          cat /tmp/exp-list.json || true
+          exit 1
+
+      - name: Run probes and publish saved run
+        run: |
+          set -euo pipefail
+          cd frontend
+          node tools/run-text-vs-image-experiment.mjs
+
+      - name: Verify latest run is public
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/latest.json -w '%{http_code}' \
+            "$API_BASE/api/experiments/$SLUG/runs/latest")
+          echo "HTTP $code"
+          head -c 400 /tmp/latest.json; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::latest run not available"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          run = json.load(open("/tmp/latest.json"))
+          cells = run.get("results", {}).get("cells", [])
+          done = [c for c in cells if c.get("status") == "done"]
+          correct = [c for c in done if c.get("correct")]
+          print(f"id={run.get('id')} model={run.get('model')} correct={len(correct)}/{len(done)} images={len(run.get('images', []))}")
+          if not done:
+              raise SystemExit("published run has no completed cells")
+          if not run.get("images"):
+              raise SystemExit("published run missing images")
+          PY

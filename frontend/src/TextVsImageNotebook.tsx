@@ -9,7 +9,7 @@ import {
   Token,
   VStack,
 } from '@astryxdesign/core';
-import { api, type ExperimentRunPayload } from './api';
+import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import { useIsAdmin } from './useAdmin';
 import { DEFAULT_PROBE_MODEL } from './notebooks/experiment';
 import {
@@ -97,11 +97,43 @@ export default function TextVsImageNotebookPage() {
   const [matrix, setMatrix] = useState<Matrix>({});
   const [localImages, setLocalImages] = useState<ImageRep[]>([]);
   const [savedRun, setSavedRun] = useState<ExperimentRunPayload | null>(null);
+  const [runList, setRunList] = useState<ExperimentRunSummary[]>([]);
   const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState('tool_summary');
   const [viewSource, setViewSource] = useState<'saved' | 'local'>('saved');
+
+  const applyRun = (run: ExperimentRunPayload) => {
+    setSavedRun(run);
+    setMatrix(matrixFromRun(run));
+    setModel(run.model || DEFAULT_PROBE_MODEL);
+    setViewSource('saved');
+    setRunLoadState('ready');
+  };
+
+  const refreshRunList = async () => {
+    try {
+      const listed = await api.experimentListRuns(EXPERIMENT_SLUG, 20);
+      setRunList(listed.items);
+      return listed.items;
+    } catch {
+      setRunList([]);
+      return [] as ExperimentRunSummary[];
+    }
+  };
+
+  const loadRunById = async (runId: string) => {
+    setRunLoadState('loading');
+    setRunLoadError(null);
+    try {
+      const run = await api.experimentRun(EXPERIMENT_SLUG, runId);
+      applyRun(run);
+    } catch (error: unknown) {
+      setRunLoadState('error');
+      setRunLoadError(String((error as Error)?.message ?? error));
+    }
+  };
 
   const universe = useMemo(() => buildSynthUniverse(), []);
   const stats = useMemo(() => universeStats(universe), [universe]);
@@ -122,19 +154,19 @@ export default function TextVsImageNotebookPage() {
     let cancelled = false;
     setRunLoadState('loading');
     setRunLoadError(null);
-    api.experimentLatestRun(EXPERIMENT_SLUG)
-      .then((run) => {
+    void (async () => {
+      const items = await refreshRunList();
+      if (cancelled) return;
+      try {
+        const run = items[0]
+          ? await api.experimentRun(EXPERIMENT_SLUG, items[0].id)
+          : await api.experimentLatestRun(EXPERIMENT_SLUG);
         if (cancelled) return;
-        setSavedRun(run);
-        setMatrix(matrixFromRun(run));
-        setModel(run.model || DEFAULT_PROBE_MODEL);
-        setViewSource('saved');
-        setRunLoadState('ready');
-      })
-      .catch((error: unknown) => {
+        applyRun(run);
+      } catch (error: unknown) {
         if (cancelled) return;
         const message = String((error as Error)?.message ?? error);
-        if (/404|no published run/i.test(message)) {
+        if (/404|no published run|run not found/i.test(message)) {
           setSavedRun(null);
           setRunLoadState('missing');
           setViewSource('local');
@@ -143,7 +175,8 @@ export default function TextVsImageNotebookPage() {
           setRunLoadError(message);
           setViewSource('local');
         }
-      });
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -335,7 +368,8 @@ export default function TextVsImageNotebookPage() {
       setMatrix(matrixFromRun(response.run));
       setViewSource('saved');
       setRunLoadState('ready');
-      setSaveMessage(`Published run ${response.run.id.slice(0, 8)}… — visitors load this without probing.`);
+      await refreshRunList();
+      setSaveMessage(`Published run ${response.run.id.slice(0, 8)}… — visitors load this without probing. Re-run with another model to compare.`);
     } catch (error) {
       setSaveMessage(String((error as Error)?.message ?? error));
     } finally {
@@ -396,7 +430,10 @@ export default function TextVsImageNotebookPage() {
             model <code>{savedRun.model}</code>
             {' · '}
             seed <code>{savedRun.seed}</code>
+            {' · '}
+            id <code>{savedRun.id.slice(0, 8)}</code>
             . Viewing this costs nothing — probes already ran on the server.
+            Publish again with a different model to compare side-by-side below.
           </Text>
         ) : null}
         {runLoadState === 'missing' ? (
@@ -409,6 +446,56 @@ export default function TextVsImageNotebookPage() {
         ) : null}
         {runLoadState === 'error' ? (
           <Text type="supporting">Could not load saved run: {runLoadError}</Text>
+        ) : null}
+        {runList.length > 0 ? (
+          <VStack gap={2}>
+            <Text type="supporting">
+              Saved runs (newest first) — select one to load its answers and the exact images
+              that model saw:
+            </Text>
+            <div className="notebook-results">
+              <table>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Model</th>
+                    <th>Accuracy</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runList.map((row) => {
+                    const when = new Date(row.created_at).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    });
+                    const acc = row.cells_done
+                      ? `${row.cells_correct}/${row.cells_done}`
+                      : '—';
+                    const selected = savedRun?.id === row.id;
+                    return (
+                      <tr key={row.id}>
+                        <td>{when}</td>
+                        <td><code>{row.model}</code></td>
+                        <td className="num">{acc}</td>
+                        <td>
+                          <Button
+                            size="sm"
+                            variant={selected ? 'primary' : 'secondary'}
+                            label={selected ? 'Viewing' : 'Load'}
+                            isDisabled={selected || runLoadState === 'loading'}
+                            onClick={() => { void loadRunById(row.id); }}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </VStack>
         ) : null}
         {savedRun && localImages.length ? (
           <HStack gap={2} style={{ flexWrap: 'wrap' }}>

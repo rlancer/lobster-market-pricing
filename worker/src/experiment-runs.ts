@@ -359,7 +359,7 @@ export async function getLatestExperimentRun(
   };
 }
 
-/** Public JSON shape for GET latest. */
+/** Public JSON shape for GET latest / GET by id. */
 export function experimentRunToPublicJson(run: ExperimentRunRecord) {
   return {
     id: run.id,
@@ -376,6 +376,136 @@ export function experimentRunToPublicJson(run: ExperimentRunRecord) {
       width: img.width,
       height: img.height,
       data_url: img.data_url,
+    })),
+  };
+}
+
+export interface ExperimentRunSummary {
+  id: string;
+  experiment_slug: string;
+  model: string;
+  seed: number;
+  created_at: number;
+  created_by: string | null;
+  cells_done: number;
+  cells_correct: number;
+  cells_total: number;
+}
+
+function summarizeResultsJson(resultsJson: string): {
+  cells_done: number;
+  cells_correct: number;
+  cells_total: number;
+} {
+  try {
+    const results = JSON.parse(resultsJson) as ExperimentRunResults;
+    const cells = Array.isArray(results.cells) ? results.cells : [];
+    const done = cells.filter((c) => c.status === "done");
+    return {
+      cells_total: cells.length,
+      cells_done: done.length,
+      cells_correct: done.filter((c) => c.correct).length,
+    };
+  } catch {
+    return { cells_total: 0, cells_done: 0, cells_correct: 0 };
+  }
+}
+
+/** List published runs (newest first) without image blobs — for model comparison. */
+export async function listExperimentRuns(
+  db: D1Database,
+  experimentSlug: string,
+  limit = 20,
+): Promise<ExperimentRunSummary[]> {
+  const capped = Math.max(1, Math.min(50, Math.trunc(limit)));
+  const rows = await db.prepare(
+    `SELECT id, experiment_slug, model, seed, created_at, created_by, results_json
+     FROM experiment_runs
+     WHERE experiment_slug = ?1
+     ORDER BY created_at DESC
+     LIMIT ?2`,
+  ).bind(experimentSlug, capped).all<{
+    id: string;
+    experiment_slug: string;
+    model: string;
+    seed: number;
+    created_at: number;
+    created_by: string | null;
+    results_json: string;
+  }>();
+
+  return (rows.results ?? []).map((row) => {
+    const stats = summarizeResultsJson(row.results_json);
+    return {
+      id: row.id,
+      experiment_slug: row.experiment_slug,
+      model: row.model,
+      seed: row.seed,
+      created_at: row.created_at,
+      created_by: row.created_by,
+      ...stats,
+    };
+  });
+}
+
+export async function getExperimentRunById(
+  db: D1Database,
+  experimentSlug: string,
+  runId: string,
+): Promise<ExperimentRunRecord | null> {
+  const row = await db.prepare(
+    `SELECT id, experiment_slug, model, seed, created_at, created_by, results_json
+     FROM experiment_runs
+     WHERE experiment_slug = ?1 AND id = ?2
+     LIMIT 1`,
+  ).bind(experimentSlug, runId).first<{
+    id: string;
+    experiment_slug: string;
+    model: string;
+    seed: number;
+    created_at: number;
+    created_by: string | null;
+    results_json: string;
+  }>();
+
+  if (!row) return null;
+
+  let results: ExperimentRunResults;
+  try {
+    results = JSON.parse(row.results_json) as ExperimentRunResults;
+  } catch {
+    return null;
+  }
+
+  const imageRows = await db.prepare(
+    `SELECT image_id, label, description, width, height, data_url
+     FROM experiment_run_images
+     WHERE run_id = ?1
+     ORDER BY image_id ASC`,
+  ).bind(row.id).all<{
+    image_id: string;
+    label: string;
+    description: string;
+    width: number;
+    height: number;
+    data_url: string;
+  }>();
+
+  return {
+    id: row.id,
+    experiment_slug: row.experiment_slug,
+    model: row.model,
+    seed: row.seed,
+    created_at: row.created_at,
+    created_by: row.created_by,
+    results,
+    images: (imageRows.results ?? []).map((r) => ({
+      id: r.image_id,
+      label: r.label,
+      description: r.description,
+      width: r.width,
+      height: r.height,
+      data_url: r.data_url,
     })),
   };
 }

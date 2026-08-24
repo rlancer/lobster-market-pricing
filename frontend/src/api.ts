@@ -1189,6 +1189,19 @@ export interface ExperimentRunPayload {
   }>;
 }
 
+/** Metadata-only row from GET /api/experiments/:slug/runs (no image blobs). */
+export interface ExperimentRunSummary {
+  id: string;
+  experiment_slug: string;
+  model: string;
+  seed: number;
+  created_at: number;
+  created_by: string | null;
+  cells_done: number;
+  cells_correct: number;
+  cells_total: number;
+}
+
 export interface SaveExperimentRunBody {
   experiment_slug?: string;
   model: string;
@@ -1331,6 +1344,16 @@ export const api = {
   experimentLatestRun: (slug: string) =>
     get<ExperimentRunPayload>(
       `/api/experiments/${encodeURIComponent(slug)}/runs/latest`,
+    ),
+  /** Public: list published runs (newest first) for multi-model comparison. */
+  experimentListRuns: (slug: string, limit = 20) =>
+    get<{ items: ExperimentRunSummary[] }>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs${qs({ limit })}`,
+    ),
+  /** Public: one published run by id. */
+  experimentRun: (slug: string, runId: string) =>
+    get<ExperimentRunPayload>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
     ),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
