@@ -375,6 +375,10 @@ test.describe('Public timeline', () => {
       bottomNavStyles.backdropFilter !== 'none'
       || bottomNavStyles.webkitBackdropFilter !== 'none',
     ).toBe(true);
+    const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
+    const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
+    expect(menuBox && timelineBox).toBeTruthy();
+    expect(menuBox!.x).toBeLessThan(timelineBox!.x);
 
     const bottomNavBox = await bottomNav.boundingBox();
     expect(bottomNavBox).toBeTruthy();
