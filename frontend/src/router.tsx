@@ -23,7 +23,7 @@ import ChatsPage from './Chats';
 import TradesPage from './Trades';
 import PortfolioPage from './Portfolio';
 import CopilotExplorePage from './CopilotExplore';
-import AdminPage from './Admin';
+import AdminPage from './AdminPage';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {

@@ -5,6 +5,7 @@ import {
   Divider,
   HStack,
   Layout,
+  Link as AstryxLink,
   MobileNav,
   Popover,
   SideNav,
@@ -15,7 +16,7 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -123,55 +124,6 @@ function WorkspaceBrand() {
       </RouterLink>
     </HStack>
   );
-}
-
-/** Mobile app-bar actions — new chat + ticker search. Desktop SideNav keeps the brand. */
-function WorkspaceNavigationHeader() {
-  const navigate = useNavigate();
-  const { isMobile } = useAppShellMobile();
-  const [searchOpen, setSearchOpen] = useState(false);
-
-  if (isMobile) {
-    return (
-      <HStack gap={1} vAlign="center" className="mobile-topbar-actions">
-        <IconButton
-          variant="ghost"
-          size="sm"
-          label="New chat"
-          tooltip="New chat"
-          icon={<SquarePen size={16} />}
-          onClick={() => {
-            requestNewChat();
-            void navigate({ to: '/chat' });
-          }}
-        />
-        <Popover
-          placement="below"
-          alignment="start"
-          label="Search tickers"
-          width="min(22rem, calc(100vw - var(--spacing-6)))"
-          isOpen={searchOpen}
-          onOpenChange={setSearchOpen}
-          content={
-            <ResearchSearch
-              className="nav-research-search mobile-topbar-search"
-              onSelectSymbol={() => setSearchOpen(false)}
-            />
-          }
-        >
-          <IconButton
-            variant="ghost"
-            size="sm"
-            label="Search tickers"
-            tooltip="Search tickers"
-            icon={<Search size={16} />}
-          />
-        </Popover>
-      </HStack>
-    );
-  }
-
-  return <WorkspaceBrand />;
 }
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
@@ -391,12 +343,105 @@ function WorkspaceNavigation({
   return (
     <SideNav
       className="workspace-nav"
-      header={<WorkspaceNavigationHeader />}
+      header={<WorkspaceBrand />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
       footer={<WorkspaceHelpNav activeTo={activeTo} pathname={pathname} />}
     >
       <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
+  );
+}
+
+/** Thumb-friendly mobile destinations and actions, fixed above the safe area. */
+function MobileBottomNavigation() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const {
+    isMobile,
+    isMobileNavOpen,
+    mobileNavId,
+    openMobileNav,
+  } = useAppShellMobile();
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  if (!isMobile) return null;
+
+  const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
+  const isResearch = location.pathname.startsWith('/research');
+
+  return (
+    <HStack
+      as="nav"
+      aria-label="Mobile navigation"
+      className="mobile-bottom-nav"
+      gap={0}
+      hAlign="evenly"
+      vAlign="center"
+      width="100%"
+    >
+      <AstryxLink
+        as={RouterLink}
+        href="/"
+        label="Timeline"
+        isStandalone
+        className="mobile-bottom-nav-link"
+        data-selected={isTimeline ? 'true' : undefined}
+        aria-current={isTimeline ? 'page' : undefined}
+      >
+        <Newspaper size={20} aria-hidden="true" />
+      </AstryxLink>
+
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="New chat"
+        tooltip="New chat"
+        icon={<SquarePen size={20} />}
+        className="mobile-bottom-nav-action mobile-bottom-nav-new-chat"
+        onClick={() => {
+          requestNewChat();
+          void navigate({ to: '/chat' });
+        }}
+      />
+
+      <Popover
+        placement="above"
+        alignment="center"
+        label="Search tickers"
+        width="min(22rem, calc(100vw - var(--spacing-6)))"
+        isOpen={searchOpen}
+        onOpenChange={setSearchOpen}
+        content={
+          <ResearchSearch
+            className="nav-research-search mobile-bottom-nav-search"
+            onSelectSymbol={() => setSearchOpen(false)}
+          />
+        }
+      >
+        <IconButton
+          variant="ghost"
+          size="sm"
+          label="Search tickers"
+          tooltip="Search tickers"
+          icon={<Search size={20} />}
+          className="mobile-bottom-nav-action"
+          data-selected={isResearch ? 'true' : undefined}
+        />
+      </Popover>
+
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Menu"
+        tooltip="Menu"
+        icon={<Menu size={20} />}
+        className="mobile-bottom-nav-action"
+        data-testid="mobile-nav-toggle"
+        aria-expanded={isMobileNavOpen}
+        aria-controls={mobileNavId || undefined}
+        onClick={openMobileNav}
+      />
+    </HStack>
   );
 }
 
@@ -462,9 +507,9 @@ function WorkspaceLayout() {
 
   // Responsive contract:
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
-  //   <= 768px AppShell renders a compact top bar (New chat + ticker search) and
-  //            the SideNav becomes a start-side drawer. Full nav + account stay
-  //            in the drawer; the timeline ask composer is desktop-only.
+  //   <= 768px A fixed bottom nav owns Timeline, New chat, ticker search, and
+  //            the menu trigger. SideNav becomes a start-side drawer; the
+  //            timeline ask composer remains desktop-only.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
@@ -474,7 +519,7 @@ function WorkspaceLayout() {
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
-          hasToggle: true,
+          hasToggle: false,
           breakpoint: 'md',
           content: (
             <MobileNav side="start" label="Navigation" header={<WorkspaceBrand />}>
@@ -494,6 +539,7 @@ function WorkspaceLayout() {
             <Outlet />
           </section>
         </Layout>
+        <MobileBottomNavigation />
       </AppShell>
     </WorkspaceContext.Provider>
   );
