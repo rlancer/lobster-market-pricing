@@ -424,11 +424,11 @@ button, select { cursor: pointer; }
     padding: var(--spacing-1) var(--spacing-2)
       calc(var(--spacing-1) + env(safe-area-inset-bottom));
     border-top: var(--border-width) solid
-      color-mix(in srgb, var(--color-border-emphasized) 70%, transparent);
-    background: color-mix(in srgb, var(--panel) 88%, transparent);
+      color-mix(in srgb, var(--color-border-emphasized) 85%, transparent);
+    background: color-mix(in srgb, var(--panel) 80%, transparent);
     box-shadow: var(--shadow-high);
-    backdrop-filter: blur(48px) saturate(2) brightness(1.08);
-    -webkit-backdrop-filter: blur(48px) saturate(2) brightness(1.08);
+    backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
+    -webkit-backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
     pointer-events: none;
   }
   /* Portal to <body> so backdrop-filter samples scrolling page content instead
