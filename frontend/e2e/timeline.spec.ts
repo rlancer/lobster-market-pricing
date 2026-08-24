@@ -253,15 +253,6 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
 
     await page.evaluate(() => {
-      let current: Element | null = document.querySelector('.timeline-feed');
-      while (current) {
-        const overflowY = getComputedStyle(current).overflowY;
-        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
-          current.scrollTop += 1200;
-          return;
-        }
-        current = current.parentElement;
-      }
       window.scrollBy(0, 1200);
     });
 
@@ -366,9 +357,9 @@ test.describe('Public timeline', () => {
         parentTag: element.parentElement?.tagName ?? null,
         position: styles.position,
         bottom: styles.bottom,
+        backgroundColor: styles.backgroundColor,
         backdropFilter: styles.backdropFilter,
         webkitBackdropFilter: styles.webkitBackdropFilter,
-        backgroundColor: styles.backgroundColor,
       };
     });
     expect(bottomNavStyles.parentTag).toBe('BODY');
@@ -378,6 +369,12 @@ test.describe('Public timeline', () => {
       bottomNavStyles.backdropFilter !== 'none'
       || bottomNavStyles.webkitBackdropFilter !== 'none',
     ).toBe(true);
+    // Chromium needs the unprefixed property; webkit-only (lightningcss bug)
+    // computes as none and paints no blur.
+    expect(bottomNavStyles.backdropFilter).toMatch(/blur\(/);
+    // Translucent tint — near-opaque panel paint would hide the blur.
+    // Chromium may serialize color-mix as rgba(...) or color(srgb ... / a).
+    expect(bottomNavStyles.backgroundColor).toMatch(/\/\s*0?\.\d+|rgba?\([^)]+,\s*0?\.\d+/);
     const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
     const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
     expect(menuBox && timelineBox).toBeTruthy();
@@ -394,7 +391,15 @@ test.describe('Public timeline', () => {
 
     await page.goto('/');
     await bottomNav.getByRole('button', { name: 'Search tickers' }).click();
-    await expect(page.getByRole('dialog', { name: 'Search tickers' }).getByRole('combobox', { name: 'Ticker' })).toBeVisible();
+    const searchDialog = page.getByRole('dialog', { name: 'Search tickers' });
+    await expect(searchDialog.getByRole('combobox', { name: 'Ticker' })).toBeVisible();
+    const searchBox = await searchDialog.boundingBox();
+    const navBoxWhileSearch = await bottomNav.boundingBox();
+    expect(searchBox && navBoxWhileSearch).toBeTruthy();
+    expect(searchBox!.y).toBeLessThan(navBoxWhileSearch!.y);
+    expect(searchBox!.y + searchBox!.height).toBeLessThanOrEqual(navBoxWhileSearch!.y + 1);
+    await expect(bottomNav.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
 
     await menu.click();
     const drawer = page.locator('dialog[aria-label="Navigation"]');

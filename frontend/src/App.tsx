@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
+  DialogHeader,
   Divider,
   HStack,
   Layout,
   Link as AstryxLink,
   MobileNav,
-  Popover,
   SideNav,
   SideNavItem,
   SideNavSection,
@@ -16,6 +16,8 @@ import {
   Text,
   VStack,
   useAppShellMobile,
+  useFocusTrap,
+  useScrollLock,
 } from '@astryxdesign/core';
 import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
@@ -66,13 +68,13 @@ const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'D
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
 
-/** Global ticker jump — desktop rail on wide viewports, drawer on mobile. */
+/** Global ticker jump — desktop rail on wide viewports, mobile search modal. */
 function ResearchSearch({
   className,
   onSelectSymbol,
 }: {
   className: string;
-  /** Optional hook after a ticker pick (e.g. close a mobile search popover). */
+  /** Optional hook after a ticker pick (e.g. close the mobile search modal). */
   onSelectSymbol?: (symbol: string) => void;
 }) {
   const navigate = useNavigate();
@@ -353,7 +355,69 @@ function WorkspaceNavigation({
   );
 }
 
-/** Thumb-friendly mobile destinations and actions, fixed above the safe area. */
+/**
+ * Full-viewport ticker search on mobile. Sits above page content but below the
+ * bottom nav (z-index) so the tab bar stays visible and tappable.
+ */
+function MobileTickerSearchModal({
+  isOpen,
+  onOpenChange,
+}: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { containerRef, focusFirst } = useFocusTrap<HTMLDivElement>({
+    isActive: isOpen,
+    onEscape: () => onOpenChange(false),
+  });
+  useScrollLock(isOpen);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Prefer the typeahead so the keyboard opens immediately; fall back to the
+    // first focusable control (close) if the combobox is not ready yet.
+    const frame = requestAnimationFrame(() => {
+      const combobox = containerRef.current?.querySelector<HTMLElement>(
+        '[role="combobox"]',
+      );
+      if (combobox) combobox.focus();
+      else focusFirst();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, focusFirst, containerRef]);
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <VStack
+      ref={containerRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search tickers"
+      className="mobile-ticker-search-modal"
+      gap={3}
+      width="100%"
+      padding={3}
+    >
+      <DialogHeader
+        title="Search tickers"
+        onOpenChange={onOpenChange}
+      />
+      <ResearchSearch
+        className="nav-research-search mobile-bottom-nav-search"
+        onSelectSymbol={() => onOpenChange(false)}
+      />
+    </VStack>,
+    document.body,
+  );
+}
+
+/**
+ * Thumb-friendly mobile destinations and actions. Portaled to document.body
+ * and paired with AppShell height=auto on mobile so the *document* scrolls —
+ * the only arrangement where Chromium (Pixel included) will paint a real
+ * backdrop-filter over feed content instead of a flat tint.
+ */
 function MobileBottomNavigation() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -370,73 +434,68 @@ function MobileBottomNavigation() {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    setSearchOpen(false);
+  }, [location.pathname]);
+
   if (!isMobile || !mounted) return null;
 
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const isResearch = location.pathname.startsWith('/research');
 
   return createPortal(
-    <HStack
-      as="nav"
-      aria-label="Mobile navigation"
-      className="mobile-bottom-nav"
-      gap={0}
-      hAlign="evenly"
-      vAlign="center"
-      width="100%"
-    >
-      <IconButton
-        variant="ghost"
-        size="sm"
-        label="Menu"
-        tooltip="Menu"
-        icon={<Menu size={20} />}
-        className="mobile-bottom-nav-action"
-        data-testid="mobile-nav-toggle"
-        aria-expanded={isMobileNavOpen}
-        aria-controls={mobileNavId || undefined}
-        onClick={openMobileNav}
-      />
-
-      <AstryxLink
-        as={RouterLink}
-        href="/"
-        label="Timeline"
-        isStandalone
-        className="mobile-bottom-nav-link"
-        data-selected={isTimeline ? 'true' : undefined}
-        aria-current={isTimeline ? 'page' : undefined}
+    <>
+      <HStack
+        as="nav"
+        aria-label="Mobile navigation"
+        className="mobile-bottom-nav"
+        gap={0}
+        hAlign="evenly"
+        vAlign="center"
+        width="100%"
       >
-        <Newspaper size={20} aria-hidden="true" />
-      </AstryxLink>
+        <IconButton
+          variant="ghost"
+          size="sm"
+          label="Menu"
+          tooltip="Menu"
+          icon={<Menu size={20} />}
+          className="mobile-bottom-nav-action"
+          data-testid="mobile-nav-toggle"
+          aria-expanded={isMobileNavOpen}
+          aria-controls={mobileNavId || undefined}
+          onClick={() => {
+            setSearchOpen(false);
+            openMobileNav();
+          }}
+        />
 
-      <IconButton
-        variant="ghost"
-        size="sm"
-        label="New chat"
-        tooltip="New chat"
-        icon={<SquarePen size={20} />}
-        className="mobile-bottom-nav-action mobile-bottom-nav-new-chat"
-        onClick={() => {
-          requestNewChat();
-          void navigate({ to: '/chat' });
-        }}
-      />
+        <AstryxLink
+          as={RouterLink}
+          href="/"
+          label="Timeline"
+          isStandalone
+          className="mobile-bottom-nav-link"
+          data-selected={isTimeline ? 'true' : undefined}
+          aria-current={isTimeline ? 'page' : undefined}
+        >
+          <Newspaper size={20} aria-hidden="true" />
+        </AstryxLink>
 
-      <Popover
-        placement="above"
-        alignment="center"
-        label="Search tickers"
-        width="min(22rem, calc(100vw - var(--spacing-6)))"
-        isOpen={searchOpen}
-        onOpenChange={setSearchOpen}
-        content={
-          <ResearchSearch
-            className="nav-research-search mobile-bottom-nav-search"
-            onSelectSymbol={() => setSearchOpen(false)}
-          />
-        }
-      >
+        <IconButton
+          variant="ghost"
+          size="sm"
+          label="New chat"
+          tooltip="New chat"
+          icon={<SquarePen size={20} />}
+          className="mobile-bottom-nav-action mobile-bottom-nav-new-chat"
+          onClick={() => {
+            setSearchOpen(false);
+            requestNewChat();
+            void navigate({ to: '/chat' });
+          }}
+        />
+
         <IconButton
           variant="ghost"
           size="sm"
@@ -444,10 +503,14 @@ function MobileBottomNavigation() {
           tooltip="Search tickers"
           icon={<Search size={20} />}
           className="mobile-bottom-nav-action"
-          data-selected={isResearch ? 'true' : undefined}
+          data-selected={searchOpen || isResearch ? 'true' : undefined}
+          aria-expanded={searchOpen}
+          aria-haspopup="dialog"
+          onClick={() => setSearchOpen((open) => !open)}
         />
-      </Popover>
-    </HStack>,
+      </HStack>
+      <MobileTickerSearchModal isOpen={searchOpen} onOpenChange={setSearchOpen} />
+    </>,
     document.body,
   );
 }
@@ -456,6 +519,19 @@ function WorkspaceLayout() {
   const db = useDbReady();
   const location = useLocation();
   const [stats, setStats] = useState<Stats | null>(null);
+  // Match AppShell's md breakpoint so mobile uses document scroll (required
+  // for bottom-nav backdrop-filter) while desktop keeps the fill shell.
+  const [isMobileShell, setIsMobileShell] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 768px)');
+    const sync = () => setIsMobileShell(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
 
   const loadStats = useCallback(async () => {
     try {
@@ -516,12 +592,14 @@ function WorkspaceLayout() {
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
   //   <= 768px A fixed bottom nav owns Timeline, New chat, ticker search, and
   //            the menu trigger. SideNav becomes a start-side drawer; the
-  //            timeline ask composer remains desktop-only.
+  //            timeline ask composer remains desktop-only. Document scroll
+  //            (height=auto) is required so the body-fixed nav can blur the
+  //            feed — AppShell fill-mode scroll layers defeat backdrop-filter.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
         className="app"
-        height="fill"
+        height={isMobileShell ? 'auto' : 'fill'}
         variant="section"
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
@@ -541,7 +619,7 @@ function WorkspaceLayout() {
           ),
         }}
       >
-        <Layout className="workspace-main" height="fill" padding={0}>
+        <Layout className="workspace-main" height={isMobileShell ? 'auto' : 'fill'} padding={0}>
           <section className={isCopilot ? 'content content-copilot' : 'content'}>
             <Outlet />
           </section>

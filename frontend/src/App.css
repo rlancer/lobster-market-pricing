@@ -82,8 +82,13 @@ button, select { cursor: pointer; }
   flex-shrink: 0;
 }
 .mobile-bottom-nav-search {
-  min-width: min(18rem, calc(100vw - var(--spacing-10)));
+  width: 100%;
+  min-width: 0;
   padding-block-end: var(--spacing-0);
+}
+
+.mobile-ticker-search-modal {
+  display: none;
 }
 
 .mobile-bottom-nav {
@@ -414,6 +419,16 @@ button, select { cursor: pointer; }
       var(--size-element-lg) + var(--spacing-3) + env(safe-area-inset-bottom)
     );
   }
+  /* Document scroll on mobile so a body-fixed nav can blur real page pixels.
+     Fill-mode AppShell scroll layers defeat backdrop-filter on Chromium. */
+  .app {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .workspace-main {
+    height: auto;
+    min-height: 100dvh;
+  }
   .mobile-bottom-nav {
     position: fixed;
     z-index: 40;
@@ -424,15 +439,33 @@ button, select { cursor: pointer; }
     padding: var(--spacing-1) var(--spacing-2)
       calc(var(--spacing-1) + env(safe-area-inset-bottom));
     border-top: var(--border-width) solid
-      color-mix(in srgb, var(--color-border-emphasized) 85%, transparent);
-    background: color-mix(in srgb, var(--panel) 80%, transparent);
-    box-shadow: var(--shadow-high);
-    backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
-    -webkit-backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
+      color-mix(in srgb, var(--color-border-emphasized) 55%, transparent);
+    /* Keep the tint translucent — 80%+ panel paint hides the blur entirely. */
+    background: color-mix(in srgb, var(--panel) 42%, transparent);
+    box-shadow: var(--shadow-med);
+    /* Unprefixed only — Vite 8's lightningcss minifier drops `backdrop-filter`
+       when `-webkit-backdrop-filter` is also present, and Chromium needs the
+       unprefixed property (computed style becomes `none` otherwise). */
+    backdrop-filter: blur(24px) saturate(1.65);
     pointer-events: none;
   }
-  /* Portal to <body> so backdrop-filter samples scrolling page content instead
-     of the opaque AppShell scroll pane sitting behind an in-tree fixed bar. */
+  /* Full-screen search fills the viewport above the bottom nav. z-index stays
+     under the nav so the tab bar remains visible and tappable. */
+  .mobile-ticker-search-modal {
+    position: fixed;
+    z-index: 35;
+    inset: 0 0 var(--mobile-bottom-nav-height) 0;
+    display: flex;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    background: var(--color-background-surface);
+    box-shadow: var(--shadow-high);
+  }
+  .mobile-ticker-search-modal .mobile-bottom-nav-search {
+    padding-block-end: var(--spacing-0);
+  }
   .mobile-bottom-nav > * {
     pointer-events: auto;
     flex: 1;
