@@ -34,7 +34,7 @@ export interface ProbeError {
 export const DEFAULT_PROBE_MODEL = 'openai/gpt-4o-mini';
 
 /** Comparison model used when re-running against the gpt-4o-mini baseline. */
-export const COMPARISON_PROBE_MODEL = 'google/gemini-2.5-flash';
+export const COMPARISON_PROBE_MODEL = 'openai/gpt-4.1';
 
 export const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   tool_summary: 'Tool summary (text)',
