@@ -411,7 +411,7 @@ button, select { cursor: pointer; }
 @media (max-width: 768px) {
   :root {
     --mobile-bottom-nav-height: calc(
-      var(--size-element-lg) + var(--spacing-6) + env(safe-area-inset-bottom)
+      var(--size-element-lg) + var(--spacing-3) + env(safe-area-inset-bottom)
     );
   }
   .mobile-bottom-nav {
@@ -441,8 +441,8 @@ button, select { cursor: pointer; }
     justify-content: center;
     width: 100%;
     min-width: 0;
-    min-height: calc(var(--size-element-lg) + var(--spacing-3));
-    padding: var(--spacing-1) var(--spacing-0-5);
+    min-height: var(--size-element-lg);
+    padding: var(--spacing-1);
     border-radius: var(--radius-element);
     color: var(--color-text-secondary);
     text-align: center;
@@ -460,10 +460,6 @@ button, select { cursor: pointer; }
   }
   .mobile-bottom-nav-new-chat {
     color: var(--color-text-accent);
-  }
-  .mobile-bottom-nav-action-content {
-    pointer-events: none;
-    line-height: var(--line-height-tight);
   }
   .nav-brand {
     padding-block: var(--spacing-0);

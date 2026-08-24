@@ -379,7 +379,7 @@ test.describe('Public timeline', () => {
     const bottomNavBox = await bottomNav.boundingBox();
     expect(bottomNavBox).toBeTruthy();
     expect(Math.abs(bottomNavBox!.y + bottomNavBox!.height - 844)).toBeLessThan(2);
-    expect(bottomNavBox!.height).toBeLessThanOrEqual(72);
+    expect(bottomNavBox!.height).toBeLessThanOrEqual(64);
 
     await bottomNav.getByRole('button', { name: 'New chat' }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');

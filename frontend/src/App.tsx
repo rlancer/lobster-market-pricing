@@ -2,7 +2,6 @@ import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentPro
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
-  Button,
   Divider,
   HStack,
   Layout,
@@ -383,31 +382,27 @@ function MobileBottomNavigation() {
       <AstryxLink
         as={RouterLink}
         href="/"
+        label="Timeline"
         isStandalone
         className="mobile-bottom-nav-link"
         data-selected={isTimeline ? 'true' : undefined}
         aria-current={isTimeline ? 'page' : undefined}
       >
-        <VStack className="mobile-bottom-nav-action-content" gap={0.5} hAlign="center">
-          <Newspaper size={20} aria-hidden="true" />
-          <Text type="supporting" size="sm">Timeline</Text>
-        </VStack>
+        <Newspaper size={20} aria-hidden="true" />
       </AstryxLink>
 
-      <Button
+      <IconButton
         variant="ghost"
+        size="sm"
         label="New chat"
+        tooltip="New chat"
+        icon={<SquarePen size={20} />}
         className="mobile-bottom-nav-action mobile-bottom-nav-new-chat"
         onClick={() => {
           requestNewChat();
           void navigate({ to: '/chat' });
         }}
-      >
-        <VStack className="mobile-bottom-nav-action-content" gap={0.5} hAlign="center">
-          <SquarePen size={20} aria-hidden="true" />
-          <Text type="supporting" size="sm">New chat</Text>
-        </VStack>
-      </Button>
+      />
 
       <Popover
         placement="above"
@@ -423,33 +418,29 @@ function MobileBottomNavigation() {
           />
         }
       >
-        <Button
+        <IconButton
           variant="ghost"
+          size="sm"
           label="Search tickers"
+          tooltip="Search tickers"
+          icon={<Search size={20} />}
           className="mobile-bottom-nav-action"
           data-selected={isResearch ? 'true' : undefined}
-        >
-          <VStack className="mobile-bottom-nav-action-content" gap={0.5} hAlign="center">
-            <Search size={20} aria-hidden="true" />
-            <Text type="supporting" size="sm">Search</Text>
-          </VStack>
-        </Button>
+        />
       </Popover>
 
-      <Button
+      <IconButton
         variant="ghost"
+        size="sm"
         label="Menu"
+        tooltip="Menu"
+        icon={<Menu size={20} />}
         className="mobile-bottom-nav-action"
         data-testid="mobile-nav-toggle"
         aria-expanded={isMobileNavOpen}
         aria-controls={mobileNavId || undefined}
         onClick={openMobileNav}
-      >
-        <VStack className="mobile-bottom-nav-action-content" gap={0.5} hAlign="center">
-          <Menu size={20} aria-hidden="true" />
-          <Text type="supporting" size="sm">Menu</Text>
-        </VStack>
-      </Button>
+      />
     </HStack>
   );
 }
