@@ -595,12 +595,14 @@ function WorkspaceLayout() {
   //            timeline ask composer remains desktop-only. Document scroll
   //            (height=auto) is required so the body-fixed nav can blur the
   //            feed — AppShell fill-mode scroll layers defeat backdrop-filter.
+  // Shell chrome uses AppShell `wash` (body canvas) so nav and route content
+  // share one background — no surface strip on overscroll or beside research.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
         className="app"
         height={isMobileShell ? 'auto' : 'fill'}
-        variant="section"
+        variant="wash"
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{

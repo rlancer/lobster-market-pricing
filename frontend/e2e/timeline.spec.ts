@@ -304,6 +304,21 @@ test.describe('Public timeline', () => {
     await expect(rail.getByRole('list', { name: 'Market highlights' })).toBeVisible();
     await expect(rail.getByText('S&P 500')).toBeVisible();
     await expect(rail.getByText('+0.4%')).toBeVisible();
+
+    // Body wash: shell, SideNav, and workspace share one canvas.
+    const shellColors = await page.evaluate(() => {
+      const shell = document.querySelector('.app');
+      const navSurface = document.querySelector('.workspace-nav');
+      const workspace = document.querySelector('.workspace-main');
+      return {
+        shell: shell ? getComputedStyle(shell).backgroundColor : null,
+        nav: navSurface ? getComputedStyle(navSurface).backgroundColor : null,
+        workspace: workspace ? getComputedStyle(workspace).backgroundColor : null,
+      };
+    });
+    expect(shellColors.shell).toBe(shellColors.nav);
+    expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
+    expect(shellColors.workspace).toBe(shellColors.nav);
   });
 
   test('timeline rail is hidden on mobile', async ({ page }) => {
@@ -375,6 +390,22 @@ test.describe('Public timeline', () => {
     // Translucent tint — near-opaque panel paint would hide the blur.
     // Chromium may serialize color-mix as rgba(...) or color(srgb ... / a).
     expect(bottomNavStyles.backgroundColor).toMatch(/\/\s*0?\.\d+|rgba?\([^)]+,\s*0?\.\d+/);
+
+    // Body wash: shell + workspace match document body (no surface strip on
+    // overscroll). Desktop SideNav is unmounted at this viewport.
+    const shellColors = await page.evaluate(() => {
+      const shell = document.querySelector('.app');
+      const workspace = document.querySelector('.workspace-main');
+      return {
+        shell: shell ? getComputedStyle(shell).backgroundColor : null,
+        workspace: workspace ? getComputedStyle(workspace).backgroundColor : null,
+        body: getComputedStyle(document.body).backgroundColor,
+      };
+    });
+    expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
+    expect(shellColors.shell).toBe(shellColors.workspace);
+    expect(shellColors.workspace).toBe(shellColors.body);
+
     const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
     const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
     expect(menuBox && timelineBox).toBeTruthy();
