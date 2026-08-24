@@ -7,9 +7,8 @@ name: Run text-vs-image experiment
 # Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
 # already be set on the target Worker (synced by deploy.yml).
 #
-# Trigger: workflow_dispatch, or push to cursor/run-text-vs-image-experiment-ca84
-# / cursor/textless-chart-legend-244c (gh workflow_dispatch is 403 for the Cursor
-# integration token — push is the reliable path).
+# Trigger: workflow_dispatch, or push to experiment runner branches
+# (gh workflow_dispatch may be 403 for some tokens — push is the reliable path).
 
 on:
   workflow_dispatch:
@@ -17,18 +16,19 @@ on:
       model:
         description: 'OpenRouter model slug'
         type: string
-        default: 'google/gemini-2.5-flash'
+        default: 'openai/gpt-4.1'
       api_base:
         description: 'Worker API origin'
         type: choice
         options:
           - https://api.lobster.mp
           - https://api-dev.lobster.mp
-        default: https://api.lobster.mp
+        default: https://api-dev.lobster.mp
   push:
     branches:
       - 'cursor/run-text-vs-image-experiment-ca84'
       - 'cursor/textless-chart-legend-244c'
+      - 'cursor/experiment-gpt41-244c'
 
 concurrency:
   group: run-text-vs-image-experiment
@@ -43,13 +43,11 @@ jobs:
     timeout-minutes: 45
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      # Push trigger has no inputs — default to Gemini so we get a second-model
-      # comparison against the published gpt-4o-mini baseline.
-      MODEL: ${{ inputs.model || 'google/gemini-2.5-flash' }}
-      # Prefer production so lobster.mp/experiments/text-vs-image shows the new run.
-      # Hybrids need multimodal on the Worker — workflow falls back to classic-only
-      # until that ships.
-      API_BASE: ${{ inputs.api_base || 'https://api.lobster.mp' }}
+      # Push trigger has no inputs — default to gpt-4.1 for a newer-model
+      # comparison against gpt-4o-mini / gemini-2.5-flash baselines.
+      MODEL: ${{ inputs.model || 'openai/gpt-4.1' }}
+      # api-dev has multimodal (hybrids); prod falls back to classic-only until merge to main.
+      API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
       SLUG: text-vs-image
     steps:
       - name: Check out repository
