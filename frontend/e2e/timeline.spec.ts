@@ -219,7 +219,7 @@ test.describe('Public timeline', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   });
 
-  test('mobile timeline uses the app bar for new chat instead of a sticky ask chip', async ({ page }) => {
+  test('mobile timeline keeps the bottom navigation visible while the feed scrolls', async ({ page }) => {
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       const items = Array.from({ length: 8 }, (_, index) => ({
         share_id: `TestShareId0000000000000${index}`,
@@ -247,9 +247,9 @@ test.describe('Public timeline', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
-    const appBar = page.getByRole('navigation', { name: 'Mobile navigation' });
-    await expect(appBar.getByRole('button', { name: 'New chat' })).toBeVisible();
-    await expect(appBar.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    const bottomNav = page.getByRole('navigation', { name: 'Mobile navigation' });
+    await expect(bottomNav.getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'Search tickers' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
 
     await page.evaluate(() => {
@@ -265,7 +265,10 @@ test.describe('Public timeline', () => {
       window.scrollBy(0, 1200);
     });
 
-    await expect(appBar.getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'New chat' })).toBeVisible();
+    const navBox = await bottomNav.boundingBox();
+    expect(navBox).toBeTruthy();
+    expect(Math.abs(navBox!.y + navBox!.height - 844)).toBeLessThan(2);
     await expect(page.getByRole('button', { name: 'Ask the Lobster' })).toHaveCount(0);
   });
 
@@ -335,7 +338,7 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
-  test('mobile shell offers new chat and search from the app bar and keeps navigation in a left drawer', async ({ page }) => {
+  test('mobile shell offers four blurred bottom actions and keeps the full navigation in a drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
       await route.fulfill({
@@ -347,40 +350,43 @@ test.describe('Public timeline', () => {
 
     await page.goto('/');
 
-    const appBar = page.getByRole('navigation', { name: 'Mobile navigation' });
+    const bottomNav = page.getByRole('navigation', { name: 'Mobile navigation' });
     const menu = page.getByTestId('mobile-nav-toggle');
-    await expect(appBar).toBeVisible();
-    await expect(appBar.getByRole('link', { name: 'Lobster home' })).toHaveCount(0);
-    await expect(appBar.getByText('Lobster MP')).toHaveCount(0);
-    await expect(appBar.getByRole('button', { name: 'New chat' })).toBeVisible();
-    await expect(appBar.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    await expect(bottomNav).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'New chat' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'Search tickers' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'Menu' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
     await expect(menu).toBeVisible();
 
-    const shellColors = await appBar.evaluate((element) => {
-      const shell = element.closest('.app');
-      const navSurface = element.querySelector('.workspace-nav');
-      const workspace = document.querySelector('.workspace-main');
+    const bottomNavStyles = await bottomNav.evaluate((element) => {
+      const styles = getComputedStyle(element);
       return {
-        shell: shell ? getComputedStyle(shell).backgroundColor : null,
-        nav: navSurface ? getComputedStyle(navSurface).backgroundColor : null,
-        workspace: workspace ? getComputedStyle(workspace).backgroundColor : null,
+        position: styles.position,
+        bottom: styles.bottom,
+        backdropFilter: styles.backdropFilter,
+        webkitBackdropFilter: styles.webkitBackdropFilter,
       };
     });
-    expect(shellColors.shell).toBe(shellColors.nav);
-    expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
-    expect(shellColors.workspace).not.toBe(shellColors.nav);
+    expect(bottomNavStyles.position).toBe('fixed');
+    expect(bottomNavStyles.bottom).toBe('0px');
+    expect(
+      bottomNavStyles.backdropFilter !== 'none'
+      || bottomNavStyles.webkitBackdropFilter !== 'none',
+    ).toBe(true);
 
-    const appBarBox = await appBar.boundingBox();
-    expect(appBarBox).toBeTruthy();
-    expect(appBarBox!.height).toBeLessThanOrEqual(56);
+    const bottomNavBox = await bottomNav.boundingBox();
+    expect(bottomNavBox).toBeTruthy();
+    expect(Math.abs(bottomNavBox!.y + bottomNavBox!.height - 844)).toBeLessThan(2);
+    expect(bottomNavBox!.height).toBeLessThanOrEqual(72);
 
-    await appBar.getByRole('button', { name: 'New chat' }).click();
+    await bottomNav.getByRole('button', { name: 'New chat' }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
     await expect(page.getByRole('heading', { name: 'Ask the Lobster' })).toBeVisible();
 
     await page.goto('/');
-    await appBar.getByRole('button', { name: 'Search tickers' }).click();
+    await bottomNav.getByRole('button', { name: 'Search tickers' }).click();
     await expect(page.getByRole('dialog', { name: 'Search tickers' }).getByRole('combobox', { name: 'Ticker' })).toBeVisible();
 
     await menu.click();
