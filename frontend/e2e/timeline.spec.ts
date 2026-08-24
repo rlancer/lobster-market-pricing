@@ -362,13 +362,13 @@ test.describe('Public timeline', () => {
 
     const bottomNavStyles = await bottomNav.evaluate((element) => {
       const styles = getComputedStyle(element);
-      const frosted = getComputedStyle(element, '::before');
       return {
         parentTag: element.parentElement?.tagName ?? null,
         position: styles.position,
         bottom: styles.bottom,
-        backdropFilter: frosted.backdropFilter,
-        webkitBackdropFilter: frosted.webkitBackdropFilter,
+        backdropFilter: styles.backdropFilter,
+        webkitBackdropFilter: styles.webkitBackdropFilter,
+        backgroundColor: styles.backgroundColor,
       };
     });
     expect(bottomNavStyles.parentTag).toBe('BODY');
