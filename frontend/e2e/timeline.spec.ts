@@ -253,15 +253,6 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('region', { name: 'Ask the Lobster' })).toHaveCount(0);
 
     await page.evaluate(() => {
-      let current: Element | null = document.querySelector('.timeline-feed');
-      while (current) {
-        const overflowY = getComputedStyle(current).overflowY;
-        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
-          current.scrollTop += 1200;
-          return;
-        }
-        current = current.parentElement;
-      }
       window.scrollBy(0, 1200);
     });
 
@@ -363,7 +354,7 @@ test.describe('Public timeline', () => {
     const bottomNavStyles = await bottomNav.evaluate((element) => {
       const styles = getComputedStyle(element);
       return {
-        inWorkspaceFrame: Boolean(element.closest('.workspace-frame')),
+        parentTag: element.parentElement?.tagName ?? null,
         position: styles.position,
         bottom: styles.bottom,
         backgroundColor: styles.backgroundColor,
@@ -371,15 +362,16 @@ test.describe('Public timeline', () => {
         webkitBackdropFilter: styles.webkitBackdropFilter,
       };
     });
-    expect(bottomNavStyles.inWorkspaceFrame).toBe(true);
-    expect(bottomNavStyles.position).toBe('absolute');
+    expect(bottomNavStyles.parentTag).toBe('BODY');
+    expect(bottomNavStyles.position).toBe('fixed');
     expect(bottomNavStyles.bottom).toBe('0px');
     expect(
       bottomNavStyles.backdropFilter !== 'none'
       || bottomNavStyles.webkitBackdropFilter !== 'none',
     ).toBe(true);
     // Translucent tint — near-opaque panel paint would hide the blur.
-    expect(bottomNavStyles.backgroundColor).toMatch(/rgba?\(/);
+    // Chromium may serialize color-mix as rgba(...) or color(srgb ... / a).
+    expect(bottomNavStyles.backgroundColor).toMatch(/\/\s*0?\.\d+|rgba?\([^)]+,\s*0?\.\d+/);
     const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
     const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
     expect(menuBox && timelineBox).toBeTruthy();

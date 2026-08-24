@@ -413,10 +413,10 @@ function MobileTickerSearchModal({
 }
 
 /**
- * Thumb-friendly mobile destinations and actions. Stays in the workspace
- * frame (not portaled) so backdrop-filter can sample the scrolling pane it
- * overlays — body portals sit outside AppShell's overflow root and paint as
- * a flat tint on Chrome/Android.
+ * Thumb-friendly mobile destinations and actions. Portaled to document.body
+ * and paired with AppShell height=auto on mobile so the *document* scrolls —
+ * the only arrangement where Chromium (Pixel included) will paint a real
+ * backdrop-filter over feed content instead of a flat tint.
  */
 function MobileBottomNavigation() {
   const navigate = useNavigate();
@@ -428,17 +428,22 @@ function MobileBottomNavigation() {
     openMobileNav,
   } = useAppShellMobile();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setSearchOpen(false);
   }, [location.pathname]);
 
-  if (!isMobile) return null;
+  if (!isMobile || !mounted) return null;
 
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const isResearch = location.pathname.startsWith('/research');
 
-  return (
+  return createPortal(
     <>
       <HStack
         as="nav"
@@ -505,7 +510,8 @@ function MobileBottomNavigation() {
         />
       </HStack>
       <MobileTickerSearchModal isOpen={searchOpen} onOpenChange={setSearchOpen} />
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -513,6 +519,19 @@ function WorkspaceLayout() {
   const db = useDbReady();
   const location = useLocation();
   const [stats, setStats] = useState<Stats | null>(null);
+  // Match AppShell's md breakpoint so mobile uses document scroll (required
+  // for bottom-nav backdrop-filter) while desktop keeps the fill shell.
+  const [isMobileShell, setIsMobileShell] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 768px)');
+    const sync = () => setIsMobileShell(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
 
   const loadStats = useCallback(async () => {
     try {
@@ -573,12 +592,14 @@ function WorkspaceLayout() {
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
   //   <= 768px A fixed bottom nav owns Timeline, New chat, ticker search, and
   //            the menu trigger. SideNav becomes a start-side drawer; the
-  //            timeline ask composer remains desktop-only.
+  //            timeline ask composer remains desktop-only. Document scroll
+  //            (height=auto) is required so the body-fixed nav can blur the
+  //            feed — AppShell fill-mode scroll layers defeat backdrop-filter.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
         className="app"
-        height="fill"
+        height={isMobileShell ? 'auto' : 'fill'}
         variant="section"
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
@@ -598,14 +619,12 @@ function WorkspaceLayout() {
           ),
         }}
       >
-        <Layout className="workspace-frame" height="fill" padding={0}>
-          <Layout className="workspace-main" height="fill" padding={0}>
-            <section className={isCopilot ? 'content content-copilot' : 'content'}>
-              <Outlet />
-            </section>
-          </Layout>
-          <MobileBottomNavigation />
+        <Layout className="workspace-main" height={isMobileShell ? 'auto' : 'fill'} padding={0}>
+          <section className={isCopilot ? 'content content-copilot' : 'content'}>
+            <Outlet />
+          </section>
         </Layout>
+        <MobileBottomNavigation />
       </AppShell>
     </WorkspaceContext.Provider>
   );
