@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
@@ -363,13 +364,18 @@ function MobileBottomNavigation() {
     openMobileNav,
   } = useAppShellMobile();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  if (!isMobile) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isMobile || !mounted) return null;
 
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const isResearch = location.pathname.startsWith('/research');
 
-  return (
+  return createPortal(
     <HStack
       as="nav"
       aria-label="Mobile navigation"
@@ -441,7 +447,8 @@ function MobileBottomNavigation() {
           data-selected={isResearch ? 'true' : undefined}
         />
       </Popover>
-    </HStack>
+    </HStack>,
+    document.body,
   );
 }
 
