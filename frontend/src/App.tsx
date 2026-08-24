@@ -379,6 +379,19 @@ function MobileBottomNavigation() {
       vAlign="center"
       width="100%"
     >
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Menu"
+        tooltip="Menu"
+        icon={<Menu size={20} />}
+        className="mobile-bottom-nav-action"
+        data-testid="mobile-nav-toggle"
+        aria-expanded={isMobileNavOpen}
+        aria-controls={mobileNavId || undefined}
+        onClick={openMobileNav}
+      />
+
       <AstryxLink
         as={RouterLink}
         href="/"
@@ -428,19 +441,6 @@ function MobileBottomNavigation() {
           data-selected={isResearch ? 'true' : undefined}
         />
       </Popover>
-
-      <IconButton
-        variant="ghost"
-        size="sm"
-        label="Menu"
-        tooltip="Menu"
-        icon={<Menu size={20} />}
-        className="mobile-bottom-nav-action"
-        data-testid="mobile-nav-toggle"
-        aria-expanded={isMobileNavOpen}
-        aria-controls={mobileNavId || undefined}
-        onClick={openMobileNav}
-      />
     </HStack>
   );
 }
