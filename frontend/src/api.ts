@@ -1149,6 +1149,55 @@ async function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' });
 }
 
+/** Published experiment run returned by GET /api/experiments/:slug/runs/latest. */
+export interface ExperimentRunPayload {
+  id: string;
+  experiment_slug: string;
+  model: string;
+  seed: number;
+  created_at: number;
+  created_by: string | null;
+  results: {
+    questions: Array<{ id: string; prompt: string; expected: string }>;
+    text_reps: Array<{
+      id: string;
+      label: string;
+      description: string;
+      approx_tokens?: number;
+      body: string;
+    }>;
+    cells: Array<{
+      rep_id: string;
+      question_id: string;
+      status: 'done' | 'error';
+      answer?: string;
+      correct?: boolean;
+      detail?: string;
+      latency_ms?: number;
+      error?: string;
+      model?: string;
+    }>;
+    rep_order: string[];
+  };
+  images: Array<{
+    id: string;
+    label: string;
+    description: string;
+    width: number;
+    height: number;
+    data_url: string;
+  }>;
+}
+
+export interface SaveExperimentRunBody {
+  experiment_slug?: string;
+  model: string;
+  seed: number;
+  results: ExperimentRunPayload['results'];
+  images: ExperimentRunPayload['images'];
+  created_by?: string | null;
+}
+
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -1278,6 +1327,17 @@ export const api = {
       answer: string;
       latency_ms: number;
     }>('/api/admin/notebooks/probe', body),
+  /** Public: latest published experiment run (results + exact LLM-fed images). */
+  experimentLatestRun: (slug: string) =>
+    get<ExperimentRunPayload>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs/latest`,
+    ),
+  /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
+  adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
+    post<{ ok: true; run: ExperimentRunPayload }>(
+      `/api/admin/experiments/${encodeURIComponent(slug)}/runs`,
+      body,
+    ),
   adminBot: (handle: string) =>
     get<{ bot: BotProfile; runs: BotRun[]; schedule: BotSchedule | null }>(
       `/api/admin/bots/${encodeURIComponent(handle)}`,

@@ -205,16 +205,33 @@ const adminRoute = createRoute({
 });
 
 
-const notebooksRoute = createRoute({
+const experimentsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/notebooks',
+  path: '/experiments',
   component: NotebooksPage,
 });
 
-const textVsImageNotebookRoute = createRoute({
+const textVsImageExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/text-vs-image',
+  component: TextVsImageNotebookPage,
+});
+
+/** Legacy /notebooks paths redirect to /experiments. */
+const notebooksRedirectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notebooks',
+  beforeLoad: () => {
+    throw redirect({ to: '/experiments' });
+  },
+});
+
+const textVsImageNotebookRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notebooks/text-vs-image',
-  component: TextVsImageNotebookPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/experiments/text-vs-image' });
+  },
 });
 
 const docsLayoutRoute = createRoute({
@@ -307,8 +324,10 @@ const routeTree = rootRoute.addChildren([
   portfolioRoute,
   copilotExploreRoute,
   adminRoute,
-  notebooksRoute,
-  textVsImageNotebookRoute,
+  experimentsRoute,
+  textVsImageExperimentRoute,
+  notebooksRedirectRoute,
+  textVsImageNotebookRedirectRoute,
   docsRoute,
 ]);
 

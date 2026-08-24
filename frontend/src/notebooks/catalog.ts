@@ -1,13 +1,13 @@
-/** Registry of admin notebooks. */
+/** Registry of public experiments (notebook-style studies). */
 
-export interface NotebookMeta {
+export interface ExperimentMeta {
   slug: string;
   title: string;
   subtitle: string;
   status: 'ready' | 'draft';
 }
 
-export const NOTEBOOKS: NotebookMeta[] = [
+export const EXPERIMENTS: ExperimentMeta[] = [
   {
     slug: 'text-vs-image',
     title: 'Text vs image context',
@@ -17,6 +17,12 @@ export const NOTEBOOKS: NotebookMeta[] = [
   },
 ];
 
-export function notebookBySlug(slug: string): NotebookMeta | undefined {
-  return NOTEBOOKS.find((n) => n.slug === slug);
+/** @deprecated Use EXPERIMENTS */
+export const NOTEBOOKS = EXPERIMENTS;
+
+export function experimentBySlug(slug: string): ExperimentMeta | undefined {
+  return EXPERIMENTS.find((e) => e.slug === slug);
 }
+
+/** @deprecated Use experimentBySlug */
+export const notebookBySlug = experimentBySlug;

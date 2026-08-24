@@ -57,6 +57,12 @@ import {
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
 import { parseNotebookProbeBody, runNotebookProbe } from "./notebook-probe";
+import {
+  experimentRunToPublicJson,
+  getLatestExperimentRun,
+  parseSaveExperimentRunBody,
+  saveExperimentRun,
+} from "./experiment-runs";
 
 import { describeCopilotCapabilities } from "./copilot-capabilities";
 import { CopilotAgentBase } from "./copilot";
@@ -3497,6 +3503,44 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
   }
 
   
+  // Public: latest published experiment run (results + exact images fed to the LLM).
+  {
+    const latestMatch = path.match(/^\/api\/experiments\/([^/]+)\/runs\/latest$/);
+    if (latestMatch && req.method === "GET") {
+      const slug = decodeURIComponent(latestMatch[1]!);
+      if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
+      const run = await getLatestExperimentRun(env.SCHEMA_DB, slug);
+      if (!run) return json(env, { error: "no published run" }, 404);
+      return json(env, experimentRunToPublicJson(run), 200, "public");
+    }
+  }
+
+  // Admin: publish a completed experiment run (server-driven; visitors load this).
+  {
+    const saveMatch = path.match(/^\/api\/admin\/experiments\/([^/]+)\/runs$/);
+    if (saveMatch && req.method === "POST") {
+      const admin = await requireBotAdmin(env, req);
+      if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+      if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503, "private");
+      const slug = decodeURIComponent(saveMatch[1]!);
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        return json(env, { error: "invalid JSON body" }, 400, "private");
+      }
+      const parsed = parseSaveExperimentRunBody(body, slug);
+      if (!parsed.ok) {
+        return json(env, { error: parsed.error }, parsed.status, "private");
+      }
+      const run = await saveExperimentRun(env.SCHEMA_DB, {
+        ...parsed.input,
+        created_by: parsed.input.created_by ?? admin.user?.email ?? null,
+      });
+      return json(env, { ok: true, run: experimentRunToPublicJson(run) }, 200, "private");
+    }
+  }
+
   if (path === "/api/admin/notebooks/probe" && req.method === "POST") {
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");

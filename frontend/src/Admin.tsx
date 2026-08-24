@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Heading, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
-import { Bot, ChevronRight, FlaskConical, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import { Bot, ChevronRight, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
 import MonitorStatus from './MonitorStatus';
 import { useIsAdmin } from './useAdmin';
@@ -51,12 +51,6 @@ const ADMIN_TOOLS: AdminTool[] = [
     label: 'Brand',
     description: 'Style guide and shareable assets — marks, palette, voice.',
     icon: Palette,
-  },
-  {
-    to: '/notebooks',
-    label: 'Notebooks',
-    description: 'Experimental studies — text vs image context and other operator probes.',
-    icon: FlaskConical,
   },
 ];
 
