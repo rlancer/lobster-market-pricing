@@ -16,7 +16,7 @@ on:
       model:
         description: 'OpenRouter model slug'
         type: string
-        default: 'openai/gpt-4.1'
+        default: 'google/gemini-3.7-flash'
       api_base:
         description: 'Worker API origin'
         type: choice
@@ -29,6 +29,7 @@ on:
       - 'cursor/run-text-vs-image-experiment-ca84'
       - 'cursor/textless-chart-legend-244c'
       - 'cursor/experiment-gpt41-244c'
+      - 'cursor/experiment-gemini37-244c'
 
 concurrency:
   group: run-text-vs-image-experiment
@@ -43,10 +44,8 @@ jobs:
     timeout-minutes: 45
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      # Push trigger has no inputs — default to gpt-4.1 for a newer-model
-      # comparison against gpt-4o-mini / gemini-2.5-flash baselines.
-      MODEL: ${{ inputs.model || 'openai/gpt-4.1' }}
-      # api-dev has multimodal (hybrids); prod falls back to classic-only until merge to main.
+      # Push default: current-generation multimodal (not gpt-4o-mini / 2.5-flash).
+      MODEL: ${{ inputs.model || 'google/gemini-3.7-flash' }}
       API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
       SLUG: text-vs-image
     steps:

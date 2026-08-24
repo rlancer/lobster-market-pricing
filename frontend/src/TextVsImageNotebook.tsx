@@ -12,8 +12,8 @@ import {
 import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import { useIsAdmin } from './useAdmin';
 import {
-  COMPARISON_PROBE_MODEL,
   DEFAULT_PROBE_MODEL,
+  RECENT_PROBE_MODELS,
 } from './notebooks/experiment';
 import {
   buildHybridRepresentations,
@@ -781,17 +781,20 @@ export default function TextVsImageNotebookPage() {
                   onChange={setModel}
                 />
               </div>
+              {RECENT_PROBE_MODELS.map((slug) => (
+                <Button
+                  key={slug}
+                  size="sm"
+                  variant={model === slug ? 'primary' : 'secondary'}
+                  label={slug.replace(/^[^/]+\//, '')}
+                  isDisabled={running || saving}
+                  onClick={() => setModel(slug)}
+                />
+              ))}
               <Button
                 size="sm"
-                variant="secondary"
-                label={`Use ${COMPARISON_PROBE_MODEL}`}
-                isDisabled={running || saving}
-                onClick={() => setModel(COMPARISON_PROBE_MODEL)}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                label={`Use ${DEFAULT_PROBE_MODEL}`}
+                variant={model === DEFAULT_PROBE_MODEL ? 'primary' : 'secondary'}
+                label="gpt-4o-mini (baseline)"
                 isDisabled={running || saving}
                 onClick={() => setModel(DEFAULT_PROBE_MODEL)}
               />
