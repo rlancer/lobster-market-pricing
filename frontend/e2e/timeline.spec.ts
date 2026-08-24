@@ -375,6 +375,23 @@ test.describe('Public timeline', () => {
     // Translucent tint — near-opaque panel paint would hide the blur.
     // Chromium may serialize color-mix as rgba(...) or color(srgb ... / a).
     expect(bottomNavStyles.backgroundColor).toMatch(/\/\s*0?\.\d+|rgba?\([^)]+,\s*0?\.\d+/);
+
+    // Body wash: shell, nav, and workspace share one canvas (no surface strip
+    // on overscroll or beside content).
+    const shellColors = await page.evaluate(() => {
+      const shell = document.querySelector('.app');
+      const navSurface = document.querySelector('.workspace-nav');
+      const workspace = document.querySelector('.workspace-main');
+      return {
+        shell: shell ? getComputedStyle(shell).backgroundColor : null,
+        nav: navSurface ? getComputedStyle(navSurface).backgroundColor : null,
+        workspace: workspace ? getComputedStyle(workspace).backgroundColor : null,
+      };
+    });
+    expect(shellColors.shell).toBe(shellColors.nav);
+    expect(shellColors.workspace).not.toBe('rgba(0, 0, 0, 0)');
+    expect(shellColors.workspace).toBe(shellColors.nav);
+
     const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
     const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
     expect(menuBox && timelineBox).toBeTruthy();

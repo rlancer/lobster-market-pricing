@@ -27,8 +27,8 @@
   width: 100%;
   padding-block: var(--spacing-4);
   margin-block-start: calc(var(--spacing-4) * -1);
-  background: color-mix(in srgb, var(--color-background-body) 92%, transparent);
-  backdrop-filter: blur(10px);
+  /* Solid body canvas — matches page wash so scroll/overscroll never tints a second shade. */
+  background: var(--color-background-body);
 }
 
 .timeline-body {

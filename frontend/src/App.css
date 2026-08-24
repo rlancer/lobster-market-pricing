@@ -39,9 +39,10 @@ body {
 button, input, select, textarea { font: inherit; }
 button, select { cursor: pointer; }
 
-/* AppShell's section variant owns the surface-colored shell chrome. The nested
-   workspace restores the body surface for route content; keeping these layers
-   separate prevents transparent mobile controls from revealing a second shade. */
+/* One page canvas: body wash for shell, nav, and workspace. AppShell `wash`
+   paints the shell; nav/workspace match so overscroll and every route share
+   one background — no leftover surface strip beside content, and transparent
+   mobile chrome cannot reveal a second shade. */
 .app {
   height: 100dvh;
 }
@@ -52,9 +53,11 @@ button, select { cursor: pointer; }
 }
 
 .workspace-nav {
-  background: var(--panel);
+  background: var(--bg);
   height: 100%;
   min-height: 100%;
+  /* Wash has no AppShell divider — keep a hairline so the rail reads as a region. */
+  border-inline-end: var(--border-width) solid var(--color-border);
 }
 .workspace-main {
   height: 100%;
