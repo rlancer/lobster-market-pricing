@@ -19,9 +19,9 @@ import {
   useFocusTrap,
   useScrollLock,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, FlaskConical, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
-import { isAdminNavPath } from './admin';
+import { isAdminNavPath, isExperimentsNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -58,13 +58,19 @@ const SECTIONS: Section[] = [
   { to: '/portfolio', label: 'Portfolio', heading: 'Portfolio', icon: Briefcase },
 ];
 
-// Data, Docs, Admin, and account sit under a divider at the bottom of the left
-// nav. Research lives behind the ticker search (no dedicated nav link). Dataset
-// status lives on the Admin hub.
+// Data, Experiments, Docs, Admin, and account sit under a divider at the
+// bottom of the left nav. Research lives behind the ticker search (no
+// dedicated nav link). Dataset status lives on the Admin hub.
 const BOTTOM_SECTIONS: Section[] = [
   { to: '/data', label: 'Data', heading: 'Data catalog', icon: Database },
 ];
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
+const EXPERIMENTS_HEADING: Section = {
+  to: '/experiments',
+  label: 'Experiments',
+  heading: 'Experiments',
+  icon: FlaskConical,
+};
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
 
@@ -283,6 +289,14 @@ function WorkspaceHelpNavItems({
       ))}
       <SideNavItem
         as={RouterLink}
+        href="/experiments"
+        label={EXPERIMENTS_HEADING.label}
+        icon={EXPERIMENTS_HEADING.icon}
+        isSelected={isExperimentsNavPath(pathname)}
+        onClick={closeMobileNav}
+      />
+      <SideNavItem
+        as={RouterLink}
         href="/docs"
         label={DOCS_HEADING.label}
         icon={DOCS_HEADING.icon}
@@ -295,7 +309,7 @@ function WorkspaceHelpNavItems({
           href="/admin"
           label={ADMIN_HEADING.label}
           icon={ADMIN_HEADING.icon}
-          isSelected={adminSelected}
+          isSelected={adminSelected && !isExperimentsNavPath(pathname)}
           endContent={<Lock size={14} aria-label="Admin only" />}
           onClick={closeMobileNav}
         />
@@ -560,11 +574,13 @@ function WorkspaceLayout() {
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const active = isTimeline
     ? SECTIONS[0]
-    : isAdminNavPath(location.pathname)
-      ? ADMIN_HEADING
-      : [...SECTIONS, ...BOTTOM_SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
-        s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
-      );
+    : isExperimentsNavPath(location.pathname)
+      ? EXPERIMENTS_HEADING
+      : isAdminNavPath(location.pathname)
+        ? ADMIN_HEADING
+        : [...SECTIONS, ...BOTTOM_SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
+          s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
+        );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
   const isCopilot = Boolean(activeChatId) || location.pathname === '/chat' || location.pathname === '/ai';
 
