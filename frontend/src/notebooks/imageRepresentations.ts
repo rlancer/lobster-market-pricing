@@ -1,0 +1,302 @@
+/**
+ * Canvas PNG encodings of the synthetic panel for multimodal probes.
+ * Browser-only (uses document.createElement('canvas')).
+ */
+
+import { type SynthUniverse, universeStats } from './syntheticSeries.ts';
+
+export type ImageRepId =
+  | 'overlay_normalized'
+  | 'small_multiples'
+  | 'returns_heatmap'
+  | 'ranked_bars';
+
+export interface ImageRep {
+  id: ImageRepId;
+  label: string;
+  description: string;
+  width: number;
+  height: number;
+  dataUrl: string;
+}
+
+const PALETTE = [
+  '#35D0BA', '#4C8DFF', '#E0A84C', '#C56E8F', '#9B7EE0',
+  '#58B6C9', '#E07A5F', '#81B29A', '#F2CC8F', '#3D405B',
+  '#E9C46A', '#2A9D8F', '#E76F51', '#264653', '#A8DADC',
+  '#457B9D', '#1D3557', '#F4A261', '#2B2D42', '#8D99AE',
+];
+
+function makeCanvas(width: number, height: number): {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2d canvas unavailable');
+  return { canvas, ctx };
+}
+
+function paintBg(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  ctx.fillStyle = '#0B1520';
+  ctx.fillRect(0, 0, w, h);
+}
+
+function title(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  ctx.fillStyle = '#EAF7F3';
+  ctx.font = '600 16px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillText(text, x, y);
+}
+
+function legend(
+  ctx: CanvasRenderingContext2D,
+  labels: string[],
+  x: number,
+  y: number,
+  columns = 5,
+): void {
+  ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+  labels.forEach((label, i) => {
+    const col = i % columns;
+    const row = Math.floor(i / columns);
+    const lx = x + col * 90;
+    const ly = y + row * 16;
+    ctx.fillStyle = PALETTE[i % PALETTE.length]!;
+    ctx.fillRect(lx, ly - 8, 10, 10);
+    ctx.fillStyle = '#C8D7D3';
+    ctx.fillText(label, lx + 14, ly);
+  });
+}
+
+export function renderOverlayNormalized(universe: SynthUniverse): ImageRep {
+  const width = 1100;
+  const height = 640;
+  const { canvas, ctx } = makeCanvas(width, height);
+  paintBg(ctx, width, height);
+  title(ctx, 'Normalized performance (start = 100)', 24, 28);
+
+  const pad = { top: 56, right: 24, bottom: 96, left: 56 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+
+  const rebased = universe.series.map((s) => {
+    const base = s.bars[0]!.close;
+    return s.bars.map((b) => (b.close / base) * 100);
+  });
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (const series of rebased) {
+    for (const v of series) {
+      minV = Math.min(minV, v);
+      maxV = Math.max(maxV, v);
+    }
+  }
+  const span = Math.max(maxV - minV, 1);
+
+  ctx.strokeStyle = '#1E2F3C';
+  ctx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const y = pad.top + (plotH * g) / 4;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+    const val = maxV - (span * g) / 4;
+    ctx.fillStyle = '#8EA8AA';
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.fillText(val.toFixed(0), 12, y + 3);
+  }
+
+  rebased.forEach((series, idx) => {
+    ctx.strokeStyle = PALETTE[idx % PALETTE.length]!;
+    ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    series.forEach((v, i) => {
+      const x = pad.left + (i / Math.max(series.length - 1, 1)) * plotW;
+      const y = pad.top + ((maxV - v) / span) * plotH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  legend(ctx, universe.series.map((s) => s.ticker), pad.left, height - 72, 10);
+
+  return {
+    id: 'overlay_normalized',
+    label: 'Overlay (normalized)',
+    description: 'All 20 names rebased to 100. Strong for relative ranking; weak for absolute levels.',
+    width,
+    height,
+    dataUrl: canvas.toDataURL('image/png'),
+  };
+}
+
+export function renderSmallMultiples(universe: SynthUniverse): ImageRep {
+  const cols = 5;
+  const rows = 4;
+  const cellW = 210;
+  const cellH = 140;
+  const width = cols * cellW + 24;
+  const height = rows * cellH + 48;
+  const { canvas, ctx } = makeCanvas(width, height);
+  paintBg(ctx, width, height);
+  title(ctx, 'Small multiples — close with period return', 24, 28);
+  const stats = universeStats(universe);
+
+  universe.series.forEach((series, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x0 = 12 + col * cellW;
+    const y0 = 40 + row * cellH;
+    const s = stats[idx]!;
+    ctx.fillStyle = '#102432';
+    ctx.fillRect(x0, y0, cellW - 10, cellH - 10);
+    ctx.fillStyle = '#EAF7F3';
+    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillText(series.ticker, x0 + 8, y0 + 16);
+    ctx.fillStyle = s.totalReturnPct >= 0 ? '#49D89D' : '#FF806F';
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(
+      `${s.totalReturnPct >= 0 ? '+' : ''}${s.totalReturnPct.toFixed(1)}%`,
+      x0 + 64,
+      y0 + 16,
+    );
+
+    const closes = series.bars.map((b) => b.close);
+    const minV = Math.min(...closes);
+    const maxV = Math.max(...closes);
+    const span = Math.max(maxV - minV, 1e-6);
+    const plotW = cellW - 26;
+    const plotH = cellH - 48;
+    ctx.strokeStyle = PALETTE[idx % PALETTE.length]!;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    closes.forEach((v, i) => {
+      const x = x0 + 8 + (i / Math.max(closes.length - 1, 1)) * plotW;
+      const y = y0 + 28 + ((maxV - v) / span) * plotH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  return {
+    id: 'small_multiples',
+    label: 'Small multiples',
+    description: 'Per-ticker sparkline with labeled period return — preserves identity better than a crowded overlay.',
+    width,
+    height,
+    dataUrl: canvas.toDataURL('image/png'),
+  };
+}
+
+export function renderReturnsHeatmap(universe: SynthUniverse): ImageRep {
+  const months: string[] = [];
+  for (const bar of universe.series[0]!.bars) {
+    const key = bar.date.slice(0, 7);
+    if (!months.includes(key)) months.push(key);
+  }
+
+  const width = 980;
+  const height = 40 + universe.series.length * 24 + 60;
+  const { canvas, ctx } = makeCanvas(width, height);
+  paintBg(ctx, width, height);
+  title(ctx, 'Monthly return heatmap (%)', 24, 28);
+
+  const left = 72;
+  const top = 48;
+  const cellW = (width - left - 24) / months.length;
+  const cellH = 22;
+
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillStyle = '#8EA8AA';
+  months.forEach((m, i) => {
+    ctx.fillText(m.slice(5), left + i * cellW + 8, top - 8);
+  });
+
+  universe.series.forEach((series, row) => {
+    const y = top + row * cellH;
+    ctx.fillStyle = '#C8D7D3';
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillText(series.ticker, 16, y + 15);
+
+    months.forEach((month, col) => {
+      const monthBars = series.bars.filter((b) => b.date.startsWith(month));
+      if (monthBars.length < 2) return;
+      const ret = monthBars[monthBars.length - 1]!.close / monthBars[0]!.close - 1;
+      const intensity = Math.min(Math.abs(ret) / 0.2, 1);
+      ctx.fillStyle = ret >= 0
+        ? `rgba(73, 216, 157, ${0.15 + intensity * 0.85})`
+        : `rgba(255, 128, 111, ${0.15 + intensity * 0.85})`;
+      ctx.fillRect(left + col * cellW, y, cellW - 2, cellH - 2);
+      ctx.fillStyle = '#0B1520';
+      ctx.font = '9px ui-monospace, monospace';
+      ctx.fillText(`${(ret * 100).toFixed(0)}`, left + col * cellW + 6, y + 14);
+    });
+  });
+
+  return {
+    id: 'returns_heatmap',
+    label: 'Returns heatmap',
+    description: 'Monthly % returns by ticker. Tests whether models can read tabular color encodings.',
+    width,
+    height,
+    dataUrl: canvas.toDataURL('image/png'),
+  };
+}
+
+export function renderRankedBars(universe: SynthUniverse): ImageRep {
+  const stats = universeStats(universe).slice().sort((a, b) => b.totalReturnPct - a.totalReturnPct);
+  const width = 900;
+  const height = 48 + stats.length * 26 + 24;
+  const { canvas, ctx } = makeCanvas(width, height);
+  paintBg(ctx, width, height);
+  title(ctx, 'Total return ranking', 24, 28);
+
+  const maxAbs = Math.max(...stats.map((s) => Math.abs(s.totalReturnPct)), 1);
+  const left = 90;
+  const barMax = width - left - 80;
+  const mid = left + barMax / 2;
+
+  stats.forEach((s, i) => {
+    const y = 48 + i * 26;
+    ctx.fillStyle = '#C8D7D3';
+    ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillText(s.ticker, 16, y + 14);
+    const w = (Math.abs(s.totalReturnPct) / maxAbs) * (barMax / 2);
+    ctx.fillStyle = s.totalReturnPct >= 0 ? '#49D89D' : '#FF806F';
+    if (s.totalReturnPct >= 0) ctx.fillRect(mid, y + 4, w, 14);
+    else ctx.fillRect(mid - w, y + 4, w, 14);
+    ctx.fillStyle = '#EAF7F3';
+    ctx.font = '11px ui-monospace, monospace';
+    const label = `${s.totalReturnPct >= 0 ? '+' : ''}${s.totalReturnPct.toFixed(1)}%`;
+    ctx.fillText(label, mid + (s.totalReturnPct >= 0 ? w + 6 : -w - 48), y + 14);
+  });
+
+  ctx.strokeStyle = '#1E2F3C';
+  ctx.beginPath();
+  ctx.moveTo(mid, 44);
+  ctx.lineTo(mid, height - 16);
+  ctx.stroke();
+
+  return {
+    id: 'ranked_bars',
+    label: 'Ranked return bars',
+    description: 'Sorted total-return bars — strongest for who-won questions, weak for path dependence.',
+    width,
+    height,
+    dataUrl: canvas.toDataURL('image/png'),
+  };
+}
+
+export function buildImageRepresentations(universe: SynthUniverse): ImageRep[] {
+  return [
+    renderOverlayNormalized(universe),
+    renderSmallMultiples(universe),
+    renderReturnsHeatmap(universe),
+    renderRankedBars(universe),
+  ];
+}

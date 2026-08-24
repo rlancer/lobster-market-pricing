@@ -1149,6 +1149,68 @@ async function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' });
 }
 
+/** Published experiment run returned by GET /api/experiments/:slug/runs/latest. */
+export interface ExperimentRunPayload {
+  id: string;
+  experiment_slug: string;
+  model: string;
+  seed: number;
+  created_at: number;
+  created_by: string | null;
+  results: {
+    questions: Array<{ id: string; prompt: string; expected: string }>;
+    text_reps: Array<{
+      id: string;
+      label: string;
+      description: string;
+      approx_tokens?: number;
+      body: string;
+    }>;
+    cells: Array<{
+      rep_id: string;
+      question_id: string;
+      status: 'done' | 'error';
+      answer?: string;
+      correct?: boolean;
+      detail?: string;
+      latency_ms?: number;
+      error?: string;
+      model?: string;
+    }>;
+    rep_order: string[];
+  };
+  images: Array<{
+    id: string;
+    label: string;
+    description: string;
+    width: number;
+    height: number;
+    data_url: string;
+  }>;
+}
+
+/** Metadata-only row from GET /api/experiments/:slug/runs (no image blobs). */
+export interface ExperimentRunSummary {
+  id: string;
+  experiment_slug: string;
+  model: string;
+  seed: number;
+  created_at: number;
+  created_by: string | null;
+  cells_done: number;
+  cells_correct: number;
+  cells_total: number;
+}
+
+export interface SaveExperimentRunBody {
+  experiment_slug?: string;
+  model: string;
+  seed: number;
+  results: ExperimentRunPayload['results'];
+  images: ExperimentRunPayload['images'];
+  created_by?: string | null;
+}
+
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -1263,6 +1325,41 @@ export const api = {
         schema: opts?.schema,
         samples: opts?.samples ? '1' : undefined,
       })}`,
+    ),
+  adminNotebookProbe: (body: {
+    model?: string;
+    mode: 'text' | 'image';
+    question: string;
+    system?: string;
+    text_context?: string;
+    image_data_url?: string;
+  }) =>
+    post<{
+      ok: true;
+      model: string;
+      answer: string;
+      latency_ms: number;
+    }>('/api/admin/notebooks/probe', body),
+  /** Public: latest published experiment run (results + exact LLM-fed images). */
+  experimentLatestRun: (slug: string) =>
+    get<ExperimentRunPayload>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs/latest`,
+    ),
+  /** Public: list published runs (newest first) for multi-model comparison. */
+  experimentListRuns: (slug: string, limit = 20) =>
+    get<{ items: ExperimentRunSummary[] }>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs${qs({ limit })}`,
+    ),
+  /** Public: one published run by id. */
+  experimentRun: (slug: string, runId: string) =>
+    get<ExperimentRunPayload>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}`,
+    ),
+  /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
+  adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
+    post<{ ok: true; run: ExperimentRunPayload }>(
+      `/api/admin/experiments/${encodeURIComponent(slug)}/runs`,
+      body,
     ),
   adminBot: (handle: string) =>
     get<{ bot: BotProfile; runs: BotRun[]; schedule: BotSchedule | null }>(

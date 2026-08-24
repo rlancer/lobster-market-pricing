@@ -257,6 +257,24 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/experiments' || path === '/notebooks') {
+    return {
+      title: pageTitle('Experiments'),
+      description:
+        'Public experiments — text vs image context studies and other model-encoding probes, with server-saved runs.',
+      path: path === '/notebooks' ? '/notebooks' : '/experiments',
+    };
+  }
+
+  if (path === '/experiments/text-vs-image' || path === '/notebooks/text-vs-image') {
+    return {
+      title: pageTitle('Text vs image experiment'),
+      description:
+        'Compare Copilot-style text summaries with chart images for multimodal LLM accuracy on synthetic equity panels. View the exact images fed to the model and a server-saved run.',
+      path: path.startsWith('/notebooks') ? path : '/experiments/text-vs-image',
+    };
+  }
+
   if (path === '/docs' || path.startsWith('/docs/')) {
     const slug = path === '/docs' ? 'overview' : (segments[1] ?? 'overview');
     const doc = DOCS[slug] ?? DOCS.overview;

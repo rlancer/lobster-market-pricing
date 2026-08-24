@@ -23,6 +23,8 @@ import TradesPage from './Trades';
 import PortfolioPage from './Portfolio';
 import CopilotExplorePage from './CopilotExplore';
 import AdminPage from './Admin';
+import NotebooksPage from './Notebooks';
+import TextVsImageNotebookPage from './TextVsImageNotebook';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -202,6 +204,36 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+
+const experimentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments',
+  component: NotebooksPage,
+});
+
+const textVsImageExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/text-vs-image',
+  component: TextVsImageNotebookPage,
+});
+
+/** Legacy /notebooks paths redirect to /experiments. */
+const notebooksRedirectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notebooks',
+  beforeLoad: () => {
+    throw redirect({ to: '/experiments' });
+  },
+});
+
+const textVsImageNotebookRedirectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notebooks/text-vs-image',
+  beforeLoad: () => {
+    throw redirect({ to: '/experiments/text-vs-image' });
+  },
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -292,6 +324,10 @@ const routeTree = rootRoute.addChildren([
   portfolioRoute,
   copilotExploreRoute,
   adminRoute,
+  experimentsRoute,
+  textVsImageExperimentRoute,
+  notebooksRedirectRoute,
+  textVsImageNotebookRedirectRoute,
   docsRoute,
 ]);
 

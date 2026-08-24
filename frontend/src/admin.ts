@@ -6,7 +6,14 @@
 export const ADMIN_EMAILS = ['robert.lancer@gmail.com'] as const;
 
 /** Admin-only page paths (hub is `/admin`; tools stay at these URLs). */
-export const ADMIN_TOOL_PATHS = ['/bots', '/users', '/chats', '/trades', '/copilot', '/brand'] as const;
+export const ADMIN_TOOL_PATHS = [
+  '/bots',
+  '/users',
+  '/chats',
+  '/trades',
+  '/copilot',
+  '/brand',
+] as const;
 
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
@@ -21,3 +28,14 @@ export function isAdminNavPath(pathname: string): boolean {
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
 }
+
+/** True for `/experiments` (and legacy `/notebooks`) routes. */
+export function isExperimentsNavPath(pathname: string): boolean {
+  return pathname === '/experiments'
+    || pathname.startsWith('/experiments/')
+    || pathname === '/notebooks'
+    || pathname.startsWith('/notebooks/');
+}
+
+/** @deprecated Use isExperimentsNavPath */
+export const isNotebooksNavPath = isExperimentsNavPath;
