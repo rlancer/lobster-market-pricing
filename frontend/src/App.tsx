@@ -1,10 +1,12 @@
 import { forwardRef, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   AppShell,
   Divider,
   HStack,
   Layout,
+  Link as AstryxLink,
   MobileNav,
   Popover,
   SideNav,
@@ -15,9 +17,9 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, FlaskConical, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
-import { isAdminNavPath, isExperimentsNavPath } from './admin';
+import { isAdminNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -63,7 +65,6 @@ const BOTTOM_SECTIONS: Section[] = [
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
-const EXPERIMENTS_HEADING: Section = { to: '/experiments', label: 'Experiments', heading: 'Experiments', icon: FlaskConical };
 
 /** Global ticker jump — desktop rail on wide viewports, drawer on mobile. */
 function ResearchSearch({
@@ -124,55 +125,6 @@ function WorkspaceBrand() {
       </RouterLink>
     </HStack>
   );
-}
-
-/** Mobile app-bar actions — new chat + ticker search. Desktop SideNav keeps the brand. */
-function WorkspaceNavigationHeader() {
-  const navigate = useNavigate();
-  const { isMobile } = useAppShellMobile();
-  const [searchOpen, setSearchOpen] = useState(false);
-
-  if (isMobile) {
-    return (
-      <HStack gap={1} vAlign="center" className="mobile-topbar-actions">
-        <IconButton
-          variant="ghost"
-          size="sm"
-          label="New chat"
-          tooltip="New chat"
-          icon={<SquarePen size={16} />}
-          onClick={() => {
-            requestNewChat();
-            void navigate({ to: '/chat' });
-          }}
-        />
-        <Popover
-          placement="below"
-          alignment="start"
-          label="Search tickers"
-          width="min(22rem, calc(100vw - var(--spacing-6)))"
-          isOpen={searchOpen}
-          onOpenChange={setSearchOpen}
-          content={
-            <ResearchSearch
-              className="nav-research-search mobile-topbar-search"
-              onSelectSymbol={() => setSearchOpen(false)}
-            />
-          }
-        >
-          <IconButton
-            variant="ghost"
-            size="sm"
-            label="Search tickers"
-            tooltip="Search tickers"
-            icon={<Search size={16} />}
-          />
-        </Popover>
-      </HStack>
-    );
-  }
-
-  return <WorkspaceBrand />;
 }
 
 const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
@@ -335,21 +287,13 @@ function WorkspaceHelpNavItems({
         isSelected={Boolean(activeTo?.startsWith('/docs'))}
         onClick={closeMobileNav}
       />
-      <SideNavItem
-        as={RouterLink}
-        href="/experiments"
-        label={EXPERIMENTS_HEADING.label}
-        icon={EXPERIMENTS_HEADING.icon}
-        isSelected={isExperimentsNavPath(pathname)}
-        onClick={closeMobileNav}
-      />
       {isAdmin ? (
         <SideNavItem
           as={RouterLink}
           href="/admin"
           label={ADMIN_HEADING.label}
           icon={ADMIN_HEADING.icon}
-          isSelected={adminSelected && !isExperimentsNavPath(pathname)}
+          isSelected={adminSelected}
           endContent={<Lock size={14} aria-label="Admin only" />}
           onClick={closeMobileNav}
         />
@@ -400,12 +344,111 @@ function WorkspaceNavigation({
   return (
     <SideNav
       className="workspace-nav"
-      header={<WorkspaceNavigationHeader />}
+      header={<WorkspaceBrand />}
       topContent={showSearch ? <ResearchSearch className="nav-research-search" /> : undefined}
       footer={<WorkspaceHelpNav activeTo={activeTo} pathname={pathname} />}
     >
       <WorkspaceNavItems activeTo={activeTo} isChat={isChat} activeChatId={activeChatId} />
     </SideNav>
+  );
+}
+
+/** Thumb-friendly mobile destinations and actions, fixed above the safe area. */
+function MobileBottomNavigation() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const {
+    isMobile,
+    isMobileNavOpen,
+    mobileNavId,
+    openMobileNav,
+  } = useAppShellMobile();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isMobile || !mounted) return null;
+
+  const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
+  const isResearch = location.pathname.startsWith('/research');
+
+  return createPortal(
+    <HStack
+      as="nav"
+      aria-label="Mobile navigation"
+      className="mobile-bottom-nav"
+      gap={0}
+      hAlign="evenly"
+      vAlign="center"
+      width="100%"
+    >
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="Menu"
+        tooltip="Menu"
+        icon={<Menu size={20} />}
+        className="mobile-bottom-nav-action"
+        data-testid="mobile-nav-toggle"
+        aria-expanded={isMobileNavOpen}
+        aria-controls={mobileNavId || undefined}
+        onClick={openMobileNav}
+      />
+
+      <AstryxLink
+        as={RouterLink}
+        href="/"
+        label="Timeline"
+        isStandalone
+        className="mobile-bottom-nav-link"
+        data-selected={isTimeline ? 'true' : undefined}
+        aria-current={isTimeline ? 'page' : undefined}
+      >
+        <Newspaper size={20} aria-hidden="true" />
+      </AstryxLink>
+
+      <IconButton
+        variant="ghost"
+        size="sm"
+        label="New chat"
+        tooltip="New chat"
+        icon={<SquarePen size={20} />}
+        className="mobile-bottom-nav-action mobile-bottom-nav-new-chat"
+        onClick={() => {
+          requestNewChat();
+          void navigate({ to: '/chat' });
+        }}
+      />
+
+      <Popover
+        placement="above"
+        alignment="center"
+        label="Search tickers"
+        width="min(22rem, calc(100vw - var(--spacing-6)))"
+        isOpen={searchOpen}
+        onOpenChange={setSearchOpen}
+        content={
+          <ResearchSearch
+            className="nav-research-search mobile-bottom-nav-search"
+            onSelectSymbol={() => setSearchOpen(false)}
+          />
+        }
+      >
+        <IconButton
+          variant="ghost"
+          size="sm"
+          label="Search tickers"
+          tooltip="Search tickers"
+          icon={<Search size={20} />}
+          className="mobile-bottom-nav-action"
+          data-selected={isResearch ? 'true' : undefined}
+        />
+      </Popover>
+    </HStack>,
+    document.body,
   );
 }
 
@@ -424,20 +467,23 @@ function WorkspaceLayout() {
   useEffect(() => { loadStats(); }, [loadStats]);
 
 
+  // Shared chats (/share/:shareId) are PUBLIC artifacts — a recipient who may
+  // never have visited the site gets a bare page with its own minimal chrome
+  // (SharedChat's AppShell): no workspace nav, no stats chrome, no
+  // localStorage reads. Skip the whole shell for them.
+  if (location.pathname.startsWith('/share/')) {
+    return <Outlet />;
+  }
+
   const updatedAt = stats?.last_updated
     ? new Date(stats.last_updated.replace(' ', 'T')).toLocaleString(undefined, {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
       })
     : '–';
 
-  const isTimeline =
-    location.pathname === '/'
-    || location.pathname.startsWith('/u/')
-    || location.pathname.startsWith('/share/');
+  const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const active = isTimeline
     ? SECTIONS[0]
-    : isExperimentsNavPath(location.pathname)
-      ? EXPERIMENTS_HEADING
     : isAdminNavPath(location.pathname)
       ? ADMIN_HEADING
       : [...SECTIONS, ...BOTTOM_SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>
@@ -468,21 +514,19 @@ function WorkspaceLayout() {
 
   // Responsive contract:
   //   > 768px  SideNav spans the viewport; content fills the rest (no top bar).
-  //   <= 768px AppShell renders a compact top bar (New chat + ticker search) and
-  //            the SideNav becomes a start-side drawer. Full nav + account stay
-  //            in the drawer; the timeline ask composer is desktop-only.
-  // Shell chrome uses AppShell `wash` (body canvas) so nav and route content
-  // share one background — no leftover surface strip beside research/etc.
+  //   <= 768px A fixed bottom nav owns Timeline, New chat, ticker search, and
+  //            the menu trigger. SideNav becomes a start-side drawer; the
+  //            timeline ask composer remains desktop-only.
   return (
     <WorkspaceContext.Provider value={value}>
       <AppShell
         className="app"
         height="fill"
-        variant="wash"
+        variant="section"
         contentPadding={0}
         sideNav={<WorkspaceNavigation {...navProps} showSearch />}
         mobileNav={{
-          hasToggle: true,
+          hasToggle: false,
           breakpoint: 'md',
           content: (
             <MobileNav side="start" label="Navigation" header={<WorkspaceBrand />}>
@@ -502,6 +546,7 @@ function WorkspaceLayout() {
             <Outlet />
           </section>
         </Layout>
+        <MobileBottomNavigation />
       </AppShell>
     </WorkspaceContext.Provider>
   );

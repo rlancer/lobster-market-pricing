@@ -17,7 +17,7 @@ import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './Timeline
 import { TimelineRail } from './TimelineRail';
 
 /**
- * Sticky ask box at the top of the desktop feed. On mobile the app bar owns
+ * Sticky ask box at the top of the desktop feed. On mobile the bottom nav owns
  * New chat + ticker search, so this composer is desktop-only.
  */
 function TimelineAskComposer({
