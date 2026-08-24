@@ -363,21 +363,23 @@ test.describe('Public timeline', () => {
     const bottomNavStyles = await bottomNav.evaluate((element) => {
       const styles = getComputedStyle(element);
       return {
-        parentTag: element.parentElement?.tagName ?? null,
+        inWorkspaceFrame: Boolean(element.closest('.workspace-frame')),
         position: styles.position,
         bottom: styles.bottom,
+        backgroundColor: styles.backgroundColor,
         backdropFilter: styles.backdropFilter,
         webkitBackdropFilter: styles.webkitBackdropFilter,
-        backgroundColor: styles.backgroundColor,
       };
     });
-    expect(bottomNavStyles.parentTag).toBe('BODY');
-    expect(bottomNavStyles.position).toBe('fixed');
+    expect(bottomNavStyles.inWorkspaceFrame).toBe(true);
+    expect(bottomNavStyles.position).toBe('absolute');
     expect(bottomNavStyles.bottom).toBe('0px');
     expect(
       bottomNavStyles.backdropFilter !== 'none'
       || bottomNavStyles.webkitBackdropFilter !== 'none',
     ).toBe(true);
+    // Translucent tint — near-opaque panel paint would hide the blur.
+    expect(bottomNavStyles.backgroundColor).toMatch(/rgba?\(/);
     const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
     const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
     expect(menuBox && timelineBox).toBeTruthy();

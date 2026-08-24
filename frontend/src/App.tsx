@@ -412,7 +412,12 @@ function MobileTickerSearchModal({
   );
 }
 
-/** Thumb-friendly mobile destinations and actions, fixed above the safe area. */
+/**
+ * Thumb-friendly mobile destinations and actions. Stays in the workspace
+ * frame (not portaled) so backdrop-filter can sample the scrolling pane it
+ * overlays — body portals sit outside AppShell's overflow root and paint as
+ * a flat tint on Chrome/Android.
+ */
 function MobileBottomNavigation() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -423,22 +428,17 @@ function MobileBottomNavigation() {
     openMobileNav,
   } = useAppShellMobile();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     setSearchOpen(false);
   }, [location.pathname]);
 
-  if (!isMobile || !mounted) return null;
+  if (!isMobile) return null;
 
   const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
   const isResearch = location.pathname.startsWith('/research');
 
-  return createPortal(
+  return (
     <>
       <HStack
         as="nav"
@@ -505,8 +505,7 @@ function MobileBottomNavigation() {
         />
       </HStack>
       <MobileTickerSearchModal isOpen={searchOpen} onOpenChange={setSearchOpen} />
-    </>,
-    document.body,
+    </>
   );
 }
 
@@ -599,12 +598,14 @@ function WorkspaceLayout() {
           ),
         }}
       >
-        <Layout className="workspace-main" height="fill" padding={0}>
-          <section className={isCopilot ? 'content content-copilot' : 'content'}>
-            <Outlet />
-          </section>
+        <Layout className="workspace-frame" height="fill" padding={0}>
+          <Layout className="workspace-main" height="fill" padding={0}>
+            <section className={isCopilot ? 'content content-copilot' : 'content'}>
+              <Outlet />
+            </section>
+          </Layout>
+          <MobileBottomNavigation />
         </Layout>
-        <MobileBottomNavigation />
       </AppShell>
     </WorkspaceContext.Provider>
   );

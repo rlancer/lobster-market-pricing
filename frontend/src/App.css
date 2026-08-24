@@ -56,6 +56,13 @@ button, select { cursor: pointer; }
   height: 100%;
   min-height: 100%;
 }
+/* Relative frame so the mobile bottom nav can overlay the scrolling pane and
+   sample it with backdrop-filter (body portals cannot). */
+.workspace-frame {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
 .workspace-main {
   height: 100%;
   min-height: 0;
@@ -419,8 +426,18 @@ button, select { cursor: pointer; }
       var(--size-element-lg) + var(--spacing-3) + env(safe-area-inset-bottom)
     );
   }
+  /* Own scroll here so the absolute nav is a sibling of the scrolling pane
+     inside .workspace-frame — the only arrangement where backdrop-filter can
+     sample feed content on Chromium (Pixel) and desktop. */
+  .workspace-frame {
+    overflow: hidden;
+  }
+  .workspace-main {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
   .mobile-bottom-nav {
-    position: fixed;
+    position: absolute;
     z-index: 40;
     inset-inline: 0;
     bottom: 0;
@@ -429,11 +446,12 @@ button, select { cursor: pointer; }
     padding: var(--spacing-1) var(--spacing-2)
       calc(var(--spacing-1) + env(safe-area-inset-bottom));
     border-top: var(--border-width) solid
-      color-mix(in srgb, var(--color-border-emphasized) 85%, transparent);
-    background: color-mix(in srgb, var(--panel) 80%, transparent);
-    box-shadow: var(--shadow-high);
-    backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
-    -webkit-backdrop-filter: blur(40px) saturate(2.5) brightness(1.15);
+      color-mix(in srgb, var(--color-border-emphasized) 55%, transparent);
+    /* Keep the tint translucent — 80%+ panel paint hides the blur entirely. */
+    background: color-mix(in srgb, var(--panel) 42%, transparent);
+    box-shadow: var(--shadow-med);
+    backdrop-filter: blur(24px) saturate(1.65);
+    -webkit-backdrop-filter: blur(24px) saturate(1.65);
     pointer-events: none;
   }
   /* Full-screen search fills the viewport above the bottom nav. z-index stays
@@ -453,8 +471,6 @@ button, select { cursor: pointer; }
   .mobile-ticker-search-modal .mobile-bottom-nav-search {
     padding-block-end: var(--spacing-0);
   }
-  /* Portal to <body> so backdrop-filter samples scrolling page content instead
-     of the opaque AppShell scroll pane sitting behind an in-tree fixed bar. */
   .mobile-bottom-nav > * {
     pointer-events: auto;
     flex: 1;
