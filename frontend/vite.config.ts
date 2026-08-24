@@ -43,6 +43,13 @@ function pagesMetaWorker(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), pagesMetaWorker()],
+  // Vite 8 defaults cssMinify to lightningcss, which drops unprefixed
+  // `backdrop-filter` when a `-webkit-` twin is present (lightningcss#785 /
+  // vite#22649). Chromium then computes `backdrop-filter: none` and every
+  // frosted surface (mobile bottom nav, composers) loses its blur.
+  build: {
+    cssMinify: 'esbuild',
+  },
   server: {
     port: 5173,
     // Proxy API HTTP (including /api/auth) and Agent WebSocket traffic to the

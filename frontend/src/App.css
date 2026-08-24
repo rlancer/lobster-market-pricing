@@ -443,8 +443,10 @@ button, select { cursor: pointer; }
     /* Keep the tint translucent — 80%+ panel paint hides the blur entirely. */
     background: color-mix(in srgb, var(--panel) 42%, transparent);
     box-shadow: var(--shadow-med);
+    /* Unprefixed only — Vite 8's lightningcss minifier drops `backdrop-filter`
+       when `-webkit-backdrop-filter` is also present, and Chromium needs the
+       unprefixed property (computed style becomes `none` otherwise). */
     backdrop-filter: blur(24px) saturate(1.65);
-    -webkit-backdrop-filter: blur(24px) saturate(1.65);
     pointer-events: none;
   }
   /* Full-screen search fills the viewport above the bottom nav. z-index stays

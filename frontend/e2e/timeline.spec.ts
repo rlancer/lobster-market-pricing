@@ -369,6 +369,9 @@ test.describe('Public timeline', () => {
       bottomNavStyles.backdropFilter !== 'none'
       || bottomNavStyles.webkitBackdropFilter !== 'none',
     ).toBe(true);
+    // Chromium needs the unprefixed property; webkit-only (lightningcss bug)
+    // computes as none and paints no blur.
+    expect(bottomNavStyles.backdropFilter).toMatch(/blur\(/);
     // Translucent tint — near-opaque panel paint would hide the blur.
     // Chromium may serialize color-mix as rgba(...) or color(srgb ... / a).
     expect(bottomNavStyles.backgroundColor).toMatch(/\/\s*0?\.\d+|rgba?\([^)]+,\s*0?\.\d+/);
