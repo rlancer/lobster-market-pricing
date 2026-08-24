@@ -8,7 +8,8 @@ name: Run text-vs-image experiment
 # already be set on the target Worker (synced by deploy.yml).
 #
 # Trigger: workflow_dispatch, or push to cursor/run-text-vs-image-experiment-ca84
-# (gh workflow_dispatch is 403 for the Cursor integration token).
+# / cursor/textless-chart-legend-244c (gh workflow_dispatch is 403 for the Cursor
+# integration token — push is the reliable path).
 
 on:
   workflow_dispatch:
@@ -16,16 +17,18 @@ on:
       model:
         description: 'OpenRouter model slug'
         type: string
-        default: 'openai/gpt-4o-mini'
+        default: 'google/gemini-2.5-flash'
       api_base:
         description: 'Worker API origin'
         type: choice
         options:
-          - https://api-dev.lobster.mp
           - https://api.lobster.mp
-        default: https://api-dev.lobster.mp
+          - https://api-dev.lobster.mp
+        default: https://api.lobster.mp
   push:
-    branches: ['cursor/run-text-vs-image-experiment-ca84']
+    branches:
+      - 'cursor/run-text-vs-image-experiment-ca84'
+      - 'cursor/textless-chart-legend-244c'
 
 concurrency:
   group: run-text-vs-image-experiment
@@ -40,8 +43,13 @@ jobs:
     timeout-minutes: 45
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      MODEL: ${{ inputs.model || 'openai/gpt-4o-mini' }}
-      API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
+      # Push trigger has no inputs — default to Gemini so we get a second-model
+      # comparison against the published gpt-4o-mini baseline.
+      MODEL: ${{ inputs.model || 'google/gemini-2.5-flash' }}
+      # Prefer production so lobster.mp/experiments/text-vs-image shows the new run.
+      # Hybrids need multimodal on the Worker — workflow falls back to classic-only
+      # until that ships.
+      API_BASE: ${{ inputs.api_base || 'https://api.lobster.mp' }}
       SLUG: text-vs-image
     steps:
       - name: Check out repository
@@ -72,25 +80,67 @@ jobs:
       - name: Wait for experiment list route (Worker may still be rolling)
         run: |
           set -euo pipefail
-          for i in $(seq 1 30); do
+          for i in $(seq 1 36); do
             code=$(curl -sS -o /tmp/exp-list.json -w '%{http_code}' \
               "$API_BASE/api/experiments/$SLUG/runs" || true)
             if [ "$code" = "200" ]; then
               echo "list endpoint ready (HTTP 200)"
               cat /tmp/exp-list.json
-              exit 0
+              break
             fi
-            echo "attempt $i: HTTP $code — waiting for Worker route…"
+            echo "attempt $i: list HTTP $code — waiting…"
+            if [ "$i" -eq 36 ]; then
+              echo "::error::list endpoint never returned 200"
+              cat /tmp/exp-list.json || true
+              exit 1
+            fi
             sleep 10
           done
-          echo "::error::list endpoint never returned 200"
-          cat /tmp/exp-list.json || true
-          exit 1
+
+      - name: Wait for multimodal probe support (Deploy may still be rolling)
+        id: multimodal
+        run: |
+          set -euo pipefail
+          TINY='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+          # Prod will not have multimodal until this PR merges — fall back fast.
+          # Dev Worker may still be deploying — wait longer.
+          if [[ "$API_BASE" == *"api-dev"* ]]; then
+            MAX_ATTEMPTS=36
+          else
+            MAX_ATTEMPTS=3
+          fi
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            body=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+              -X POST "$API_BASE/api/admin/notebooks/probe" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"mode\":\"multimodal\",\"question\":\"ping\",\"text_context\":\"| Color | Ticker |\\n| teal | AERO |\",\"image_data_url\":\"$TINY\",\"model\":\"openai/gpt-4o-mini\"}" \
+              || true)
+            echo "attempt $i/$MAX_ATTEMPTS: probe HTTP $body"
+            head -c 300 /tmp/probe.json || true
+            echo
+            if [ "$body" = "401" ] || [ "$body" = "403" ]; then
+              echo "::error::ADMIN_TOKEN rejected (HTTP $body)"
+              exit 1
+            fi
+            if grep -q "mode must be 'text' or 'image'" /tmp/probe.json 2>/dev/null; then
+              sleep 10
+              continue
+            fi
+            echo "supported=yes" >> "$GITHUB_OUTPUT"
+            echo "multimodal accepted (HTTP $body)"
+            exit 0
+          done
+          echo "::warning::Worker does not accept multimodal yet — publishing classic reps only"
+          echo "supported=no" >> "$GITHUB_OUTPUT"
 
       - name: Run probes and publish saved run
+        env:
+          INCLUDE_HYBRIDS: ${{ steps.multimodal.outputs.supported == 'yes' && '1' || '0' }}
         run: |
           set -euo pipefail
           cd frontend
+          echo "INCLUDE_HYBRIDS=$INCLUDE_HYBRIDS MODEL=$MODEL API_BASE=$API_BASE"
           node tools/run-text-vs-image-experiment.mjs
 
       - name: Verify latest run is public

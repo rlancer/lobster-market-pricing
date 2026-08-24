@@ -1,6 +1,7 @@
 /**
  * Admin-only OpenRouter probe for notebook experiments.
- * Accepts either a text context or a PNG data-URL image and returns one answer.
+ * Accepts text context, a PNG data-URL image, or both (multimodal) and
+ * returns one answer.
  */
 
 import { generateText, type LanguageModel } from "ai";
@@ -10,11 +11,13 @@ export const DEFAULT_NOTEBOOK_MODEL = "openai/gpt-4o-mini";
 export const MAX_TEXT_CONTEXT_CHARS = 120_000;
 export const MAX_IMAGE_DATA_URL_CHARS = 2_500_000;
 
+export type NotebookProbeMode = "text" | "image" | "multimodal";
+
 export interface NotebookProbeInput {
   model?: string;
   question: string;
   system?: string;
-  mode: "text" | "image";
+  mode: NotebookProbeMode;
   text_context?: string;
   /** `data:image/png;base64,...` (or jpeg/webp). */
   image_data_url?: string;
@@ -44,6 +47,28 @@ const DEFAULT_SYSTEM = [
   "Follow the answer format in the question exactly. Be concise.",
 ].join(" ");
 
+function parseTextContext(rec: Record<string, unknown>): string | NotebookProbeFailure {
+  const text = typeof rec.text_context === "string" ? rec.text_context : "";
+  if (!text.trim()) {
+    return { ok: false, error: "text_context is required for this mode", status: 400 };
+  }
+  if (text.length > MAX_TEXT_CONTEXT_CHARS) {
+    return { ok: false, error: "text_context too large", status: 400 };
+  }
+  return text;
+}
+
+function parseImageDataUrl(rec: Record<string, unknown>): string | NotebookProbeFailure {
+  const image = typeof rec.image_data_url === "string" ? rec.image_data_url : "";
+  if (!image.startsWith("data:image/")) {
+    return { ok: false, error: "image_data_url must be a data:image/... URL", status: 400 };
+  }
+  if (image.length > MAX_IMAGE_DATA_URL_CHARS) {
+    return { ok: false, error: "image_data_url too large", status: 400 };
+  }
+  return image;
+}
+
 export function parseNotebookProbeBody(body: unknown): NotebookProbeParseResult {
   if (!body || typeof body !== "object") {
     return { ok: false, error: "JSON body required", status: 400 };
@@ -53,8 +78,12 @@ export function parseNotebookProbeBody(body: unknown): NotebookProbeParseResult 
   if (!question) return { ok: false, error: "question is required", status: 400 };
   if (question.length > 4_000) return { ok: false, error: "question too long", status: 400 };
 
-  const mode = rec.mode === "image" ? "image" : rec.mode === "text" ? "text" : null;
-  if (!mode) return { ok: false, error: "mode must be 'text' or 'image'", status: 400 };
+  const mode = rec.mode === "image" || rec.mode === "text" || rec.mode === "multimodal"
+    ? rec.mode
+    : null;
+  if (!mode) {
+    return { ok: false, error: "mode must be 'text', 'image', or 'multimodal'", status: 400 };
+  }
 
   const model = typeof rec.model === "string" && rec.model.trim()
     ? rec.model.trim().slice(0, 120)
@@ -64,24 +93,30 @@ export function parseNotebookProbeBody(body: unknown): NotebookProbeParseResult 
     : undefined;
 
   if (mode === "text") {
-    const text = typeof rec.text_context === "string" ? rec.text_context : "";
-    if (!text.trim()) {
-      return { ok: false, error: "text_context is required for text mode", status: 400 };
-    }
-    if (text.length > MAX_TEXT_CONTEXT_CHARS) {
-      return { ok: false, error: "text_context too large", status: 400 };
-    }
+    const text = parseTextContext(rec);
+    if (typeof text !== "string") return text;
     return { ok: true, model, question, system, mode, text_context: text };
   }
 
-  const image = typeof rec.image_data_url === "string" ? rec.image_data_url : "";
-  if (!image.startsWith("data:image/")) {
-    return { ok: false, error: "image_data_url must be a data:image/... URL", status: 400 };
+  if (mode === "image") {
+    const image = parseImageDataUrl(rec);
+    if (typeof image !== "string") return image;
+    return { ok: true, model, question, system, mode, image_data_url: image };
   }
-  if (image.length > MAX_IMAGE_DATA_URL_CHARS) {
-    return { ok: false, error: "image_data_url too large", status: 400 };
-  }
-  return { ok: true, model, question, system, mode, image_data_url: image };
+
+  const text = parseTextContext(rec);
+  if (typeof text !== "string") return text;
+  const image = parseImageDataUrl(rec);
+  if (typeof image !== "string") return image;
+  return {
+    ok: true,
+    model,
+    question,
+    system,
+    mode,
+    text_context: text,
+    image_data_url: image,
+  };
 }
 
 function parseDataUrl(dataUrl: string): { mediaType: string; base64: string } | null {
@@ -124,7 +159,7 @@ export async function runNotebookProbe(
         maxOutputTokens: 400,
         temperature: 0,
       });
-    } else {
+    } else if (input.mode === "image") {
       const parsed = parseDataUrl(input.image_data_url ?? "");
       if (!parsed) {
         return { ok: false, error: "invalid image_data_url encoding", status: 400 };
@@ -137,6 +172,39 @@ export async function runNotebookProbe(
             role: "user",
             content: [
               { type: "text", text: `QUESTION:\n${input.question}` },
+              {
+                type: "image",
+                image: parsed.base64,
+                mediaType: parsed.mediaType,
+              },
+            ],
+          },
+        ],
+        maxOutputTokens: 400,
+        temperature: 0,
+      });
+    } else {
+      const parsed = parseDataUrl(input.image_data_url ?? "");
+      if (!parsed) {
+        return { ok: false, error: "invalid image_data_url encoding", status: 400 };
+      }
+      result = await generateText({
+        model,
+        system,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: [
+                  "CONTEXT (markdown legend / keys — the chart image has no text labels):",
+                  input.text_context,
+                  "",
+                  "QUESTION:",
+                  input.question,
+                ].join("\n"),
+              },
               {
                 type: "image",
                 image: parsed.base64,
