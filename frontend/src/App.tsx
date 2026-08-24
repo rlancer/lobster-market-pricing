@@ -15,9 +15,9 @@ import {
   VStack,
   useAppShellMobile,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Briefcase, NotebookPen, ChevronDown, ChevronRight, Database, Lock, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
-import { isAdminNavPath } from './admin';
+import { isAdminNavPath, isNotebooksNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -63,6 +63,7 @@ const BOTTOM_SECTIONS: Section[] = [
 const MONITOR_HEADING: Section = { to: '/monitor', label: 'Monitor', heading: 'Dataset monitor', icon: Database };
 const DOCS_HEADING: Section = { to: '/docs', label: 'Docs', heading: 'Platform docs', icon: BookOpen };
 const ADMIN_HEADING: Section = { to: '/admin', label: 'Admin', heading: 'Admin', icon: Wrench };
+const NOTEBOOKS_HEADING: Section = { to: '/notebooks', label: 'Notebooks', heading: 'Notebooks', icon: NotebookPen };
 
 /** Global ticker jump — desktop rail on wide viewports, drawer on mobile. */
 function ResearchSearch({
@@ -337,10 +338,21 @@ function WorkspaceHelpNavItems({
       {isAdmin ? (
         <SideNavItem
           as={RouterLink}
+          href="/notebooks"
+          label={NOTEBOOKS_HEADING.label}
+          icon={NOTEBOOKS_HEADING.icon}
+          isSelected={isNotebooksNavPath(pathname)}
+          endContent={<Lock size={14} aria-label="Admin only" />}
+          onClick={closeMobileNav}
+        />
+      ) : null}
+      {isAdmin ? (
+        <SideNavItem
+          as={RouterLink}
           href="/admin"
           label={ADMIN_HEADING.label}
           icon={ADMIN_HEADING.icon}
-          isSelected={adminSelected}
+          isSelected={adminSelected && !isNotebooksNavPath(pathname)}
           endContent={<Lock size={14} aria-label="Admin only" />}
           onClick={closeMobileNav}
         />
@@ -427,6 +439,8 @@ function WorkspaceLayout() {
     || location.pathname.startsWith('/share/');
   const active = isTimeline
     ? SECTIONS[0]
+    : isNotebooksNavPath(location.pathname)
+      ? NOTEBOOKS_HEADING
     : isAdminNavPath(location.pathname)
       ? ADMIN_HEADING
       : [...SECTIONS, ...BOTTOM_SECTIONS, MONITOR_HEADING, DOCS_HEADING].find((s) =>

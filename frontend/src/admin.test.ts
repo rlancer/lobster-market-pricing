@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ADMIN_EMAILS, isAdminEmail, isAdminNavPath } from './admin.ts';
+import { ADMIN_EMAILS, isAdminEmail, isAdminNavPath, isNotebooksNavPath } from './admin.ts';
 
 test('ADMIN_EMAILS includes the owner account', () => {
   assert.ok(ADMIN_EMAILS.includes('robert.lancer@gmail.com'));
@@ -28,8 +28,17 @@ test('isAdminNavPath covers the admin hub and tool routes', () => {
   assert.equal(isAdminNavPath('/trades'), true);
   assert.equal(isAdminNavPath('/copilot'), true);
   assert.equal(isAdminNavPath('/brand'), true);
+  assert.equal(isAdminNavPath('/notebooks'), true);
+  assert.equal(isAdminNavPath('/notebooks/text-vs-image'), true);
   assert.equal(isAdminNavPath('/copilot/extra'), true);
   assert.equal(isAdminNavPath('/chat'), false);
   assert.equal(isAdminNavPath('/docs'), false);
   assert.equal(isAdminNavPath('/'), false);
+});
+
+test('isNotebooksNavPath covers the notebooks section', () => {
+  assert.equal(isNotebooksNavPath('/notebooks'), true);
+  assert.equal(isNotebooksNavPath('/notebooks/text-vs-image'), true);
+  assert.equal(isNotebooksNavPath('/admin'), false);
+  assert.equal(isNotebooksNavPath('/chat'), false);
 });

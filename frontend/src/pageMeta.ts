@@ -257,6 +257,24 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/notebooks') {
+    return {
+      title: pageTitle('Notebooks'),
+      description:
+        'Admin-only experimental notebooks — text vs image context studies and other operator probes.',
+      path: '/notebooks',
+    };
+  }
+
+  if (path === '/notebooks/text-vs-image') {
+    return {
+      title: pageTitle('Text vs image notebook'),
+      description:
+        'Admin experiment comparing Copilot-style text summaries with chart images for multimodal LLM accuracy on synthetic equity panels.',
+      path: '/notebooks/text-vs-image',
+    };
+  }
+
   if (path === '/docs' || path.startsWith('/docs/')) {
     const slug = path === '/docs' ? 'overview' : (segments[1] ?? 'overview');
     const doc = DOCS[slug] ?? DOCS.overview;

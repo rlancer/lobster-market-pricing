@@ -6,7 +6,7 @@
 export const ADMIN_EMAILS = ['robert.lancer@gmail.com'] as const;
 
 /** Admin-only page paths (hub is `/admin`; tools stay at these URLs). */
-export const ADMIN_TOOL_PATHS = ['/bots', '/users', '/chats', '/trades', '/copilot', '/brand'] as const;
+export const ADMIN_TOOL_PATHS = ['/bots', '/users', '/chats', '/trades', '/copilot', '/brand', '/notebooks'] as const;
 
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
@@ -20,4 +20,9 @@ export function isAdminNavPath(pathname: string): boolean {
   return ADMIN_TOOL_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
+}
+
+/** True for `/notebooks` and notebook detail routes (own left-nav highlight). */
+export function isNotebooksNavPath(pathname: string): boolean {
+  return pathname === '/notebooks' || pathname.startsWith('/notebooks/');
 }

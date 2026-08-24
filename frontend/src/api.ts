@@ -1264,6 +1264,20 @@ export const api = {
         samples: opts?.samples ? '1' : undefined,
       })}`,
     ),
+  adminNotebookProbe: (body: {
+    model?: string;
+    mode: 'text' | 'image';
+    question: string;
+    system?: string;
+    text_context?: string;
+    image_data_url?: string;
+  }) =>
+    post<{
+      ok: true;
+      model: string;
+      answer: string;
+      latency_ms: number;
+    }>('/api/admin/notebooks/probe', body),
   adminBot: (handle: string) =>
     get<{ bot: BotProfile; runs: BotRun[]; schedule: BotSchedule | null }>(
       `/api/admin/bots/${encodeURIComponent(handle)}`,

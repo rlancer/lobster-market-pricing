@@ -56,6 +56,8 @@ import {
 } from "./bots";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
+import { parseNotebookProbeBody, runNotebookProbe } from "./notebook-probe";
+
 import { describeCopilotCapabilities } from "./copilot-capabilities";
 import { CopilotAgentBase } from "./copilot";
 import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
@@ -3492,6 +3494,27 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     return json(env, { items: await listBotProfiles(env.SCHEMA_DB) }, 200, "private");
+  }
+
+  
+  if (path === "/api/admin/notebooks/probe" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const parsed = parseNotebookProbeBody(body);
+    if (!parsed.ok) {
+      return json(env, { error: parsed.error }, parsed.status, "private");
+    }
+    const origin = new URL(req.url).origin;
+    const { ok: _ok, ...input } = parsed;
+    const result = await runNotebookProbe(env, origin, input);
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, result, 200, "private");
   }
 
   if (path === "/api/admin/copilot/capabilities" && req.method === "GET") {

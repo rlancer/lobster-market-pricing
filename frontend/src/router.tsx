@@ -23,6 +23,8 @@ import TradesPage from './Trades';
 import PortfolioPage from './Portfolio';
 import CopilotExplorePage from './CopilotExplore';
 import AdminPage from './Admin';
+import NotebooksPage from './Notebooks';
+import TextVsImageNotebookPage from './TextVsImageNotebook';
 import { parseChatId } from './chatSession';
 
 function MonitorView() {
@@ -202,6 +204,19 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+
+const notebooksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notebooks',
+  component: NotebooksPage,
+});
+
+const textVsImageNotebookRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notebooks/text-vs-image',
+  component: TextVsImageNotebookPage,
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/docs',
@@ -292,6 +307,8 @@ const routeTree = rootRoute.addChildren([
   portfolioRoute,
   copilotExploreRoute,
   adminRoute,
+  notebooksRoute,
+  textVsImageNotebookRoute,
   docsRoute,
 ]);
 

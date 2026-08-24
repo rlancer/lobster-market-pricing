@@ -111,3 +111,8 @@ test('truncateTitle prefers the opening sentence over a mid-word cut', () => {
   assert.ok(clipped.length <= 60);
   assert.match(clipped, /\s\S+…$/);
 });
+
+test('notebooks routes have titles', () => {
+  assert.equal(pageMetaForUrl('/notebooks').title, `Notebooks · ${SITE_NAME}`);
+  assert.equal(pageMetaForUrl('/notebooks/text-vs-image').title, `Text vs image notebook · ${SITE_NAME}`);
+});
