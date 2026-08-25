@@ -28,6 +28,7 @@
 #   npx wrangler secret put PIPELINE_COMPANY_FACTS_URL  # stream cboe_company_facts_v2 (company-facts-daily)
 #   npx wrangler secret put PIPELINE_ECON_URL           # stream cboe_econ_v2 (fred-econ-daily job)
 #   npx wrangler secret put PIPELINE_YIELDS_URL         # stream cboe_yields_v2 (fred-yields-daily job)
+#   npx wrangler secret put PIPELINE_MACRO_URL          # stream cboe_macro_v2 (fred-macro-daily job)
 #   npx wrangler secret put PIPELINE_KALSHI_MARKETS_URL # stream cboe_kalshi_markets_v2 (kalshi-markets-hourly)
 #   # Optional Kalshi API auth (read-only key is fine) — raises rate limits vs anonymous.
 #   # Multi-line PEM: do NOT paste into interactive wrangler — use the helper:
@@ -45,7 +46,7 @@
 #   npx wrangler secret put PIPELINE_INSTRUMENTS_URL          # stream cboe_instruments_v2 (instruments-daily)
 #   npx wrangler secret put RESEARCH_API_BASE               # e.g. https://api.lobster.mp (research-briefs-daily)
 #   npx wrangler secret put ADMIN_TOKEN                     # same Bearer as Worker POST /api/research/warm
-#   npx wrangler secret put FRED_API_KEY                # St. Louis Fed key (fred-econ-daily + fred-yields-daily)
+#   npx wrangler secret put FRED_API_KEY                # St. Louis Fed key (fred-econ-daily + fred-yields-daily + fred-macro-daily)
 #   npx wrangler secret put PIPELINE_AUTH_TOKEN        # required (streams are authenticated)
 #
 # For local runs against the deployed Worker, leave the URLs blank here and let
@@ -67,6 +68,7 @@ PIPELINE_EARNINGS_RESULTS_URL=
 PIPELINE_COMPANY_FACTS_URL=
 PIPELINE_ECON_URL=
 PIPELINE_YIELDS_URL=
+PIPELINE_MACRO_URL=
 PIPELINE_KALSHI_MARKETS_URL=
 # Optional — Kalshi RSA-PSS auth (read-only API key). Leave blank to use public GETs.
 KALSHI_ACCESS_KEY_ID=

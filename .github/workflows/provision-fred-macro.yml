@@ -1,0 +1,285 @@
+name: Provision FRED macro pipeline
+
+# One-shot: create cboe_macro_* if missing, set PIPELINE_MACRO_URL,
+# redeploy loader so the DO sees the secret, force fred-macro-daily, wait for
+# the ~300s sink roll, then assert rows via production /api/query.
+#
+# Required GitHub secrets (same set as FRED yields provision):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, R2_DATA_CATALOG_TOKEN,
+#   PIPELINE_AUTH_TOKEN, LOADER_TOKEN, FRED_API_KEY
+# Optional: PIPELINES_ADMIN_TOKEN (Pipelines Edit if deploy token lacks it)
+#
+# NOTE: Cloudflare Pipelines open-beta caps accounts at 20 streams/sinks/
+# pipelines. Reg SHO ingest may already be paused for Kalshi. If create
+# returns Quota exceeded [code: 1017], free a stream slot (or request a
+# limit increase) and re-run. Code + job still ship; dry-run until the secret
+# is set.
+#
+# Trigger: workflow_dispatch, or push to cursor/run-provision-fred-macro-0def
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['cursor/run-provision-fred-macro-0def']
+
+concurrency:
+  group: provision-fred-macro
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
+      LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      STREAM: cboe_macro_v2
+      SINK: cboe_macro_sink
+      PIPELINE: cboe_macro_pipeline
+      BUCKET: cboe-options-data
+      LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+      WORKER_QUERY_URL: https://api.lobster.mp/api/query
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_DATA_CATALOG_TOKEN PIPELINE_AUTH_TOKEN LOADER_TOKEN FRED_API_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          echo "Secrets present (values not printed)."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Provision stream / sink / pipeline
+        working-directory: loader
+        run: |
+          set -euo pipefail
+
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+
+          wrangler_pipelines() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler "$@"
+          }
+
+          try_list() {
+            wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+              && return 0
+            if [ "$PIPELINES_TOKEN" != "$R2_DATA_CATALOG_TOKEN" ]; then
+              echo "Deploy token cannot list pipelines — retrying with R2_DATA_CATALOG_TOKEN"
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              wrangler_pipelines pipelines streams list --json >/tmp/streams.json 2>/tmp/streams.err \
+                && return 0
+            fi
+            echo "::error::No available token can manage Pipelines (need Pipelines Edit)."
+            cat /tmp/streams.err >&2 || true
+            return 1
+          }
+          try_list
+
+          echo "Current streams:"
+          node -e 'const s=require("/tmp/streams.json"); const arr=Array.isArray(s)?s:(s.result||s.streams||[]); console.log("count="+arr.length); for (const x of arr) console.log(" -", x.name||x.id||JSON.stringify(x).slice(0,80));'
+
+          free_retired_slot() {
+            local name
+            for name in \
+              cboe_underlyings_pipeline cboe_symbol_load_errors_pipeline \
+              cboe_underlyings_v1_pipeline; do
+              if wrangler_pipelines pipelines get "$name" --json >/dev/null 2>&1; then
+                echo "Deleting pipeline $name (retired/orphaned — frees quota)"
+                wrangler_pipelines pipelines delete "$name" -y || true
+              fi
+            done
+            for name in \
+              cboe_underlyings_sink cboe_symbol_load_errors_sink \
+              cboe_underlyings_v1_sink; do
+              if wrangler_pipelines pipelines sinks get "$name" --json >/dev/null 2>&1; then
+                echo "Deleting sink $name (retired/orphaned — frees quota)"
+                wrangler_pipelines pipelines sinks delete "$name" -y || true
+              fi
+            done
+            for name in \
+              cboe_underlyings_v2 cboe_underlyings_v1 \
+              cboe_symbol_load_errors_v2 cboe_symbol_load_errors_v1; do
+              if wrangler_pipelines pipelines streams get "$name" --json >/dev/null 2>&1; then
+                echo "Deleting stream $name (retired/orphaned — frees Pipelines quota slot)"
+                wrangler_pipelines pipelines streams delete "$name" -y || true
+              fi
+            done
+          }
+
+          free_retired_slot
+          try_list
+          echo "Streams after retired cleanup:"
+          node -e 'const s=require("/tmp/streams.json"); const arr=Array.isArray(s)?s:(s.result||s.streams||[]); console.log("count="+arr.length); for (const x of arr) console.log(" -", x.name||x.id);'
+
+          create_stream() {
+            wrangler_pipelines pipelines streams create "$STREAM" \
+              --schema-file schemas/macro.json \
+              --http-enabled true \
+              --http-auth true
+          }
+
+          if wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json" 2>/dev/null; then
+            echo "Stream $STREAM already exists"
+          else
+            echo "Creating stream $STREAM"
+            if ! create_stream 2>/tmp/create_stream.err; then
+              if grep -q 'Quota exceeded\|code: 1017' /tmp/create_stream.err; then
+                echo "::error::Pipelines quota exceeded — free a stream slot (or raise the account limit) and re-run. See loader/README.md Pipelines open-beta cap note."
+                cat /tmp/create_stream.err >&2 || true
+                try_list
+                exit 1
+              fi
+              cat /tmp/create_stream.err >&2
+              exit 1
+            fi
+            wrangler_pipelines pipelines streams get "$STREAM" --json >"/tmp/${STREAM}.json"
+          fi
+
+          ENDPOINT=$(node -e "const s=require('/tmp/${STREAM}.json'); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)")
+          echo "PIPELINE_MACRO_URL=$ENDPOINT" >> "$GITHUB_ENV"
+          echo "Stream endpoint captured (value not printed)."
+
+          if wrangler_pipelines pipelines sinks get "$SINK" --json >"/tmp/${SINK}.json" 2>/dev/null; then
+            echo "Sink $SINK already exists"
+          else
+            echo "Creating sink $SINK (creates options.macro)"
+            wrangler_pipelines pipelines sinks create "$SINK" \
+              --type r2-data-catalog \
+              --bucket "$BUCKET" \
+              --namespace options \
+              --table macro \
+              --catalog-token "$R2_DATA_CATALOG_TOKEN" \
+              --format parquet \
+              --roll-interval 300
+          fi
+
+          if wrangler_pipelines pipelines get "$PIPELINE" --json >"/tmp/${PIPELINE}.json" 2>/dev/null; then
+            echo "Pipeline $PIPELINE already exists"
+          else
+            echo "Creating pipeline $PIPELINE"
+            wrangler_pipelines pipelines create "$PIPELINE" \
+              --sql "INSERT INTO ${SINK} SELECT * FROM ${STREAM}"
+          fi
+
+      - name: Set PIPELINE_MACRO_URL Worker secret
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          printf '%s' "$PIPELINE_MACRO_URL" | npx wrangler secret put PIPELINE_MACRO_URL
+          echo "Worker secret PIPELINE_MACRO_URL updated."
+
+      - name: Redeploy loader so EtlScheduler DO picks up the secret
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          npx wrangler deploy
+          echo "cboe-to-r2 redeployed."
+
+      - name: Publish sample series directly (bypass DO)
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          node tools/macro_probe_publish.mjs CPIAUCSL CPIAUCSL_YOY CPILFESL PCEPILFE PPIFIS
+
+      - name: Force fred-macro-daily (Worker path)
+        run: |
+          set -euo pipefail
+          sleep 5
+          resp=$(curl -sS -X POST \
+            -H "Authorization: Bearer $LOADER_TOKEN" \
+            -w '\n__HTTP_%{http_code}' \
+            "$LOADER_URL/jobs/fred-macro-daily/trigger?force=1")
+          body="${resp%__HTTP_*}"
+          code="${resp##*__HTTP_}"
+          echo "$body"
+          if [ "$code" = "409" ]; then
+            echo "Loader busy (409) — direct publish already landed rows; continuing."
+            exit 0
+          fi
+          if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+            echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
+          fi
+          sleep 3
+          status=$(curl -sS "$LOADER_URL/jobs/fred-macro-daily")
+          echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted})}'
+
+      - name: Wait for sink roll (~5 min)
+        run: |
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s."
+          sleep 360
+
+      - name: Assert macro rows
+        run: |
+          set -euo pipefail
+          assert_sql() {
+            local sql="$1" expect="$2" label="$3"
+            local attempt max=8
+            body=$(jq -nc --arg sql "$sql" '{sql:$sql, limit:20}')
+            for attempt in $(seq 1 "$max"); do
+              resp=$(curl -sS -X POST "$WORKER_QUERY_URL" \
+                -H 'content-type: application/json' \
+                -d "$body" \
+                -w '\n__HTTP_%{http_code}')
+              http="${resp##*__HTTP_}"
+              json="${resp%__HTTP_*}"
+              echo "== $label (attempt $attempt/$max) =="
+              echo "$json" | head -c 1500; echo
+              if [ "$http" != "200" ]; then
+                echo "::warning::$label HTTP $http — retrying"
+              elif echo "$json" | grep -qi 'iceberg table not found'; then
+                echo "::warning::$label table missing — retrying"
+              elif echo "$json" | grep -qi "$expect"; then
+                return 0
+              else
+                echo "::warning::$label missing marker '$expect' — retrying"
+              fi
+              sleep $((attempt * 15))
+            done
+            echo "::error::$label failed after $max attempts"
+            exit 1
+          }
+
+          assert_sql \
+            "SELECT series_id, date, value, kind, units FROM options.macro WHERE series_id = 'CPIAUCSL' ORDER BY date DESC LIMIT 5" \
+            "CPIAUCSL" \
+            "CPIAUCSL index"
+
+          assert_sql \
+            "SELECT series_id, date, value, kind, units FROM options.macro WHERE series_id = 'CPIAUCSL_YOY' ORDER BY date DESC LIMIT 5" \
+            "CPIAUCSL_YOY\|yoy_pct\|cpi" \
+            "CPIAUCSL YoY"
+
+          assert_sql \
+            "SELECT series_id, date, value, kind FROM options.macro WHERE series_id = 'PCEPILFE' ORDER BY date DESC LIMIT 5" \
+            "PCEPILFE\|pce" \
+            "Core PCE index"
+
+          echo "FRED macro pipeline verified."

@@ -20,6 +20,11 @@ const SERIES = {
   T10Y3M: { title: "10-Year Treasury Minus 3-Month Treasury", tenor: null, kind: "spread" },
   T5YIE: { title: "5-Year Breakeven Inflation Rate", tenor: "5Y", kind: "breakeven" },
   T10YIE: { title: "10-Year Breakeven Inflation Rate", tenor: "10Y", kind: "breakeven" },
+  T5YIFR: {
+    title: "5-Year, 5-Year Forward Inflation Expectation Rate",
+    tenor: "5Y5Y",
+    kind: "forward",
+  },
   DFII5: { title: "5-Year Treasury Inflation-Indexed Security", tenor: "5Y", kind: "real" },
   DFII10: { title: "10-Year Treasury Inflation-Indexed Security", tenor: "10Y", kind: "real" },
   DFF: { title: "Federal Funds Effective Rate", tenor: "ON", kind: "policy" },
