@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
 //     read-only (user + assistant bubbles, SQL block) with NO key loaded.
 //   - The recipient API (GET /api/share/:id) works keyless and never leaks
 //     the server-side abuse columns (ip / user_agent).
+//   - Share pages render inside the workspace shell (SideNav / mobile bottom
+//     nav + drawer) so recipients can navigate to Timeline, Chat, etc.
 // Live-model checks require OPEN_ROUTER_KEY in worker/.dev.vars. The browser
 // never receives it; playwright.config.ts exposes only a presence flag.
 // ---------------------------------------------------------------------------
@@ -47,6 +49,70 @@ async function lastAnswer(page: Page, busyTimeout = 280_000): Promise<string> {
 }
 
 test.describe('Share chat (public unlisted transcripts)', () => {
+  const SHARE_ID = 'TestShareId000000000000Chrome';
+
+  async function mockShare(page: Page): Promise<void> {
+    await page.route(`**/api/share/${SHARE_ID}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          share_id: SHARE_ID,
+          title: 'SPY call setup',
+          mode: 'funded',
+          created_at: Date.now(),
+          model: null,
+          source_sql: null,
+          on_timeline: true,
+          messages: [
+            { role: 'user', content: 'How is SPY looking?' },
+            { role: 'assistant', content: 'Near-dated call liquidity is thin.' },
+          ],
+          author: { handle: 'thelobster', name: 'Robert Lancer' },
+        }),
+      });
+    });
+  }
+
+  test('share page uses workspace chrome on desktop', async ({ page }) => {
+    await mockShare(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/share/${SHARE_ID}`);
+
+    await expect(page.getByRole('heading', { name: 'SPY call setup' })).toBeVisible();
+    await expect(page.locator('.workspace-nav')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Timeline' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Chat', exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Mobile navigation' })).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'Timeline' }).first().click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  });
+
+  test('share page uses workspace chrome on mobile', async ({ page }) => {
+    await mockShare(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/share/${SHARE_ID}`);
+
+    await expect(page.getByRole('heading', { name: 'SPY call setup' })).toBeVisible();
+
+    const bottomNav = page.getByRole('navigation', { name: 'Mobile navigation' });
+    await expect(bottomNav).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toHaveAttribute('aria-current', 'page');
+    await expect(bottomNav.getByRole('button', { name: 'Menu' })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'New chat' })).toBeVisible();
+
+    await bottomNav.getByTestId('mobile-nav-toggle').click();
+    const drawer = page.locator('dialog[aria-label="Navigation"]');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
+
+    await drawer.getByRole('link', { name: 'Timeline' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  });
+
   test('share button → dialog → read-only /share/:id page', async ({ page, request }) => {
     test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
 
