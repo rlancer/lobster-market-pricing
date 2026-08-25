@@ -155,14 +155,12 @@ export default function TextVsImageNotebookPage() {
   const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState('tool_summary');
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
 
   const applyRun = (run: ExperimentRunPayload) => {
     setSavedRun(run);
     setMatrix(matrixFromRun(run));
     setRunLoadState('ready');
-    setPickerOpen(false);
   };
 
   const refreshRunList = async () => {
@@ -472,21 +470,54 @@ export default function TextVsImageNotebookPage() {
               <Text type="supporting">Loading saved run…</Text>
             ) : null}
             {runLoadState === 'ready' && savedRun && comparingMeta ? (
-              <HStack className="notebook-comparing" gap={2} style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+              <VStack className="notebook-comparing" gap={2}>
                 <Text type="supporting">
                   Comparing <code>{shortModel(savedRun.model)}</code>
                   {' · '}
                   {comparingMeta}
                 </Text>
-                {runList.length > 1 ? (
-                  <Button
-                    size="sm"
-                    variant={pickerOpen ? 'primary' : 'secondary'}
-                    label={pickerOpen ? 'Hide runs' : 'Change'}
-                    onClick={() => setPickerOpen((open) => !open)}
-                  />
+                {runList.length > 0 ? (
+                  <VStack className="notebook-comparing-runs" gap={2}>
+                    <Text type="supporting">
+                      Saved runs (newest first) — pick a model run to load its answers and the
+                      exact images that model saw:
+                    </Text>
+                    <div className="notebook-results">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>When</th>
+                            <th>Model</th>
+                            <th>Accuracy</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {runList.map((row) => {
+                            const selected = savedRun?.id === row.id;
+                            return (
+                              <tr key={row.id}>
+                                <td>{formatRunWhen(row.created_at)}</td>
+                                <td><code>{row.model}</code></td>
+                                <td className="num">{runAccuracyLabel(row)}</td>
+                                <td>
+                                  <Button
+                                    size="sm"
+                                    variant={selected ? 'primary' : 'secondary'}
+                                    label={selected ? 'Viewing' : 'Load'}
+                                    isDisabled={selected}
+                                    onClick={() => { void loadRunById(row.id); }}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </VStack>
                 ) : null}
-              </HStack>
+              </VStack>
             ) : null}
             {runLoadState === 'missing' ? (
               <Text type="supporting">
@@ -496,47 +527,6 @@ export default function TextVsImageNotebookPage() {
             ) : null}
             {runLoadState === 'error' ? (
               <Text type="supporting">Could not load saved run: {runLoadError}</Text>
-            ) : null}
-            {pickerOpen && runList.length > 1 ? (
-              <VStack gap={2}>
-                <Text type="supporting">
-                  Saved runs (newest first) — pick a model run to load its answers and the exact
-                  images that model saw:
-                </Text>
-                <div className="notebook-results">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Model</th>
-                        <th>Accuracy</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {runList.map((row) => {
-                        const selected = savedRun?.id === row.id;
-                        return (
-                          <tr key={row.id}>
-                            <td>{formatRunWhen(row.created_at)}</td>
-                            <td><code>{row.model}</code></td>
-                            <td className="num">{runAccuracyLabel(row)}</td>
-                            <td>
-                              <Button
-                                size="sm"
-                                variant={selected ? 'primary' : 'secondary'}
-                                label={selected ? 'Viewing' : 'Load'}
-                                isDisabled={selected || runLoadState === 'loading'}
-                                onClick={() => { void loadRunById(row.id); }}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </VStack>
             ) : null}
           </VStack>
         </section>
