@@ -14,8 +14,8 @@ export default function ExperimentsPage() {
         <Heading level={1}>Experiments</Heading>
         <Text type="supporting">
           Public studies of how we present market data to models. Each experiment documents
-          a setup and, when available, loads a server-saved run so you can read results
-          without spending OpenRouter credits yourself.
+          a setup and, when available, loads a server-saved run (published via API or CI)
+          so you can read results without spending OpenRouter credits yourself.
         </Text>
       </VStack>
 

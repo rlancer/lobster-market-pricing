@@ -20,6 +20,10 @@
   background: color-mix(in srgb, var(--panel-2) 65%, transparent);
 }
 
+.notebook-comparing {
+  width: 100%;
+}
+
 .notebook-section {
   width: 100%;
   gap: var(--spacing-3);
