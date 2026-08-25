@@ -28,6 +28,12 @@ test('scope classifier treats Treasury yields / rates as in-scope', () => {
   assert.match(SCOPE_CLASSIFIER_SYSTEM, /SOFR/);
 });
 
+test('scope classifier treats inflation / CPI / PCE as in-scope', () => {
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /inflation/i);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /CPI/);
+  assert.match(SCOPE_CLASSIFIER_SYSTEM, /PCE/);
+});
+
 test('parseScopeLabel accepts exact and padded labels', () => {
   assert.equal(parseScopeLabel('IN_SCOPE'), true);
   assert.equal(parseScopeLabel('OUT_OF_SCOPE'), false);

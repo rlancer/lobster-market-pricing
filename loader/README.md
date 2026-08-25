@@ -162,6 +162,7 @@ publishes normalized rows to `options.yields`:
 | `nominal` | `DGS1MO` … `DGS30` (constant-maturity Treasuries) |
 | `spread` | `T10Y2Y`, `T10Y3M` |
 | `breakeven` | `T5YIE`, `T10YIE` |
+| `forward` | `T5YIFR` (5y5y forward inflation) |
 | `real` | `DFII5`, `DFII10` (TIPS) |
 | `policy` | `DFF` (fed funds effective), `SOFR` |
 
@@ -189,6 +190,50 @@ ORDER BY date, tenor
 block above with `schemas/yields.json`, or run
 `.github/workflows/provision-fred-yields.yml`. Dry-run until the secret is set
 (no FRED fetches). Probe: `node --experimental-strip-types tools/yields_probe.ts`.
+
+### Inflation / price indexes (`fred-macro-daily`)
+
+Fetches curated **FRED CPI / PCE / PPI observations** (index levels + YoY %)
+into `options.macro` — realized inflation history for modeling. Sibling to
+`options.yields` (market expectations / the curve) and `options.econ_calendar`
+(release **dates** only).
+
+| `kind` | Series (index + YoY) |
+|---|---|
+| `cpi` | `CPIAUCSL`, `CPILFESL` (+ `*_YOY`) |
+| `pce` | `PCEPI`, `PCEPILFE` (+ `*_YOY`) |
+| `ppi` | `PPIFIS` (+ `PPIFIS_YOY`) |
+
+Columns: `series_id`, `date`, `value`, `title`, `kind` (`cpi|pce|ppi`),
+`units` (`index|yoy_pct`), `frequency` (`monthly`), `source` (`fred`),
+`run_id`, `fetched_at`. YoY rows keep a stable lake `series_id` (`CPIAUCSL_YOY`,
+…) while fetching the underlying FRED series with `units=pc1`. Batch-scoped,
+ungated, daily; ~20y lookback; one series at a time (same isolation as
+`fred-yields-daily`). Reuses `FRED_API_KEY`.
+
+Latest-wins query shape:
+
+```sql
+SELECT series_id, date, value, kind, units
+FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY series_id, date ORDER BY fetched_at DESC) AS rn
+  FROM options.macro
+) t
+WHERE rn = 1 AND units = 'yoy_pct' AND kind IN ('cpi', 'pce')
+ORDER BY date, series_id
+```
+
+**Provision after merge** — stream `cboe_macro_v2`, sink `cboe_macro_sink`
+(creates `options.macro`), pipeline `cboe_macro_pipeline`, then
+`npx wrangler secret put PIPELINE_MACRO_URL`. Or run
+`.github/workflows/provision-fred-macro.yml`. Dry-run until the secret is set.
+Probe: `node --experimental-strip-types tools/macro_probe.ts`.
+
+> **Pipelines open-beta cap:** accounts are limited to **20 streams / sinks /
+> pipelines**. This provision workflow pauses `cboe_short_interest_*` ingest
+> (historical `options.short_interest` rows stay queryable; `short-interest-daily`
+> dry-runs) to free a slot — same pattern as Kalshi pausing Reg SHO. Re-provision
+> short interest after a [limit increase](https://developers.cloudflare.com/pipelines/platform/limits/).
 
 ### Kalshi event contracts (`kalshi-markets-hourly`)
 
