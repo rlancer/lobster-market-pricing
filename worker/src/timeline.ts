@@ -65,7 +65,8 @@ function messageRecord(value: unknown): Record<string, unknown> | null {
  * message expanded; only a large safety ceiling applies.
  */
 export function excerptFromMessages(messages: unknown, title: string | null): string {
-  const rows = Array.isArray(messages) ? messages : [];
+  // Heal DSML / stacked assistants first so feed excerpts never show raw markup.
+  const rows = coalesceAssistantMessageRecords(messages);
   let text = "";
   for (const row of rows) {
     const rec = messageRecord(row);

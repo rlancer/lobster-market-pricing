@@ -39,6 +39,7 @@ import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 import { ChatRail } from './ChatRail';
 import { AssistantMessageBody } from './ChatTranscript';
+import { healAssistantContentFromDsml } from './healDsml';
 import { isDeskBrief, type DeskBrief } from './DeskViewpoints';
 import { isSuggestedTrades, type SuggestedTrades } from './SuggestedTrades';
 
@@ -256,7 +257,7 @@ function isScopeRejectedMessage(message: Pick<Msg, 'role' | 'content'> | Copilot
 
 function projectMessage(message: CopilotMessage): Msg | null {
   if (message.role !== 'user' && message.role !== 'assistant') return null;
-  const content = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
+  const rawContent = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
   const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('');
   const presentation = presentationFromMessage(message);
   const meta = message.metadata;
@@ -266,6 +267,22 @@ function projectMessage(message: CopilotMessage): Msg | null {
     ...(tool.ok !== null ? { ok: tool.ok } : {}),
     ...(tool.summary ? { summary: tool.summary } : {}),
   }));
+  const baseDesk = presentation?.desk ?? meta?.desk ?? null;
+  const baseTrades = presentation?.trades ?? meta?.trades ?? null;
+  const baseChart = presentation?.chart ?? meta?.chart ?? null;
+  // DeepSeek sometimes writes publish_desk / render_chart as DSML in the text
+  // channel — heal so live chat never shows raw markup.
+  const healed = message.role === 'assistant'
+    ? healAssistantContentFromDsml(rawContent, {
+      desk: isDeskBrief(baseDesk) ? baseDesk : null,
+      trades: isSuggestedTrades(baseTrades) ? baseTrades : null,
+      chart: baseChart ?? null,
+    })
+    : { content: rawContent };
+  const content = healed.content;
+  const desk = healed.desk ?? (isDeskBrief(baseDesk) ? baseDesk : null);
+  const trades = healed.trades ?? (isSuggestedTrades(baseTrades) ? baseTrades : null);
+  const chart = healed.chart ?? baseChart ?? null;
   return {
     id: message.id,
     role: message.role,
@@ -273,9 +290,9 @@ function projectMessage(message: CopilotMessage): Msg | null {
     ...(reasoning ? { reasoning } : {}),
     sql: presentation?.sql ?? meta?.sql ?? null,
     result: presentation?.result ?? meta?.result ?? null,
-    chart: presentation?.chart ?? meta?.chart ?? null,
-    desk: presentation?.desk ?? meta?.desk ?? null,
-    trades: presentation?.trades ?? meta?.trades ?? null,
+    chart,
+    desk,
+    trades,
     ...(tools.length ? { tools } : {}),
     ...(presentation?.frames?.length ? { frames: presentation.frames } : {}),
     ...(presentation?.model || meta?.model ? { model: presentation?.model || meta?.model } : {}),

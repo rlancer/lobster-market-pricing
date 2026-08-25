@@ -4,15 +4,10 @@
  * visible text channel — leaving "Let me render…" + raw invoke XML as the
  * share body (e.g. share VMJqmdt9ldnIcTvFpn37NRlj).
  */
+import { looksLikeDsmlToolMarkup, stripDsmlToolMarkup } from "./dsml";
 
-const DSML_BLOCK =
-  /<(?:\|?｜?)DSML(?:\|?｜?)tool_calls>([\s\S]*?)<\/(?:\|?｜?)DSML(?:\|?｜?)tool_calls>/gi;
-const DSML_FULLWIDTH_BLOCK =
-  /<｜DSML｜tool_calls>[\s\S]*?<\/｜DSML｜tool_calls>/g;
 const GENERIC_TOOL_BLOCK =
   /<\/?(?:tool_calls|function_calls|tool_call|function_call)\b[^>]*>[\s\S]*?<\/(?:tool_calls|function_calls|tool_call|function_call)>/gi;
-const DSML_ORPHAN_TAG = /<\/?(?:\|?｜?)DSML(?:\|?｜?)[^>\n]*>/gi;
-const DSML_FULLWIDTH_ORPHAN = /<\/?｜DSML｜[^>\n]*>/g;
 
 const LEAKED_MARKUP_RE =
   /(?:DSML\s*(?:tool_calls|invoke|parameter)|<\/?(?:tool_calls|function_calls|tool_call)\b|<\|?(?:DSML)\|?|｜DSML｜)/i;
@@ -20,12 +15,11 @@ const LEAKED_MARKUP_RE =
 /** Strip leaked tool-call markup from assistant text. */
 export function stripLeakedToolMarkup(text: string): string {
   if (!text) return text;
-  let out = text;
-  out = out.replace(DSML_FULLWIDTH_BLOCK, "");
-  out = out.replace(DSML_BLOCK, "");
+  let out = looksLikeDsmlToolMarkup(text) ? stripDsmlToolMarkup(text) : text;
   out = out.replace(GENERIC_TOOL_BLOCK, "");
-  out = out.replace(DSML_FULLWIDTH_ORPHAN, "");
-  out = out.replace(DSML_ORPHAN_TAG, "");
+  // Orphan DSML tags that survived an incomplete strip (byte-capped mid-block).
+  out = out.replace(/<\/?(?:\|?｜?)DSML(?:\|?｜?)[^>\n]*>/gi, "");
+  out = out.replace(/<\/?｜DSML｜[^>\n]*>/g, "");
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 

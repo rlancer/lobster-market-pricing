@@ -32,7 +32,7 @@ import {
   nextCopilotStepPolicy,
 } from "./copilot-loop";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
-import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskViewpointId } from "./copilot-desk";
+import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskBriefInput, type DeskViewpointId } from "./copilot-desk";
 import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { formatPaperPortfolioSummary } from "./paper-portfolio";
@@ -40,6 +40,8 @@ import { formatBotTradesSummary } from "./bot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
+import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
+import { stripLeakedToolMarkup } from "./tool-markup";
 
 export type { BotPromptProfile } from "./copilot-prompt";
 export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
@@ -1324,25 +1326,80 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   protected override sanitizeMessageForPersistence(message: UIMessage): UIMessage {
+    // Heal DeepSeek DSML that landed in text instead of structured tool parts
+    // so live /chat reloads do not show raw markup (and desk/trades/chart survive).
+    let deskFromDsml: DeskBrief | null = null;
+    let tradesFromDsml: SuggestedTrades | null = null;
+    let chartFromDsml: ChartSpec | null = null;
+    const parts = message.parts.map((part) => {
+      if (part.type === "text" && typeof part.text === "string" && looksLikeDsmlToolMarkup(part.text)) {
+        const calls = parseDsmlToolCalls(part.text);
+        for (const call of calls) {
+          if (call.name === "publish_desk" && !deskFromDsml) {
+            deskFromDsml = normalizeDeskBrief(call.args as DeskBriefInput);
+          }
+          if (call.name === "suggest_trades" && !tradesFromDsml) {
+            tradesFromDsml = normalizeSuggestedTrades(call.args as { trades?: unknown; skip_reason?: unknown });
+          }
+          if (call.name === "render_chart" && !chartFromDsml) {
+            const args = call.args;
+            const kind = args.kind;
+            if (
+              (kind === "line" || kind === "area" || kind === "scatter" || kind === "bar")
+              && typeof args.x === "string" && args.x.trim()
+              && typeof args.y === "string" && args.y.trim()
+            ) {
+              chartFromDsml = {
+                kind,
+                x: args.x.trim(),
+                y: args.y.trim(),
+                ...(typeof args.title === "string" && args.title.trim() ? { title: args.title.trim() } : {}),
+                ...(typeof args.series === "string" && args.series.trim() ? { series: args.series.trim() } : {}),
+              };
+            }
+          }
+        }
+        const stripped = stripLeakedToolMarkup(part.text);
+        const nextText = (deskFromDsml?.overview || stripped || "").trim();
+        return { ...part, text: nextText };
+      }
+      if (part.type === "text" && typeof part.text === "string") {
+        const stripped = stripLeakedToolMarkup(part.text);
+        return stripped === part.text ? part : { ...part, text: stripped };
+      }
+      if (!("output" in part) || part.state !== "output-available" || !part.output || typeof part.output !== "object") {
+        return part;
+      }
+      const output = part.output as ToolOutput;
+      return {
+        ...part,
+        output: {
+          ...output,
+          summary: typeof output.summary === "string" ? output.summary.slice(0, MAX_TOOL_SUMMARY_CHARS) : "Tool completed.",
+          ...(output.sql !== undefined ? { sql: String(output.sql).slice(0, MAX_TOOL_SUMMARY_CHARS) } : {}),
+          ...(output.result !== undefined ? { result: boundedResult(output.result) } : {}),
+          ...(output.chart !== undefined ? { chart: output.chart } : {}),
+          ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
+          ...(output.desk !== undefined ? { desk: output.desk } : {}),
+          ...(output.trades !== undefined ? { trades: output.trades } : {}),
+        },
+      };
+    });
+
+    const prevMeta = (message.metadata && typeof message.metadata === "object")
+      ? message.metadata as Record<string, unknown>
+      : {};
+    const nextMeta = {
+      ...prevMeta,
+      ...(deskFromDsml && !prevMeta.desk ? { desk: deskFromDsml } : {}),
+      ...(tradesFromDsml && !prevMeta.trades ? { trades: tradesFromDsml } : {}),
+      ...(chartFromDsml && !prevMeta.chart ? { chart: chartFromDsml } : {}),
+    };
+
     return {
       ...message,
-      parts: message.parts.map((part) => {
-        if (!("output" in part) || part.state !== "output-available" || !part.output || typeof part.output !== "object") return part;
-        const output = part.output as ToolOutput;
-        return {
-          ...part,
-          output: {
-            ...output,
-            summary: typeof output.summary === "string" ? output.summary.slice(0, MAX_TOOL_SUMMARY_CHARS) : "Tool completed.",
-            ...(output.sql !== undefined ? { sql: String(output.sql).slice(0, MAX_TOOL_SUMMARY_CHARS) } : {}),
-            ...(output.result !== undefined ? { result: boundedResult(output.result) } : {}),
-            ...(output.chart !== undefined ? { chart: output.chart } : {}),
-            ...(output.frames !== undefined ? { frames: output.frames.slice(0, MAX_FRAMES) } : {}),
-            ...(output.desk !== undefined ? { desk: output.desk } : {}),
-            ...(output.trades !== undefined ? { trades: output.trades } : {}),
-          },
-        };
-      }),
+      parts,
+      ...(Object.keys(nextMeta).length ? { metadata: nextMeta } : {}),
     };
   }
 }
