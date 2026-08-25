@@ -8,6 +8,7 @@ import {
   Token,
   VStack,
 } from '@astryxdesign/core';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import {
   buildCrossModelConclusion,
@@ -39,16 +40,39 @@ import './Notebooks.css';
 
 const EXPERIMENT_SLUG = 'text-vs-image';
 
-const SECTIONS = [
-  { id: 'overview', num: '01', label: 'Overview' },
-  { id: 'conclusion', num: '02', label: 'Conclusion' },
-  { id: 'results', num: '03', label: 'Results' },
-  { id: 'reading', num: '04', label: 'How to read' },
-  { id: 'setup', num: '05', label: 'Setup' },
-  { id: 'images', num: '06', label: 'Images' },
-  { id: 'reps', num: '07', label: 'Representations' },
-  { id: 'questions', num: '08', label: 'Questions' },
-] as const;
+type TocEntry = { id: string; num: string; label: string };
+
+const TOC_BEFORE: Array<{ id: string; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'conclusion', label: 'Conclusion' },
+];
+
+const TOC_AFTER: Array<{ id: string; label: string }> = [
+  { id: 'reading', label: 'How to read' },
+  { id: 'setup', label: 'Setup' },
+  { id: 'images', label: 'Images' },
+  { id: 'reps', label: 'Representations' },
+  { id: 'questions', label: 'Questions' },
+];
+
+function modelSectionId(runId: string): string {
+  return `model-${runId}`;
+}
+
+function padNum(index: number): string {
+  return String(index + 1).padStart(2, '0');
+}
+
+function buildToc(modelRuns: ExperimentRunPayload[]): TocEntry[] {
+  const modelEntries = modelRuns.map((run) => ({
+    id: modelSectionId(run.id),
+    label: shortModel(run.model),
+  }));
+  return [...TOC_BEFORE, ...modelEntries, ...TOC_AFTER].map((entry, index) => ({
+    ...entry,
+    num: padNum(index),
+  }));
+}
 
 function Section({
   id,
@@ -143,122 +167,144 @@ function runAccuracyLabel(row: Pick<ExperimentRunSummary, 'cells_correct' | 'cel
   return row.cells_done ? `${row.cells_correct}/${row.cells_done}` : '—';
 }
 
+/** Newest-first list with one row per model (first win). */
+function uniqueModelSummaries(runList: ExperimentRunSummary[]): ExperimentRunSummary[] {
+  const seen = new Set<string>();
+  const out: ExperimentRunSummary[] = [];
+  for (const row of runList) {
+    if (seen.has(row.model)) continue;
+    seen.add(row.model);
+    out.push(row);
+  }
+  return out;
+}
+
+function repLabelFromRun(run: ExperimentRunPayload, repId: string): string {
+  const text = run.results.text_reps?.find((r) => r.id === repId);
+  if (text) return text.label;
+  const image = run.images.find((img) => img.id === repId);
+  if (image) return image.label;
+  return repId;
+}
+
+function ModelResultsTable({ run }: { run: ExperimentRunPayload }) {
+  const matrix = useMemo(() => matrixFromRun(run), [run]);
+  const questions = run.results.questions;
+  const repIds = run.results.rep_order.length
+    ? run.results.rep_order
+    : [...new Set(run.results.cells.map((c) => c.rep_id))];
+
+  const summaryRows = repIds.map((repId) => {
+    const cells = questions.map((q) => matrix[repId]?.[q.id] ?? { status: 'idle' as const });
+    const doneCells = cells.filter((c) => c.status === 'done');
+    const correct = doneCells.filter((c) => c.correct).length;
+    const done = doneCells.length;
+    return {
+      repId,
+      label: repLabelFromRun(run, repId),
+      done,
+      correct,
+      acc: done ? correct / done : null,
+    };
+  });
+
+  return (
+    <div className="notebook-results">
+      <table>
+        <thead>
+          <tr>
+            <th>Representation</th>
+            <th>Correct</th>
+            <th>Accuracy</th>
+            {questions.map((q) => (
+              <th key={q.id}>{q.id}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {summaryRows.map((row) => (
+            <tr key={row.repId}>
+              <td>{row.label}</td>
+              <td className="num">{row.done ? `${row.correct}/${row.done}` : '—'}</td>
+              <td className="num">
+                {row.acc == null ? '—' : `${(row.acc * 100).toFixed(0)}%`}
+              </td>
+              {questions.map((q) => {
+                const cell = matrix[row.repId]?.[q.id];
+                if (!cell || cell.status === 'idle') return <td key={q.id}>·</td>;
+                if (cell.status === 'running') return <td key={q.id}>…</td>;
+                if (cell.status === 'error') {
+                  return (
+                    <td key={q.id}>
+                      <Token label="err" color="red" size="sm" />
+                    </td>
+                  );
+                }
+                return (
+                  <td key={q.id}>
+                    <VStack gap={1}>
+                      <Token
+                        label={cell.correct ? 'ok' : 'miss'}
+                        color={cell.correct ? 'teal' : 'orange'}
+                        size="sm"
+                      />
+                      <span className="notebook-answer">{cell.answer}</span>
+                    </VStack>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** Public, read-only experiment: saved runs only (probe/publish via API / CI / agents). */
 export default function TextVsImageNotebookPage() {
-  const [matrix, setMatrix] = useState<Matrix>({});
   const [localImages, setLocalImages] = useState<ImageRep[]>([]);
   const [localHybrids, setLocalHybrids] = useState<HybridRep[]>([]);
-  const [savedRun, setSavedRun] = useState<ExperimentRunPayload | null>(null);
   const [runList, setRunList] = useState<ExperimentRunSummary[]>([]);
+  const [modelRuns, setModelRuns] = useState<ExperimentRunPayload[]>([]);
+  const [referenceRun, setReferenceRun] = useState<ExperimentRunPayload | null>(null);
   const [crossCut, setCrossCut] = useState<CrossModelConclusion | null>(null);
   const [crossCutState, setCrossCutState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState('tool_summary');
-  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
+  const [activeSection, setActiveSection] = useState('overview');
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(() => new Set());
 
-  const applyRun = (run: ExperimentRunPayload) => {
-    setSavedRun(run);
-    setMatrix(matrixFromRun(run));
-    setRunLoadState('ready');
+  const toc = useMemo(() => buildToc(modelRuns), [modelRuns]);
+  const tocById = useMemo(() => {
+    const map = new Map<string, TocEntry>();
+    for (const entry of toc) map.set(entry.id, entry);
+    return map;
+  }, [toc]);
+
+  const expandModel = (runId: string) => {
+    setExpandedModels((prev) => {
+      if (prev.has(runId)) return prev;
+      const next = new Set(prev);
+      next.add(runId);
+      return next;
+    });
   };
 
-  const refreshRunList = async () => {
-    try {
-      const listed = await api.experimentListRuns(EXPERIMENT_SLUG, 20);
-      setRunList(listed.items);
-      return listed.items;
-    } catch {
-      setRunList([]);
-      return [] as ExperimentRunSummary[];
-    }
-  };
-
-  const loadRunById = async (runId: string) => {
-    setRunLoadState('loading');
-    setRunLoadError(null);
-    try {
-      const run = await api.experimentRun(EXPERIMENT_SLUG, runId);
-      applyRun(run);
-    } catch (error: unknown) {
-      setRunLoadState('error');
-      setRunLoadError(String((error as Error)?.message ?? error));
-    }
+  const toggleModel = (runId: string) => {
+    setExpandedModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return next;
+    });
   };
 
   const universe = useMemo(() => buildSynthUniverse(), []);
   const stats = useMemo(() => universeStats(universe), [universe]);
   const textReps = useMemo(() => buildTextRepresentations(universe), [universe]);
   const questions = useMemo(() => buildQuestions(universe), [universe]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!runList.length) {
-      setCrossCut(null);
-      setCrossCutState('idle');
-      return;
-    }
-
-    void (async () => {
-      setCrossCutState('loading');
-      try {
-        const enriched: RunSummaryForConclusion[] = [];
-        const seenModels = new Set<string>();
-        for (const row of runList) {
-          if (seenModels.has(row.model)) continue;
-          seenModels.add(row.model);
-          if (row.rep_accuracy?.length) {
-            enriched.push({
-              id: row.id,
-              model: row.model,
-              created_at: row.created_at,
-              cells_correct: row.cells_correct,
-              cells_done: row.cells_done,
-              cells_total: row.cells_total,
-              rep_accuracy: row.rep_accuracy,
-              rep_order: row.rep_order,
-            });
-            continue;
-          }
-          // Older Worker list responses omit per-rep stats — pull results only.
-          const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, { images: false });
-          const byRep = new Map<string, { correct: number; done: number }>();
-          for (const cell of full.results.cells) {
-            if (cell.status !== 'done') continue;
-            const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
-            cur.done += 1;
-            if (cell.correct) cur.correct += 1;
-            byRep.set(cell.rep_id, cur);
-          }
-          enriched.push({
-            id: full.id,
-            model: full.model,
-            created_at: full.created_at,
-            cells_correct: row.cells_correct,
-            cells_done: row.cells_done,
-            cells_total: row.cells_total,
-            rep_order: full.results.rep_order,
-            rep_accuracy: (full.results.rep_order.length
-              ? full.results.rep_order
-              : [...byRep.keys()]
-            ).map((repId) => {
-              const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
-              return { rep_id: repId, correct: stats.correct, done: stats.done };
-            }),
-          });
-        }
-        if (cancelled) return;
-        setCrossCut(buildCrossModelConclusion(enriched));
-        setCrossCutState('ready');
-      } catch {
-        if (cancelled) return;
-        setCrossCut(null);
-        setCrossCutState('error');
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [runList]);
 
   useEffect(() => {
     try {
@@ -276,20 +322,38 @@ export default function TextVsImageNotebookPage() {
     setRunLoadState('loading');
     setRunLoadError(null);
     void (async () => {
-      const items = await refreshRunList();
-      if (cancelled) return;
       try {
-        const run = items[0]
-          ? await api.experimentRun(EXPERIMENT_SLUG, items[0].id)
-          : await api.experimentLatestRun(EXPERIMENT_SLUG);
+        const listed = await api.experimentListRuns(EXPERIMENT_SLUG, 20);
         if (cancelled) return;
-        applyRun(run);
+        setRunList(listed.items);
+        const unique = uniqueModelSummaries(listed.items);
+        if (!unique.length) {
+          setModelRuns([]);
+          setReferenceRun(null);
+          setRunLoadState('missing');
+          return;
+        }
+        const loaded: ExperimentRunPayload[] = [];
+        for (let i = 0; i < unique.length; i += 1) {
+          const row = unique[i]!;
+          // First run keeps images for the methodology gallery; later runs skip blobs.
+          // eslint-disable-next-line no-await-in-loop
+          const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, {
+            images: i === 0,
+          });
+          loaded.push(full);
+        }
+        if (cancelled) return;
+        setModelRuns(loaded);
+        setReferenceRun(loaded[0] ?? null);
+        setRunLoadState('ready');
       } catch (error: unknown) {
         if (cancelled) return;
         const message = String((error as Error)?.message ?? error);
         if (/404|no published run|run not found/i.test(message)) {
-          setSavedRun(null);
-          setMatrix({});
+          setRunList([]);
+          setModelRuns([]);
+          setReferenceRun(null);
           setRunLoadState('missing');
         } else {
           setRunLoadState('error');
@@ -301,7 +365,58 @@ export default function TextVsImageNotebookPage() {
   }, []);
 
   useEffect(() => {
-    const nodes = SECTIONS
+    if (!modelRuns.length) {
+      setCrossCut(null);
+      setCrossCutState(runLoadState === 'loading' ? 'loading' : 'idle');
+      return;
+    }
+
+    const enriched: RunSummaryForConclusion[] = modelRuns.map((run) => {
+      const summary = runList.find((row) => row.id === run.id);
+      const byRep = new Map<string, { correct: number; done: number }>();
+      for (const cell of run.results.cells) {
+        if (cell.status !== 'done') continue;
+        const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
+        cur.done += 1;
+        if (cell.correct) cur.correct += 1;
+        byRep.set(cell.rep_id, cur);
+      }
+      const repOrder = run.results.rep_order.length
+        ? run.results.rep_order
+        : [...byRep.keys()];
+      return {
+        id: run.id,
+        model: run.model,
+        created_at: run.created_at,
+        cells_correct: summary?.cells_correct
+          ?? run.results.cells.filter((c) => c.status === 'done' && c.correct).length,
+        cells_done: summary?.cells_done
+          ?? run.results.cells.filter((c) => c.status === 'done').length,
+        cells_total: summary?.cells_total
+          ?? run.results.cells.length,
+        rep_order: repOrder,
+        rep_accuracy: repOrder.map((repId) => {
+          const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
+          return { rep_id: repId, correct: stats.correct, done: stats.done };
+        }),
+      };
+    });
+    setCrossCut(buildCrossModelConclusion(enriched));
+    setCrossCutState('ready');
+  }, [modelRuns, runList, runLoadState]);
+
+  useEffect(() => {
+    const syncHash = () => {
+      const id = window.location.hash.replace(/^#/, '');
+      if (id.startsWith('model-')) expandModel(id.slice('model-'.length));
+    };
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, []);
+
+  useEffect(() => {
+    const nodes = toc
       .map((section) => document.getElementById(section.id))
       .filter((node): node is HTMLElement => Boolean(node));
     if (!nodes.length) return;
@@ -322,18 +437,18 @@ export default function TextVsImageNotebookPage() {
     );
     for (const node of nodes) observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [toc]);
 
   const savedImages = useMemo(
-    () => (savedRun ? imagesFromRun(savedRun) : []),
-    [savedRun],
+    () => (referenceRun?.images?.length ? imagesFromRun(referenceRun) : []),
+    [referenceRun],
   );
   const savedHybrids: HybridRep[] = useMemo(() => {
-    if (!savedRun) return [];
+    if (!referenceRun) return [];
     const textById = new Map(
-      (savedRun.results.text_reps ?? []).map((r) => [r.id, r]),
+      (referenceRun.results.text_reps ?? []).map((r) => [r.id, r]),
     );
-    return savedRun.images
+    return referenceRun.images
       .filter((img) => isHybridRepId(img.id) && textById.has(img.id))
       .map((img) => {
         const text = textById.get(img.id)!;
@@ -348,9 +463,9 @@ export default function TextVsImageNotebookPage() {
           approxTokens: text.approx_tokens ?? Math.ceil(text.body.length / 4),
         };
       });
-  }, [savedRun]);
+  }, [referenceRun]);
 
-  const hasSavedPayload = Boolean(savedRun);
+  const hasSavedPayload = Boolean(referenceRun);
   const displayHybrids = hasSavedPayload && savedHybrids.length
     ? savedHybrids
     : localHybrids;
@@ -370,8 +485,8 @@ export default function TextVsImageNotebookPage() {
   }, [hasSavedPayload, savedImages, localImages, displayHybrids]);
 
   const displayTextReps: TextRep[] = useMemo(() => {
-    if (hasSavedPayload && savedRun?.results.text_reps?.length) {
-      return savedRun.results.text_reps
+    if (hasSavedPayload && referenceRun?.results.text_reps?.length) {
+      return referenceRun.results.text_reps
         .filter((r) => !isHybridRepId(r.id))
         .map((r) => ({
           id: r.id as TextRep['id'],
@@ -382,12 +497,12 @@ export default function TextVsImageNotebookPage() {
         }));
     }
     return textReps;
-  }, [hasSavedPayload, savedRun, textReps]);
+  }, [hasSavedPayload, referenceRun, textReps]);
 
   const displayQuestions: ExperimentQuestion[] = useMemo(() => {
-    if (hasSavedPayload && savedRun?.results.questions?.length) {
+    if (hasSavedPayload && referenceRun?.results.questions?.length) {
       const byId = new Map(questions.map((q) => [q.id, q]));
-      return savedRun.results.questions.map((q) => {
+      return referenceRun.results.questions.map((q) => {
         const local = byId.get(q.id);
         return local
           ? { ...local, prompt: q.prompt, expected: q.expected }
@@ -401,18 +516,12 @@ export default function TextVsImageNotebookPage() {
       });
     }
     return questions;
-  }, [hasSavedPayload, savedRun, questions]);
+  }, [hasSavedPayload, referenceRun, questions]);
 
   const allReps: Array<TextRep | ImageRep | HybridRep> = useMemo(
     () => [...displayTextReps, ...displayImages.filter((img) => !isHybridRepId(img.id)), ...displayHybrids],
     [displayTextReps, displayImages, displayHybrids],
   );
-  const repIds = useMemo(() => {
-    if (hasSavedPayload && savedRun?.results.rep_order?.length) {
-      return savedRun.results.rep_order;
-    }
-    return allReps.map((r) => r.id);
-  }, [hasSavedPayload, savedRun, allReps]);
 
   const selectedText = displayTextReps.find((r) => r.id === selectedRep) ?? null;
   const selectedHybrid = displayHybrids.find((r) => r.id === selectedRep) ?? null;
@@ -420,30 +529,12 @@ export default function TextVsImageNotebookPage() {
     ? null
     : (displayImages.find((r) => r.id === selectedRep) ?? null);
 
-  const summaryRows = repIds.map((repId) => {
-    const cells = displayQuestions.map((q) => matrix[repId]?.[q.id] ?? { status: 'idle' as const });
-    const doneCells = cells.filter((c) => c.status === 'done');
-    const correct = doneCells.filter((c) => c.correct).length;
-    const done = doneCells.length;
-    const label = allReps.find((r) => r.id === repId)?.label ?? repId;
-    return {
-      repId,
-      label,
-      done,
-      correct,
-      acc: done ? correct / done : null,
-    };
-  });
-
-  const activeSummary = savedRun
-    ? runList.find((row) => row.id === savedRun.id) ?? null
-    : null;
-  const comparingMeta = savedRun
-    ? [
-        formatRunWhen(savedRun.created_at),
-        activeSummary ? runAccuracyLabel(activeSummary) : null,
-      ].filter(Boolean).join(' · ')
-    : null;
+  const conclusionNum = tocById.get('conclusion')?.num ?? '02';
+  const readingNum = tocById.get('reading')?.num ?? '04';
+  const setupNum = tocById.get('setup')?.num ?? '05';
+  const imagesNum = tocById.get('images')?.num ?? '06';
+  const repsNum = tocById.get('reps')?.num ?? '07';
+  const questionsNum = tocById.get('questions')?.num ?? '08';
 
   return (
     <div className="notebook-layout">
@@ -465,73 +556,28 @@ export default function TextVsImageNotebookPage() {
             </Text>
           </VStack>
 
-          <VStack className="notebook-banner" gap={2}>
-            {runLoadState === 'loading' ? (
-              <Text type="supporting">Loading saved run…</Text>
-            ) : null}
-            {runLoadState === 'ready' && savedRun && comparingMeta ? (
-              <VStack className="notebook-comparing" gap={2}>
-                <Text type="supporting">
-                  Comparing <code>{shortModel(savedRun.model)}</code>
-                  {' · '}
-                  {comparingMeta}
-                </Text>
-                {runList.length > 0 ? (
-                  <VStack className="notebook-comparing-runs" gap={2}>
-                    <Text type="supporting">
-                      Saved runs (newest first) — pick a model run to load its answers and the
-                      exact images that model saw:
-                    </Text>
-                    <div className="notebook-results">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>When</th>
-                            <th>Model</th>
-                            <th>Accuracy</th>
-                            <th></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {runList.map((row) => {
-                            const selected = savedRun?.id === row.id;
-                            return (
-                              <tr key={row.id}>
-                                <td>{formatRunWhen(row.created_at)}</td>
-                                <td><code>{row.model}</code></td>
-                                <td className="num">{runAccuracyLabel(row)}</td>
-                                <td>
-                                  <Button
-                                    size="sm"
-                                    variant={selected ? 'primary' : 'secondary'}
-                                    label={selected ? 'Viewing' : 'Load'}
-                                    isDisabled={selected}
-                                    onClick={() => { void loadRunById(row.id); }}
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </VStack>
-                ) : null}
-              </VStack>
-            ) : null}
-            {runLoadState === 'missing' ? (
-              <Text type="supporting">
-                No saved run yet. Methodology and local chart previews are free;
-                results appear after a run is published via API or CI.
-              </Text>
-            ) : null}
-            {runLoadState === 'error' ? (
-              <Text type="supporting">Could not load saved run: {runLoadError}</Text>
-            ) : null}
-          </VStack>
+          {runLoadState === 'loading' ? (
+            <Text type="supporting">Loading saved runs…</Text>
+          ) : null}
+          {runLoadState === 'missing' ? (
+            <Text type="supporting">
+              No saved run yet. Methodology and local chart previews are free;
+              results appear after a run is published via API or CI.
+            </Text>
+          ) : null}
+          {runLoadState === 'error' ? (
+            <Text type="supporting">Could not load saved runs: {runLoadError}</Text>
+          ) : null}
+          {runLoadState === 'ready' && modelRuns.length ? (
+            <Text type="supporting">
+              {modelRuns.length} model{modelRuns.length === 1 ? '' : 's'} published
+              {' — '}
+              use the table of contents to jump; per-model matrices start collapsed.
+            </Text>
+          ) : null}
         </section>
 
-        <Section id="conclusion" num="02" title="Cross-model conclusion">
+        <Section id="conclusion" num={conclusionNum} title="Cross-model conclusion">
           {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
             <Text type="supporting">Aggregating saved runs…</Text>
           ) : null}
@@ -663,74 +709,58 @@ export default function TextVsImageNotebookPage() {
           ) : null}
         </Section>
 
-        <Section id="results" num="03" title="Results">
-          {savedRun ? (
-            <Text type="supporting">
-              Per-representation scores for <code>{savedRun.model}</code>
-              {' '}(seed <code>{savedRun.seed}</code>). Probing OpenRouter from this page is
-              disabled — new runs land via API or CI.
-            </Text>
-          ) : (
-            <Text type="supporting">
-              Results appear here once a run is published. Probing OpenRouter from this page
-              is disabled to avoid surprise spend.
-            </Text>
-          )}
+        {modelRuns.map((run) => {
+          const sectionId = modelSectionId(run.id);
+          const entry = tocById.get(sectionId);
+          const expanded = expandedModels.has(run.id);
+          const summary = runList.find((row) => row.id === run.id);
+          const meta = [
+            formatRunWhen(run.created_at),
+            summary ? runAccuracyLabel(summary) : null,
+          ].filter(Boolean).join(' · ');
+          return (
+            <section key={run.id} id={sectionId} className="notebook-section notebook-model-section">
+              <button
+                type="button"
+                className="notebook-model-toggle"
+                aria-expanded={expanded}
+                onClick={() => toggleModel(run.id)}
+              >
+                {expanded
+                  ? <ChevronDown size={16} aria-hidden />
+                  : <ChevronRight size={16} aria-hidden />}
+                <span className="notebook-model-title">
+                  <span className="notebook-sec-num">{entry?.num ?? '—'}</span>
+                  {shortModel(run.model)}
+                </span>
+                <span className="notebook-model-meta">{meta}</span>
+              </button>
+              {expanded ? (
+                <VStack gap={3}>
+                  <Text type="supporting">
+                    Per-representation scores for <code>{run.model}</code>
+                    {' '}(seed <code>{run.seed}</code>).
+                  </Text>
+                  <ModelResultsTable run={run} />
+                </VStack>
+              ) : (
+                <Text type="supporting">
+                  Collapsed — expand here or jump from the table of contents.
+                </Text>
+              )}
+            </section>
+          );
+        })}
 
-          {savedRun ? (
-            <div className="notebook-results">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Representation</th>
-                    <th>Correct</th>
-                    <th>Accuracy</th>
-                    {displayQuestions.map((q) => (
-                      <th key={q.id}>{q.id}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {summaryRows.map((row) => (
-                    <tr key={row.repId}>
-                      <td>{row.label}</td>
-                      <td className="num">{row.done ? `${row.correct}/${row.done}` : '—'}</td>
-                      <td className="num">
-                        {row.acc == null ? '—' : `${(row.acc * 100).toFixed(0)}%`}
-                      </td>
-                      {displayQuestions.map((q) => {
-                        const cell = matrix[row.repId]?.[q.id];
-                        if (!cell || cell.status === 'idle') return <td key={q.id}>·</td>;
-                        if (cell.status === 'running') return <td key={q.id}>…</td>;
-                        if (cell.status === 'error') {
-                          return (
-                            <td key={q.id}>
-                              <Token label="err" color="red" size="sm" />
-                            </td>
-                          );
-                        }
-                        return (
-                          <td key={q.id}>
-                            <VStack gap={1}>
-                              <Token
-                                label={cell.correct ? 'ok' : 'miss'}
-                                color={cell.correct ? 'teal' : 'orange'}
-                                size="sm"
-                              />
-                              <span className="notebook-answer">{cell.answer}</span>
-                            </VStack>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </Section>
+        {!modelRuns.length && runLoadState !== 'loading' ? (
+          <section className="notebook-section">
+            <Text type="supporting">
+              Per-model result matrices appear here once runs are published via API or CI.
+            </Text>
+          </section>
+        ) : null}
 
-        <Section id="reading" num="04" title="How to read this">
+        <Section id="reading" num={readingNum} title="How to read this">
           <Text type="supporting">
             Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
             image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
@@ -741,7 +771,7 @@ export default function TextVsImageNotebookPage() {
           </Text>
         </Section>
 
-        <Section id="setup" num="05" title="Setup">
+        <Section id="setup" num={setupNum} title="Setup">
           <Text type="supporting">
             Seed <code>{universe.seed}</code>, {universe.tradingDays} trading days from{' '}
             {universe.startDate}, {universe.series.length} fictional tickers (GBM with planted
@@ -782,11 +812,11 @@ export default function TextVsImageNotebookPage() {
           </div>
         </Section>
 
-        <Section id="images" num="06" title="Images fed to the LLM">
+        <Section id="images" num={imagesNum} title="Images fed to the LLM">
           <Text type="supporting">
             These are the exact chart PNGs used as multimodal user content
             {hasSavedPayload && savedImages.length
-              ? ' in the saved run (byte-identical to what OpenRouter received).'
+              ? ' in the saved runs (byte-identical to what OpenRouter received).'
               : ' when probes run (local canvas previews until a run is published).'}
             {' '}Textless hybrids omit labels; ticker identity lives in the companion markdown key.
           </Text>
@@ -810,7 +840,7 @@ export default function TextVsImageNotebookPage() {
           )}
         </Section>
 
-        <Section id="reps" num="07" title="Representations">
+        <Section id="reps" num={repsNum} title="Representations">
           <Text type="supporting">
             Text packs mirror today&apos;s Copilot tool summary. Image encodings are labeled
             charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
@@ -861,7 +891,7 @@ export default function TextVsImageNotebookPage() {
           ) : null}
         </Section>
 
-        <Section id="questions" num="08" title="Questions">
+        <Section id="questions" num={questionsNum} title="Questions">
           <Text type="supporting">
             Each representation answers the same ground-truth prompts (tickers from the
             synthetic panel).
@@ -891,12 +921,17 @@ export default function TextVsImageNotebookPage() {
 
       <nav className="notebook-toc" aria-label="Experiment sections">
         <span className="notebook-toc-title">On this page</span>
-        {SECTIONS.map((section) => (
+        {toc.map((section) => (
           <a
             key={section.id}
             href={`#${section.id}`}
             className={activeSection === section.id ? 'notebook-toc-link active' : 'notebook-toc-link'}
             aria-current={activeSection === section.id ? 'location' : undefined}
+            onClick={() => {
+              if (section.id.startsWith('model-')) {
+                expandModel(section.id.slice('model-'.length));
+              }
+            }}
           >
             <span className="notebook-toc-num">{section.num}</span>
             <span>{section.label}</span>
