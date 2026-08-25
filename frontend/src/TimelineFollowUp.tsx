@@ -2,18 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
+  ChatComposer,
+  ChatSendButton,
   Dialog,
   DialogHeader,
   HStack,
-  IconButton,
   Layout,
   LayoutContent,
   LayoutFooter,
   Text,
-  TextInput,
   VStack,
 } from '@astryxdesign/core';
-import { ArrowUp } from 'lucide-react';
+import { ChatComposerInput } from '@astryxdesign/core/Chat';
 import { api, type ProfileMe } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import {
@@ -29,7 +29,7 @@ import { HandleField } from './HandleField';
 import { handleInputError, normalizeHandleInput } from './handle';
 
 /**
- * Astryx TextInput follow-up — true single-line field per the design system.
+ * Compact ChatComposer follow-up — send lives inside the field, same as /chat.
  * Sign-in / handle claim only open after submit.
  */
 export function TimelineFollowUp({
@@ -188,8 +188,6 @@ export function TimelineFollowUp({
     }
   };
 
-  const canSend = Boolean(value.trim()) && !busy;
-
   return (
     <VStack
       as="section"
@@ -197,37 +195,17 @@ export function TimelineFollowUp({
       className="timeline-followup"
       aria-label="Ask a follow-up"
     >
-      <HStack
-        as="form"
-        gap={2}
-        vAlign="center"
-        className="timeline-followup-row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit(value);
-        }}
-      >
-        <TextInput
-          label="Ask a follow-up"
-          isLabelHidden
-          value={value}
-          onChange={setValue}
-          placeholder="Ask a follow-up…"
-          size="sm"
-          width="100%"
-          isDisabled={busy}
-        />
-        <IconButton
-          type="submit"
-          variant="primary"
-          size="sm"
-          label="Send follow-up"
-          tooltip="Send follow-up"
-          icon={<ArrowUp size={16} aria-hidden="true" />}
-          isDisabled={!canSend}
-          isLoading={busy}
-        />
-      </HStack>
+      <ChatComposer
+        value={value}
+        onChange={setValue}
+        onSubmit={onSubmit}
+        placeholder="Ask a follow-up…"
+        density="compact"
+        elevation="none"
+        isDisabled={busy}
+        input={<ChatComposerInput maxRows={4} hasHistory={false} />}
+        sendButton={<ChatSendButton />}
+      />
 
       {error && (
         <Text className="timeline-err" role="alert">{error}</Text>

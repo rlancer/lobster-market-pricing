@@ -276,17 +276,6 @@
   padding-block-start: var(--spacing-1);
 }
 
-.timeline-followup-row {
-  width: 100%;
-  min-width: 0;
-}
-
-/* TextInput needs to claim the row; IconButton stays content-sized. */
-.timeline-followup-row > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-
 .timeline-author-link:hover {
   color: var(--color-text-accent);
 }
