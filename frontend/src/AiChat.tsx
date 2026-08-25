@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefOb
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
-import { useLocation, useNavigate } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import './AiChat.css';
 import {
   Button,
@@ -25,7 +25,7 @@ import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type Qu
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
-import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat } from './chatSession';
+import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
@@ -548,6 +548,7 @@ function AiChatSession({
     isSavedChat ? 'unknown' : 'ok',
   );
   const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
+  const [forkContext, setForkContext] = useState<ForkContext | null>(() => takeForkContext());
   const thinkingRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
   const [scrollRootReady, setScrollRootReady] = useState(false);
@@ -1080,12 +1081,15 @@ function AiChatSession({
   const showSavedLoading = projectedMessages.length === 0 && isSavedChat && (chatAccess === 'unknown' || backupState === 'loading');
   const showSavedEmpty = projectedMessages.length === 0 && isSavedChat && chatAccess === 'ok' && backupState === 'missing' && !scopeLocked;
   /* Mobile app bar owns New chat; omit the empty Share strip until a turn exists. */
-  const showChatHead = !isMobile || Boolean(botHandle) || canShare;
+  const showChatHead = !isMobile || Boolean(botHandle) || Boolean(forkContext) || canShare;
 
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
     if (pendingConsumedRef.current) return;
     if (busy || disconnected || composerBlocked || socketState !== 'open') return;
+    // Forked chats are seeded on the DO — wait for the prior turns to sync so
+    // the follow-up lands after the original transcript in the UI.
+    if (forkContext && messages.length === 0) return;
     const pending = peekPendingPrompt();
     if (!pending) {
       pendingConsumedRef.current = true;
@@ -1104,7 +1108,7 @@ function AiChatSession({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [composerBlocked, busy, disconnected, send, socketState]);
+  }, [composerBlocked, busy, disconnected, send, socketState, forkContext, messages.length]);
 
   useEffect(() => {
     if (!accessBlocked) return;
@@ -1123,6 +1127,36 @@ function AiChatSession({
                 {botHandle && (
                   <p className="ai-bot-banner" role="status">
                     Generating as <b>@{botHandle}</b> — when the answer completes it auto-shares to the public timeline as that bot.
+                  </p>
+                )}
+                {forkContext && (
+                  <p className="ai-bot-banner" role="status">
+                    Continuing from{' '}
+                    {forkContext.parent_handle ? (
+                      <Link
+                        to="/share/$shareId"
+                        params={{ shareId: forkContext.parent_share_id }}
+                        className="ai-fork-link"
+                      >
+                        @{forkContext.parent_handle}&apos;s chat
+                      </Link>
+                    ) : (
+                      <Link
+                        to="/share/$shareId"
+                        params={{ shareId: forkContext.parent_share_id }}
+                        className="ai-fork-link"
+                      >
+                        a shared chat
+                      </Link>
+                    )}
+                    . Your follow-up is attributed to you when you share.
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      label="Dismiss"
+                      className="ai-fork-dismiss"
+                      onClick={() => setForkContext(null)}
+                    />
                   </p>
                 )}
                 <section className="ai-head-actions">
