@@ -103,6 +103,15 @@ import {
   touchUserChat,
   clipTitle,
 } from "./user-chats";
+import {
+  authorFromProfile,
+  capShareAuthor,
+  forkChatFromShare,
+  getChatForkMeta,
+  resolveShareAuthor,
+  stampForkAuthors,
+  type ForkAgent,
+} from "./chat-fork";
 import { enrichChatMeta, backfillShareMeta, shareNeedsMetaBackfill } from "./chat-meta";
 import {
   chatIdForShare,
@@ -2009,6 +2018,9 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     if (tools) out.tools = tools;
     const frames = capShareFrames(original.frames ?? rec.frames);
     if (frames) out.frames = frames;
+    // Per-turn asker (forked follow-ups) — preserve when the client already stamped it.
+    const author = capShareAuthor(original.author ?? rec.author);
+    if (author) out.author = author;
     return out;
   });
 
@@ -2167,6 +2179,20 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
       console.warn("share chat-meta enrich failed", error);
     }
   }
+
+  // Forked follow-ups: stamp original asker on seeded turns and the forker on
+  // later user turns so the timeline can show who asked each question.
+  const shareUser = await getSessionUser(env, req);
+  if (shareUser) {
+    const forkMeta = await getChatForkMeta(env.SCHEMA_DB, String(pass1.chat_id));
+    if (forkMeta) {
+      const parentAuthor = await resolveShareAuthor(env.SCHEMA_DB, forkMeta.parent_share_id);
+      const forkerProfile = await getUserProfile(env.SCHEMA_DB, shareUser.id);
+      const forker = authorFromProfile(shareUser.id, forkerProfile, shareUser.name);
+      stampForkAuthors(messages, forkMeta.fork_seed_count, parentAuthor, forker);
+    }
+  }
+
   const messagesJson = JSON.stringify(messages);
   // Assembled-row check: messages JSON + source_sql + column overhead must sit
   // under the D1 2 MB row ceiling — a share can never 500 on INSERT.
@@ -2175,7 +2201,7 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
 
   const shareId = base62Encode(crypto.getRandomValues(new Uint8Array(SHARE_ID_BYTES)));
   const now = Date.now();
-  const user = await getSessionUser(env, req);
+  const user = shareUser;
 
   // Optional bot attribution — only product admins (or ADMIN_TOKEN) may stamp
   // an enabled bot handle onto a share. Bot shares appear on the public timeline.
@@ -3845,6 +3871,35 @@ async function handleUserChats(env: Env, req: Request, path: string): Promise<Re
     const result = await claimChat(env.SCHEMA_DB, user.id, chatId, title);
     if (!result.ok) return json(env, { error: result.error }, result.status, "private");
     return json(env, result, 200, "private");
+  }
+  if (path === "/api/chats/fork" && req.method === "POST") {
+    const user = await requireUser(env, req);
+    if (user instanceof Response) return user;
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const result = await forkChatFromShare({
+      db: env.SCHEMA_DB,
+      userId: user.id,
+      oauthName: user.name,
+      shareId: typeof body.share_id === "string" ? body.share_id : "",
+      question: typeof body.question === "string" ? body.question : "",
+      getAgent: (chatId) =>
+        (env.CopilotAgent as unknown as DurableObjectNamespace).getByName(chatId) as unknown as ForkAgent,
+    });
+    if (!result.ok) return json(env, { error: result.error }, result.status, "private");
+    return json(env, {
+      ok: true,
+      chat_id: result.chat_id,
+      title: result.title,
+      parent_share_id: result.parent_share_id,
+      parent_author: result.parent_author,
+      fork_seed_count: result.fork_seed_count,
+      question: result.question,
+    }, 200, "private");
   }
   const tickersMatch = path.match(/^\/api\/chats\/([^/]+)\/tickers$/);
   if (tickersMatch && req.method === "GET") {

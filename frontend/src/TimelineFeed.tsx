@@ -18,6 +18,7 @@ import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { PostShareButton } from './PostShareButton';
+import { TimelineFollowUp } from './TimelineFollowUp';
 import { UserAvatar } from './UserAvatar';
 
 /** Leaf model id for supporting meta — drop provider prefix and dated build tags. */
@@ -239,20 +240,44 @@ export function TimelinePostRow({
       {messages.length > 0 && (
         <FeedPreview onReveal={() => setHydrateResult(true)}>
           <VStack gap={4} className="timeline-msgs" aria-label="Conversation">
-            {messages.map((message, index) => (
-              <TranscriptMessage
-                key={`${post.share_id}-${index}`}
-                message={message}
-                openInData
-                hydrateResult={hydrateResult}
-                collapseSql
-              />
-            ))}
+            {messages.map((message, index) => {
+              const turnAuthor = message.role === 'user' ? message.author : undefined;
+              const showTurnAuthor = Boolean(
+                turnAuthor?.handle
+                && turnAuthor.handle.toLowerCase() !== post.handle.toLowerCase(),
+              );
+              return (
+                <TranscriptMessage
+                  key={`${post.share_id}-${index}`}
+                  message={message}
+                  openInData
+                  hydrateResult={hydrateResult}
+                  collapseSql
+                  userLabel={showTurnAuthor ? (
+                    <HStack gap={1} vAlign="center" className="timeline-turn-author">
+                      <UserAvatar
+                        avatarUrl={turnAuthor!.avatar_url}
+                        className="timeline-turn-avatar"
+                        alt=""
+                      />
+                      <Text type="supporting" maxLines={1}>
+                        {turnAuthor!.name?.trim() || turnAuthor!.handle}
+                        {' '}
+                        <span className="timeline-turn-handle">@{turnAuthor!.handle}</span>
+                      </Text>
+                    </HStack>
+                  ) : null}
+                />
+              );
+            })}
           </VStack>
         </FeedPreview>
       )}
 
-      {/* 5. Supporting meta — technical flags + moderation */}
+      {/* 5. Follow-up — fork into your own chat (login + handle required) */}
+      <TimelineFollowUp shareId={post.share_id} postHandle={post.handle} />
+
+      {/* 6. Supporting meta — technical flags + moderation */}
       {(post.has_sql || post.has_chart || post.model || isAdmin) && (
         <HStack gap={3} vAlign="center" className="timeline-post-meta">
           {(post.has_sql || post.has_chart || post.model) && (

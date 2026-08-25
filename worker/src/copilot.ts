@@ -509,6 +509,57 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   /**
+   * Seed an empty chat from a public share snapshot (timeline follow-up fork).
+   * Uses persistMessages so we do not trigger an LLM turn — the client sends
+   * the follow-up question after navigating to /chat/{id}.
+   */
+  async seedTranscript(input: {
+    messages: Array<{
+      role: "user" | "assistant";
+      content: string;
+      reasoning?: string;
+      sql?: string;
+      chart?: unknown;
+      desk?: unknown;
+      trades?: unknown;
+      frames?: unknown;
+      ts?: number;
+    }>;
+  }): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+    const rows = Array.isArray(input?.messages) ? input.messages : [];
+    if (rows.length === 0) return { ok: false, error: "messages are required" };
+    if ((this.messages as UIMessage[]).length > 0) {
+      return { ok: false, error: "chat already has messages" };
+    }
+    const uiMessages: UIMessage[] = rows.map((turn) => {
+      const parts: UIMessage["parts"] = [];
+      const reasoning = typeof turn.reasoning === "string" ? turn.reasoning.trim() : "";
+      if (reasoning) parts.push({ type: "reasoning", text: reasoning });
+      parts.push({
+        type: "text",
+        text: typeof turn.content === "string" ? turn.content : "",
+      });
+      const metadata: Record<string, unknown> = {
+        model: "",
+        createdAt: typeof turn.ts === "number" && Number.isFinite(turn.ts) ? turn.ts : Date.now(),
+      };
+      if (typeof turn.sql === "string" && turn.sql.trim()) metadata.sql = turn.sql.trim();
+      if (turn.chart) metadata.chart = turn.chart;
+      if (turn.desk) metadata.desk = turn.desk;
+      if (turn.trades) metadata.trades = turn.trades;
+      if (Array.isArray(turn.frames) && turn.frames.length) metadata.frames = turn.frames;
+      return {
+        id: crypto.randomUUID(),
+        role: turn.role === "assistant" ? "assistant" : "user",
+        parts,
+        metadata,
+      } as UIMessage;
+    });
+    await this.persistMessages(uiMessages);
+    return { ok: true, count: uiMessages.length };
+  }
+
+  /**
    * Headless bot turn for schedules / server triggers.
    * Sets the persona, runs one user prompt via saveMessages, returns share-ready turns.
    */
