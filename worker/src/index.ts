@@ -122,6 +122,16 @@ import {
 import { listChatTickers, listSecurityChats } from "./chat-tickers";
 import { loadChatRail } from "./timeline-rail";
 import {
+  fetchTavilyNews,
+  fetchTavilySearch,
+  newsCacheKey,
+  TAVILY_DEFAULT_TTL_MS,
+  type TavilyNewsItem,
+  type TavilySearchResult,
+  webSearchCacheKey,
+  withTavilyCache,
+} from "./tavily";
+import {
   emptyFundamentals,
   emptyShorting,
   getOrComputeResearch,
@@ -1014,65 +1024,15 @@ async function notebookPremium(env: Env, p: {
 // relevance-sorted, symbol-scoped results, which we strip to
 // {title, link, published, snippet, source}. Upstream failures degrade to an
 // empty item list with an error string — never a 500 — so a chat turn is
-// never blocked by a news outage. Results are memoized in-isolate for 10 min
-// keyed by symbol (only successes cache; failures retry on the next call).
-const NEWS_TTL_MS = 10 * 60 * 1000;
+// never blocked by a news outage. Successes are memoized in-isolate + D1 for
+// 10 min keyed by symbol (see tavily.ts); failures retry on the next call.
+const NEWS_TTL_MS = TAVILY_DEFAULT_TTL_MS;
 const NEWS_DEFAULT_LIMIT = 8;
 const NEWS_MAX_LIMIT = 20;
 const NEWS_SYMBOL_RE = /^[A-Z0-9][A-Z0-9.\-]*$/;
-const NEWS_SNIPPET_MAX = 240;
-const TAVILY_API_URL = "https://api.tavily.com/search";
-// News-only recency window (days) — keeps results current without spending the
-// free monthly credit pool on stale stories.
-const TAVILY_NEWS_DAYS = 7;
 
 type NewsSource = "tavily";
-
-interface NewsItem {
-  title: string;
-  link: string;
-  published: string | null;
-  snippet: string;
-  source: NewsSource;
-}
-
-function truncateAtSentence(s: string, max = NEWS_SNIPPET_MAX): string {
-  if (s.length <= max) return s;
-  const window = s.slice(0, max + 1);
-  const boundary = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "));
-  return (boundary >= max * 0.6 ? window.slice(0, boundary + 1) : window).trimEnd();
-}
-
-async function tavilyNews(env: Env, symbol: string): Promise<NewsItem[]> {
-  const response = await fetch(TAVILY_API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${env.TAVILY_API_KEY}`,
-    },
-    body: JSON.stringify({
-      query: `${symbol} stock news`,
-      topic: "news",
-      search_depth: "basic",
-      max_results: NEWS_MAX_LIMIT,
-      days: TAVILY_NEWS_DAYS,
-      include_answer: false,
-      include_raw_content: false,
-    }),
-  });
-  if (!response.ok) throw new Error(`tavily news returned HTTP ${response.status}`);
-  const data = await response.json() as { results?: { title?: string; url?: string; content?: string; published_date?: string | null }[] };
-  return (data.results ?? [])
-    .map((r): NewsItem => ({
-      title: (r.title ?? "").trim(),
-      link: (r.url ?? "").trim(),
-      published: r.published_date || null,
-      snippet: truncateAtSentence((r.content ?? "").trim()),
-      source: "tavily",
-    }))
-    .filter((it) => it.title)
-    .slice(0, NEWS_MAX_LIMIT);
-}
+type NewsItem = TavilyNewsItem;
 
 async function news(env: Env, symbolIn: string | null, limitIn: number): Promise<{
   symbol: string; items: NewsItem[]; source?: NewsSource; error?: string; fetched_at: string;
@@ -1083,8 +1043,21 @@ async function news(env: Env, symbolIn: string | null, limitIn: number): Promise
     return { symbol, items: [], error: "invalid symbol", fetched_at: fetchedAt() };
   }
   const limit = clamp(limitIn || NEWS_DEFAULT_LIMIT, 1, NEWS_MAX_LIMIT);
+  const key = env.TAVILY_API_KEY?.trim();
+  if (!key) {
+    return { symbol, items: [], error: "news unavailable", fetched_at: fetchedAt() };
+  }
   try {
-    const items = await cached<NewsItem[]>(`news:${symbol}`, NEWS_TTL_MS, () => tavilyNews(env, symbol));
+    const items = await withTavilyCache<NewsItem[]>(
+      env.SCHEMA_DB,
+      newsCacheKey(symbol),
+      NEWS_TTL_MS,
+      () => fetchTavilyNews({
+        apiKey: key,
+        query: `${symbol} stock news`,
+        maxResults: NEWS_MAX_LIMIT,
+      }),
+    );
     return { symbol, items: items.slice(0, limit), source: "tavily", fetched_at: fetchedAt() };
   } catch (error) {
     return { symbol, items: [], error: String((error && (error as Error).message) || error), fetched_at: fetchedAt() };
@@ -1100,49 +1073,16 @@ async function news(env: Env, symbolIn: string | null, limitIn: number): Promise
 // /api/news but without the news-topic pin or recency window, so the model can
 // surface current articles/notes with citable links. Results are stripped to
 // {title, link, snippet, source}, capped at 5, snippets trimmed to ~240 chars,
-// and memoized in-isolate for 10 min keyed by the lowercased query (only
+// and memoized in-isolate + D1 for 10 min keyed by the lowercased query (only
 // successes cache — failures retry on the next call). Upstream failures
 // degrade to a 200 with an empty `results` list + `error` — never a 500 — so a
 // search outage cannot block a chat turn.
-const WEB_SEARCH_TTL_MS = 10 * 60 * 1000;
+const WEB_SEARCH_TTL_MS = TAVILY_DEFAULT_TTL_MS;
 const WEB_SEARCH_DEFAULT_LIMIT = 5;
 const WEB_SEARCH_MAX_LIMIT = 5;
 const WEB_SEARCH_QUERY_MAX = 200;
 
-interface WebSearchResult {
-  title: string;
-  link: string;
-  snippet: string;
-  source: string | null;
-}
-
-async function tavilySearch(env: Env, query: string): Promise<WebSearchResult[]> {
-  const response = await fetch(TAVILY_API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${env.TAVILY_API_KEY}`,
-    },
-    body: JSON.stringify({
-      query,
-      include_answer: false,
-      include_raw_content: false,
-      search_depth: "basic",
-      max_results: WEB_SEARCH_MAX_LIMIT,
-    }),
-  });
-  if (!response.ok) throw new Error(`tavily search returned HTTP ${response.status}`);
-  const data = await response.json() as { results?: { title?: string; url?: string; content?: string; source?: string | null }[] };
-  return (data.results ?? [])
-    .map((r): WebSearchResult => ({
-      title: (r.title ?? "").trim(),
-      link: (r.url ?? "").trim(),
-      snippet: truncateAtSentence((r.content ?? "").trim()),
-      source: (r.source ?? "").trim() || null,
-    }))
-    .filter((it) => it.title)
-    .slice(0, WEB_SEARCH_MAX_LIMIT);
-}
+type WebSearchResult = TavilySearchResult;
 
 async function webSearch(env: Env, queryIn: string | null, limitIn: number): Promise<{
   query: string; results: WebSearchResult[]; error?: string; fetched_at: string;
@@ -1153,8 +1093,21 @@ async function webSearch(env: Env, queryIn: string | null, limitIn: number): Pro
     return { query, results: [], error: "invalid query", fetched_at: fetchedAt() };
   }
   const limit = clamp(limitIn || WEB_SEARCH_DEFAULT_LIMIT, 1, WEB_SEARCH_MAX_LIMIT);
+  const key = env.TAVILY_API_KEY?.trim();
+  if (!key) {
+    return { query, results: [], error: "search unavailable", fetched_at: fetchedAt() };
+  }
   try {
-    const results = await cached<WebSearchResult[]>(`websearch:${query.toLowerCase()}`, WEB_SEARCH_TTL_MS, () => tavilySearch(env, query));
+    const results = await withTavilyCache<WebSearchResult[]>(
+      env.SCHEMA_DB,
+      webSearchCacheKey(query),
+      WEB_SEARCH_TTL_MS,
+      () => fetchTavilySearch({
+        apiKey: key,
+        query,
+        maxResults: WEB_SEARCH_MAX_LIMIT,
+      }),
+    );
     return { query, results: results.slice(0, limit), fetched_at: fetchedAt() };
   } catch (error) {
     return { query, results: [], error: String((error && (error as Error).message) || error), fetched_at: fetchedAt() };

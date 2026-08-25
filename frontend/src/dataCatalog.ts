@@ -312,7 +312,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Tavily news',
     summary: 'Per-ticker headlines for why-is-it-moving questions',
     description:
-      'Worker proxy to Tavily’s news search. Chat calls get_news with a ticker; the API returns recent headlines with titles, links, and snippets. Used after implied-vs-realized vol and earnings, when the question is about a move.',
+      'Worker proxy to Tavily’s news search. Chat calls get_news with a ticker; the API returns recent headlines with titles, links, and snippets. Successes are cached in D1 (~10 min) so cold isolates do not re-spend credits. Used after implied-vs-realized vol and earnings, when the question is about a move.',
     provider: 'Tavily',
     cadence: 'On demand (cached ~briefly)',
     endpoint: 'GET /api/news',
@@ -325,7 +325,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Tavily web search',
     summary: 'Open search for commentary beyond the ticker news feed',
     description:
-      'Same provider as news, without the news-topic pin or recency window. Chat uses web_search for analyst notes, “what happened?”, and events that are not ticker-specific.',
+      'Same provider as news, without the news-topic pin or recency window. Chat uses web_search for analyst notes, “what happened?”, and events that are not ticker-specific. Responses share the D1 Tavily cache (~10 min).',
     provider: 'Tavily',
     cadence: 'On demand',
     endpoint: 'GET /api/web_search',
