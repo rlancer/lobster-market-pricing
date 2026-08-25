@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
   ChatComposer,
   ChatSendButton,
+  Dialog,
+  DialogHeader,
   HStack,
+  Layout,
+  LayoutContent,
+  LayoutFooter,
   Text,
   VStack,
 } from '@astryxdesign/core';
+import { ChatComposerInput } from '@astryxdesign/core/Chat';
 import { api, type ProfileMe } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import {
@@ -19,12 +25,12 @@ import {
   stashPendingFork,
   stashPendingPrompt,
 } from './chatSession';
-import { UserAvatar } from './UserAvatar';
+import { HandleField } from './HandleField';
+import { handleInputError, normalizeHandleInput } from './handle';
 
 /**
- * Per-post follow-up composer for the timeline / share page.
- * Requires Google sign-in + a claimed public handle so the asker can be shown
- * when the forked chat is shared back to the feed.
+ * Quiet per-post follow-up input. Same compact single-line (autogrow) composer
+ * on the timeline and /share. Sign-in / handle claim only open after submit.
  */
 export function TimelineFollowUp({
   shareId,
@@ -42,7 +48,13 @@ export function TimelineFollowUp({
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [handleOpen, setHandleOpen] = useState(false);
+  const [handleDraft, setHandleDraft] = useState('');
+  const [handleError, setHandleError] = useState<string | null>(null);
+  const [handleSaving, setHandleSaving] = useState(false);
   const resumeTriedRef = useRef(false);
+  const pendingQuestionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -53,7 +65,9 @@ export function TimelineFollowUp({
     setProfileLoading(true);
     api.me()
       .then((me) => {
-        if (alive) setProfile(me);
+        if (!alive) return;
+        setProfile(me);
+        setHandleDraft(me.handle ?? me.suggested_handle ?? '');
       })
       .catch(() => {
         if (alive) setProfile(null);
@@ -74,6 +88,7 @@ export function TimelineFollowUp({
     try {
       const result = await api.forkChat(shareId, trimmed);
       clearPendingFork();
+      pendingQuestionRef.current = null;
       stashPendingPrompt(result.question);
       stashForkContext({
         parent_share_id: result.parent_share_id,
@@ -84,6 +99,8 @@ export function TimelineFollowUp({
       rememberChatId(result.chat_id);
       notifyChatsChanged();
       setValue('');
+      setSignInOpen(false);
+      setHandleOpen(false);
       void navigate({
         to: '/chat/$chatId',
         params: { chatId: result.chat_id },
@@ -98,9 +115,16 @@ export function TimelineFollowUp({
   // After Google OAuth round-trip, finish a stashed follow-up for this share.
   useEffect(() => {
     if (resumeTriedRef.current || sessionPending || profileLoading || busy) return;
-    if (!user || !profile?.handle) return;
+    if (!user) return;
     const pending = peekPendingFork();
     if (!pending || pending.share_id !== shareId) return;
+    if (!profile?.handle) {
+      pendingQuestionRef.current = pending.question;
+      setValue(pending.question);
+      setHandleOpen(true);
+      resumeTriedRef.current = true;
+      return;
+    }
     resumeTriedRef.current = true;
     setValue(pending.question);
     void launchFork(pending.question);
@@ -109,29 +133,60 @@ export function TimelineFollowUp({
   const onSubmit = (raw: string) => {
     const question = raw.trim();
     if (!question || busy) return;
+    pendingQuestionRef.current = question;
     if (!user) {
       stashPendingFork(shareId, question);
-      void signInWithGoogle().catch((err) => {
-        console.error('Google sign-in failed', err);
-        setError('Sign-in failed. Try again.');
-      });
+      setSignInOpen(true);
       return;
     }
     if (!profile?.handle) {
       stashPendingFork(shareId, question);
-      setError('Claim a public handle to ask a follow-up.');
+      setHandleDraft(profile?.suggested_handle ?? handleDraft);
+      setHandleOpen(true);
       return;
     }
     void launchFork(question);
   };
 
-  const signedIn = Boolean(user);
-  const hasHandle = Boolean(profile?.handle);
-  const placeholder = !signedIn
-    ? 'Sign in to ask a follow-up…'
-    : !hasHandle
-      ? 'Claim a handle to ask a follow-up…'
-      : 'Ask a follow-up about this chat…';
+  const startGoogleSignIn = () => {
+    const question = (pendingQuestionRef.current ?? value).trim();
+    if (question) stashPendingFork(shareId, question);
+    void signInWithGoogle().catch((err) => {
+      console.error('Google sign-in failed', err);
+      setError('Sign-in failed. Try again.');
+    });
+  };
+
+  const saveHandleAndFork = async () => {
+    const invalid = handleInputError(handleDraft);
+    if (invalid) {
+      setHandleError(invalid);
+      return;
+    }
+    setHandleSaving(true);
+    setHandleError(null);
+    try {
+      const result = await api.updateProfile({ handle: handleDraft });
+      setProfile((prev) => (
+        prev
+          ? {
+              ...prev,
+              handle: result.handle ?? prev.handle,
+              suggested_handle: result.handle ? null : prev.suggested_handle,
+              name: result.name ?? prev.name,
+              display_name: result.display_name !== undefined ? result.display_name : prev.display_name,
+            }
+          : prev
+      ));
+      const question = (pendingQuestionRef.current ?? value).trim();
+      if (question) await launchFork(question);
+      else setHandleOpen(false);
+    } catch (err) {
+      setHandleError(err instanceof Error ? err.message : 'Could not save handle');
+    } finally {
+      setHandleSaving(false);
+    }
+  };
 
   return (
     <VStack
@@ -140,67 +195,111 @@ export function TimelineFollowUp({
       className="timeline-followup"
       aria-label="Ask a follow-up"
     >
-      <HStack gap={2} vAlign="center" className="timeline-followup-head">
-        {signedIn ? (
-          <UserAvatar
-            avatarUrl={profile?.avatar_url}
-            className="timeline-followup-avatar"
-            alt=""
-          />
-        ) : null}
-        <Text type="supporting" className="timeline-followup-label">
-          {signedIn && hasHandle
-            ? `Continue as @${profile!.handle}`
-            : signedIn
-              ? 'Continue this chat with your own follow-up'
-              : 'Have a follow-up? Sign in so we can show who asked.'}
-        </Text>
-      </HStack>
-
       <ChatComposer
         value={value}
         onChange={setValue}
         onSubmit={onSubmit}
-        placeholder={placeholder}
+        placeholder="Ask a follow-up…"
         density="compact"
-        isDisabled={busy || profileLoading}
+        elevation="none"
+        isDisabled={busy}
+        input={<ChatComposerInput maxRows={6} hasHistory={false} />}
         sendButton={<ChatSendButton />}
       />
-
-      {!signedIn && (
-        <HStack gap={2} vAlign="center" className="timeline-followup-gate">
-          <Button
-            variant="secondary"
-            size="sm"
-            label="Sign in with Google"
-            isDisabled={busy}
-            onClick={() => {
-              const draft = value.trim();
-              if (draft) stashPendingFork(shareId, draft);
-              void signInWithGoogle().catch((err) => {
-                console.error('Google sign-in failed', err);
-                setError('Sign-in failed. Try again.');
-              });
-            }}
-          />
-        </HStack>
-      )}
-
-      {signedIn && !hasHandle && !profileLoading && (
-        <HStack gap={2} vAlign="center" className="timeline-followup-gate">
-          <Text type="supporting">
-            <Link to="/account" className="timeline-followup-account">
-              Claim a public handle
-            </Link>
-            {' '}
-            so follow-ups are attributed to you.
-          </Text>
-        </HStack>
-      )}
 
       {error && (
         <Text className="timeline-err" role="alert">{error}</Text>
       )}
+
+      <Dialog
+        isOpen={signInOpen}
+        onOpenChange={setSignInOpen}
+        purpose="info"
+        width={400}
+      >
+        <Layout
+          height="auto"
+          header={
+            <DialogHeader
+              title="Sign in to continue"
+              subtitle="Follow-ups need a Google account so we can show who asked."
+              onOpenChange={(open) => { if (!open) setSignInOpen(false); }}
+            />
+          }
+          content={
+            <LayoutContent>
+              <Text type="supporting">
+                We’ll pick up your question after you sign in.
+              </Text>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button
+                  variant="secondary"
+                  label="Cancel"
+                  onClick={() => setSignInOpen(false)}
+                />
+                <Button
+                  variant="primary"
+                  label="Sign in with Google"
+                  isLoading={busy}
+                  onClick={startGoogleSignIn}
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
+
+      <Dialog
+        isOpen={handleOpen}
+        onOpenChange={(open) => { if (!open) setHandleOpen(false); }}
+        purpose="form"
+        width={400}
+      >
+        <Layout
+          height="auto"
+          header={
+            <DialogHeader
+              title="Choose a public handle"
+              subtitle="Follow-ups are attributed to your handle on the timeline."
+              onOpenChange={(open) => { if (!open) setHandleOpen(false); }}
+            />
+          }
+          content={
+            <LayoutContent>
+              <HandleField
+                value={handleDraft}
+                error={handleError}
+                onChange={(next) => {
+                  setHandleDraft(normalizeHandleInput(next));
+                  setHandleError(null);
+                }}
+              />
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button
+                  variant="secondary"
+                  label="Cancel"
+                  onClick={() => setHandleOpen(false)}
+                />
+                <Button
+                  variant="primary"
+                  label="Continue"
+                  isLoading={handleSaving || busy}
+                  isDisabled={Boolean(handleInputError(handleDraft))}
+                  onClick={() => { void saveHandleAndFork(); }}
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
     </VStack>
   );
 }
