@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Markdown } from '@astryxdesign/core';
+import { HStack, Markdown } from '@astryxdesign/core';
 import { CopyButton } from './CopyButton';
 import { ChartView } from './Chart';
 import { ResultTable } from './QueryResultView';
 import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChatMessage } from './api';
+import { PostShareButton } from './PostShareButton';
 import { AssistantMark } from './Sunglasses';
 import { DeskViewpoints, isDeskBrief } from './DeskViewpoints';
 import { SuggestedTradesView } from './SuggestedTrades';
@@ -232,6 +233,9 @@ export function TranscriptMessage({
   userLabel = null,
   footer = null,
   header = null,
+  anchorId,
+  shareUrl,
+  shareTitle,
 }: {
   message: SharedChatMessage;
   openInData?: boolean;
@@ -251,29 +255,47 @@ export function TranscriptMessage({
   footer?: ReactNode;
   /** Optional chrome above the assistant body (live chat: TurnProgress). */
   header?: ReactNode;
+  /** Deep-link target id (e.g. `m-2` for `/share/:id#m-2`). */
+  anchorId?: string;
+  /** When set, render a per-turn Copy link / Share via… control. */
+  shareUrl?: string;
+  shareTitle?: string;
 }) {
+  const shareControl = shareUrl ? (
+    <PostShareButton
+      url={shareUrl}
+      title={shareTitle || 'Shared chat'}
+      label="Share reply"
+      tooltip="Share this reply"
+    />
+  ) : null;
+
   if (message.role === 'user') {
     const body = message.content
       ? <div className="ai-text">{message.content}</div>
       : null;
     if (userAside || userLabel) {
       return (
-        <div className="ai-msg ai-user timeline-user-turn">
+        <div id={anchorId} className="ai-msg ai-user timeline-user-turn">
           {userLabel}
-          <div className="ai-bubble">{body}</div>
-          {userAside}
+          <HStack gap={2} vAlign="end" className="transcript-turn-row">
+            <div className="ai-bubble">{body}</div>
+            {shareControl}
+            {userAside}
+          </HStack>
         </div>
       );
     }
     return (
-      <div className="ai-msg ai-user">
+      <div id={anchorId} className="ai-msg ai-user">
         <div className="ai-bubble">{body}</div>
+        {shareControl ? <div className="ai-msg-share">{shareControl}</div> : null}
       </div>
     );
   }
 
   return (
-    <div className="ai-msg ai-assistant">
+    <div id={anchorId} className="ai-msg ai-assistant">
       <AssistantMark />
       <div className="ai-bubble">
         {header}
@@ -286,7 +308,12 @@ export function TranscriptMessage({
           chatId={chatId}
           enableTrack={enableTrack}
         />
-        {footer}
+        {(footer || shareControl) ? (
+          <HStack gap={2} vAlign="center" className="transcript-turn-actions">
+            {shareControl}
+            {footer}
+          </HStack>
+        ) : null}
       </div>
     </div>
   );

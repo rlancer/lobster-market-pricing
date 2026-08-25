@@ -134,6 +134,23 @@ function slimPreviewMessage(rec: Record<string, unknown>): Record<string, unknow
   if (rec.trades && typeof rec.trades === "object" && !Array.isArray(rec.trades)) out.trades = rec.trades;
   if (Array.isArray(rec.tools) && rec.tools.length) out.tools = rec.tools.slice(0, 20);
   if (Array.isArray(rec.frames) && rec.frames.length) out.frames = rec.frames.slice(0, 8);
+  // Forked follow-ups stamp per-turn askers — keep author so the feed can show
+  // who asked each question, not only the post byline (starting author).
+  if (role === "user" && rec.author && typeof rec.author === "object" && !Array.isArray(rec.author)) {
+    const author = rec.author as Record<string, unknown>;
+    if (typeof author.handle === "string" && author.handle.trim()) {
+      out.author = {
+        handle: author.handle.trim().slice(0, 32),
+        name: typeof author.name === "string" && author.name.trim()
+          ? author.name.trim().slice(0, 80)
+          : author.handle.trim().slice(0, 32),
+        ...(author.is_bot === true ? { is_bot: true } : {}),
+        ...(typeof author.avatar_url === "string" || author.avatar_url === null
+          ? { avatar_url: author.avatar_url }
+          : {}),
+      };
+    }
+  }
   // Omit result rows from the list payload — AssistantMessageBody re-runs SQL
   // when needed, same path as snapshot-less shares.
   if (!out.content && !out.sql && !out.reasoning && !out.chart && !out.desk && !out.trades && !out.tools && !out.frames) {

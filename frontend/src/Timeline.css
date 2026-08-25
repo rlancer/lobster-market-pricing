@@ -255,6 +255,19 @@
   gap: var(--spacing-1);
 }
 
+.timeline-msgs .transcript-turn-row .post-share,
+.timeline-msgs .transcript-turn-actions .post-share {
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+
+.timeline-msgs .transcript-turn-row .post-share:hover,
+.timeline-msgs .transcript-turn-row .post-share:focus-within,
+.timeline-msgs .transcript-turn-actions .post-share:hover,
+.timeline-msgs .transcript-turn-actions .post-share:focus-within {
+  opacity: 1;
+}
+
 .timeline-turn-author {
   max-width: 92%;
 }

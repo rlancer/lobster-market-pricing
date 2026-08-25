@@ -6,7 +6,7 @@ import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
-import { PostShareButton } from './PostShareButton';
+import { PostShareButton, messageShareFragment, messageShareUrl } from './PostShareButton';
 import { TimelineFollowUp } from './TimelineFollowUp';
 import { UserAvatar } from './UserAvatar';
 import { usePageMeta } from './usePageMeta';
@@ -97,6 +97,17 @@ function SharedChatRoute() {
     };
   }, [shareId, share]);
 
+  // Deep-link `#m-N` lands on that turn after the transcript paints.
+  useEffect(() => {
+    if (loading || missing || !share) return;
+    const raw = window.location.hash.replace(/^#/, '');
+    if (!/^m-\d+$/.test(raw)) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(raw)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [loading, missing, share]);
+
   return (
     <section className="share-content content-column">
       {loading && (
@@ -177,6 +188,11 @@ function SharedChatRoute() {
                         message={m}
                         openInData
                         collapseSql
+                        anchorId={messageShareFragment(i)}
+                        shareUrl={m.role === 'assistant'
+                          ? messageShareUrl(`/share/${share.share_id}`, i)
+                          : undefined}
+                        shareTitle={shareTitle || 'Shared chat'}
                         userLabel={showTurnAuthor ? (
                           <HStack gap={1} vAlign="center" className="timeline-turn-author">
                             <UserAvatar

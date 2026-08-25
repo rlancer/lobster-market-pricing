@@ -558,6 +558,8 @@ function AiChatSession({
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  /** When set, the dialog/link targets a share minted through this message index. */
+  const [shareThroughIndex, setShareThroughIndex] = useState<number | null>(null);
   const [onTimeline, setOnTimeline] = useState(false);
   const [paused, setPaused] = useState(false);
   const [researchRefreshKey, setResearchRefreshKey] = useState(0);
@@ -978,8 +980,17 @@ function AiChatSession({
     return () => { alive = false; };
   }, [busy, agent, messages, setMessages]);
 
-  const buildSharePayload = useCallback((handle: string | null, runId: string | null, capture?: TurnCapture | null) => {
-    const baseTurns: ShareChatMessage[] = projectedMessages.map((message, index, list) => {
+  const buildSharePayload = useCallback((
+    handle: string | null,
+    runId: string | null,
+    capture?: TurnCapture | null,
+    throughIndex?: number | null,
+  ) => {
+    const end = throughIndex == null
+      ? projectedMessages.length
+      : Math.min(projectedMessages.length, Math.max(0, throughIndex) + 1);
+    const sliced = projectedMessages.slice(0, end);
+    const baseTurns: ShareChatMessage[] = sliced.map((message, index, list) => {
       const isLastAssistant = message.role === 'assistant'
         && !list.slice(index + 1).some((row) => row.role === 'assistant');
       return {
@@ -1007,9 +1018,12 @@ function AiChatSession({
           : {}),
       };
     }).slice(-100);
-    // projectedMessages is already coalesced; keep applyCapture on the last assistant.
-    const turns = applyCaptureToShareMessages(baseTurns, capture);
-    const latestModel = [...projectedMessages].reverse().find((message) => message.model)?.model;
+    // Capture belongs to the latest live turn — only merge when sharing through it.
+    const sharingLatest = throughIndex == null || throughIndex >= projectedMessages.length - 1;
+    const turns = sharingLatest
+      ? applyCaptureToShareMessages(baseTurns, capture)
+      : baseTurns;
+    const latestModel = [...sliced].reverse().find((message) => message.model)?.model;
     return {
       chat_id: chatId,
       mode: 'funded' as const,
@@ -1022,20 +1036,24 @@ function AiChatSession({
     };
   }, [projectedMessages, chatId, frames]);
 
-  const shareChat = useCallback(async () => {
+  const shareChat = useCallback(async (throughIndex?: number | null) => {
     setShareBusy(true);
     setShareError(null);
+    setShareThroughIndex(throughIndex ?? null);
     try {
       const handle = peekBotHandle();
       const runId = peekBotRunId();
+      const sharingLatest = throughIndex == null || throughIndex >= projectedMessages.length - 1;
       let capture: TurnCapture | null = null;
-      try {
-        await agent.ready;
-        capture = await agent.call<TurnCapture | null>('getTurnCapture', []);
-      } catch {
-        capture = null;
+      if (sharingLatest) {
+        try {
+          await agent.ready;
+          capture = await agent.call<TurnCapture | null>('getTurnCapture', []);
+        } catch {
+          capture = null;
+        }
       }
-      const response = await api.shareChat(buildSharePayload(handle, runId, capture));
+      const response = await api.shareChat(buildSharePayload(handle, runId, capture, throughIndex));
       setShareResult(response);
       setOnTimeline(Boolean(response.on_timeline));
       setShareOpen(true);
@@ -1061,7 +1079,7 @@ function AiChatSession({
     } finally {
       setShareBusy(false);
     }
-  }, [buildSharePayload, agent]);
+  }, [buildSharePayload, agent, projectedMessages.length]);
 
   // Bot generate flow: when Copilot finishes a successful answer, auto-share to
   // the public timeline as the bot (same payload as the Share button). Full
@@ -1088,6 +1106,7 @@ function AiChatSession({
     setShareResult(null);
     setShareError(null);
     setOnTimeline(false);
+    setShareThroughIndex(null);
   };
 
   const accessBlocked = chatAccess === 'unauthorized' || chatAccess === 'forbidden';
@@ -1192,7 +1211,7 @@ function AiChatSession({
                     }
                     isDisabled={!canShare || accessBlocked}
                     isLoading={shareBusy}
-                    onClick={shareChat}
+                    onClick={() => { void shareChat(null); }}
                   />
                   {/* Mobile app bar already owns New chat — keep this desktop-only. */}
                   {!isMobile && (
@@ -1304,8 +1323,25 @@ function AiChatSession({
                       </section>
                     )}
 
-                    {projectedMessages.map((message) => {
+                    {projectedMessages.map((message, index) => {
                       const isLive = message.role === 'assistant' && message.id === liveAssistantId;
+                      // Per-turn share is for replies to people (assistant answers), not user asks.
+                      const canShareTurn = message.role === 'assistant'
+                        && !accessBlocked
+                        && !isLive
+                        && Boolean(message.content?.trim());
+                      const shareTurnButton = canShareTurn ? (
+                        <IconButton
+                          label="Share through this reply"
+                          icon={<Share2 size={14} />}
+                          variant="ghost"
+                          size="sm"
+                          tooltip="Share conversation through this reply"
+                          isDisabled={shareBusy}
+                          isLoading={shareBusy && shareThroughIndex === index}
+                          onClick={() => { void shareChat(index); }}
+                        />
+                      ) : null;
                       if (message.role === 'user') {
                         return (
                           <div key={message.id} className="ai-msg ai-user">
@@ -1366,10 +1402,15 @@ function AiChatSession({
                               hideTools={isLive}
                               chatId={chatId}
                             />
-                            {!isLive && (message.ts !== undefined || message.model) && (
+                            {!isLive && (shareTurnButton || message.ts !== undefined || message.model) && (
                               <ChatMessageMetadata
                                 timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
-                                footer={message.model}
+                                footer={(
+                                  <>
+                                    {shareTurnButton}
+                                    {message.model ? <span>{message.model}</span> : null}
+                                  </>
+                                )}
                               />
                             )}
                           </div>
@@ -1458,9 +1499,23 @@ function AiChatSession({
                     <div className="ai-share-body">
                       <label className="ai-share-label" htmlFor="ai-share-url">Share URL</label>
                       <div className="ai-share-row">
-                        <input id="ai-share-url" className="ai-share-url" value={new URL(shareResult.url, window.location.href).toString()} readOnly onFocus={(event) => event.currentTarget.select()} />
-                        <CopyButton text={new URL(shareResult.url, window.location.href).toString()} tooltip="Copy link" />
+                        <input
+                          id="ai-share-url"
+                          className="ai-share-url"
+                          value={new URL(shareResult.url, window.location.href).toString()}
+                          readOnly
+                          onFocus={(event) => event.currentTarget.select()}
+                        />
+                        <CopyButton
+                          text={new URL(shareResult.url, window.location.href).toString()}
+                          tooltip="Copy link"
+                        />
                       </div>
+                      {shareThroughIndex != null && (
+                        <p className="ai-share-through-note">
+                          Includes the conversation through this reply.
+                        </p>
+                      )}
                       <Switch
                         className="ai-share-publish"
                         label="Post to public timeline"
