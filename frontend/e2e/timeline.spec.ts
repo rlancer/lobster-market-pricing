@@ -85,13 +85,14 @@ test.describe('Public timeline', () => {
     await expect(post.getByLabel('Conversation')).toContainText('Liquidity looks thin across the near-dated SPY call board.');
     // Share control is always available even when the title is hidden.
     await expect(post.getByRole('button', { name: 'Share post' })).toBeVisible();
-    // Follow-up is a quiet single-line input — sign-in only appears after submit.
+    // Follow-up is a one-line input — sign-in only appears after submit.
     const followUp = post.getByRole('region', { name: 'Ask a follow-up' });
     await expect(followUp).toBeVisible();
-    await expect(followUp.getByRole('textbox', { name: 'Message input' })).toBeVisible();
+    const followInput = followUp.getByRole('textbox', { name: 'Ask a follow-up' });
+    await expect(followInput).toBeVisible();
     await expect(followUp.getByRole('button', { name: 'Sign in with Google' })).toHaveCount(0);
-    await followUp.getByRole('textbox', { name: 'Message input' }).fill('What about puts?');
-    await followUp.getByRole('textbox', { name: 'Message input' }).press('Enter');
+    await followInput.fill('What about puts?');
+    await followInput.press('Enter');
     await expect(page.getByRole('dialog', { name: 'Sign in to continue' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
     // Admin-only moderation control — anonymous visitors must not see it.

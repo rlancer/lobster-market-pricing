@@ -1,19 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
-  ChatComposer,
-  ChatSendButton,
   Dialog,
   DialogHeader,
   HStack,
+  IconButton,
   Layout,
   LayoutContent,
   LayoutFooter,
   Text,
   VStack,
 } from '@astryxdesign/core';
-import { ChatComposerInput } from '@astryxdesign/core/Chat';
+import { ArrowUp } from 'lucide-react';
 import { api, type ProfileMe } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import {
@@ -28,9 +27,12 @@ import {
 import { HandleField } from './HandleField';
 import { handleInputError, normalizeHandleInput } from './handle';
 
+/** Cap grown height (~6 lines of body text). */
+const FOLLOWUP_MAX_HEIGHT_PX = 132;
+
 /**
- * Quiet per-post follow-up input. Same compact single-line (autogrow) composer
- * on the timeline and /share. Sign-in / handle claim only open after submit.
+ * True one-line follow-up field that grows with wrapped text. Sign-in / handle
+ * claim only open after submit.
  */
 export function TimelineFollowUp({
   shareId,
@@ -55,6 +57,14 @@ export function TimelineFollowUp({
   const [handleSaving, setHandleSaving] = useState(false);
   const resumeTriedRef = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const node = inputRef.current;
+    if (!node) return;
+    node.style.height = '0px';
+    node.style.height = `${Math.min(node.scrollHeight, FOLLOWUP_MAX_HEIGHT_PX)}px`;
+  }, [value]);
 
   useEffect(() => {
     if (!user) {
@@ -188,6 +198,8 @@ export function TimelineFollowUp({
     }
   };
 
+  const canSend = Boolean(value.trim()) && !busy;
+
   return (
     <VStack
       as="section"
@@ -195,17 +207,42 @@ export function TimelineFollowUp({
       className="timeline-followup"
       aria-label="Ask a follow-up"
     >
-      <ChatComposer
-        value={value}
-        onChange={setValue}
-        onSubmit={onSubmit}
-        placeholder="Ask a follow-up…"
-        density="compact"
-        elevation="none"
-        isDisabled={busy}
-        input={<ChatComposerInput maxRows={6} hasHistory={false} />}
-        sendButton={<ChatSendButton />}
-      />
+      <HStack
+        as="form"
+        gap={2}
+        vAlign="end"
+        className="timeline-followup-row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(value);
+        }}
+      >
+        <textarea
+          ref={inputRef}
+          className="timeline-followup-input"
+          rows={1}
+          value={value}
+          placeholder="Ask a follow-up…"
+          aria-label="Ask a follow-up"
+          disabled={busy}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            onSubmit(value);
+          }}
+        />
+        <IconButton
+          type="submit"
+          variant="primary"
+          size="sm"
+          label="Send follow-up"
+          tooltip="Send follow-up"
+          icon={<ArrowUp size={16} aria-hidden="true" />}
+          isDisabled={!canSend}
+          isLoading={busy}
+        />
+      </HStack>
 
       {error && (
         <Text className="timeline-err" role="alert">{error}</Text>
