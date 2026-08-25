@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
@@ -10,6 +10,7 @@ import {
   LayoutContent,
   LayoutFooter,
   Text,
+  TextInput,
   VStack,
 } from '@astryxdesign/core';
 import { ArrowUp } from 'lucide-react';
@@ -27,12 +28,9 @@ import {
 import { HandleField } from './HandleField';
 import { handleInputError, normalizeHandleInput } from './handle';
 
-/** Cap grown height (~6 lines of body text). */
-const FOLLOWUP_MAX_HEIGHT_PX = 132;
-
 /**
- * True one-line follow-up field that grows with wrapped text. Sign-in / handle
- * claim only open after submit.
+ * Astryx TextInput follow-up — true single-line field per the design system.
+ * Sign-in / handle claim only open after submit.
  */
 export function TimelineFollowUp({
   shareId,
@@ -57,14 +55,6 @@ export function TimelineFollowUp({
   const [handleSaving, setHandleSaving] = useState(false);
   const resumeTriedRef = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useLayoutEffect(() => {
-    const node = inputRef.current;
-    if (!node) return;
-    node.style.height = '0px';
-    node.style.height = `${Math.min(node.scrollHeight, FOLLOWUP_MAX_HEIGHT_PX)}px`;
-  }, [value]);
 
   useEffect(() => {
     if (!user) {
@@ -210,27 +200,22 @@ export function TimelineFollowUp({
       <HStack
         as="form"
         gap={2}
-        vAlign="end"
+        vAlign="center"
         className="timeline-followup-row"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit(value);
         }}
       >
-        <textarea
-          ref={inputRef}
-          className="timeline-followup-input"
-          rows={1}
+        <TextInput
+          label="Ask a follow-up"
+          isLabelHidden
           value={value}
+          onChange={setValue}
           placeholder="Ask a follow-up…"
-          aria-label="Ask a follow-up"
-          disabled={busy}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            onSubmit(value);
-          }}
+          size="sm"
+          width="100%"
+          isDisabled={busy}
         />
         <IconButton
           type="submit"
