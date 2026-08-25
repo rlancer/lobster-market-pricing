@@ -227,9 +227,10 @@ KalshiMarkets:     <PIPELINE_KALSHI_MARKETS_URL secret — stream cboe_kalshi_ma
          # (read-only Kalshi API key; RSA-PSS signed GETs). Anonymous public GETs if unset.
          # Note: Pipelines open-beta cap is 20 streams. Kalshi provision may
          # pause cboe_reg_sho_daily_* to free a slot (reg-sho-daily then dry-runs;
-         # options.reg_sho_daily history remains). Macro provision needs a free
-         # slot too — dry-runs until PIPELINE_MACRO_URL is set. Re-add Reg SHO
-         # after a limit increase.
+         # options.reg_sho_daily history remains). Macro provision may pause
+         # cboe_short_interest_* the same way (short-interest-daily dry-runs;
+         # options.short_interest history remains). Dry-runs until
+         # PIPELINE_MACRO_URL is set. Re-add paused feeds after a limit increase.
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
