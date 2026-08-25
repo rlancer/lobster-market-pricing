@@ -2,9 +2,10 @@
  * Select which desk specialists must publish for a user question.
  * Overview is always required separately; this only picks specialist panels.
  *
- * Default desk stays fundamental + technical + options. Macro and risk are
- * additive when the ask warrants them — a GME options-chain dig does not pull
- * macro; SPY / TLT / Fed / rates questions do.
+ * Default desk is fundamental + technical + options + risk. Macro is additive
+ * when the ask warrants it — a GME options-chain dig does not pull macro;
+ * SPY / TLT / Fed / rates questions do. Risk always publishes so the Analyst
+ * desk has a downside / sizing / thesis-break take on every analysis turn.
  */
 
 import { DESK_VIEWPOINT_IDS, type DeskViewpointId } from "./copilot-desk";
@@ -102,7 +103,7 @@ const OPTIONS_KEYWORD_RE =
 const FUNDAMENTAL_KEYWORD_RE =
   /\b(earnings?|fundamental|filings?|10[- ]?[kq]|guidance|revenue|eps|valuation|peers?|catalyst|balance sheet|margins?|buyback|dividend)\b/i;
 
-const DEFAULT_DESK: DeskViewpointId[] = ["fundamental", "technical", "options"];
+const DEFAULT_DESK: DeskViewpointId[] = ["fundamental", "technical", "options", "risk"];
 
 /** Extract ticker-like tokens from a user question (best-effort). */
 export function extractMentionedSymbols(question: string): string[] {
@@ -164,8 +165,8 @@ export function questionWantsRisk(question: string): boolean {
 
 /**
  * Stable-ordered specialist list for this turn.
- * Pure options-tape asks on a single name keep F+T+O without macro.
- * Broad ETF / rates / Fed asks add macro; risk language adds risk.
+ * Pure options-tape asks on a single name keep F+T+O+R without macro.
+ * Broad ETF / rates / Fed asks add macro. Risk is always required.
  * `context` is extra routing text (user reply note, or bot persona +
  * system_prompt_extra) so a short audience note or a rates bot still
  * publishes the macro panel without stuffing the question.
@@ -176,7 +177,6 @@ export function selectDeskSpecialists(question: string, context?: string): DeskV
 
   const symbols = extractMentionedSymbols(q);
   const wantsMacro = questionWantsMacro(q);
-  const wantsRisk = questionWantsRisk(q);
   const fundamentalFocus = FUNDAMENTAL_KEYWORD_RE.test(q);
   const hasSingleName = symbols.some((symbol) => {
     const base = symbol.replace(/^\^/, "");
@@ -195,7 +195,7 @@ export function selectDeskSpecialists(question: string, context?: string): DeskV
   const selected = new Set<DeskViewpointId>();
 
   if (pureMacroTape) {
-    // Index/ETF / rates tape: macro + technical + options; skip equity fundamentals.
+    // Index/ETF / rates tape: macro + technical + options + risk; skip equity fundamentals.
     selected.add("macro");
     selected.add("technical");
     selected.add("options");
@@ -206,7 +206,8 @@ export function selectDeskSpecialists(question: string, context?: string): DeskV
     if (wantsMacro) selected.add("macro");
   }
 
-  if (wantsRisk) selected.add("risk");
+  // Risk is a core desk voice — always publish downside / sizing / what-breaks.
+  selected.add("risk");
 
   return DESK_VIEWPOINT_IDS.filter((id) => selected.has(id));
 }

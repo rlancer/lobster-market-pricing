@@ -111,7 +111,7 @@ export function describeCopilotCapabilities(opts?: {
       id: "desk-analysts",
       kind: "system",
       title: "Multi-analyst desk",
-      summary: "Routed specialists (fundamental, technical, options, risk, macro) share lake evidence; overview weighs the active set. Enforced via publish_desk.",
+      summary: "Core specialists (fundamental, technical, options, risk) plus macro when routed; all share lake evidence; overview weighs the active set. Enforced via publish_desk.",
       body: [
         deskAnalystBlock(),
         "",

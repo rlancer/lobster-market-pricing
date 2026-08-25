@@ -14,6 +14,7 @@ test("normalizeDeskBrief requires core fields when required is set", () => {
     fundamental: "",
     technical: "trend up with ordered volume into support after the squeeze.",
     options: "call debit near ATM with two-sided quotes and usable open interest.",
+    risk: "A gap through support and a liquidity vacuum wipe the debit before the thesis can play.",
     overview: "net bullish with defined risk while liquidity holds up on the book.",
   }, { required: DESK_CORE_VIEWPOINT_IDS }), null);
 
@@ -21,11 +22,13 @@ test("normalizeDeskBrief requires core fields when required is set", () => {
     fundamental: "EPS beat, guidance raised with durable services mix still expanding.",
     technical: "Holding above the 21d MA after a tight consolidation range.",
     options: "Near-ATM calls quote two-sided with usable open interest.",
+    risk: "A guidance cut or bid vacuum into the print can erase the debit before the thesis plays.",
     overview: "Lean bullish with defined risk while liquidity holds up.",
   }, { required: DESK_CORE_VIEWPOINT_IDS });
   assert.ok(desk);
   assert.match(desk.fundamental!, /EPS beat/);
-  assert.equal(deskViewpointsFromBrief(desk).length, 3);
+  assert.ok(desk.risk);
+  assert.equal(deskViewpointsFromBrief(desk).length, 4);
   assert.match(formatDeskToolSummary(desk), /Desk viewpoints published/);
 });
 
@@ -49,11 +52,13 @@ test("normalizeDeskBrief drops stub extras but keeps required takes", () => {
     fundamental: "EPS beat, guidance raised with durable services mix still expanding.",
     technical: "Holding above the 21d MA after a tight consolidation range.",
     options: "Near-ATM calls quote two-sided with usable open interest.",
+    risk: "A guidance cut or bid vacuum into the print can erase the debit before the thesis plays.",
     macro: "placeholder",
     overview: "Lean bullish with defined risk while liquidity holds up.",
   }, { required: DESK_CORE_VIEWPOINT_IDS });
   assert.ok(desk);
   assert.equal(desk.macro, undefined);
+  assert.ok(desk.risk);
 });
 
 test("normalizeDeskBrief rejects placeholder stubs", () => {
@@ -63,12 +68,14 @@ test("normalizeDeskBrief rejects placeholder stubs", () => {
     fundamental: "placeholder",
     technical: "placeholder",
     options: "placeholder",
+    risk: "placeholder",
     overview: "placeholder",
   }, { required: DESK_CORE_VIEWPOINT_IDS }), null);
   assert.equal(normalizeDeskBrief({
     fundamental: "TBD",
     technical: "Holding above the 21d MA after a tight consolidation range.",
     options: "Near-ATM calls quote two-sided with usable open interest.",
+    risk: "A guidance cut or bid vacuum into the print can erase the debit before the thesis plays.",
     overview: "Lean bullish with defined risk while liquidity holds up.",
   }, { required: DESK_CORE_VIEWPOINT_IDS }), null);
 });
@@ -83,24 +90,26 @@ test("normalizeDeskBrief recovers partial historical desks without required", ()
 });
 
 test("deskAnalystBlock names all specialists, routing, and publish_desk", () => {
-  const block = deskAnalystBlock(["fundamental", "technical", "options"]);
+  const block = deskAnalystBlock(["fundamental", "technical", "options", "risk"]);
   assert.match(block, /Fundamental analyst/);
   assert.match(block, /Technical analyst/);
   assert.match(block, /Options/);
   assert.match(block, /Risk analyst/);
   assert.match(block, /Macro analyst/);
   assert.match(block, /Active specialists for this turn/);
+  assert.match(block, /Fundamental, Technical, Options, Risk/);
   assert.match(block, /publish_desk/);
   assert.match(block, /suggest_trades/);
   assert.match(block, /placeholder/);
   assert.match(block, /Never overweight technical analysis/);
   assert.match(block, /GME/);
   assert.match(block, /SPY/);
+  assert.match(block, /Risk is always active/);
 });
 
 test("selectDeskSpecialists skips macro for single-name options chain", () => {
   const specialists = selectDeskSpecialists("show me the GME options chain");
-  assert.deepEqual(specialists, ["fundamental", "technical", "options"]);
+  assert.deepEqual(specialists, ["fundamental", "technical", "options", "risk"]);
   assert.ok(!specialists.includes("macro"));
 });
 
@@ -110,16 +119,19 @@ test("selectDeskSpecialists adds macro for SPY and TLT", () => {
   assert.ok(selectDeskSpecialists("how does CPI affect QQQ?").includes("macro"));
 });
 
-test("selectDeskSpecialists adds risk when asked about hedges / wipeout", () => {
-  const specialists = selectDeskSpecialists("how do I hedge AAPL downside into earnings?");
-  assert.ok(specialists.includes("risk"));
-  assert.ok(specialists.includes("fundamental"));
-  assert.ok(!specialists.includes("macro"));
+test("selectDeskSpecialists always includes risk on analysis desks", () => {
+  assert.ok(selectDeskSpecialists("analyze NVDA earnings and the options chain").includes("risk"));
+  assert.ok(selectDeskSpecialists("show me the GME options chain").includes("risk"));
+  assert.ok(selectDeskSpecialists("what's going on with SPY?").includes("risk"));
+  const hedge = selectDeskSpecialists("how do I hedge AAPL downside into earnings?");
+  assert.ok(hedge.includes("risk"));
+  assert.ok(hedge.includes("fundamental"));
+  assert.ok(!hedge.includes("macro"));
 });
 
 test("selectDeskSpecialists uses macro tape without equity fundamentals for broad market", () => {
   const specialists = selectDeskSpecialists("macro view on TLT and rates into the Fed meeting");
-  assert.deepEqual(specialists, ["technical", "options", "macro"]);
+  assert.deepEqual(specialists, ["technical", "options", "risk", "macro"]);
 });
 
 test("selectDeskSpecialists uses bot persona context so a rates bot still gets macro", () => {
