@@ -1,14 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  EXPERIMENT_SEEDS,
+  SYNTH_SEED,
   SYNTH_TICKERS,
   buildSynthUniverse,
   tickerStats,
   universeStats,
 } from './syntheticSeries.ts';
 import { buildTextRepresentations } from './textRepresentations.ts';
-import { buildQuestions, scoreAnswer } from './questions.ts';
+import { buildQuestions, isChartHostileQuestionId, scoreAnswer } from './questions.ts';
 
+test('EXPERIMENT_SEEDS keeps the canonical seed first and stays unique', () => {
+  assert.equal(EXPERIMENT_SEEDS[0], SYNTH_SEED);
+  assert.equal(new Set(EXPERIMENT_SEEDS).size, EXPERIMENT_SEEDS.length);
+  for (const seed of EXPERIMENT_SEEDS) {
+    const u = buildSynthUniverse(seed);
+    assert.equal(u.seed, seed);
+    assert.ok(buildQuestions(u).length >= 8);
+  }
+});
+
+test('best_peak_date is marked chart-hostile', () => {
+  assert.equal(isChartHostileQuestionId('best_peak_date'), true);
+  assert.equal(isChartHostileQuestionId('best_total_return'), false);
+});
 test('synthetic universe is deterministic for a fixed seed', () => {
   const a = buildSynthUniverse(42);
   const b = buildSynthUniverse(42);

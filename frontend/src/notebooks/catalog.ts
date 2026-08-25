@@ -12,7 +12,7 @@ export const EXPERIMENTS: ExperimentMeta[] = [
     slug: 'text-vs-image',
     title: 'Text vs image context',
     subtitle:
-      'Can a multimodal model read synthetic equity panels better from Copilot-style text, labeled chart images, or textless charts with a markdown color key?',
+      'Can a multimodal model read synthetic equity panels better from precomputed text packs, raw closes CSV, labeled chart images, or textless charts with a markdown color key? Multi-seed, chart-fair scoring.',
     status: 'ready',
   },
 ];

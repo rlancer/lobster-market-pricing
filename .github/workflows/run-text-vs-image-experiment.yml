@@ -2,7 +2,7 @@ name: Run text-vs-image experiment
 
 # Publishes a server-saved Experiments run (probes + exact chart images) so the
 # public /experiments/text-vs-image page has results without visitors spending
-# OpenRouter credits. Re-dispatch with a different `model` to compare models.
+# OpenRouter credits. Re-dispatch with a different `model` / `seed` to compare.
 #
 # Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
 # already be set on the target Worker (synced by deploy.yml).
@@ -17,6 +17,10 @@ on:
         description: 'OpenRouter model slug'
         type: string
         default: 'google/gemini-3.7-flash'
+      seed:
+        description: 'Synthetic panel seed (blank = SYNTH_SEED / 439041101)'
+        type: string
+        default: ''
       api_base:
         description: 'Worker API origin'
         type: choice
@@ -30,6 +34,7 @@ on:
       - 'cursor/textless-chart-legend-244c'
       - 'cursor/experiment-gpt41-244c'
       - 'cursor/experiment-gemini37-244c'
+      - 'cursor/text-vs-image-multi-seed-b2f4'
 
 concurrency:
   group: run-text-vs-image-experiment
@@ -39,19 +44,22 @@ permissions:
   contents: read
 
 jobs:
+  # Single model/seed — workflow_dispatch, or push to legacy runner branches.
   run-experiment:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref_name != 'cursor/text-vs-image-multi-seed-b2f4')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      # Push default: current-generation multimodal (not gpt-4o-mini / 2.5-flash).
       MODEL: ${{ inputs.model || 'google/gemini-3.7-flash' }}
+      SEED: ${{ inputs.seed || '' }}
       API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
       SLUG: text-vs-image
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
-
       - name: Require ADMIN_TOKEN
         run: |
           set -euo pipefail
@@ -60,21 +68,17 @@ jobs:
             exit 1
           fi
           echo "ADMIN_TOKEN present (value not printed)."
-
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
       - name: Install frontend dependencies
         run: cd frontend && npm ci
-
       - name: Install Playwright Chromium
         run: cd frontend && npx playwright install --with-deps chromium
-
-      - name: Wait for experiment list route (Worker may still be rolling)
+      - name: Wait for experiment list route
         run: |
           set -euo pipefail
           for i in $(seq 1 36); do
@@ -82,30 +86,21 @@ jobs:
               "$API_BASE/api/experiments/$SLUG/runs" || true)
             if [ "$code" = "200" ]; then
               echo "list endpoint ready (HTTP 200)"
-              cat /tmp/exp-list.json
               break
             fi
             echo "attempt $i: list HTTP $code — waiting…"
             if [ "$i" -eq 36 ]; then
               echo "::error::list endpoint never returned 200"
-              cat /tmp/exp-list.json || true
               exit 1
             fi
             sleep 10
           done
-
-      - name: Wait for multimodal probe support (Deploy may still be rolling)
+      - name: Wait for multimodal probe support
         id: multimodal
         run: |
           set -euo pipefail
           TINY='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-          # Prod will not have multimodal until this PR merges — fall back fast.
-          # Dev Worker may still be deploying — wait longer.
-          if [[ "$API_BASE" == *"api-dev"* ]]; then
-            MAX_ATTEMPTS=36
-          else
-            MAX_ATTEMPTS=3
-          fi
+          if [[ "$API_BASE" == *"api-dev"* ]]; then MAX_ATTEMPTS=36; else MAX_ATTEMPTS=3; fi
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             body=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
               -X POST "$API_BASE/api/admin/notebooks/probe" \
@@ -114,8 +109,6 @@ jobs:
               -d "{\"mode\":\"multimodal\",\"question\":\"ping\",\"text_context\":\"| Color | Ticker |\\n| teal | AERO |\",\"image_data_url\":\"$TINY\",\"model\":\"openai/gpt-4o-mini\"}" \
               || true)
             echo "attempt $i/$MAX_ATTEMPTS: probe HTTP $body"
-            head -c 300 /tmp/probe.json || true
-            echo
             if [ "$body" = "401" ] || [ "$body" = "403" ]; then
               echo "::error::ADMIN_TOKEN rejected (HTTP $body)"
               exit 1
@@ -125,21 +118,18 @@ jobs:
               continue
             fi
             echo "supported=yes" >> "$GITHUB_OUTPUT"
-            echo "multimodal accepted (HTTP $body)"
             exit 0
           done
           echo "::warning::Worker does not accept multimodal yet — publishing classic reps only"
           echo "supported=no" >> "$GITHUB_OUTPUT"
-
       - name: Run probes and publish saved run
         env:
           INCLUDE_HYBRIDS: ${{ steps.multimodal.outputs.supported == 'yes' && '1' || '0' }}
         run: |
           set -euo pipefail
           cd frontend
-          echo "INCLUDE_HYBRIDS=$INCLUDE_HYBRIDS MODEL=$MODEL API_BASE=$API_BASE"
+          echo "INCLUDE_HYBRIDS=$INCLUDE_HYBRIDS MODEL=$MODEL SEED=${SEED:-'(default)'} API_BASE=$API_BASE"
           node tools/run-text-vs-image-experiment.mjs
-
       - name: Verify latest run is public
         run: |
           set -euo pipefail
@@ -157,9 +147,120 @@ jobs:
           cells = run.get("results", {}).get("cells", [])
           done = [c for c in cells if c.get("status") == "done"]
           correct = [c for c in done if c.get("correct")]
-          print(f"id={run.get('id')} model={run.get('model')} correct={len(correct)}/{len(done)} images={len(run.get('images', []))}")
+          print(f"id={run.get('id')} model={run.get('model')} seed={run.get('seed')} correct={len(correct)}/{len(done)} images={len(run.get('images', []))}")
           if not done:
               raise SystemExit("published run has no completed cells")
           if not run.get("images"):
               raise SystemExit("published run missing images")
+          PY
+
+  # Push to the multi-seed branch: 2 new EXPERIMENT_SEEDS × 2 models.
+  # Canonical SYNTH_SEED (439041101) is already published for these models.
+  run-multi-seed:
+    if: github.event_name == 'push' && github.ref_name == 'cursor/text-vs-image-multi-seed-b2f4'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        include:
+          - model: google/gemini-3.7-flash
+            seed: '725372254'
+          - model: google/gemini-3.7-flash
+            seed: '1374686487'
+          - model: openai/gpt-4.1
+            seed: '725372254'
+          - model: openai/gpt-4.1
+            seed: '1374686487'
+    env:
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      MODEL: ${{ matrix.model }}
+      SEED: ${{ matrix.seed }}
+      API_BASE: https://api-dev.lobster.mp
+      SLUG: text-vs-image
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Require ADMIN_TOKEN
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          echo "ADMIN_TOKEN present (value not printed)."
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+      - name: Install Playwright Chromium
+        run: cd frontend && npx playwright install --with-deps chromium
+      - name: Wait for experiment list route
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 36); do
+            code=$(curl -sS -o /tmp/exp-list.json -w '%{http_code}' \
+              "$API_BASE/api/experiments/$SLUG/runs" || true)
+            if [ "$code" = "200" ]; then
+              echo "list endpoint ready (HTTP 200)"
+              break
+            fi
+            if [ "$i" -eq 36 ]; then
+              echo "::error::list endpoint never returned 200"
+              exit 1
+            fi
+            sleep 10
+          done
+      - name: Wait for multimodal probe support
+        id: multimodal
+        run: |
+          set -euo pipefail
+          TINY='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+          for i in $(seq 1 36); do
+            body=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+              -X POST "$API_BASE/api/admin/notebooks/probe" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"mode\":\"multimodal\",\"question\":\"ping\",\"text_context\":\"| Color | Ticker |\\n| teal | AERO |\",\"image_data_url\":\"$TINY\",\"model\":\"openai/gpt-4o-mini\"}" \
+              || true)
+            echo "attempt $i: probe HTTP $body"
+            if [ "$body" = "401" ] || [ "$body" = "403" ]; then
+              echo "::error::ADMIN_TOKEN rejected (HTTP $body)"
+              exit 1
+            fi
+            if grep -q "mode must be 'text' or 'image'" /tmp/probe.json 2>/dev/null; then
+              sleep 10
+              continue
+            fi
+            echo "supported=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          done
+          echo "supported=no" >> "$GITHUB_OUTPUT"
+      - name: Run probes and publish saved run
+        env:
+          INCLUDE_HYBRIDS: ${{ steps.multimodal.outputs.supported == 'yes' && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          cd frontend
+          echo "INCLUDE_HYBRIDS=$INCLUDE_HYBRIDS MODEL=$MODEL SEED=$SEED API_BASE=$API_BASE"
+          node tools/run-text-vs-image-experiment.mjs
+      - name: Verify published run
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/latest.json -w '%{http_code}' \
+            "$API_BASE/api/experiments/$SLUG/runs/latest")
+          echo "HTTP $code"
+          python3 - <<'PY'
+          import json
+          run = json.load(open("/tmp/latest.json"))
+          cells = run.get("results", {}).get("cells", [])
+          done = [c for c in cells if c.get("status") == "done"]
+          print(f"id={run.get('id')} model={run.get('model')} seed={run.get('seed')} done={len(done)} images={len(run.get('images', []))}")
+          if not done or not run.get("images"):
+              raise SystemExit("incomplete published run")
           PY

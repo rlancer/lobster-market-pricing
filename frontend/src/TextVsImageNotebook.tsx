@@ -117,7 +117,7 @@ export default function TextVsImageNotebookPage() {
 
   const refreshRunList = async () => {
     try {
-      const listed = await api.experimentListRuns(EXPERIMENT_SLUG, 20);
+      const listed = await api.experimentListRuns(EXPERIMENT_SLUG, 50);
       setRunList(listed.items);
       return listed.items;
     } catch {
@@ -155,48 +155,48 @@ export default function TextVsImageNotebookPage() {
       setCrossCutState('loading');
       try {
         const enriched: RunSummaryForConclusion[] = [];
-        const seenModels = new Set<string>();
+        // Keep every model×seed (newest first in runList). Dedup happens inside
+        // buildCrossModelConclusion via pickLatestRunPerModelSeed.
+        const seenKeys = new Set<string>();
         for (const row of runList) {
-          if (seenModels.has(row.model)) continue;
-          seenModels.add(row.model);
-          if (row.rep_accuracy?.length) {
-            enriched.push({
-              id: row.id,
-              model: row.model,
-              created_at: row.created_at,
-              cells_correct: row.cells_correct,
-              cells_done: row.cells_done,
-              cells_total: row.cells_total,
-              rep_accuracy: row.rep_accuracy,
-              rep_order: row.rep_order,
-            });
-            continue;
-          }
-          // Older Worker list responses omit per-rep stats — pull results only.
+          const key = `${row.model}::${row.seed}`;
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+          // Always pull cells (no images) so chart-fair scores can drop peak-date.
           const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, { images: false });
+          const cells = full.results.cells.map((c) => ({
+            rep_id: c.rep_id,
+            question_id: c.question_id,
+            status: c.status,
+            correct: c.correct,
+          }));
           const byRep = new Map<string, { correct: number; done: number }>();
-          for (const cell of full.results.cells) {
+          for (const cell of cells) {
             if (cell.status !== 'done') continue;
             const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
             cur.done += 1;
             if (cell.correct) cur.correct += 1;
             byRep.set(cell.rep_id, cur);
           }
+          const repOrder = full.results.rep_order.length
+            ? full.results.rep_order
+            : [...byRep.keys()];
           enriched.push({
             id: full.id,
             model: full.model,
+            seed: full.seed,
             created_at: full.created_at,
             cells_correct: row.cells_correct,
             cells_done: row.cells_done,
             cells_total: row.cells_total,
-            rep_order: full.results.rep_order,
-            rep_accuracy: (full.results.rep_order.length
-              ? full.results.rep_order
-              : [...byRep.keys()]
-            ).map((repId) => {
-              const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
-              return { rep_id: repId, correct: stats.correct, done: stats.done };
-            }),
+            rep_order: repOrder,
+            cells,
+            rep_accuracy: (row.rep_accuracy?.length
+              ? row.rep_accuracy
+              : repOrder.map((repId) => {
+                  const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
+                  return { rep_id: repId, correct: stats.correct, done: stats.done };
+                })),
           });
         }
         if (cancelled) return;
@@ -432,6 +432,7 @@ export default function TextVsImageNotebookPage() {
                   <tr>
                     <th>When</th>
                     <th>Model</th>
+                    <th>Seed</th>
                     <th>Accuracy</th>
                     <th></th>
                   </tr>
@@ -452,6 +453,7 @@ export default function TextVsImageNotebookPage() {
                       <tr key={row.id}>
                         <td>{when}</td>
                         <td><code>{row.model}</code></td>
+                        <td className="num"><code>{row.seed}</code></td>
                         <td className="num">{acc}</td>
                         <td>
                           <Button
@@ -484,6 +486,13 @@ export default function TextVsImageNotebookPage() {
           <>
             <Text type="supporting">{crossCut.summary}</Text>
             <HStack gap={2} style={{ flexWrap: 'wrap' }}>
+              {crossCut.seedCount > 1 ? (
+                <Token
+                  label={`${crossCut.seedCount} panel seeds`}
+                  color="blue"
+                  size="sm"
+                />
+              ) : null}
               {crossCut.winningFamily ? (
                 <Token
                   label={`Winner family: ${crossCut.winningFamily.label} (${
@@ -507,6 +516,11 @@ export default function TextVsImageNotebookPage() {
                 />
               ) : null}
             </HStack>
+            <Text type="supporting">
+              Family means split precomputed text (stats / tool summary) from raw CSV.
+              Labeled-image and hybrid family scores exclude peak-date prompts (chart-hostile).
+              Per-model columns average across seeds when more than one panel was probed.
+            </Text>
             <div className="notebook-results notebook-results-scroll">
               <table>
                 <thead>
@@ -517,6 +531,7 @@ export default function TextVsImageNotebookPage() {
                     {crossCut.models.map((m) => (
                       <th key={m.runId} className="num">
                         <code>{m.model.includes('/') ? m.model.split('/')[1] : m.model}</code>
+                        {m.seeds > 1 ? ` ×${m.seeds}` : ''}
                       </th>
                     ))}
                   </tr>
@@ -524,10 +539,20 @@ export default function TextVsImageNotebookPage() {
                 <tbody>
                   {crossCut.rows.map((row) => {
                     const isWinner = crossCut.winningRep?.repId === row.repId;
+                    const familyLabel = row.family === 'precomputed_text'
+                      ? 'precomputed text'
+                      : row.family === 'raw_text'
+                        ? 'raw CSV'
+                        : row.family === 'labeled_image'
+                          ? 'labeled image'
+                          : 'hybrid';
                     return (
                       <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
                         <td>{row.label}</td>
-                        <td>{row.family.replace('_', ' ')}</td>
+                        <td>
+                          {familyLabel}
+                          {row.chartFair ? ' *' : ''}
+                        </td>
                         <td className="num">
                           {row.meanAccuracy == null
                             ? '—'
@@ -585,7 +610,10 @@ export default function TextVsImageNotebookPage() {
                           : undefined
                       }
                     >
-                      <td>{f.label}</td>
+                      <td>
+                        {f.label}
+                        {f.chartFair ? ' *' : ''}
+                      </td>
                       <td className="num">
                         {f.meanAccuracy == null
                           ? '—'
@@ -596,6 +624,9 @@ export default function TextVsImageNotebookPage() {
                 </tbody>
               </table>
             </div>
+            <Text type="supporting">
+              * Chart-fair: excludes <code>best_peak_date</code> (exact YYYY-MM-DD from pixels).
+            </Text>
           </>
         ) : null}
       </VStack>
@@ -811,12 +842,16 @@ export default function TextVsImageNotebookPage() {
       <VStack className="notebook-section" gap={2}>
         <Heading level={2}>6. Reading the results</Heading>
         <Text type="supporting">
-          Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
-          image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
-          markdown color key). If hybrids beat labeled images on the same model, OCR was the
-          bottleneck — production can send color legends in text and keep charts visual-only.
-          Ranked bars and small multiples should dominate who-won / who-lost questions;
-          heatmaps help regime/crash reads; crowded overlays often lose ticker identity.
+          Compare <code>tool_summary</code> / <code>stats_table</code> (precomputed text)
+          against <code>csv_closes</code> (raw series text), labeled image encodings, and
+          hybrid <code>*_color_keyed</code> rows (textless chart + markdown color key).
+          Precomputed packs answering the question for free is a different claim than
+          “text beats images.” If hybrids beat labeled images on the same model, OCR was
+          the bottleneck — production can send color legends in text and keep charts
+          visual-only. Ranked bars and small multiples should dominate who-won / who-lost
+          questions; heatmaps help regime/crash reads; crowded overlays often lose ticker
+          identity. Peak-date prompts are chart-hostile and are excluded from image/hybrid
+          family means.
         </Text>
       </VStack>
     </VStack>
