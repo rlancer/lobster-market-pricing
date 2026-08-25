@@ -37,8 +37,10 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   in {equity, etf, index, future, crypto} so OHLC queries filter by kind
   instead of hand-listing tickers), `fred-yields-daily` (batch, daily;
   FRED Treasury / rates curve observations → `options.yields`: DGS*
-  constant-maturity, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR;
-  ~10y lookback), and `kalshi-markets-hourly` (batch, hourly; curated Kalshi
+  constant-maturity, T10Y2Y/T10Y3M spreads, TIPS/breakevens, T5YIFR forward,
+  DFF/SOFR; ~10y lookback), `fred-macro-daily` (batch, daily; FRED CPI/PCE/PPI
+  index + YoY → `options.macro`; ~20y lookback), and `kalshi-markets-hourly`
+  (batch, hourly; curated Kalshi
   Fed/CPI/index/crypto/oil event contracts → `options.kalshi_markets` from
   `symbols/kalshi-series.json` — not the full Kalshi catalog).
   Schedule ledger:
@@ -219,12 +221,15 @@ RegShoDaily:       <PIPELINE_REG_SHO_URL secret — stream cboe_reg_sho_daily_v2
 SecFilings:        <PIPELINE_SEC_FILINGS_URL secret — stream cboe_sec_filings_v2>
 Instruments:       <PIPELINE_INSTRUMENTS_URL secret — stream cboe_instruments_v2>
 Yields:            <PIPELINE_YIELDS_URL secret — stream cboe_yields_v2>
+Macro:             <PIPELINE_MACRO_URL secret — stream cboe_macro_v2>
 KalshiMarkets:     <PIPELINE_KALSHI_MARKETS_URL secret — stream cboe_kalshi_markets_v2>
          # Optional auth (higher rate tier): KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_PEM
          # (read-only Kalshi API key; RSA-PSS signed GETs). Anonymous public GETs if unset.
          # Note: Pipelines open-beta cap is 20 streams. Kalshi provision may
          # pause cboe_reg_sho_daily_* to free a slot (reg-sho-daily then dry-runs;
-         # options.reg_sho_daily history remains). Re-add Reg SHO after a limit increase.
+         # options.reg_sho_daily history remains). Macro provision needs a free
+         # slot too — dry-runs until PIPELINE_MACRO_URL is set. Re-add Reg SHO
+         # after a limit increase.
 Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_ohlc_v2, cboe_realized_vol_v2, cboe_corporate_actions_v2,
          cboe_securities_v2, cboe_symbol_history_v2, cboe_underlying_snapshots_v2,
@@ -232,7 +237,7 @@ Streams: cboe_option_contracts_v2, cboe_refresh_runs_v2,
          cboe_earnings_results_v2, cboe_company_facts_v2,
          cboe_futures_settlements_v2, cboe_futures_quotes_v2,
          cboe_short_interest_v2, cboe_reg_sho_daily_v2, cboe_sec_filings_v2,
-         cboe_instruments_v2, cboe_yields_v2, cboe_kalshi_markets_v2
+         cboe_instruments_v2, cboe_yields_v2, cboe_macro_v2, cboe_kalshi_markets_v2
 Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_ohlc_sink, cboe_realized_vol_sink, cboe_corporate_actions_sink,
          cboe_securities_sink, cboe_symbol_history_sink, cboe_underlying_snapshots_sink,
@@ -240,7 +245,7 @@ Sinks:   cboe_option_contracts_sink, cboe_refresh_runs_sink,
          cboe_earnings_results_sink, cboe_company_facts_sink,
          cboe_futures_settlements_sink, cboe_futures_quotes_sink,
          cboe_short_interest_sink, cboe_reg_sho_daily_sink, cboe_sec_filings_sink,
-         cboe_instruments_sink, cboe_yields_sink, cboe_kalshi_markets_sink
+         cboe_instruments_sink, cboe_yields_sink, cboe_macro_sink, cboe_kalshi_markets_sink
 Tables: options.option_contracts, options.refresh_runs,
         options.ohlc, options.realized_vol, options.corporate_actions,
         options.securities, options.symbol_history, options.underlying_snapshots,
@@ -248,7 +253,7 @@ Tables: options.option_contracts, options.refresh_runs,
         options.earnings_results, options.company_facts,
         options.futures_settlements, options.futures_quotes,
         options.short_interest, options.reg_sho_daily, options.sec_filings,
-        options.instruments, options.yields, options.kalshi_markets
+        options.instruments, options.yields, options.macro, options.kalshi_markets
 ```
 
 The old `options.underlyings` table / `cboe_underlyings_v*` stream+sink+pipeline
