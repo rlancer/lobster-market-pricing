@@ -230,8 +230,10 @@ ORDER BY date, series_id
 Probe: `node --experimental-strip-types tools/macro_probe.ts`.
 
 > **Pipelines open-beta cap:** accounts are limited to **20 streams / sinks /
-> pipelines**. If provision hits quota, free a stream slot (or raise the limit)
-> and re-run — the job dry-runs until `PIPELINE_MACRO_URL` is set.
+> pipelines**. This provision workflow pauses `cboe_short_interest_*` ingest
+> (historical `options.short_interest` rows stay queryable; `short-interest-daily`
+> dry-runs) to free a slot — same pattern as Kalshi pausing Reg SHO. Re-provision
+> short interest after a [limit increase](https://developers.cloudflare.com/pipelines/platform/limits/).
 
 ### Kalshi event contracts (`kalshi-markets-hourly`)
 

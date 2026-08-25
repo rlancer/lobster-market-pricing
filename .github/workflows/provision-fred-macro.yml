@@ -10,10 +10,10 @@ name: Provision FRED macro pipeline
 # Optional: PIPELINES_ADMIN_TOKEN (Pipelines Edit if deploy token lacks it)
 #
 # NOTE: Cloudflare Pipelines open-beta caps accounts at 20 streams/sinks/
-# pipelines. Reg SHO ingest may already be paused for Kalshi. If create
-# returns Quota exceeded [code: 1017], free a stream slot (or request a
-# limit increase) and re-run. Code + job still ship; dry-run until the secret
-# is set.
+# pipelines. Reg SHO ingest may already be paused for Kalshi. This workflow
+# pauses FINRA short_interest ingest to free a slot for macro (historical
+# options.short_interest rows stay queryable; short-interest-daily dry-runs).
+# Re-provision short interest after a Pipelines limit increase.
 #
 # Trigger: workflow_dispatch, or push to cursor/run-provision-fred-macro-0def
 
@@ -134,9 +134,32 @@ jobs:
             done
           }
 
+          # Pause short_interest ingest to free a stream slot for macro.
+          # options.short_interest Iceberg rows remain readable; the job
+          # dry-runs once PIPELINE_SHORT_INTEREST_URL is cleared. Same pattern
+          # as Kalshi pausing reg_sho. Re-provision after a Pipelines limit
+          # increase: https://developers.cloudflare.com/pipelines/platform/limits/
+          pause_short_interest_for_quota() {
+            if wrangler_pipelines pipelines streams get "$STREAM" --json >/dev/null 2>&1; then
+              echo "Macro stream already exists — not touching short_interest"
+              return 0
+            fi
+            if ! wrangler_pipelines pipelines streams get cboe_short_interest_v2 --json >/dev/null 2>&1; then
+              echo "short_interest stream already absent"
+              return 0
+            fi
+            echo "Pausing short_interest ingest (cboe_short_interest_*) to free Pipelines quota for macro"
+            wrangler_pipelines pipelines delete cboe_short_interest_pipeline -y || true
+            wrangler_pipelines pipelines sinks delete cboe_short_interest_sink -y || true
+            wrangler_pipelines pipelines streams delete cboe_short_interest_v2 -y || true
+            # Clear loader secret so short-interest-daily dry-runs (no failing POSTs).
+            printf '' | npx wrangler secret put PIPELINE_SHORT_INTEREST_URL || true
+          }
+
           free_retired_slot
+          pause_short_interest_for_quota
           try_list
-          echo "Streams after retired cleanup:"
+          echo "Streams after quota relief:"
           node -e 'const s=require("/tmp/streams.json"); const arr=Array.isArray(s)?s:(s.result||s.streams||[]); console.log("count="+arr.length); for (const x of arr) console.log(" -", x.name||x.id);'
 
           create_stream() {
@@ -152,7 +175,7 @@ jobs:
             echo "Creating stream $STREAM"
             if ! create_stream 2>/tmp/create_stream.err; then
               if grep -q 'Quota exceeded\|code: 1017' /tmp/create_stream.err; then
-                echo "::error::Pipelines quota exceeded — free a stream slot (or raise the account limit) and re-run. See loader/README.md Pipelines open-beta cap note."
+                echo "::error::Pipelines quota exceeded even after pausing short_interest — free another stream slot (or raise the account limit) and re-run."
                 cat /tmp/create_stream.err >&2 || true
                 try_list
                 exit 1
