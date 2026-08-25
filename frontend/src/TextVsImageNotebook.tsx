@@ -5,21 +5,15 @@ import {
   Heading,
   HStack,
   Text,
-  TextInput,
   Token,
   VStack,
 } from '@astryxdesign/core';
 import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
-import { useIsAdmin } from './useAdmin';
 import {
   buildCrossModelConclusion,
   type CrossModelConclusion,
   type RunSummaryForConclusion,
 } from './notebooks/crossModelConclusion';
-import {
-  DEFAULT_PROBE_MODEL,
-  RECENT_PROBE_MODELS,
-} from './notebooks/experiment';
 import {
   buildHybridRepresentations,
   isHybridRepId,
@@ -30,9 +24,7 @@ import {
   type ImageRep,
 } from './notebooks/imageRepresentations';
 import {
-  SYSTEM_PROBE,
   buildQuestions,
-  scoreAnswer,
   type ExperimentQuestion,
 } from './notebooks/questions';
 import {
@@ -101,12 +93,11 @@ function imagesFromRun(run: ExperimentRunPayload): ImageRep[] {
   }));
 }
 
-/** Experiment: Copilot-style text summaries vs chart images for multimodal LLMs. */
+/**
+ * Public read-only experiment page. Probes and publishes are pipeline / API /
+ * agent driven (GitHub Action + admin API) — the UI only loads saved runs.
+ */
 export default function TextVsImageNotebookPage() {
-  const { isAdmin } = useIsAdmin();
-  const [model, setModel] = useState(DEFAULT_PROBE_MODEL);
-  const [running, setRunning] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [matrix, setMatrix] = useState<Matrix>({});
   const [localImages, setLocalImages] = useState<ImageRep[]>([]);
   const [localHybrids, setLocalHybrids] = useState<HybridRep[]>([]);
@@ -116,15 +107,11 @@ export default function TextVsImageNotebookPage() {
   const [crossCutState, setCrossCutState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState('tool_summary');
-  const [viewSource, setViewSource] = useState<'saved' | 'local'>('saved');
 
   const applyRun = (run: ExperimentRunPayload) => {
     setSavedRun(run);
     setMatrix(matrixFromRun(run));
-    setModel(run.model || DEFAULT_PROBE_MODEL);
-    setViewSource('saved');
     setRunLoadState('ready');
   };
 
@@ -155,7 +142,6 @@ export default function TextVsImageNotebookPage() {
   const stats = useMemo(() => universeStats(universe), [universe]);
   const textReps = useMemo(() => buildTextRepresentations(universe), [universe]);
   const questions = useMemo(() => buildQuestions(universe), [universe]);
-  const tickers = useMemo(() => universe.series.map((s) => s.ticker), [universe]);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,17 +241,18 @@ export default function TextVsImageNotebookPage() {
         const message = String((error as Error)?.message ?? error);
         if (/404|no published run|run not found/i.test(message)) {
           setSavedRun(null);
+          setMatrix({});
           setRunLoadState('missing');
-          setViewSource('local');
         } else {
           setRunLoadState('error');
           setRunLoadError(message);
-          setViewSource('local');
         }
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const viewSource: 'saved' | 'local' = savedRun ? 'saved' : 'local';
 
   const savedImages = useMemo(
     () => (savedRun ? imagesFromRun(savedRun) : []),
@@ -359,193 +346,11 @@ export default function TextVsImageNotebookPage() {
     return allReps.map((r) => r.id);
   }, [viewSource, savedRun, allReps]);
 
-  useEffect(() => {
-    if (!repIds.length || viewSource === 'saved') return;
-    setMatrix((prev) => (Object.keys(prev).length
-      ? prev
-      : emptyMatrix(repIds, questions.map((q) => q.id))));
-  }, [repIds, questions, viewSource]);
-
   const selectedText = displayTextReps.find((r) => r.id === selectedRep) ?? null;
   const selectedHybrid = displayHybrids.find((r) => r.id === selectedRep) ?? null;
   const selectedImage = selectedHybrid
     ? null
     : (displayImages.find((r) => r.id === selectedRep) ?? null);
-
-  const updateCell = (repId: string, questionId: string, patch: Partial<ProbeCell>) => {
-    setMatrix((prev) => ({
-      ...prev,
-      [repId]: {
-        ...prev[repId],
-        [questionId]: { ...(prev[repId]?.[questionId] ?? { status: 'idle' }), ...patch },
-      },
-    }));
-  };
-
-  const runOne = async (repId: string, question: ExperimentQuestion) => {
-    const text = textReps.find((r) => r.id === repId);
-    const image = localImages.find((r) => r.id === repId);
-    const hybrid = localHybrids.find((r) => r.id === repId);
-    updateCell(repId, question.id, { status: 'running', error: undefined });
-    try {
-      const result = hybrid
-        ? await api.adminNotebookProbe({
-            model,
-            mode: 'multimodal',
-            question: question.prompt,
-            system: SYSTEM_PROBE,
-            text_context: hybrid.textContext,
-            image_data_url: hybrid.dataUrl,
-          })
-        : text
-          ? await api.adminNotebookProbe({
-              model,
-              mode: 'text',
-              question: question.prompt,
-              system: SYSTEM_PROBE,
-              text_context: text.body,
-            })
-          : await api.adminNotebookProbe({
-              model,
-              mode: 'image',
-              question: question.prompt,
-              system: SYSTEM_PROBE,
-              image_data_url: image!.dataUrl,
-            });
-      const scored = scoreAnswer(question, result.answer, tickers);
-      updateCell(repId, question.id, {
-        status: 'done',
-        answer: result.answer,
-        correct: scored.correct,
-        detail: scored.detail,
-        latencyMs: result.latency_ms,
-        model: result.model,
-      });
-    } catch (error) {
-      updateCell(repId, question.id, {
-        status: 'error',
-        error: String((error as Error)?.message ?? error),
-      });
-    }
-  };
-
-  const runAll = async () => {
-    setViewSource('local');
-    setRunning(true);
-    setSaveMessage(null);
-    const ids = [
-      ...textReps.map((r) => r.id),
-      ...localImages.map((r) => r.id),
-      ...localHybrids.map((r) => r.id),
-    ];
-    setMatrix(emptyMatrix(ids, questions.map((q) => q.id)));
-    try {
-      for (const repId of ids) {
-        for (const question of questions) {
-          // Sequential to respect OpenRouter rate limits.
-          // eslint-disable-next-line no-await-in-loop
-          await runOne(repId, question);
-        }
-      }
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const publishRun = async () => {
-    if (!localImages.length) return;
-    const ids = [
-      ...textReps.map((r) => r.id),
-      ...localImages.map((r) => r.id),
-      ...localHybrids.map((r) => r.id),
-    ];
-    const cells = [];
-    for (const repId of ids) {
-      for (const q of questions) {
-        const cell = matrix[repId]?.[q.id];
-        if (!cell || (cell.status !== 'done' && cell.status !== 'error')) continue;
-        cells.push({
-          rep_id: repId,
-          question_id: q.id,
-          status: cell.status as 'done' | 'error',
-          answer: cell.answer,
-          correct: cell.correct,
-          detail: cell.detail,
-          latency_ms: cell.latencyMs,
-          error: cell.error,
-          model: cell.model,
-        });
-      }
-    }
-    if (!cells.length) {
-      setSaveMessage('Run the matrix first, then publish.');
-      return;
-    }
-    setSaving(true);
-    setSaveMessage(null);
-    try {
-      const response = await api.adminSaveExperimentRun(EXPERIMENT_SLUG, {
-        experiment_slug: EXPERIMENT_SLUG,
-        model,
-        seed: universe.seed,
-        results: {
-          questions: questions.map((q) => ({
-            id: q.id,
-            prompt: q.prompt,
-            expected: String(q.expected),
-          })),
-          text_reps: [
-            ...textReps.map((r) => ({
-              id: r.id,
-              label: r.label,
-              description: r.description,
-              approx_tokens: r.approxTokens,
-              body: r.body,
-            })),
-            // Hybrid companion legends share the hybrid id so loaders can
-            // reassemble multimodal reps from text_reps + images.
-            ...localHybrids.map((h) => ({
-              id: h.id,
-              label: h.label,
-              description: h.description,
-              approx_tokens: h.approxTokens,
-              body: h.textContext,
-            })),
-          ],
-          cells,
-          rep_order: ids,
-        },
-        images: [
-          ...localImages.map((img) => ({
-            id: img.id,
-            label: img.label,
-            description: img.description,
-            width: img.width,
-            height: img.height,
-            data_url: img.dataUrl,
-          })),
-          ...localHybrids.map((h) => ({
-            id: h.id,
-            label: h.label,
-            description: h.description,
-            width: h.width,
-            height: h.height,
-            data_url: h.dataUrl,
-          })),
-        ],
-      });
-      setSavedRun(response.run);
-      setMatrix(matrixFromRun(response.run));
-      setViewSource('saved');
-      setRunLoadState('ready');
-      await refreshRunList();
-      setSaveMessage(`Published run ${response.run.id.slice(0, 8)}… — visitors load this without probing. Re-run with another model to compare.`);
-    } catch (error) {
-      setSaveMessage(String((error as Error)?.message ?? error));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const summaryRows = repIds.map((repId) => {
     const cells = displayQuestions.map((q) => matrix[repId]?.[q.id] ?? { status: 'idle' as const });
@@ -603,16 +408,13 @@ export default function TextVsImageNotebookPage() {
             seed <code>{savedRun.seed}</code>
             {' · '}
             id <code>{savedRun.id.slice(0, 8)}</code>
-            . Viewing this costs nothing — probes already ran on the server.
-            Publish again with a different model to compare side-by-side below.
+            . Viewing this costs nothing — probes already ran via the experiment pipeline.
           </Text>
         ) : null}
         {runLoadState === 'missing' ? (
           <Text type="supporting">
             No published run yet. Methodology and local chart previews are free;
-            {isAdmin
-              ? ' an admin can run probes and publish results below.'
-              : ' check back after an admin publishes results.'}
+            results appear after the experiment pipeline or agent publishes a run.
           </Text>
         ) : null}
         {runLoadState === 'error' ? (
@@ -667,27 +469,6 @@ export default function TextVsImageNotebookPage() {
               </table>
             </div>
           </VStack>
-        ) : null}
-        {savedRun && localImages.length ? (
-          <HStack gap={2} style={{ flexWrap: 'wrap' }}>
-            <Button
-              size="sm"
-              variant={viewSource === 'saved' ? 'primary' : 'secondary'}
-              label="Published run"
-              onClick={() => {
-                setViewSource('saved');
-                setMatrix(matrixFromRun(savedRun));
-              }}
-            />
-            {isAdmin ? (
-              <Button
-                size="sm"
-                variant={viewSource === 'local' ? 'primary' : 'secondary'}
-                label="Live / re-run workspace"
-                onClick={() => setViewSource('local')}
-              />
-            ) : null}
-          </HStack>
         ) : null}
       </VStack>
 
@@ -867,7 +648,7 @@ export default function TextVsImageNotebookPage() {
           These are the exact chart PNGs used as multimodal user content
           {viewSource === 'saved' && savedImages.length
             ? ' in the published run (byte-identical to what OpenRouter received).'
-            : ' when probes run (rendered in this browser as canvas PNGs).'}
+            : ' for this experiment (rendered locally as canvas PNGs until a run is published).'}
           {' '}Textless hybrids omit labels; ticker identity lives in the companion markdown key.
         </Text>
         {!displayImages.length ? (
@@ -971,58 +752,10 @@ export default function TextVsImageNotebookPage() {
 
       <VStack className="notebook-section" gap={3}>
         <Heading level={2}>5. Results</Heading>
-        {isAdmin ? (
-          <>
-            <Text type="supporting">
-              Admin: run probes via <code>POST /api/admin/notebooks/probe</code>, then publish
-              so everyone else loads the saved matrix and images for free.
-            </Text>
-            <HStack gap={3} style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ minWidth: 280 }}>
-                <TextInput
-                  label="OpenRouter model"
-                  value={model}
-                  onChange={setModel}
-                />
-              </div>
-              {RECENT_PROBE_MODELS.map((slug) => (
-                <Button
-                  key={slug}
-                  size="sm"
-                  variant={model === slug ? 'primary' : 'secondary'}
-                  label={slug.replace(/^[^/]+\//, '')}
-                  isDisabled={running || saving}
-                  onClick={() => setModel(slug)}
-                />
-              ))}
-              <Button
-                size="sm"
-                variant={model === DEFAULT_PROBE_MODEL ? 'primary' : 'secondary'}
-                label="gpt-4o-mini (baseline)"
-                isDisabled={running || saving}
-                onClick={() => setModel(DEFAULT_PROBE_MODEL)}
-              />
-              <Button
-                variant="primary"
-                label={running ? 'Running…' : 'Run full matrix'}
-                isDisabled={running || saving || !localImages.length}
-                onClick={() => { void runAll(); }}
-              />
-              <Button
-                variant="secondary"
-                label={saving ? 'Publishing…' : 'Publish saved run'}
-                isDisabled={running || saving || !localImages.length}
-                onClick={() => { void publishRun(); }}
-              />
-            </HStack>
-            {saveMessage ? <Text type="supporting">{saveMessage}</Text> : null}
-          </>
-        ) : (
-          <Text type="supporting">
-            Results below come from the published server run when available. Probing
-            OpenRouter yourself is disabled here to avoid surprise spend.
-          </Text>
-        )}
+        <Text type="supporting">
+          Results below come from the published server run when available. Probing and
+          publishing are driven by the experiment pipeline / API / agents — not from this page.
+        </Text>
 
         <div className="notebook-results">
           <table>
