@@ -65,6 +65,15 @@ describe("researchExternalSites", () => {
     assert.equal(links[0]?.kind, "company");
   });
 
+  it("falls back to company profile for equities without a homepage", () => {
+    const links = researchExternalSites({
+      ticker: "AAPL",
+      isEtf: false,
+    });
+    assert.ok(links.some((l) => l.kind === "yahoo_profile"));
+    assert.equal(links.find((l) => l.kind === "yahoo_profile")?.label, "Company profile");
+  });
+
   it("adds issuer for ETFs", () => {
     const links = researchExternalSites({
       ticker: "SPY",

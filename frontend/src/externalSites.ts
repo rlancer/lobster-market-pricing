@@ -60,3 +60,10 @@ export function secCompanyBrowseUrl(cik: string | null | undefined): string | nu
   const padded = digits.padStart(10, '0');
   return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${padded}&owner=exclude&count=40`;
 }
+
+/** Yahoo quote profile — company overview when a direct homepage is unavailable. */
+export function yahooQuoteProfileUrl(ticker: string | null | undefined): string | null {
+  const t = String(ticker || '').trim().toUpperCase();
+  if (!t || !/^[A-Z^][A-Z0-9.=-]{0,15}$/.test(t)) return null;
+  return `https://finance.yahoo.com/quote/${encodeURIComponent(t)}/profile`;
+}

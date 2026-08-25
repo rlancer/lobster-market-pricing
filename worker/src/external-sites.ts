@@ -115,7 +115,7 @@ export function researchExternalSites(opts: {
   }
   if (!company && !opts.isEtf) {
     const yahoo = yahooQuoteProfileUrl(opts.ticker);
-    if (yahoo) links.push({ kind: "yahoo_profile", label: "Yahoo profile", url: yahoo });
+    if (yahoo) links.push({ kind: "yahoo_profile", label: "Company profile", url: yahoo });
   }
   return links;
 }

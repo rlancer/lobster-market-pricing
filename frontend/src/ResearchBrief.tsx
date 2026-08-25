@@ -25,7 +25,12 @@ import type {
   TickerResearch,
 } from './api';
 import { EntityLink } from './EntityLink';
-import { etfIssuerMarketingSite } from './externalSites';
+import {
+  cikFromEdgarUrl,
+  etfIssuerMarketingSite,
+  secCompanyBrowseUrl,
+  yahooQuoteProfileUrl,
+} from './externalSites';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
@@ -350,10 +355,35 @@ export function ResearchBriefView({
   const commentaryId = `research-lobster-${identity.ticker}`;
   const chainId = `research-chain-${identity.ticker}`;
   const localIssuer = etf ? etfIssuerMarketingSite(etf.family) : null;
-  const siteLinks: ResearchExternalSite[] = [
+  const localSec = (() => {
+    const edgar = filings[0]?.edgar_url;
+    const cik = cikFromEdgarUrl(edgar);
+    const url = secCompanyBrowseUrl(cik);
+    return url ? { kind: 'sec' as const, label: 'SEC filings', url } : null;
+  })();
+  const localProfile = !etf
+    ? (() => {
+        const url = yahooQuoteProfileUrl(identity.ticker);
+        return url ? { kind: 'yahoo_profile' as const, label: 'Company profile', url } : null;
+      })()
+    : null;
+  const siteLinks: ResearchExternalSite[] = [];
+  const seen = new Set<string>();
+  for (const link of [
     ...externalSites,
-    ...(localIssuer && !externalSites.some((l) => l.kind === 'issuer') ? [localIssuer] : []),
-  ];
+    ...(localIssuer ? [localIssuer] : []),
+    ...(localSec ? [localSec] : []),
+    ...(localProfile ? [localProfile] : []),
+  ]) {
+    const key = `${link.kind}:${link.url}`;
+    if (seen.has(key)) continue;
+    // Prefer API company homepage over Yahoo profile fallback.
+    if (link.kind === 'yahoo_profile' && externalSites.some((l) => l.kind === 'company')) {
+      continue;
+    }
+    seen.add(key);
+    siteLinks.push(link);
+  }
 
   useEffect(() => {
     if (!onCommentaryVisible || !research.computed_at) return;
