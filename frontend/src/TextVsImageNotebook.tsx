@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Button,
@@ -38,6 +38,39 @@ import {
 import './Notebooks.css';
 
 const EXPERIMENT_SLUG = 'text-vs-image';
+
+const SECTIONS = [
+  { id: 'overview', num: '01', label: 'Overview' },
+  { id: 'conclusion', num: '02', label: 'Conclusion' },
+  { id: 'results', num: '03', label: 'Results' },
+  { id: 'reading', num: '04', label: 'How to read' },
+  { id: 'setup', num: '05', label: 'Setup' },
+  { id: 'images', num: '06', label: 'Images' },
+  { id: 'reps', num: '07', label: 'Representations' },
+  { id: 'questions', num: '08', label: 'Questions' },
+] as const;
+
+function Section({
+  id,
+  num,
+  title,
+  children,
+}: {
+  id: string;
+  num: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="notebook-section">
+      <Heading level={2}>
+        <span className="notebook-sec-num">{num}</span>
+        {title}
+      </Heading>
+      {children}
+    </section>
+  );
+}
 
 type CellStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -123,6 +156,7 @@ export default function TextVsImageNotebookPage() {
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState('tool_summary');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
 
   const applyRun = (run: ExperimentRunPayload) => {
     setSavedRun(run);
@@ -268,6 +302,30 @@ export default function TextVsImageNotebookPage() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    const nodes = SECTIONS
+      .map((section) => document.getElementById(section.id))
+      .filter((node): node is HTMLElement => Boolean(node));
+    if (!nodes.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        const top = visible[0]?.target.id;
+        if (top) setActiveSection(top);
+      },
+      {
+        root: null,
+        rootMargin: '0px 0px -65% 0px',
+        threshold: [0.1, 0.25, 0.5],
+      },
+    );
+    for (const node of nodes) observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   const savedImages = useMemo(
     () => (savedRun ? imagesFromRun(savedRun) : []),
     [savedRun],
@@ -390,459 +448,471 @@ export default function TextVsImageNotebookPage() {
     : null;
 
   return (
-    <VStack className="notebook-page" gap={6} paddingBlock={6} paddingInline={5} maxWidth={1100}>
-      <VStack className="notebook-hero" gap={2}>
-        <Text type="supporting">
-          <Link to="/experiments">Experiments</Link>
-          {' / '}
-          Text vs image
-        </Text>
-        <Heading level={1}>Text vs image context for market panels</Heading>
-        <Text type="supporting">
-          The same deterministic 20-name synthetic equity panel is shown to a multimodal
-          model either as Copilot-style text summaries, as chart images, or as textless
-          charts paired with a markdown color key (so the model does not need OCR).
-          Answers are scored against ground truth so we can see which encodings survive
-          LLM context before changing production Copilot framing.
-        </Text>
-      </VStack>
+    <div className="notebook-layout">
+      <div className="notebook-body">
+        <section id="overview" className="notebook-section">
+          <VStack className="notebook-hero" gap={2}>
+            <Text type="supporting">
+              <Link to="/experiments">Experiments</Link>
+              {' / '}
+              Text vs image
+            </Text>
+            <Heading level={1}>Text vs image context for market panels</Heading>
+            <Text type="supporting">
+              The same deterministic 20-name synthetic equity panel is shown to a multimodal
+              model either as Copilot-style text summaries, as chart images, or as textless
+              charts paired with a markdown color key (so the model does not need OCR).
+              Answers are scored against ground truth so we can see which encodings survive
+              LLM context before changing production Copilot framing.
+            </Text>
+          </VStack>
 
-      <VStack className="notebook-banner" gap={2}>
-        {runLoadState === 'loading' ? (
-          <Text type="supporting">Loading saved run…</Text>
-        ) : null}
-        {runLoadState === 'ready' && savedRun && comparingMeta ? (
-          <HStack className="notebook-comparing" gap={2} style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-            <Text type="supporting">
-              Comparing <code>{shortModel(savedRun.model)}</code>
-              {' · '}
-              {comparingMeta}
-            </Text>
-            {runList.length > 1 ? (
-              <Button
-                size="sm"
-                variant={pickerOpen ? 'primary' : 'secondary'}
-                label={pickerOpen ? 'Hide runs' : 'Change'}
-                onClick={() => setPickerOpen((open) => !open)}
-              />
+          <VStack className="notebook-banner" gap={2}>
+            {runLoadState === 'loading' ? (
+              <Text type="supporting">Loading saved run…</Text>
             ) : null}
-          </HStack>
-        ) : null}
-        {runLoadState === 'missing' ? (
-          <Text type="supporting">
-            No saved run yet. Methodology and local chart previews are free;
-            results appear after a run is published via API or CI.
-          </Text>
-        ) : null}
-        {runLoadState === 'error' ? (
-          <Text type="supporting">Could not load saved run: {runLoadError}</Text>
-        ) : null}
-        {pickerOpen && runList.length > 1 ? (
-          <VStack gap={2}>
+            {runLoadState === 'ready' && savedRun && comparingMeta ? (
+              <HStack className="notebook-comparing" gap={2} style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                <Text type="supporting">
+                  Comparing <code>{shortModel(savedRun.model)}</code>
+                  {' · '}
+                  {comparingMeta}
+                </Text>
+                {runList.length > 1 ? (
+                  <Button
+                    size="sm"
+                    variant={pickerOpen ? 'primary' : 'secondary'}
+                    label={pickerOpen ? 'Hide runs' : 'Change'}
+                    onClick={() => setPickerOpen((open) => !open)}
+                  />
+                ) : null}
+              </HStack>
+            ) : null}
+            {runLoadState === 'missing' ? (
+              <Text type="supporting">
+                No saved run yet. Methodology and local chart previews are free;
+                results appear after a run is published via API or CI.
+              </Text>
+            ) : null}
+            {runLoadState === 'error' ? (
+              <Text type="supporting">Could not load saved run: {runLoadError}</Text>
+            ) : null}
+            {pickerOpen && runList.length > 1 ? (
+              <VStack gap={2}>
+                <Text type="supporting">
+                  Saved runs (newest first) — pick a model run to load its answers and the exact
+                  images that model saw:
+                </Text>
+                <div className="notebook-results">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Model</th>
+                        <th>Accuracy</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runList.map((row) => {
+                        const selected = savedRun?.id === row.id;
+                        return (
+                          <tr key={row.id}>
+                            <td>{formatRunWhen(row.created_at)}</td>
+                            <td><code>{row.model}</code></td>
+                            <td className="num">{runAccuracyLabel(row)}</td>
+                            <td>
+                              <Button
+                                size="sm"
+                                variant={selected ? 'primary' : 'secondary'}
+                                label={selected ? 'Viewing' : 'Load'}
+                                isDisabled={selected || runLoadState === 'loading'}
+                                onClick={() => { void loadRunById(row.id); }}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </VStack>
+            ) : null}
+          </VStack>
+        </section>
+
+        <Section id="conclusion" num="02" title="Cross-model conclusion">
+          {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
+            <Text type="supporting">Aggregating saved runs…</Text>
+          ) : null}
+          {crossCutState === 'idle' && runList.length === 0 ? (
             <Text type="supporting">
-              Saved runs (newest first) — pick a model run to load its answers and the exact
-              images that model saw:
+              Cross-model conclusions appear once at least one run is published.
             </Text>
-            <div className="notebook-results">
-              <table>
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Model</th>
-                    <th>Accuracy</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {runList.map((row) => {
-                    const selected = savedRun?.id === row.id;
-                    return (
-                      <tr key={row.id}>
-                        <td>{formatRunWhen(row.created_at)}</td>
-                        <td><code>{row.model}</code></td>
-                        <td className="num">{runAccuracyLabel(row)}</td>
-                        <td>
-                          <Button
-                            size="sm"
-                            variant={selected ? 'primary' : 'secondary'}
-                            label={selected ? 'Viewing' : 'Load'}
-                            isDisabled={selected || runLoadState === 'loading'}
-                            onClick={() => { void loadRunById(row.id); }}
-                          />
+          ) : null}
+          {crossCutState === 'error' ? (
+            <Text type="supporting">Could not build the cross-model summary.</Text>
+          ) : null}
+          {crossCut && crossCutState === 'ready' ? (
+            <>
+              <Text type="supporting">{crossCut.summary}</Text>
+              <HStack gap={2} style={{ flexWrap: 'wrap' }}>
+                {crossCut.winningFamily ? (
+                  <Token
+                    label={`Winner family: ${crossCut.winningFamily.label} (${
+                      crossCut.winningFamily.meanAccuracy == null
+                        ? '—'
+                        : `${Math.round(crossCut.winningFamily.meanAccuracy * 100)}%`
+                    })`}
+                    color="teal"
+                    size="sm"
+                  />
+                ) : null}
+                {crossCut.winningRep ? (
+                  <Token
+                    label={`Best encoding: ${crossCut.winningRep.label} (${
+                      crossCut.winningRep.meanAccuracy == null
+                        ? '—'
+                        : `${Math.round(crossCut.winningRep.meanAccuracy * 100)}%`
+                    })`}
+                    color="teal"
+                    size="sm"
+                  />
+                ) : null}
+              </HStack>
+              <div className="notebook-results notebook-results-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Representation</th>
+                      <th>Family</th>
+                      <th className="num">Mean</th>
+                      {crossCut.models.map((m) => (
+                        <th key={m.runId} className="num">
+                          <code>{shortModel(m.model)}</code>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crossCut.rows.map((row) => {
+                      const isWinner = crossCut.winningRep?.repId === row.repId;
+                      return (
+                        <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
+                          <td>{row.label}</td>
+                          <td>{row.family.replace('_', ' ')}</td>
+                          <td className="num">
+                            {row.meanAccuracy == null
+                              ? '—'
+                              : `${Math.round(row.meanAccuracy * 100)}%`}
+                          </td>
+                          {row.byModel.map((cell) => (
+                            <td key={`${row.repId}-${cell.runId}`} className="num">
+                              {cell.done
+                                ? `${cell.correct}/${cell.done}`
+                                : '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                    <tr>
+                      <td><strong>Overall</strong></td>
+                      <td />
+                      <td className="num">
+                        {(() => {
+                          const accs = crossCut.models
+                            .map((m) => m.overallAccuracy)
+                            .filter((a): a is number => a != null);
+                          if (!accs.length) return '—';
+                          const mean = accs.reduce((a, b) => a + b, 0) / accs.length;
+                          return `${Math.round(mean * 100)}%`;
+                        })()}
+                      </td>
+                      {crossCut.models.map((m) => (
+                        <td key={`overall-${m.runId}`} className="num">
+                          {m.cells_done
+                            ? `${m.cells_correct}/${m.cells_done}`
+                            : '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="notebook-results">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Method family</th>
+                      <th className="num">Mean accuracy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crossCut.families.map((f) => (
+                      <tr
+                        key={f.family}
+                        className={
+                          crossCut.winningFamily?.family === f.family
+                            ? 'notebook-row-winner'
+                            : undefined
+                        }
+                      >
+                        <td>{f.label}</td>
+                        <td className="num">
+                          {f.meanAccuracy == null
+                            ? '—'
+                            : `${Math.round(f.meanAccuracy * 100)}%`}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </VStack>
-        ) : null}
-      </VStack>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+        </Section>
 
-      <VStack className="notebook-section notebook-crosscut" gap={3}>
-        <Heading level={2}>Cross-model conclusion</Heading>
-        {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
-          <Text type="supporting">Aggregating saved runs…</Text>
-        ) : null}
-        {crossCutState === 'idle' && runList.length === 0 ? (
-          <Text type="supporting">
-            Cross-model conclusions appear once at least one run is published.
-          </Text>
-        ) : null}
-        {crossCutState === 'error' ? (
-          <Text type="supporting">Could not build the cross-model summary.</Text>
-        ) : null}
-        {crossCut && crossCutState === 'ready' ? (
-          <>
-            <Text type="supporting">{crossCut.summary}</Text>
-            <HStack gap={2} style={{ flexWrap: 'wrap' }}>
-              {crossCut.winningFamily ? (
-                <Token
-                  label={`Winner family: ${crossCut.winningFamily.label} (${
-                    crossCut.winningFamily.meanAccuracy == null
-                      ? '—'
-                      : `${Math.round(crossCut.winningFamily.meanAccuracy * 100)}%`
-                  })`}
-                  color="teal"
-                  size="sm"
-                />
-              ) : null}
-              {crossCut.winningRep ? (
-                <Token
-                  label={`Best encoding: ${crossCut.winningRep.label} (${
-                    crossCut.winningRep.meanAccuracy == null
-                      ? '—'
-                      : `${Math.round(crossCut.winningRep.meanAccuracy * 100)}%`
-                  })`}
-                  color="teal"
-                  size="sm"
-                />
-              ) : null}
-            </HStack>
-            <div className="notebook-results notebook-results-scroll">
+        <Section id="results" num="03" title="Results">
+          {savedRun ? (
+            <Text type="supporting">
+              Per-representation scores for <code>{savedRun.model}</code>
+              {' '}(seed <code>{savedRun.seed}</code>). Probing OpenRouter from this page is
+              disabled — new runs land via API or CI.
+            </Text>
+          ) : (
+            <Text type="supporting">
+              Results appear here once a run is published. Probing OpenRouter from this page
+              is disabled to avoid surprise spend.
+            </Text>
+          )}
+
+          {savedRun ? (
+            <div className="notebook-results">
               <table>
                 <thead>
                   <tr>
                     <th>Representation</th>
-                    <th>Family</th>
-                    <th className="num">Mean</th>
-                    {crossCut.models.map((m) => (
-                      <th key={m.runId} className="num">
-                        <code>{shortModel(m.model)}</code>
-                      </th>
+                    <th>Correct</th>
+                    <th>Accuracy</th>
+                    {displayQuestions.map((q) => (
+                      <th key={q.id}>{q.id}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {crossCut.rows.map((row) => {
-                    const isWinner = crossCut.winningRep?.repId === row.repId;
-                    return (
-                      <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
-                        <td>{row.label}</td>
-                        <td>{row.family.replace('_', ' ')}</td>
-                        <td className="num">
-                          {row.meanAccuracy == null
-                            ? '—'
-                            : `${Math.round(row.meanAccuracy * 100)}%`}
-                        </td>
-                        {row.byModel.map((cell) => (
-                          <td key={`${row.repId}-${cell.runId}`} className="num">
-                            {cell.done
-                              ? `${cell.correct}/${cell.done}`
-                              : '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                  <tr>
-                    <td><strong>Overall</strong></td>
-                    <td />
-                    <td className="num">
-                      {(() => {
-                        const accs = crossCut.models
-                          .map((m) => m.overallAccuracy)
-                          .filter((a): a is number => a != null);
-                        if (!accs.length) return '—';
-                        const mean = accs.reduce((a, b) => a + b, 0) / accs.length;
-                        return `${Math.round(mean * 100)}%`;
-                      })()}
-                    </td>
-                    {crossCut.models.map((m) => (
-                      <td key={`overall-${m.runId}`} className="num">
-                        {m.cells_done
-                          ? `${m.cells_correct}/${m.cells_done}`
-                          : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div className="notebook-results">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Method family</th>
-                    <th className="num">Mean accuracy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {crossCut.families.map((f) => (
-                    <tr
-                      key={f.family}
-                      className={
-                        crossCut.winningFamily?.family === f.family
-                          ? 'notebook-row-winner'
-                          : undefined
-                      }
-                    >
-                      <td>{f.label}</td>
+                  {summaryRows.map((row) => (
+                    <tr key={row.repId}>
+                      <td>{row.label}</td>
+                      <td className="num">{row.done ? `${row.correct}/${row.done}` : '—'}</td>
                       <td className="num">
-                        {f.meanAccuracy == null
-                          ? '—'
-                          : `${Math.round(f.meanAccuracy * 100)}%`}
+                        {row.acc == null ? '—' : `${(row.acc * 100).toFixed(0)}%`}
                       </td>
+                      {displayQuestions.map((q) => {
+                        const cell = matrix[row.repId]?.[q.id];
+                        if (!cell || cell.status === 'idle') return <td key={q.id}>·</td>;
+                        if (cell.status === 'running') return <td key={q.id}>…</td>;
+                        if (cell.status === 'error') {
+                          return (
+                            <td key={q.id}>
+                              <Token label="err" color="red" size="sm" />
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={q.id}>
+                            <VStack gap={1}>
+                              <Token
+                                label={cell.correct ? 'ok' : 'miss'}
+                                color={cell.correct ? 'teal' : 'orange'}
+                                size="sm"
+                              />
+                              <span className="notebook-answer">{cell.answer}</span>
+                            </VStack>
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </>
-        ) : null}
-      </VStack>
+          ) : null}
+        </Section>
 
-      <VStack className="notebook-section" gap={3}>
-        <Heading level={2}>Results</Heading>
-        {savedRun ? (
+        <Section id="reading" num="04" title="How to read this">
           <Text type="supporting">
-            Per-representation scores for <code>{savedRun.model}</code>
-            {' '}(seed <code>{savedRun.seed}</code>). Probing OpenRouter from this page is
-            disabled — new runs land via API or CI.
+            Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
+            image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
+            markdown color key). If hybrids beat labeled images on the same model, OCR was the
+            bottleneck — production can send color legends in text and keep charts visual-only.
+            Ranked bars and small multiples should dominate who-won / who-lost questions;
+            heatmaps help regime/crash reads; crowded overlays often lose ticker identity.
           </Text>
-        ) : (
-          <Text type="supporting">
-            Results appear here once a run is published. Probing OpenRouter from this page
-            is disabled to avoid surprise spend.
-          </Text>
-        )}
+        </Section>
 
-        {savedRun ? (
+        <Section id="setup" num="05" title="Setup">
+          <Text type="supporting">
+            Seed <code>{universe.seed}</code>, {universe.tradingDays} trading days from{' '}
+            {universe.startDate}, {universe.series.length} fictional tickers (GBM with planted
+            crashes/rallies).
+          </Text>
           <div className="notebook-results">
             <table>
               <thead>
                 <tr>
-                  <th>Representation</th>
-                  <th>Correct</th>
-                  <th>Accuracy</th>
-                  {displayQuestions.map((q) => (
-                    <th key={q.id}>{q.id}</th>
-                  ))}
+                  <th>Ticker</th>
+                  <th>Sector</th>
+                  <th>Start</th>
+                  <th>End</th>
+                  <th>Return %</th>
+                  <th>Daily σ %</th>
+                  <th>Peak date</th>
+                  <th>Crash day</th>
                 </tr>
               </thead>
               <tbody>
-                {summaryRows.map((row) => (
-                  <tr key={row.repId}>
-                    <td>{row.label}</td>
-                    <td className="num">{row.done ? `${row.correct}/${row.done}` : '—'}</td>
-                    <td className="num">
-                      {row.acc == null ? '—' : `${(row.acc * 100).toFixed(0)}%`}
-                    </td>
-                    {displayQuestions.map((q) => {
-                      const cell = matrix[row.repId]?.[q.id];
-                      if (!cell || cell.status === 'idle') return <td key={q.id}>·</td>;
-                      if (cell.status === 'running') return <td key={q.id}>…</td>;
-                      if (cell.status === 'error') {
-                        return (
-                          <td key={q.id}>
-                            <Token label="err" color="red" size="sm" />
-                          </td>
-                        );
-                      }
-                      return (
-                        <td key={q.id}>
-                          <VStack gap={1}>
-                            <Token
-                              label={cell.correct ? 'ok' : 'miss'}
-                              color={cell.correct ? 'teal' : 'orange'}
-                              size="sm"
-                            />
-                            <span className="notebook-answer">{cell.answer}</span>
-                          </VStack>
-                        </td>
-                      );
-                    })}
+                {stats
+                  .slice()
+                  .sort((a, b) => b.totalReturnPct - a.totalReturnPct)
+                  .map((s) => (
+                    <tr key={s.ticker}>
+                      <td>{s.ticker}</td>
+                      <td>{s.sector}</td>
+                      <td className="num">{s.startClose.toFixed(2)}</td>
+                      <td className="num">{s.endClose.toFixed(2)}</td>
+                      <td className="num">{s.totalReturnPct.toFixed(2)}</td>
+                      <td className="num">{s.dailyReturnStdPct.toFixed(3)}</td>
+                      <td className="num">{s.maxCloseDate}</td>
+                      <td className="num">{s.crashDay ?? '—'}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+
+        <Section id="images" num="06" title="Images fed to the LLM">
+          <Text type="supporting">
+            These are the exact chart PNGs used as multimodal user content
+            {hasSavedPayload && savedImages.length
+              ? ' in the saved run (byte-identical to what OpenRouter received).'
+              : ' when probes run (local canvas previews until a run is published).'}
+            {' '}Textless hybrids omit labels; ticker identity lives in the companion markdown key.
+          </Text>
+          {!displayImages.length ? (
+            <Text type="supporting">No images available yet.</Text>
+          ) : (
+            <div className="notebook-image-gallery">
+              {displayImages.map((img) => (
+                <figure key={img.id} className="notebook-image-card">
+                  <figcaption>
+                    <strong>{img.label}</strong>
+                    <span>{img.description}</span>
+                    <code>{img.width}×{img.height} · {img.id}</code>
+                  </figcaption>
+                  <div className="notebook-figure">
+                    <img src={img.dataUrl} alt={`${img.label} — exact image sent to the model`} />
+                  </div>
+                </figure>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        <Section id="reps" num="07" title="Representations">
+          <Text type="supporting">
+            Text packs mirror today&apos;s Copilot tool summary. Image encodings are labeled
+            charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
+            (no OCR). Pick one to inspect the payload.
+          </Text>
+          <HStack gap={2} style={{ flexWrap: 'wrap' }}>
+            {allReps.map((rep) => (
+              <Button
+                key={rep.id}
+                size="sm"
+                variant={selectedRep === rep.id ? 'primary' : 'secondary'}
+                label={'approxTokens' in rep
+                  ? `${rep.label} (~${rep.approxTokens} tok)`
+                  : rep.label}
+                onClick={() => setSelectedRep(rep.id)}
+              />
+            ))}
+          </HStack>
+          {selectedText ? (
+            <VStack gap={2}>
+              <Text type="supporting">{selectedText.description}</Text>
+              <pre className="notebook-code">
+                {selectedText.body.slice(0, 6_000)}
+                {selectedText.body.length > 6_000 ? '\n…' : ''}
+              </pre>
+            </VStack>
+          ) : null}
+          {selectedHybrid ? (
+            <VStack gap={2}>
+              <Text type="supporting">{selectedHybrid.description}</Text>
+              <Text type="supporting">Markdown color key sent with the image:</Text>
+              <pre className="notebook-code">
+                {selectedHybrid.textContext.slice(0, 6_000)}
+                {selectedHybrid.textContext.length > 6_000 ? '\n…' : ''}
+              </pre>
+              <div className="notebook-figure">
+                <img src={selectedHybrid.dataUrl} alt={selectedHybrid.label} />
+              </div>
+            </VStack>
+          ) : null}
+          {selectedImage ? (
+            <VStack gap={2}>
+              <Text type="supporting">{selectedImage.description}</Text>
+              <div className="notebook-figure">
+                <img src={selectedImage.dataUrl} alt={selectedImage.label} />
+              </div>
+            </VStack>
+          ) : null}
+        </Section>
+
+        <Section id="questions" num="08" title="Questions">
+          <Text type="supporting">
+            Each representation answers the same ground-truth prompts (tickers from the
+            synthetic panel).
+          </Text>
+          <div className="notebook-results">
+            <table>
+              <thead>
+                <tr>
+                  <th>Id</th>
+                  <th>Prompt</th>
+                  <th>Expected</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayQuestions.map((q) => (
+                  <tr key={q.id}>
+                    <td><code>{q.id}</code></td>
+                    <td>{q.prompt}</td>
+                    <td className="num">{q.expected}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : null}
-      </VStack>
+        </Section>
+      </div>
 
-      <VStack className="notebook-section" gap={2}>
-        <Heading level={2}>How to read this</Heading>
-        <Text type="supporting">
-          Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
-          image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
-          markdown color key). If hybrids beat labeled images on the same model, OCR was the
-          bottleneck — production can send color legends in text and keep charts visual-only.
-          Ranked bars and small multiples should dominate who-won / who-lost questions;
-          heatmaps help regime/crash reads; crowded overlays often lose ticker identity.
-        </Text>
-      </VStack>
-
-      <VStack className="notebook-section" gap={3}>
-        <Heading level={2}>How this was built</Heading>
-        <Text type="supporting">
-          Seed <code>{universe.seed}</code>, {universe.tradingDays} trading days from{' '}
-          {universe.startDate}, {universe.series.length} fictional tickers (GBM with planted
-          crashes/rallies).
-        </Text>
-        <div className="notebook-results">
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Sector</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Return %</th>
-                <th>Daily σ %</th>
-                <th>Peak date</th>
-                <th>Crash day</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats
-                .slice()
-                .sort((a, b) => b.totalReturnPct - a.totalReturnPct)
-                .map((s) => (
-                  <tr key={s.ticker}>
-                    <td>{s.ticker}</td>
-                    <td>{s.sector}</td>
-                    <td className="num">{s.startClose.toFixed(2)}</td>
-                    <td className="num">{s.endClose.toFixed(2)}</td>
-                    <td className="num">{s.totalReturnPct.toFixed(2)}</td>
-                    <td className="num">{s.dailyReturnStdPct.toFixed(3)}</td>
-                    <td className="num">{s.maxCloseDate}</td>
-                    <td className="num">{s.crashDay ?? '—'}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </VStack>
-
-      <VStack className="notebook-section" gap={3}>
-        <Heading level={2}>Images fed to the LLM</Heading>
-        <Text type="supporting">
-          These are the exact chart PNGs used as multimodal user content
-          {hasSavedPayload && savedImages.length
-            ? ' in the saved run (byte-identical to what OpenRouter received).'
-            : ' when probes run (local canvas previews until a run is published).'}
-          {' '}Textless hybrids omit labels; ticker identity lives in the companion markdown key.
-        </Text>
-        {!displayImages.length ? (
-          <Text type="supporting">No images available yet.</Text>
-        ) : (
-          <div className="notebook-image-gallery">
-            {displayImages.map((img) => (
-              <figure key={img.id} className="notebook-image-card">
-                <figcaption>
-                  <strong>{img.label}</strong>
-                  <span>{img.description}</span>
-                  <code>{img.width}×{img.height} · {img.id}</code>
-                </figcaption>
-                <div className="notebook-figure">
-                  <img src={img.dataUrl} alt={`${img.label} — exact image sent to the model`} />
-                </div>
-              </figure>
-            ))}
-          </div>
-        )}
-      </VStack>
-
-      <VStack className="notebook-section" gap={3}>
-        <Heading level={2}>Representations</Heading>
-        <Text type="supporting">
-          Text packs mirror today&apos;s Copilot tool summary. Image encodings are labeled
-          charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
-          (no OCR). Pick one to inspect the payload.
-        </Text>
-        <HStack gap={2} style={{ flexWrap: 'wrap' }}>
-          {allReps.map((rep) => (
-            <Button
-              key={rep.id}
-              size="sm"
-              variant={selectedRep === rep.id ? 'primary' : 'secondary'}
-              label={'approxTokens' in rep
-                ? `${rep.label} (~${rep.approxTokens} tok)`
-                : rep.label}
-              onClick={() => setSelectedRep(rep.id)}
-            />
-          ))}
-        </HStack>
-        {selectedText ? (
-          <VStack gap={2}>
-            <Text type="supporting">{selectedText.description}</Text>
-            <pre className="notebook-code">
-              {selectedText.body.slice(0, 6_000)}
-              {selectedText.body.length > 6_000 ? '\n…' : ''}
-            </pre>
-          </VStack>
-        ) : null}
-        {selectedHybrid ? (
-          <VStack gap={2}>
-            <Text type="supporting">{selectedHybrid.description}</Text>
-            <Text type="supporting">Markdown color key sent with the image:</Text>
-            <pre className="notebook-code">
-              {selectedHybrid.textContext.slice(0, 6_000)}
-              {selectedHybrid.textContext.length > 6_000 ? '\n…' : ''}
-            </pre>
-            <div className="notebook-figure">
-              <img src={selectedHybrid.dataUrl} alt={selectedHybrid.label} />
-            </div>
-          </VStack>
-        ) : null}
-        {selectedImage ? (
-          <VStack gap={2}>
-            <Text type="supporting">{selectedImage.description}</Text>
-            <div className="notebook-figure">
-              <img src={selectedImage.dataUrl} alt={selectedImage.label} />
-            </div>
-          </VStack>
-        ) : null}
-      </VStack>
-
-      <VStack className="notebook-section" gap={3}>
-        <Heading level={2}>Questions</Heading>
-        <Text type="supporting">
-          Each representation answers the same ground-truth prompts (tickers from the
-          synthetic panel).
-        </Text>
-        <div className="notebook-results">
-          <table>
-            <thead>
-              <tr>
-                <th>Id</th>
-                <th>Prompt</th>
-                <th>Expected</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayQuestions.map((q) => (
-                <tr key={q.id}>
-                  <td><code>{q.id}</code></td>
-                  <td>{q.prompt}</td>
-                  <td className="num">{q.expected}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </VStack>
-    </VStack>
+      <nav className="notebook-toc" aria-label="Experiment sections">
+        <span className="notebook-toc-title">On this page</span>
+        {SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className={activeSection === section.id ? 'notebook-toc-link active' : 'notebook-toc-link'}
+            aria-current={activeSection === section.id ? 'location' : undefined}
+          >
+            <span className="notebook-toc-num">{section.num}</span>
+            <span>{section.label}</span>
+          </a>
+        ))}
+      </nav>
+    </div>
   );
 }
