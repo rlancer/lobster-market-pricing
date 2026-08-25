@@ -77,6 +77,32 @@
   flex-direction: column;
   gap: var(--spacing-4);
 }
+.share-followup {
+  width: 100%;
+  padding-block-start: var(--spacing-2);
+  border-top: var(--border-width) solid var(--color-border);
+}
+.share-msgs .timeline-user-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+}
+.share-msgs .timeline-turn-author {
+  max-width: 92%;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-supporting);
+}
+.share-msgs .timeline-turn-avatar {
+  width: var(--size-element-xs, 1.25rem);
+  height: var(--size-element-xs, 1.25rem);
+  border-radius: var(--radius-full, 999px);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.share-msgs .timeline-turn-handle {
+  color: var(--color-text-supporting);
+}
 .share-state {
   margin: var(--spacing-8) auto;
   max-width: 46ch;

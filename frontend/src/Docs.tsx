@@ -149,6 +149,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats plus bot shares (limit, before cursor, optional handle filter)' },
   { method: 'GET', path: '/api/timeline/rail', desc: 'Desktop timeline column — trending public tags, breaking market news, and SPY/QQQ/IWM/DIA/VIX highlights' },
   { method: 'GET', path: '/api/chats/{id}/rail', desc: 'Desktop chat column — tickers linked to the conversation, related headlines, and a session tape (falls back to market rail when no tickers yet)' },
+  { method: 'POST', path: '/api/chats/fork', desc: 'Fork a public share into a new owned chat seeded with the transcript (session + public handle required); client then sends the follow-up' },
   { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the public timeline (session + handle required). Quality gate rejects incomplete / cut-off answers (422).' },
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
@@ -170,7 +171,7 @@ const SURFACES = [
   {
     route: '/',
     title: 'Timeline',
-    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed) using the same transcript body as live chat — Thinking, Tools used, SQL, charts, desk viewpoints, and query results (hydrated when you expand). Session frames open in a Sources strip with Open in Data, same as /chat. The title opens the unlisted /share/<id> page, and a share control beside the title offers copy link or system Share via…. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>, which reuses the same companion column.',
+    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed) using the same transcript body as live chat — Thinking, Tools used, SQL, charts, desk viewpoints, and query results (hydrated when you expand). Session frames open in a Sources strip with Open in Data, same as /chat. The title opens the unlisted /share/<id> page, and a share control beside the title offers copy link or system Share via…. Under each post, Ask a follow-up forks the transcript into your own chat (Google sign-in + public handle required) so the continue is attributed to you when shared. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>, which reuses the same companion column.',
   },
   {
     route: '/u/<handle>',
@@ -180,7 +181,7 @@ const SURFACES = [
   {
     route: '/share/<id>',
     title: 'Share',
-    body: 'Unlisted read-only transcript for a shared Copilot chat. The id is the capability (no auth). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Timeline, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts).',
+    body: 'Unlisted transcript for a shared Copilot chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Timeline, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
   },
   {
     route: '/account',

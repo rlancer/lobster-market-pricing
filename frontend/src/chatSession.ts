@@ -5,6 +5,8 @@ const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export const ACTIVE_CHAT_KEY = 'openinterest_copilot_chat_id';
 export const LIVE_CHAT_KEY = 'openinterest_copilot_live_chat_id';
 export const PENDING_PROMPT_KEY = 'openinterest_copilot_pending_prompt';
+export const FORK_CONTEXT_KEY = 'openinterest_copilot_fork_context';
+export const PENDING_FORK_KEY = 'openinterest_copilot_pending_fork';
 export const BOT_HANDLE_KEY = 'openinterest_copilot_bot_handle';
 export const BOT_RUN_KEY = 'openinterest_copilot_bot_run_id';
 export const CHATS_CHANGED_EVENT = 'lobster:chats-changed';
@@ -175,6 +177,83 @@ export function peekPendingPrompt(): string | null {
 export function clearPendingPrompt(): void {
   try {
     sessionStorage.removeItem(PENDING_PROMPT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export type ForkContext = {
+  parent_share_id: string;
+  parent_handle: string | null;
+  parent_name: string | null;
+  fork_seed_count: number;
+};
+
+/** Banner context after forking a timeline/share conversation. */
+export function stashForkContext(ctx: ForkContext): void {
+  try {
+    sessionStorage.setItem(FORK_CONTEXT_KEY, JSON.stringify(ctx));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function takeForkContext(): ForkContext | null {
+  try {
+    const raw = sessionStorage.getItem(FORK_CONTEXT_KEY);
+    sessionStorage.removeItem(FORK_CONTEXT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ForkContext>;
+    if (typeof parsed.parent_share_id !== 'string' || !parsed.parent_share_id.trim()) return null;
+    return {
+      parent_share_id: parsed.parent_share_id.trim(),
+      parent_handle: typeof parsed.parent_handle === 'string' ? parsed.parent_handle : null,
+      parent_name: typeof parsed.parent_name === 'string' ? parsed.parent_name : null,
+      fork_seed_count: typeof parsed.fork_seed_count === 'number' ? parsed.fork_seed_count : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export type PendingFork = {
+  share_id: string;
+  question: string;
+};
+
+/**
+ * Stash a follow-up across Google sign-in (OAuth leaves the page). Cleared when
+ * the fork API succeeds or the draft is abandoned.
+ */
+export function stashPendingFork(shareId: string, question: string): void {
+  const share_id = shareId.trim();
+  const q = question.trim();
+  if (!share_id || !q) return;
+  try {
+    sessionStorage.setItem(PENDING_FORK_KEY, JSON.stringify({ share_id, question: q }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function peekPendingFork(): PendingFork | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_FORK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingFork>;
+    if (typeof parsed.share_id !== 'string' || typeof parsed.question !== 'string') return null;
+    const share_id = parsed.share_id.trim();
+    const question = parsed.question.trim();
+    if (!share_id || !question) return null;
+    return { share_id, question };
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingFork(): void {
+  try {
+    sessionStorage.removeItem(PENDING_FORK_KEY);
   } catch {
     /* ignore */
   }

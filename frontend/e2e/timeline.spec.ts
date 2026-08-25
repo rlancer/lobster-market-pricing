@@ -70,7 +70,8 @@ test.describe('Public timeline', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
-    // Identity lives once in the byline — no second avatar on user bubbles.
+    // Identity lives once in the byline — no second avatar on user bubbles
+    // unless a forked follow-up was asked by someone else.
     const author = post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ });
     await expect(author).toBeVisible();
     await expect(author.locator('img.timeline-author-avatar')).toBeVisible();
@@ -84,8 +85,67 @@ test.describe('Public timeline', () => {
     await expect(post.getByLabel('Conversation')).toContainText('Liquidity looks thin across the near-dated SPY call board.');
     // Share control is always available even when the title is hidden.
     await expect(post.getByRole('button', { name: 'Share post' })).toBeVisible();
+    // Follow-up uses ChatComposer (send inside the field); sign-in only after submit.
+    const followUp = post.getByRole('region', { name: 'Ask a follow-up' });
+    await expect(followUp).toBeVisible();
+    const followInput = followUp.getByRole('textbox', { name: 'Message input' });
+    await expect(followInput).toBeVisible();
+    await expect(followUp.getByRole('button', { name: 'Sign in with Google' })).toHaveCount(0);
+    await followInput.fill('What about puts?');
+    await followInput.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Sign in to continue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
     // Admin-only moderation control — anonymous visitors must not see it.
     await expect(post.getByRole('button', { name: 'Unpublish' })).toHaveCount(0);
+  });
+
+  test('forked follow-up turns show the asker when author differs from the post', async ({ page }) => {
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await page.route('**/api/avatars/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: png });
+    });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000099',
+            url: '/share/TestShareId000000000000099',
+            title: 'SPY follow-up thread',
+            excerpt: 'Puts look cleaner.',
+            messages: [
+              { role: 'user', content: 'Should I buy SPY calls?', author: { handle: 'thelobster', name: 'Robert Lancer' } },
+              { role: 'assistant', content: 'Liquidity looks thin.' },
+              {
+                role: 'user',
+                content: 'What about puts instead?',
+                author: { handle: 'deskwhale', name: 'Desk Whale', avatar_url: '/api/avatars/user-2?v=1' },
+              },
+              { role: 'assistant', content: 'Puts look cleaner into the open.' },
+            ],
+            handle: 'deskwhale',
+            name: 'Desk Whale',
+            avatar_url: '/api/avatars/user-2?v=1',
+            published_at: Date.now(),
+            model: null,
+            has_sql: false,
+            has_chart: false,
+          }],
+          next_before: null,
+          profile: null,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const post = page.getByRole('article', { name: 'SPY follow-up thread' });
+    await expect(post).toBeVisible();
+    await expect(post.locator('.timeline-turn-author')).toContainText('@thelobster');
+    await expect(post.getByLabel('Conversation')).toContainText('What about puts instead?');
   });
 
   test('timeline title opens the share page and share menu offers Copy link / Share via', async ({ page }) => {
