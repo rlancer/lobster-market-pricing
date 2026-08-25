@@ -10,6 +10,8 @@
  *   API_BASE     — Worker origin (default https://api-dev.lobster.mp)
  *   MODEL        — OpenRouter model slug (default openai/gpt-4o-mini)
  *   SLUG         — experiment slug (default text-vs-image)
+ *   SEED         — optional synthetic panel seed (default SYNTH_SEED)
+ *   INCLUDE_HYBRIDS — 1/0 include multimodal color-keyed reps (default 1)
  */
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +30,11 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const MODEL = process.env.MODEL ?? 'openai/gpt-4o-mini';
 const SLUG = process.env.SLUG ?? 'text-vs-image';
 const INCLUDE_HYBRIDS = (process.env.INCLUDE_HYBRIDS ?? '1') !== '0';
+/** Optional panel seed — defaults to SYNTH_SEED inside the harness when unset/invalid. */
+const SEED_RAW = process.env.SEED?.trim() ?? '';
+const SEED = SEED_RAW && Number.isFinite(Number(SEED_RAW))
+  ? Math.trunc(Number(SEED_RAW))
+  : null;
 
 if (!ADMIN_TOKEN) {
   console.error('ADMIN_TOKEN is required');
@@ -39,6 +46,7 @@ async function bundleBrowserHarness() {
   const dir = mkdtempSync(join(tmpdir(), 'tvsi-'));
   const entry = join(dir, 'entry.ts');
   const outfile = join(dir, 'harness.js');
+  const seedExpr = SEED == null ? 'undefined' : String(SEED);
 
   writeFileSync(
     entry,
@@ -49,7 +57,7 @@ import { buildImageRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'imag
 import { buildHybridRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'hybridRepresentations.ts'))};
 import { buildQuestions, scoreAnswer, SYSTEM_PROBE } from ${JSON.stringify(join(NOTEBOOKS, 'questions.ts'))};
 
-const universe = buildSynthUniverse();
+const universe = buildSynthUniverse(${seedExpr});
 const textReps = buildTextRepresentations(universe);
 const images = buildImageRepresentations(universe);
 const hybrids = buildHybridRepresentations(universe);
@@ -143,6 +151,7 @@ async function main() {
   console.log(`MODEL=${MODEL}`);
   console.log(`SLUG=${SLUG}`);
   console.log(`INCLUDE_HYBRIDS=${INCLUDE_HYBRIDS}`);
+  console.log(`SEED=${SEED == null ? '(default SYNTH_SEED)' : SEED}`);
 
   const harness = await bundleBrowserHarness();
   const browser = await chromium.launch({

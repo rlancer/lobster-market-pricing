@@ -7,6 +7,19 @@ import { type SynthUniverse, universeStats } from './syntheticSeries.ts';
 
 export type AnswerKind = 'ticker' | 'ticker_list' | 'date' | 'number' | 'boolean';
 
+/**
+ * Questions that require pixel-precise reads charts rarely support (exact
+ * calendar dates). Excluded from labeled-image / hybrid family means so the
+ * text-vs-image comparison is not inflated by chart-hostile prompts.
+ */
+export const CHART_HOSTILE_QUESTION_IDS = ['best_peak_date'] as const;
+
+export type ChartHostileQuestionId = (typeof CHART_HOSTILE_QUESTION_IDS)[number];
+
+export function isChartHostileQuestionId(id: string): boolean {
+  return (CHART_HOSTILE_QUESTION_IDS as readonly string[]).includes(id);
+}
+
 export interface ExperimentQuestion {
   id: string;
   prompt: string;
@@ -71,7 +84,9 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
       prompt: `On which date did ${best.ticker} reach its maximum closing price in the sample? Reply YYYY-MM-DD.`,
       kind: 'date',
       expected: best.maxCloseDate,
-      notes: `Peak close ${best.maxClose.toFixed(2)} on ${best.maxCloseDate}.`,
+      notes:
+        `Peak close ${best.maxClose.toFixed(2)} on ${best.maxCloseDate}. `
+        + 'Chart-hostile: exact YYYY-MM-DD is excluded from image/hybrid family means.',
     },
     {
       id: 'finished_above_start',

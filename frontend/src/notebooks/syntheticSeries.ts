@@ -5,6 +5,15 @@
  */
 
 export const SYNTH_SEED = 0x1a2b3c4d;
+/**
+ * Extra panel seeds for multi-seed text-vs-image probes. Keep the canonical
+ * SYNTH_SEED first so existing published runs stay comparable.
+ */
+export const EXPERIMENT_SEEDS = [
+  SYNTH_SEED,
+  0x2b3c4d5e,
+  0x51f00d17,
+] as const;
 export const SYNTH_TRADING_DAYS = 126; // ~6 months
 export const SYNTH_START_DATE = '2025-01-02';
 
