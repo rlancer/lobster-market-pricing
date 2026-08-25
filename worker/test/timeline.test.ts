@@ -78,6 +78,31 @@ test("previewMessagesFromShare returns the full slimmed conversation with sql an
   assert.deepEqual(preview[3], { role: "assistant", content: "Later turn." });
 });
 
+test("previewMessagesFromShare keeps per-turn authors on forked follow-ups", () => {
+  const preview = previewMessagesFromShare([
+    {
+      role: "user",
+      content: "Should I buy SPY calls?",
+      author: { handle: "thelobster", name: "Robert Lancer" },
+    },
+    { role: "assistant", content: "Liquidity looks thin." },
+    {
+      role: "user",
+      content: "What about puts instead?",
+      author: { handle: "deskwhale", name: "Desk Whale", avatar_url: "/api/avatars/u2" },
+    },
+    { role: "assistant", content: "Puts look cleaner." },
+  ]);
+  assert.equal(preview.length, 4);
+  assert.deepEqual(preview[0]?.author, { handle: "thelobster", name: "Robert Lancer" });
+  assert.deepEqual(preview[2]?.author, {
+    handle: "deskwhale",
+    name: "Desk Whale",
+    avatar_url: "/api/avatars/u2",
+  });
+  assert.equal("author" in (preview[1] ?? {}), false);
+});
+
 test("previewMessagesFromShare falls back to a lone user turn or title", () => {
   assert.deepEqual(
     previewMessagesFromShare([{ role: "user", content: "Hello" }]),

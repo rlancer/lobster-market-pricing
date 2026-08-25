@@ -88,6 +88,17 @@
   align-items: flex-start;
   gap: var(--spacing-1);
 }
+.share-msgs .transcript-turn-row .post-share,
+.share-msgs .transcript-turn-actions .post-share {
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+.share-msgs .transcript-turn-row .post-share:hover,
+.share-msgs .transcript-turn-row .post-share:focus-within,
+.share-msgs .transcript-turn-actions .post-share:hover,
+.share-msgs .transcript-turn-actions .post-share:focus-within {
+  opacity: 1;
+}
 .share-msgs .timeline-turn-author {
   max-width: 92%;
   font-size: var(--font-size-sm);

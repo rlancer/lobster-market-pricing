@@ -17,7 +17,7 @@ import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
-import { PostShareButton } from './PostShareButton';
+import { PostShareButton, messageShareFragment, messageShareUrl } from './PostShareButton';
 import { TimelineFollowUp } from './TimelineFollowUp';
 import { UserAvatar } from './UserAvatar';
 
@@ -253,6 +253,9 @@ export function TimelinePostRow({
                   openInData
                   hydrateResult={hydrateResult}
                   collapseSql
+                  anchorId={messageShareFragment(index)}
+                  shareUrl={messageShareUrl(post.url, index)}
+                  shareTitle={titleText}
                   userLabel={showTurnAuthor ? (
                     <HStack gap={1} vAlign="center" className="timeline-turn-author">
                       <UserAvatar

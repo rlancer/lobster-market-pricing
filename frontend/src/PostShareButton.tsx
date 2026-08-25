@@ -7,18 +7,33 @@ function absoluteUrl(pathOrUrl: string): string {
   return new URL(pathOrUrl, window.location.href).toString();
 }
 
+/** Fragment id for a turn inside a shared transcript (`#m-0`, `#m-1`, …). */
+export function messageShareFragment(index: number): string {
+  return `m-${Math.max(0, Math.floor(index))}`;
+}
+
+/** Capability URL that deep-links to one turn in `/share/:id` (or a timeline post url). */
+export function messageShareUrl(sharePathOrUrl: string, index: number): string {
+  const base = sharePathOrUrl.split('#')[0] || sharePathOrUrl;
+  return `${base}#${messageShareFragment(index)}`;
+}
+
 /**
  * Share control for a public post — icon trigger with Copy link and
  * Share via… (system share sheet when available). Used on the timeline
- * feed and the /share page.
+ * feed, the /share page, and per-turn rows inside a conversation.
  */
 export function PostShareButton({
   url,
   title,
+  tooltip = 'Share',
+  label = 'Share post',
 }: {
-  /** Relative or absolute post URL, e.g. `/share/abc`. */
+  /** Relative or absolute post URL, e.g. `/share/abc` or `/share/abc#m-2`. */
   url: string;
   title: string;
+  tooltip?: string;
+  label?: string;
 }) {
   // Detect after mount so SSR/hydration never disagree on the menu shape.
   const [canNativeShare, setCanNativeShare] = useState(false);
@@ -52,12 +67,12 @@ export function PostShareButton({
       hasChevron={false}
       menuWidth="11rem"
       button={{
-        label: 'Share post',
+        label,
         icon: <Share2 size={16} aria-hidden="true" />,
         variant: 'ghost',
         size: 'sm',
         isIconOnly: true,
-        tooltip: 'Share',
+        tooltip,
       }}
       items={[
         {
