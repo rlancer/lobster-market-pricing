@@ -129,7 +129,7 @@ function TrackTradeButton({
 }
 
 /** Render a leg with clickable market_ticker / symbol entities. */
-function TradeLegView({ leg }: { leg: TradeLeg }): ReactNode {
+export function TradeLegView({ leg }: { leg: TradeLeg }): ReactNode {
   const kind = resolveInstrument(leg);
   const qty = leg.qty != null ? `${leg.qty} ` : '';
   if (kind === 'kalshi') {

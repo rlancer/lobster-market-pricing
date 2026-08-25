@@ -17,6 +17,7 @@ import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
+import { EntityLink } from './EntityLink';
 import { PostShareButton } from './PostShareButton';
 import { UserAvatar } from './UserAvatar';
 
@@ -215,14 +216,11 @@ export function TimelinePostRow({
           {tickers.length > 0 && (
             <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tags">
               {tickers.map((ticker) => (
-                <Link
+                <EntityLink
                   key={ticker}
-                  to="/research/$ticker"
-                  params={{ ticker }}
-                  className="timeline-ticker"
-                >
-                  {ticker}
-                </Link>
+                  value={ticker}
+                  className="timeline-ticker entity-link"
+                />
               ))}
             </HStack>
           )}

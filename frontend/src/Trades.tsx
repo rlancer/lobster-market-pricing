@@ -16,7 +16,7 @@ import { Search } from 'lucide-react';
 import { useIsAdmin } from './useAdmin';
 import { api, type AdminSuggestedTrade } from './api';
 import { EntityLink } from './EntityLink';
-import { formatTradeLeg } from './SuggestedTrades';
+import { formatTradeLeg, TradeLegView } from './SuggestedTrades';
 import './Trades.css';
 
 type AdminTradeRow = AdminSuggestedTrade & Record<string, unknown>;
@@ -210,7 +210,12 @@ export default function TradesPage() {
                   <Text weight="semibold">{trade.structure}</Text>
                   {trade.legs?.length ? (
                     <Text type="supporting" size="sm" className="trades-legs">
-                      {trade.legs.map(formatTradeLeg).join(' · ')}
+                      {trade.legs.map((leg, i) => (
+                        <span key={i}>
+                          {i > 0 ? ' · ' : ''}
+                          <TradeLegView leg={leg} />
+                        </span>
+                      ))}
                     </Text>
                   ) : null}
                 </VStack>

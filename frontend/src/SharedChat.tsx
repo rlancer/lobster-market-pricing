@@ -6,6 +6,7 @@ import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
+import { EntityLink } from './EntityLink';
 import { PostShareButton } from './PostShareButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME } from './pageMeta';
@@ -125,14 +126,11 @@ function SharedChatRoute() {
             {(share.tickers?.length ?? 0) > 0 && (
               <HStack gap={2} vAlign="center" className="share-tickers" aria-label="Tags">
                 {share.tickers!.map((ticker) => (
-                  <Link
+                  <EntityLink
                     key={ticker}
-                    to="/research/$ticker"
-                    params={{ ticker }}
-                    className="share-ticker"
-                  >
-                    {ticker}
-                  </Link>
+                    value={ticker}
+                    className="share-ticker entity-link"
+                  />
                 ))}
               </HStack>
             )}

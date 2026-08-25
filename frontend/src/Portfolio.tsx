@@ -19,7 +19,7 @@ import {
 import { authClient } from './auth';
 import { BotTradesSection } from './BotTradesSection';
 import { EntityLink } from './EntityLink';
-import { formatTradeLeg } from './SuggestedTrades';
+import { TradeLegView } from './SuggestedTrades';
 import './Portfolio.css';
 
 type PositionRow = PaperPosition & Record<string, unknown>;
@@ -381,7 +381,12 @@ export default function PortfolioPage() {
                       <Text weight="semibold">{row.structure}</Text>
                       {row.legs?.length ? (
                         <Text type="supporting" size="sm" className="portfolio-legs">
-                          {row.legs.map(formatTradeLeg).join(' · ')}
+                          {row.legs.map((leg, i) => (
+                            <span key={i}>
+                              {i > 0 ? ' · ' : ''}
+                              <TradeLegView leg={leg} />
+                            </span>
+                          ))}
                         </Text>
                       ) : null}
                     </VStack>

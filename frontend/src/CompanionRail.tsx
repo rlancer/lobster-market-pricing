@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import {
   Heading,
   HStack,
@@ -13,6 +13,8 @@ import type {
   TimelineRailNewsItem,
   TimelineRailTag,
 } from './api';
+import { EntityLink } from './EntityLink';
+import { classifyEntity } from './entityLinks';
 import './CompanionRail.css';
 
 export interface CompanionRailTag extends TimelineRailTag {
@@ -100,21 +102,13 @@ export function CompanionRail({
               <Text type="supporting">{labels.tagsEmpty}</Text>
             ) : (
               <HStack gap={2} wrap="wrap" className="companion-rail-tags" aria-label={labels.tags}>
-                {tags.map((tag) => {
-                  const noun = tag.countNoun ?? 'post';
-                  const count = tag.posts;
-                  return (
-                    <Link
+                {tags.map((tag) => (
+                    <EntityLink
                       key={tag.ticker}
-                      to="/research/$ticker"
-                      params={{ ticker: tag.ticker }}
-                      className="companion-rail-ticker"
-                      aria-label={`${tag.ticker}, ${count} ${noun}${count === 1 ? '' : 's'}`}
-                    >
-                      {tag.ticker}
-                    </Link>
-                  );
-                })}
+                      value={tag.ticker}
+                      className="companion-rail-ticker entity-link"
+                    />
+                ))}
               </HStack>
             )}
           </VStack>
@@ -164,7 +158,16 @@ export function CompanionRail({
                     label={item.ticker}
                     description={`${item.name} · ${fmtSpot(item.spot)}`}
                     onClick={() => {
-                      void navigate({ to: '/research/$ticker', params: { ticker: item.ticker } });
+                      const entity = classifyEntity(item.ticker);
+                      if (!entity) return;
+                      if (entity.kind === 'security') {
+                        void navigate({ to: '/research/$ticker', params: { ticker: entity.id } });
+                      } else {
+                        void navigate({
+                          to: '/research/kalshi/$marketTicker',
+                          params: { marketTicker: entity.id },
+                        });
+                      }
                     }}
                     endContent={
                       <Text
