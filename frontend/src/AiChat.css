@@ -97,6 +97,22 @@
   background: var(--color-accent-muted);
   color: var(--color-text-accent);
   font-size: var(--font-size-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+.ai-fork-link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+.ai-fork-link:hover {
+  color: var(--color-text);
+}
+.ai-fork-dismiss {
+  margin-inline-start: auto;
 }
 .ai-head-actions {
   display: flex;

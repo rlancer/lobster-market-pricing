@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
-import { HStack, Spinner, Timestamp } from '@astryxdesign/core';
+import { HStack, Spinner, Timestamp, VStack } from '@astryxdesign/core';
 import './SharedChat.css';
 import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { PostShareButton } from './PostShareButton';
+import { TimelineFollowUp } from './TimelineFollowUp';
+import { UserAvatar } from './UserAvatar';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME } from './pageMeta';
 
 /**
  * Public share page (/share/:shareId) — renders a shared Copilot transcript
- * read-only. The link is the capability (unlisted, unguessable), so there is
- * no auth, no composer, and no settings — it is a read-only artifact inside
- * the workspace shell (same SideNav / mobile drawer as the rest of the app).
+ * with an optional follow-up composer. The link is the capability (unlisted,
+ * unguessable). Asking a follow-up requires sign-in + a public handle so the
+ * forked chat can show who continued the thread.
  */
 function SharedChatRoute() {
   const { shareId } = useParams({ strict: false }) as { shareId?: string };
@@ -155,16 +157,50 @@ function SharedChatRoute() {
           {(() => {
             const messages = coalesceAssistantMessages(share.messages);
             const frames = framesFromMessages(messages);
+            const postHandle = (share.bot ?? share.author)?.handle;
             return (
               <>
                 {frames.length > 0 && (
                   <ChatContextStrip frames={frames} />
                 )}
                 <section className="share-msgs" aria-label="Shared conversation">
-                  {messages.map((m: SharedChatMessage, i: number) => (
-                    <TranscriptMessage key={i} message={m} openInData collapseSql />
-                  ))}
+                  {messages.map((m: SharedChatMessage, i: number) => {
+                    const turnAuthor = m.role === 'user' ? m.author : undefined;
+                    const showTurnAuthor = Boolean(
+                      turnAuthor?.handle
+                      && postHandle
+                      && turnAuthor.handle.toLowerCase() !== postHandle.toLowerCase(),
+                    );
+                    return (
+                      <TranscriptMessage
+                        key={i}
+                        message={m}
+                        openInData
+                        collapseSql
+                        userLabel={showTurnAuthor ? (
+                          <HStack gap={1} vAlign="center" className="timeline-turn-author">
+                            <UserAvatar
+                              avatarUrl={turnAuthor!.avatar_url}
+                              className="timeline-turn-avatar"
+                              alt=""
+                            />
+                            <span>
+                              {turnAuthor!.name?.trim() || turnAuthor!.handle}
+                              {' '}
+                              <span className="timeline-turn-handle">@{turnAuthor!.handle}</span>
+                            </span>
+                          </HStack>
+                        ) : null}
+                      />
+                    );
+                  })}
                 </section>
+                <VStack gap={0} className="share-followup">
+                  <TimelineFollowUp
+                    shareId={share.share_id}
+                    postHandle={postHandle}
+                  />
+                </VStack>
               </>
             );
           })()}

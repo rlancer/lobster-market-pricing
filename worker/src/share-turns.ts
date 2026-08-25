@@ -34,6 +34,8 @@ export type ShareTurn = {
   trades?: SuggestedTrades;
   tools?: ShareToolRow[];
   frames?: ShareFrame[];
+  /** Per-turn asker when a timeline follow-up forks another user's share. */
+  author?: { handle: string; name: string; is_bot?: boolean; avatar_url?: string | null };
   ts?: number;
 };
 

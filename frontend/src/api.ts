@@ -483,6 +483,16 @@ export interface SharedChatMessage extends ChatHistoryMessage {
     sql: string;
     fetched_at: number;
   }[];
+  /**
+   * Who asked this user turn — set on forked follow-ups so the timeline can
+   * show the original asker vs the person who continued the thread.
+   */
+  author?: {
+    handle: string;
+    name: string;
+    is_bot?: boolean;
+    avatar_url?: string | null;
+  };
 }
 
 export type ShareChatMessage = SharedChatMessage;
@@ -918,6 +928,22 @@ export interface UserChatClaim {
   chat_id: string;
   title: string | null;
   created: boolean;
+}
+
+/** Response of POST /api/chats/fork — timeline follow-up into a new owned chat. */
+export interface ChatForkResponse {
+  ok: true;
+  chat_id: string;
+  title: string;
+  parent_share_id: string;
+  parent_author: {
+    handle: string;
+    name: string;
+    is_bot?: boolean;
+    avatar_url?: string | null;
+  } | null;
+  fork_seed_count: number;
+  question: string;
 }
 
 export interface TickerIdentity {
@@ -1471,6 +1497,9 @@ export const api = {
   myChats: () => get<UserChatList>('/api/chats'),
   claimChat: (chat_id: string, title?: string) =>
     post<UserChatClaim>('/api/chats/claim', { chat_id, ...(title ? { title } : {}) }),
+  /** Fork a public share into a new owned chat (session + handle required). */
+  forkChat: (share_id: string, question: string) =>
+    post<ChatForkResponse>('/api/chats/fork', { share_id, question }),
   renameChat: (chatId: string, title: string) =>
     patch<{ ok: boolean; title: string }>(`/api/chats/${encodeURIComponent(chatId)}`, { title }),
   deleteChat: (chatId: string) =>

@@ -217,8 +217,8 @@
 }
 
 /* Feed bubbles sit edge-to-edge. Author ask is start-aligned; lobster answer
-   is end-aligned with the brand mark on the right. Identity is only in the
-   byline — no second avatar beside user turns. */
+   is end-aligned with the brand mark on the right. Identity is in the byline;
+   per-turn author chrome only appears for forked follow-ups by someone else. */
 .timeline-msgs .ai-msg {
   width: 100%;
 }
@@ -246,6 +246,34 @@
   /* Tail toward the right-side mark. */
   border-bottom-left-radius: var(--radius-container);
   border-bottom-right-radius: var(--radius-inner);
+}
+
+.timeline-msgs .timeline-user-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+}
+
+.timeline-turn-author {
+  max-width: 92%;
+}
+
+.timeline-turn-avatar {
+  width: var(--size-element-xs, 1.25rem);
+  height: var(--size-element-xs, 1.25rem);
+  border-radius: var(--radius-full, 999px);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.timeline-turn-handle {
+  color: var(--color-text-supporting);
+}
+
+.timeline-followup {
+  width: 100%;
+  padding-block-start: var(--spacing-1);
 }
 
 .timeline-author-link:hover {
