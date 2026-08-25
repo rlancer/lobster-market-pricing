@@ -254,7 +254,9 @@ export function TimelinePostRow({
                   hydrateResult={hydrateResult}
                   collapseSql
                   anchorId={messageShareFragment(index)}
-                  shareUrl={messageShareUrl(post.url, index)}
+                  shareUrl={message.role === 'assistant'
+                    ? messageShareUrl(post.url, index)
+                    : undefined}
                   shareTitle={titleText}
                   userLabel={showTurnAuthor ? (
                     <HStack gap={1} vAlign="center" className="timeline-turn-author">

@@ -1325,14 +1325,18 @@ function AiChatSession({
 
                     {projectedMessages.map((message, index) => {
                       const isLive = message.role === 'assistant' && message.id === liveAssistantId;
-                      const canShareTurn = !accessBlocked && !isLive && Boolean(message.content?.trim());
+                      // Per-turn share is for replies to people (assistant answers), not user asks.
+                      const canShareTurn = message.role === 'assistant'
+                        && !accessBlocked
+                        && !isLive
+                        && Boolean(message.content?.trim());
                       const shareTurnButton = canShareTurn ? (
                         <IconButton
-                          label="Share through this message"
+                          label="Share through this reply"
                           icon={<Share2 size={14} />}
                           variant="ghost"
                           size="sm"
-                          tooltip="Share conversation through this message"
+                          tooltip="Share conversation through this reply"
                           isDisabled={shareBusy}
                           isLoading={shareBusy && shareThroughIndex === index}
                           onClick={() => { void shareChat(index); }}
@@ -1344,9 +1348,6 @@ function AiChatSession({
                             <div className="ai-bubble">
                               {message.content ? <div className="ai-text">{message.content}</div> : null}
                             </div>
-                            {shareTurnButton ? (
-                              <div className="ai-msg-share">{shareTurnButton}</div>
-                            ) : null}
                           </div>
                         );
                       }
@@ -1512,7 +1513,7 @@ function AiChatSession({
                       </div>
                       {shareThroughIndex != null && (
                         <p className="ai-share-through-note">
-                          Includes the conversation through message {shareThroughIndex + 1}.
+                          Includes the conversation through this reply.
                         </p>
                       )}
                       <Switch

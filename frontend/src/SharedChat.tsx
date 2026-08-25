@@ -189,7 +189,9 @@ function SharedChatRoute() {
                         openInData
                         collapseSql
                         anchorId={messageShareFragment(i)}
-                        shareUrl={messageShareUrl(`/share/${share.share_id}`, i)}
+                        shareUrl={m.role === 'assistant'
+                          ? messageShareUrl(`/share/${share.share_id}`, i)
+                          : undefined}
                         shareTitle={shareTitle || 'Shared chat'}
                         userLabel={showTurnAuthor ? (
                           <HStack gap={1} vAlign="center" className="timeline-turn-author">

@@ -213,10 +213,10 @@ test.describe('Public timeline', () => {
     await expect(title).toHaveAttribute('href', '/share/TestShareId000000000000042');
     // Share sits on the title row, not down in the meta footer.
     await expect(post.locator('.timeline-post-head').getByRole('button', { name: 'Share post' })).toBeVisible();
-    // Every turn also has a share control that deep-links with #m-N.
-    await expect(post.getByLabel('Conversation').getByRole('button', { name: 'Share message' })).toHaveCount(2);
+    // Each assistant reply has a share control that deep-links with #m-N.
+    await expect(post.getByLabel('Conversation').getByRole('button', { name: 'Share reply' })).toHaveCount(1);
 
-    await post.getByLabel('Conversation').getByRole('button', { name: 'Share message' }).nth(1).click();
+    await post.getByLabel('Conversation').getByRole('button', { name: 'Share reply' }).click();
     await expect(page.getByRole('menuitem', { name: 'Copy link' })).toBeVisible();
     await page.keyboard.press('Escape');
 
@@ -230,7 +230,7 @@ test.describe('Public timeline', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/share/TestShareId000000000000042');
     await expect(page.getByRole('heading', { name: 'SPY call setup' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Share post' })).toBeVisible();
-    await expect(page.getByLabel('Shared conversation').getByRole('button', { name: 'Share message' })).toHaveCount(2);
+    await expect(page.getByLabel('Shared conversation').getByRole('button', { name: 'Share reply' })).toHaveCount(1);
   });
 
   test('timeline posts expand the full conversation in place', async ({ page }) => {

@@ -265,8 +265,8 @@ export function TranscriptMessage({
     <PostShareButton
       url={shareUrl}
       title={shareTitle || 'Shared chat'}
-      label="Share message"
-      tooltip="Share this message"
+      label="Share reply"
+      tooltip="Share this reply"
     />
   ) : null;
 
