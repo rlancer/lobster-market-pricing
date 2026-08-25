@@ -11,7 +11,8 @@ import {
 } from '@astryxdesign/core';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import { api, type BotTradePosition, type BotTradesBook } from './api';
-import { formatTradeLeg } from './SuggestedTrades';
+import { EntityLink } from './EntityLink';
+import { TradeLegView } from './SuggestedTrades';
 import './Portfolio.css';
 
 type PositionRow = BotTradePosition & Record<string, unknown>;
@@ -225,7 +226,7 @@ export function BotTradesSection({
               header: 'Ticker',
               width: pixel(72),
               renderCell: (row) => (
-                <Text weight="semibold" hasTabularNumbers>{row.ticker}</Text>
+                <EntityLink value={row.ticker} className="entity-link" showExternals />
               ),
             },
             {
@@ -265,7 +266,12 @@ export function BotTradesSection({
                   <Text weight="semibold">{row.structure}</Text>
                   {row.legs?.length ? (
                     <Text type="supporting" size="sm" className="portfolio-legs">
-                      {row.legs.map(formatTradeLeg).join(' · ')}
+                      {row.legs.map((leg, i) => (
+                        <span key={i}>
+                          {i > 0 ? ' · ' : ''}
+                          <TradeLegView leg={leg} />
+                        </span>
+                      ))}
                     </Text>
                   ) : null}
                 </VStack>

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { Heading, HStack, IconButton, Spinner, Text, VStack } from '@astryxdesign/core';
 import { X } from 'lucide-react';
 import { api, type ChatTickerLink } from './api';
 import { CopyButton } from './CopyButton';
+import { EntityLink } from './EntityLink';
 import './Research.css';
 
 export interface FrameMetadata {
@@ -115,28 +116,22 @@ export function ChatContextStrip({
 
   const tickerChips = chatId
     ? links.map((link) => (
-      <Link
+      <EntityLink
         key={`ticker:${link.security_id}`}
-        to="/research/$ticker"
-        params={{ ticker: link.ticker }}
-        className="ai-frame-chip chat-context-chip chat-ticker-link"
-        aria-label={`Open ${link.ticker} details`}
-        title={`${link.ticker} details`}
+        value={link.ticker}
+        className="ai-frame-chip chat-context-chip chat-ticker-link entity-link"
       >
         <b>{link.ticker}</b>
-      </Link>
+      </EntityLink>
     ))
     : staticTickers.map((ticker) => (
-      <Link
+      <EntityLink
         key={`ticker:${ticker}`}
-        to="/research/$ticker"
-        params={{ ticker }}
-        className="ai-frame-chip chat-context-chip chat-ticker-link"
-        aria-label={`Open ${ticker} details`}
-        title={`${ticker} details`}
+        value={ticker}
+        className="ai-frame-chip chat-context-chip chat-ticker-link entity-link"
       >
         <b>{ticker}</b>
-      </Link>
+      </EntityLink>
     ));
 
   const chips = (

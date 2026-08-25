@@ -13,6 +13,7 @@ import {
   ChatContextStrip,
   type FrameMetadata,
 } from './ChatContextStrip';
+import { classifyEntity } from './entityLinks';
 import './CompanionRail.css';
 
 const CHAT_RAIL_LABELS = {
@@ -121,7 +122,16 @@ function NewsAndTape({
                 label={item.ticker}
                 description={`${item.name} · ${fmtSpot(item.spot)}`}
                 onClick={() => {
-                  void navigate({ to: '/research/$ticker', params: { ticker: item.ticker } });
+                  const entity = classifyEntity(item.ticker);
+                  if (!entity) return;
+                  if (entity.kind === 'security') {
+                    void navigate({ to: '/research/$ticker', params: { ticker: entity.id } });
+                  } else {
+                    void navigate({
+                      to: '/research/kalshi/$marketTicker',
+                      params: { marketTicker: entity.id },
+                    });
+                  }
                 }}
                 endContent={
                   <Text className={`companion-rail-change ${changeClass(item.change_1d_pct)}`}>

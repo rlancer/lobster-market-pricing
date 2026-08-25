@@ -5,6 +5,7 @@ import {
   kalshiSeriesUrl,
   kalshiYesProb,
   mapKalshiMarketBrief,
+  parseKalshiParam,
   rankResearchKalshiMarkets,
   selectResearchKalshiMarkets,
   type KalshiMarketBrief,
@@ -41,6 +42,19 @@ describe("kalshiSeriesUrl", () => {
     assert.equal(kalshiSeriesUrl(""), null);
     assert.equal(kalshiSeriesUrl("../evil"), null);
     assert.equal(kalshiSeriesUrl("KX FED"), null);
+  });
+});
+
+describe("parseKalshiParam", () => {
+  it("accepts market and series tickers", () => {
+    assert.equal(parseKalshiParam("kxfed-27apr-t4.25"), "KXFED-27APR-T4.25");
+    assert.equal(parseKalshiParam("KXFED"), "KXFED");
+  });
+
+  it("rejects junk", () => {
+    assert.equal(parseKalshiParam(""), null);
+    assert.equal(parseKalshiParam("a"), null);
+    assert.equal(parseKalshiParam("../x"), null);
   });
 });
 

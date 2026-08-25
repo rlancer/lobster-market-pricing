@@ -285,12 +285,12 @@ export const FEEDS: CatalogItem[] = [
     title: 'Kalshi event contracts',
     summary: 'Curated Fed/CPI/index/crypto/oil prediction markets',
     description:
-      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI. Not the full Kalshi catalog (sports/entertainment excluded). Each row carries yes/no bids, last, volume/OI, close_time, theme, and optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Powers /research/{ticker} event-market rails via GET /api/research/{ticker}/kalshi, Copilot event-vol joins, and Kalshi trade suggestions.',
+      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI. Not the full Kalshi catalog (sports/entertainment excluded). Each row carries yes/no bids, last, volume/OI, close_time, theme, and optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Powers /research/{ticker} event-market rails via GET /api/research/{ticker}/kalshi, /research/kalshi/{marketTicker} detail via GET /api/research/kalshi/{marketTicker}, Copilot event-vol joins, and Kalshi trade suggestions.',
     provider: 'Kalshi',
     cadence: 'Hourly (kalshi-markets-hourly job)',
     tables: ['kalshi_markets'],
     tools: ['run_query', 'suggest_trades'],
-    endpoint: 'GET /api/research/{ticker}/kalshi',
+    endpoint: 'GET /api/research/{ticker}/kalshi · GET /api/research/kalshi/{marketTicker}',
   },
   {
     id: 'feed:federalreserve',
@@ -618,7 +618,7 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   kalshi_markets: {
     summary: 'Curated Kalshi event-contract odds',
     description:
-      'Investing-relevant Kalshi markets only (Fed/CPI/GDP/indexes/crypto/oil): series_ticker, market_ticker, title, theme, yes_bid/yes_ask/yes_last (0–1), volume/OI, close_time, related_symbol. Hourly snapshots; latest-wins on market_ticker. Join related_symbol to options.ohlc / option_contracts for event-vol context. Powers /research/{ticker} Event markets (GET /api/research/{ticker}/kalshi) and Kalshi legs in suggest_trades.',
+      'Investing-relevant Kalshi markets only (Fed/CPI/GDP/indexes/crypto/oil): series_ticker, market_ticker, title, theme, yes_bid/yes_ask/yes_last (0–1), volume/OI, close_time, related_symbol. Hourly snapshots; latest-wins on market_ticker. Join related_symbol to options.ohlc / option_contracts for event-vol context. Powers /research/{ticker} Event markets (GET /api/research/{ticker}/kalshi), /research/kalshi/{marketTicker} detail (GET /api/research/kalshi/{marketTicker}), and Kalshi legs in suggest_trades.',
     feeds: ['kalshi'],
     tools: ['run_query', 'suggest_trades'],
   },

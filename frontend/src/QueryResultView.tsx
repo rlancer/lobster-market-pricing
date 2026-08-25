@@ -1,4 +1,7 @@
+import type { ReactNode } from 'react';
 import type { QueryResult } from './api';
+import { EntityLink } from './EntityLink';
+import { classifyEntity, columnLooksLikeEntity } from './entityLinks';
 
 export const MAX_RENDER_ROWS = 200;
 
@@ -10,6 +13,20 @@ function fmtCell(value: unknown): string {
     return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
   }
   return String(value);
+}
+
+function renderCell(column: string, value: unknown): ReactNode {
+  const text = fmtCell(value);
+  if (value === null || value === undefined) return text;
+  if (typeof value !== 'string' && typeof value !== 'number') return text;
+  if (!columnLooksLikeEntity(column)) return text;
+  const entity = classifyEntity(String(value));
+  if (!entity) return text;
+  return (
+    <EntityLink value={entity.id} className="entity-link" showExternals={entity.kind !== 'security'}>
+      {text}
+    </EntityLink>
+  );
 }
 
 export function ResultTable({ result }: { result: QueryResult }) {
@@ -34,7 +51,9 @@ export function ResultTable({ result }: { result: QueryResult }) {
             {shown.map((row, index) => (
               <tr key={index}>
                 <td className="ai-idx">{index + 1}</td>
-                {result.columns.map((column) => <td key={column}>{fmtCell(row[column])}</td>)}
+                {result.columns.map((column) => (
+                  <td key={column}>{renderCell(column, row[column])}</td>
+                ))}
               </tr>
             ))}
             {result.row_count > shown.length && (

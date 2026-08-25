@@ -2,6 +2,8 @@
  * Research-page helpers for curated Kalshi event markets joined by
  * related_symbol (SPY, TLT, BTC-USD, …). Ranking mirrors the loader's
  * volume-then-soonest-close preference so the rail stays skimable.
+ *
+ * Also powers /research/kalshi/{marketTicker} detail pages.
  */
 
 export interface KalshiMarketBrief {
@@ -24,11 +26,50 @@ export interface KalshiMarketBrief {
   url: string | null;
 }
 
+/** Full research payload for one Kalshi market (or series overview). */
+export interface KalshiMarketResearch {
+  kind: "market" | "series";
+  market: KalshiMarketBrief | null;
+  series_ticker: string;
+  series_title: string | null;
+  theme: string | null;
+  related_symbol: string | null;
+  /** Sibling / series markets (live-ranked). */
+  related_markets: KalshiMarketBrief[];
+  url: string | null;
+  computed_at: string;
+}
+
 /** Series landing page on kalshi.com (event-level slugs are not in the lake). */
 export function kalshiSeriesUrl(seriesTicker: string | null | undefined): string | null {
   const series = String(seriesTicker || "").trim().toLowerCase();
   if (!/^[a-z][a-z0-9]{1,31}$/.test(series)) return null;
   return `https://kalshi.com/markets/${series}`;
+}
+
+/**
+ * Accept curated Kalshi market tickers (KXFED-27APR-T4.25) and series
+ * tickers (KXFED). KX-prefixed only so equity forms like BTC-USD stay
+ * securities. Longer than equity OCC roots; dots allowed in strikes.
+ */
+export function parseKalshiParam(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = String(raw).trim().toUpperCase().replace(/\s+/g, "");
+  if (!/^KX[A-Z0-9.]{1,45}(-[A-Z0-9.]{1,24}){0,4}$/.test(t)) return null;
+  if (t.length < 3 || t.length > 64) return null;
+  return t;
+}
+
+/** True when the token looks like a Kalshi market (has a hyphenated suffix). */
+export function isKalshiMarketTicker(raw: string | null | undefined): boolean {
+  const t = parseKalshiParam(raw);
+  return Boolean(t && t.includes("-"));
+}
+
+/** True when the token looks like a Kalshi series root (KX…, no hyphen). */
+export function isKalshiSeriesTicker(raw: string | null | undefined): boolean {
+  const t = parseKalshiParam(raw);
+  return Boolean(t && !t.includes("-"));
 }
 
 function numOrNull(v: unknown): number | null {

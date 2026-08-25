@@ -150,6 +150,19 @@ const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
     }
     const researchTicker = href.match(/^\/research\/([^/?#]+)/)?.[1];
     if (researchTicker) {
+      if (researchTicker.toLowerCase() === 'kalshi') {
+        const marketTicker = href.match(/^\/research\/kalshi\/([^/?#]+)/)?.[1];
+        if (marketTicker) {
+          return (
+            <Link
+              ref={ref}
+              to="/research/kalshi/$marketTicker"
+              params={{ marketTicker: decodeURIComponent(marketTicker) }}
+              {...props}
+            />
+          );
+        }
+      }
       return <Link ref={ref} to="/research/$ticker" params={{ ticker: researchTicker }} {...props} />;
     }
     if (href === '/research') {

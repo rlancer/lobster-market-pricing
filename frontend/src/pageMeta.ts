@@ -165,6 +165,14 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
   }
 
   if (path === '/research') return researchMeta(null);
+  if (segments[0] === 'research' && segments[1] === 'kalshi' && segments.length === 3) {
+    const market = decodeURIComponent(segments[2] || '').toUpperCase();
+    return {
+      title: pageTitle(`${market || 'Kalshi'} – Research`),
+      description: `Kalshi event odds, series markets, and related lake symbols for ${market || 'this market'}.`,
+      path,
+    };
+  }
   if (segments[0] === 'research' && segments.length === 2) {
     return researchMeta(tickerFromSegment(segments[1]));
   }
