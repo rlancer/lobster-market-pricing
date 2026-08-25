@@ -1,0 +1,5 @@
+# Site robots — Cloudflare may prepend a managed Content-Signal block.
+User-agent: *
+Allow: /
+
+Sitemap: https://lobster.mp/sitemap.xml
