@@ -6,16 +6,23 @@
  * never 500 on a Tavily or lake outage.
  */
 import { listChatTickers } from "./chat-tickers";
+import {
+  fetchTavilyNews,
+  parseTavilyNewsResults,
+  railNewsCacheKey,
+  resetTavilyMemoryCache,
+  TAVILY_DEFAULT_TTL_MS,
+  type TavilyNewsItem,
+  withTavilyCache,
+} from "./tavily";
 
 export const TIMELINE_RAIL_TAGS_LIMIT = 16;
 export const TIMELINE_RAIL_NEWS_LIMIT = 6;
-export const TIMELINE_RAIL_NEWS_TTL_MS = 10 * 60 * 1000;
+export const TIMELINE_RAIL_NEWS_TTL_MS = TAVILY_DEFAULT_TTL_MS;
 export const TIMELINE_RAIL_NEWS_DAYS = 2;
 export const TIMELINE_RAIL_NEWS_QUERY = "US stock market breaking news";
 /** Cap how many chat-linked tickers drive news + tape. */
 export const CHAT_RAIL_TICKER_LIMIT = 8;
-const TAVILY_API_URL = "https://api.tavily.com/search";
-const NEWS_SNIPPET_MAX = 240;
 /** Calendar window wide enough for two sessions around a long weekend. */
 const HIGHLIGHT_LOOKBACK_DAYS = 14;
 
@@ -32,13 +39,7 @@ export interface TimelineRailTag {
   posts: number;
 }
 
-export interface TimelineRailNewsItem {
-  title: string;
-  link: string;
-  published: string | null;
-  snippet: string;
-  source: "tavily";
-}
+export type TimelineRailNewsItem = TavilyNewsItem;
 
 export interface TimelineRailHighlight {
   ticker: string;
@@ -70,12 +71,9 @@ export interface TimelineRailDeps {
   fetchImpl?: typeof fetch;
 }
 
-interface CacheEntry<T> { ts: number; val: T; }
-const newsCache = new Map<string, CacheEntry<TimelineRailNewsItem[]>>();
-
 /** Test hook — isolate-level news memo must not leak across cases. */
 export function resetTimelineRailCache(): void {
-  newsCache.clear();
+  resetTavilyMemoryCache();
 }
 
 export function pctChange(from: number | null, to: number | null): number | null {
@@ -120,21 +118,7 @@ export function highlightsFromOhlcRows(
   });
 }
 
-export function parseTavilyNewsResults(
-  data: { results?: { title?: string; url?: string; content?: string; published_date?: string | null }[] },
-  limit = TIMELINE_RAIL_NEWS_LIMIT,
-): TimelineRailNewsItem[] {
-  return (data.results ?? [])
-    .map((row): TimelineRailNewsItem => ({
-      title: (row.title ?? "").trim(),
-      link: (row.url ?? "").trim(),
-      published: row.published_date || null,
-      snippet: truncateAtSentence((row.content ?? "").trim()),
-      source: "tavily",
-    }))
-    .filter((item) => item.title && item.link)
-    .slice(0, Math.max(1, Math.min(20, limit)));
-}
+export { parseTavilyNewsResults };
 
 export function marketHighlightSql(
   since: string,
@@ -302,37 +286,28 @@ async function loadNews(
 ): Promise<{ items: TimelineRailNewsItem[]; error?: string }> {
   const key = deps.env.TAVILY_API_KEY?.trim();
   if (!key) return { items: [], error: "news unavailable" };
-  const hit = newsCache.get(cacheKey);
   const now = deps.now ?? Date.now();
-  if (hit && now - hit.ts < TIMELINE_RAIL_NEWS_TTL_MS) {
-    return { items: hit.val };
+  try {
+    const items = await withTavilyCache<TimelineRailNewsItem[]>(
+      deps.env.SCHEMA_DB,
+      railNewsCacheKey(cacheKey),
+      TIMELINE_RAIL_NEWS_TTL_MS,
+      () => fetchTavilyNews({
+        apiKey: key,
+        query,
+        maxResults: TIMELINE_RAIL_NEWS_LIMIT,
+        days: TIMELINE_RAIL_NEWS_DAYS,
+        fetchImpl: deps.fetchImpl,
+      }),
+      { now },
+    );
+    return { items };
+  } catch (error) {
+    return {
+      items: [],
+      error: String((error && (error as Error).message) || error),
+    };
   }
-  const fetchImpl = deps.fetchImpl ?? fetch;
-  const response = await fetchImpl(TAVILY_API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      query,
-      topic: "news",
-      search_depth: "basic",
-      max_results: TIMELINE_RAIL_NEWS_LIMIT,
-      days: TIMELINE_RAIL_NEWS_DAYS,
-      include_answer: false,
-      include_raw_content: false,
-    }),
-  });
-  if (!response.ok) {
-    return { items: [], error: `tavily news returned HTTP ${response.status}` };
-  }
-  const data = await response.json() as {
-    results?: { title?: string; url?: string; content?: string; published_date?: string | null }[];
-  };
-  const items = parseTavilyNewsResults(data);
-  newsCache.set(cacheKey, { ts: now, val: items });
-  return { items };
 }
 
 async function loadHighlights(
@@ -353,13 +328,6 @@ async function loadHighlights(
   const missing = items.every((item) => item.spot == null);
   if (missing && rows.length === 0) return { items, error: "no highlight bars" };
   return { items };
-}
-
-function truncateAtSentence(s: string, max = NEWS_SNIPPET_MAX): string {
-  if (s.length <= max) return s;
-  const window = s.slice(0, max + 1);
-  const boundary = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "));
-  return (boundary >= max * 0.6 ? window.slice(0, boundary + 1) : window).trimEnd();
 }
 
 function lit(v: unknown): string {

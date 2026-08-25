@@ -15,6 +15,19 @@ import {
   type TimelineRailEnv,
 } from "../src/timeline-rail.ts";
 
+function mockSchemaDb(allResults: unknown[] = []) {
+  return {
+    prepare() {
+      return {
+        bind() { return this; },
+        async all() { return { results: allResults }; },
+        async first() { return null; },
+        async run() { return { success: true }; },
+      };
+    },
+  } as unknown as D1Database;
+}
+
 test("pctChange is null for missing or zero bases", () => {
   assert.equal(pctChange(null, 10), null);
   assert.equal(pctChange(0, 10), null);
@@ -112,16 +125,7 @@ test("tagsFromChatTickers maps mentions onto the shared tag shape", () => {
 test("loadTimelineRail composes tags, news, and highlights without failing closed", async () => {
   resetTimelineRailCache();
   const env: TimelineRailEnv = {
-    SCHEMA_DB: {
-      prepare() {
-        return {
-          bind() { return this; },
-          async all() {
-            return { results: [{ ticker: "NVDA", posts: 4 }, { ticker: "SPY", posts: 2 }] };
-          },
-        };
-      },
-    } as unknown as D1Database,
+    SCHEMA_DB: mockSchemaDb([{ ticker: "NVDA", posts: 4 }, { ticker: "SPY", posts: 2 }]),
     TAVILY_API_KEY: "test-key",
   };
   const rail = await loadTimelineRail({
@@ -146,14 +150,7 @@ test("loadTimelineRail composes tags, news, and highlights without failing close
 test("loadTimelineRail degrades news and highlights independently", async () => {
   resetTimelineRailCache();
   const env: TimelineRailEnv = {
-    SCHEMA_DB: {
-      prepare() {
-        return {
-          bind() { return this; },
-          async all() { return { results: [] }; },
-        };
-      },
-    } as unknown as D1Database,
+    SCHEMA_DB: mockSchemaDb(),
   };
   const rail = await loadTimelineRail({
     env,
@@ -172,28 +169,17 @@ test("loadTimelineRail degrades news and highlights independently", async () => 
 test("loadChatRail scopes tags, news, and tape to linked tickers", async () => {
   resetTimelineRailCache();
   const env: TimelineRailEnv = {
-    SCHEMA_DB: {
-      prepare() {
-        return {
-          bind() { return this; },
-          async all() {
-            return {
-              results: [{
-                chat_id: "11111111-1111-4111-8111-111111111111",
-                security_id: "sec-nvda",
-                ticker: "NVDA",
-                first_seen_at: 1,
-                last_seen_at: 2,
-                mention_count: 2,
-                name: "NVIDIA",
-                figi: null,
-                composite_figi: null,
-              }],
-            };
-          },
-        };
-      },
-    } as unknown as D1Database,
+    SCHEMA_DB: mockSchemaDb([{
+      chat_id: "11111111-1111-4111-8111-111111111111",
+      security_id: "sec-nvda",
+      ticker: "NVDA",
+      first_seen_at: 1,
+      last_seen_at: 2,
+      mention_count: 2,
+      name: "NVIDIA",
+      figi: null,
+      composite_figi: null,
+    }]),
     TAVILY_API_KEY: "test-key",
   };
   let newsQuery = "";
@@ -223,14 +209,7 @@ test("loadChatRail scopes tags, news, and tape to linked tickers", async () => {
 test("loadChatRail falls back to market news and tape when no tickers are linked", async () => {
   resetTimelineRailCache();
   const env: TimelineRailEnv = {
-    SCHEMA_DB: {
-      prepare() {
-        return {
-          bind() { return this; },
-          async all() { return { results: [] }; },
-        };
-      },
-    } as unknown as D1Database,
+    SCHEMA_DB: mockSchemaDb(),
     TAVILY_API_KEY: "test-key",
   };
   let newsQuery = "";
