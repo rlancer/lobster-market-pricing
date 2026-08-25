@@ -24,6 +24,13 @@ test('research ticker is in the title, description, and canonical path', () => {
   assert.equal(meta.path, '/research/SPY');
 });
 
+test('kalshi research detail is titled by market ticker', () => {
+  const meta = pageMetaForUrl('/research/kalshi/KXFED-27APR-T4.25');
+  assert.equal(meta.title, `KXFED-27APR-T4.25 – Research · ${SITE_NAME}`);
+  assert.match(meta.description, /Kalshi/);
+  assert.equal(meta.path, '/research/kalshi/KXFED-27APR-T4.25');
+});
+
 test('research ticker is case-normalized', () => {
   const meta = pageMetaForUrl('/research/spy');
   assert.equal(meta.title, `SPY – Research · ${SITE_NAME}`);

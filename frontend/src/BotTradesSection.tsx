@@ -11,6 +11,7 @@ import {
 } from '@astryxdesign/core';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import { api, type BotTradePosition, type BotTradesBook } from './api';
+import { EntityLink } from './EntityLink';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
@@ -225,7 +226,7 @@ export function BotTradesSection({
               header: 'Ticker',
               width: pixel(72),
               renderCell: (row) => (
-                <Text weight="semibold" hasTabularNumbers>{row.ticker}</Text>
+                <EntityLink value={row.ticker} className="entity-link" showExternals />
               ),
             },
             {

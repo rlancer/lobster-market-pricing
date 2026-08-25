@@ -1,0 +1,27 @@
+.entity-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: inherit;
+}
+
+.entity-link:hover {
+  text-decoration: underline;
+}
+
+.entity-link-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-1) var(--spacing-2);
+}
+
+.entity-link-external {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+}
+
+.entity-link-external:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}

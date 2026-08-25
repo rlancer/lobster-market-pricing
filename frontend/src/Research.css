@@ -38,6 +38,10 @@
   background: var(--panel);
 }
 
+.research-external-links {
+  margin-block-start: var(--spacing-2);
+}
+
 .research-brief {
   width: 100%;
 }

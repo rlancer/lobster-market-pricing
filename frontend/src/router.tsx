@@ -14,6 +14,7 @@ import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import ResearchPage from './ResearchPage';
+import KalshiResearchPage from './KalshiResearchPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
 import BrandPage from './Brand';
 import BotsPage from './Bots';
@@ -104,6 +105,12 @@ const researchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/research',
   component: ResearchPage,
+});
+
+const researchKalshiRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/research/kalshi/$marketTicker',
+  component: KalshiResearchPage,
 });
 
 const researchTickerRoute = createRoute({
@@ -311,6 +318,7 @@ const routeTree = rootRoute.addChildren([
   labRoute,
   marketRoute,
   researchRoute,
+  researchKalshiRoute,
   researchTickerRoute,
   aiRoute,
   monitorRoute,

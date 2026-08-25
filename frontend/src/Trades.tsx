@@ -15,6 +15,7 @@ import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import { Search } from 'lucide-react';
 import { useIsAdmin } from './useAdmin';
 import { api, type AdminSuggestedTrade } from './api';
+import { EntityLink } from './EntityLink';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Trades.css';
 
@@ -177,9 +178,7 @@ export default function TradesPage() {
               header: 'Ticker',
               width: pixel(88),
               renderCell: (trade) => (
-                <Text weight="semibold" hasTabularNumbers>
-                  {trade.ticker}
-                </Text>
+                <EntityLink value={trade.ticker} className="entity-link" showExternals />
               ),
             },
             {

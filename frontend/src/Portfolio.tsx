@@ -18,6 +18,7 @@ import {
 } from './api';
 import { authClient } from './auth';
 import { BotTradesSection } from './BotTradesSection';
+import { EntityLink } from './EntityLink';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
@@ -339,9 +340,9 @@ export default function PortfolioPage() {
                   key: 'ticker',
                   header: 'Ticker',
                   width: pixel(72),
-                  renderCell: (row) => (
-                    <Text weight="semibold" hasTabularNumbers>{row.ticker}</Text>
-                  ),
+              renderCell: (row) => (
+                <EntityLink value={row.ticker} className="entity-link" showExternals />
+              ),
                 },
                 {
                   key: 'bias',

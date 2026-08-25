@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Tooltip } from '@astryxdesign/core';
 import { api, type LoaderFilter, type LoaderStatus, type LoaderSymbol } from './api';
+import { EntityLink } from './EntityLink';
 import './LoaderStatus.css';
 
 /**
@@ -270,7 +271,7 @@ export default function LoaderStatus() {
               const b = badgeOf(s, status?.market?.open);
               return (
                 <tr key={s.symbol}>
-                  <td><b>{s.symbol}</b></td>
+                  <td><EntityLink value={s.symbol} className="entity-link" /></td>
                   <td><span className={`ls-badge ${b}`}>{BADGE_LABEL[b]}</span></td>
                   <td>{rel(s.last_success_at)}</td>
                   <td className="muted">{rel(s.last_attempt_at)}</td>

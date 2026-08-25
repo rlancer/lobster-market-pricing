@@ -9,6 +9,7 @@ import {
 import {
   api,
   type ResearchChatLink,
+  type ResearchExternalSite,
   type ChainContract,
   type OhlcBar,
   type TickerEarningsIntel,
@@ -41,6 +42,7 @@ export default function ResearchPage() {
   const [chainNearSpot, setChainNearSpot] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [externalSites, setExternalSites] = useState<ResearchExternalSite[]>([]);
   const briefReady = isResearchBriefReady(research);
   const researchName = research?.identity.name?.trim() || '';
   usePageMeta(
@@ -69,6 +71,7 @@ export default function ResearchPage() {
     setChainExpiration(undefined);
     setChainNearSpot(50);
     setResearch(tickerParam ? pendingTickerResearch(tickerParam) : null);
+    setExternalSites([]);
     setError(null);
   }, [tickerParam]);
 
@@ -185,6 +188,28 @@ export default function ResearchPage() {
       cancel();
     };
   }, [tickerParam, briefReady]);
+
+  // Company / ETF issuer marketing sites — idle after the brief paints.
+  useEffect(() => {
+    if (!tickerParam || !briefReady || !research) return;
+    let active = true;
+    const cancel = whenIdle(() => {
+      api.researchSites(tickerParam, {
+        etf: Boolean(research.etf),
+        family: research.etf?.family,
+      })
+        .then((res) => {
+          if (active) setExternalSites(res.links);
+        })
+        .catch(() => {
+          if (active) setExternalSites([]);
+        });
+    });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [tickerParam, briefReady, research?.etf?.family, research?.computed_at]);
 
   // Earnings intel (results + SEC facts + AI summary) — equities only, idle.
   useEffect(() => {
@@ -326,6 +351,7 @@ export default function ResearchPage() {
           chainNearSpot={chainNearSpot}
           onChainExpirationChange={setChainExpiration}
           onChainNearSpotChange={setChainNearSpot}
+          externalSites={externalSites}
         />
       )}
     </VStack>

@@ -208,6 +208,33 @@ export interface KalshiMarketsResponse {
   count: number;
 }
 
+/** GET /api/research/kalshi/{marketOrSeries} — Kalshi research detail. */
+export interface KalshiMarketResearch {
+  kind: 'market' | 'series';
+  market: KalshiMarketItem | null;
+  series_ticker: string;
+  series_title: string | null;
+  theme: string | null;
+  related_symbol: string | null;
+  related_markets: KalshiMarketItem[];
+  url: string | null;
+  computed_at: string;
+}
+
+/** One external destination from /api/research/{ticker}/sites. */
+export interface ResearchExternalSite {
+  kind: 'issuer' | 'company' | 'sec' | 'kalshi' | 'yahoo_profile';
+  label: string;
+  url: string;
+}
+
+export interface ResearchSitesResponse {
+  ticker: string;
+  links: ResearchExternalSite[];
+  company_website: string | null;
+  count: number;
+}
+
 /** One result from the Worker's /api/web_search proxy (Tavily general search). */
 export interface WebSearchResult {
   title: string;
@@ -1505,6 +1532,17 @@ export const api = {
   researchKalshi: (ticker: string, limit?: number) =>
     get<KalshiMarketsResponse>(
       `/api/research/${encodeURIComponent(ticker.toUpperCase())}/kalshi${qs({ limit })}`,
+    ),
+  kalshiResearch: (marketTicker: string) =>
+    get<KalshiMarketResearch>(
+      `/api/research/kalshi/${encodeURIComponent(marketTicker.toUpperCase())}`,
+    ),
+  researchSites: (ticker: string, opts?: { etf?: boolean; family?: string | null }) =>
+    get<ResearchSitesResponse>(
+      `/api/research/${encodeURIComponent(ticker.toUpperCase())}/sites${qs({
+        etf: opts?.etf ? 1 : undefined,
+        family: opts?.family || undefined,
+      })}`,
     ),
   chatTickers: (chatId: string) =>
     get<ChatTickerList>(`/api/chats/${encodeURIComponent(chatId)}/tickers`),

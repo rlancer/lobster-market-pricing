@@ -131,9 +131,18 @@ import {
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import {
+  mapKalshiMarketBrief,
+  parseKalshiParam,
   selectResearchKalshiMarkets,
   type KalshiMarketBrief,
+  type KalshiMarketResearch,
 } from "./research-kalshi";
+import {
+  etfIssuerMarketingSite,
+  researchExternalSites,
+  type ExternalSiteLink,
+} from "./external-sites";
+import { fetchCompanyWebsite } from "./company-website";
 import {
   getOrComputeEarningsIntel,
   type CompanyFactBrief,
@@ -2802,6 +2811,106 @@ async function loadResearchKalshi(
   }
 }
 
+const KALSHI_DETAIL_SELECT =
+  `series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, status,` +
+  `  yes_bid, yes_ask, yes_last, volume, volume_24h, open_interest, close_time, related_symbol`;
+
+/** Latest-wins row for one market_ticker, or null. */
+async function loadKalshiMarketByTicker(
+  env: Env,
+  marketTicker: string,
+): Promise<KalshiMarketBrief | null> {
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT ${KALSHI_DETAIL_SELECT}` +
+        ` FROM (` +
+        `  SELECT ${KALSHI_DETAIL_SELECT},` +
+        `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.kalshi_markets WHERE market_ticker = ${lit(marketTicker)}` +
+        `) WHERE rn = 1 LIMIT 1`,
+      "kalshi_mkt_" + marketTicker,
+      QUERY_TTL_MS,
+    );
+    const row = rows[0];
+    return row ? mapKalshiMarketBrief(row) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Live markets in a series (for detail siblings / series overview). */
+async function loadKalshiSeriesMarkets(
+  env: Env,
+  seriesTicker: string,
+  limit = 40,
+): Promise<KalshiMarketBrief[]> {
+  const lim = Math.max(1, Math.min(80, Math.floor(limit)));
+  const scan = Math.min(200, Math.max(40, lim * 4));
+  try {
+    const rows = await r2sql(
+      env,
+      `SELECT ${KALSHI_DETAIL_SELECT}` +
+        ` FROM (` +
+        `  SELECT ${KALSHI_DETAIL_SELECT},` +
+        `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+        `  FROM options.kalshi_markets WHERE series_ticker = ${lit(seriesTicker)}` +
+        `) WHERE rn = 1 LIMIT ${scan}`,
+      "kalshi_series_" + seriesTicker + "_" + lim,
+      QUERY_TTL_MS,
+    );
+    return selectResearchKalshiMarkets(rows, lim);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Research detail for a Kalshi market ticker or series root.
+ * Market id → single contract + siblings; series root → series overview.
+ */
+async function loadKalshiMarketResearch(
+  env: Env,
+  raw: string,
+): Promise<KalshiMarketResearch | null> {
+  const id = parseKalshiParam(raw);
+  if (!id) return null;
+  const nowIso = new Date().toISOString();
+
+  if (id.includes("-")) {
+    const market = await loadKalshiMarketByTicker(env, id);
+    if (!market) return null;
+    const siblings = (await loadKalshiSeriesMarkets(env, market.series_ticker, 40))
+      .filter((m) => m.market_ticker !== market.market_ticker);
+    return {
+      kind: "market",
+      market,
+      series_ticker: market.series_ticker,
+      series_title: null,
+      theme: market.theme,
+      related_symbol: market.related_symbol,
+      related_markets: siblings,
+      url: market.url,
+      computed_at: nowIso,
+    };
+  }
+
+  const related = await loadKalshiSeriesMarkets(env, id, 40);
+  if (!related.length) return null;
+  const head = related[0]!;
+  return {
+    kind: "series",
+    market: null,
+    series_ticker: id,
+    series_title: head.title,
+    theme: head.theme,
+    related_symbol: head.related_symbol,
+    related_markets: related,
+    url: head.url,
+    computed_at: nowIso,
+  };
+}
+
 async function loadResearchFundamentals(env: Env, ticker: string): Promise<FundamentalsBrief> {
   try {
     const rows = await r2sql(
@@ -3086,6 +3195,70 @@ async function handleResearchKalshiGet(env: Env, req: Request, tickerRaw: string
   return json(
     env,
     { ticker, items, count: items.length },
+    200,
+    "private",
+  );
+}
+
+/** GET /api/research/kalshi/{marketOrSeriesTicker} — Kalshi research detail. */
+async function handleKalshiMarketResearchGet(
+  env: Env,
+  marketRaw: string,
+): Promise<Response> {
+  const id = parseKalshiParam(marketRaw);
+  if (!id) return json(env, { error: "invalid kalshi ticker" }, 400, "private");
+  const research = await loadKalshiMarketResearch(env, id);
+  if (!research) {
+    return json(env, { error: "kalshi market not found", ticker: id }, 404, "private");
+  }
+  return json(env, research, 200, "private");
+}
+
+/**
+ * GET /api/research/{ticker}/sites — company / issuer marketing links.
+ * Idle-loaded; may live-fetch Yahoo assetProfile.website for equities.
+ */
+async function handleResearchSitesGet(
+  env: Env,
+  req: Request,
+  tickerRaw: string,
+): Promise<Response> {
+  const ticker = parseTickerParam(tickerRaw);
+  if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
+  const url = new URL(req.url);
+  const family = url.searchParams.get("family");
+  const isEtf = url.searchParams.get("etf") === "1" || Boolean(family);
+  let companyWebsite: string | null = null;
+  if (!isEtf) {
+    companyWebsite = await fetchCompanyWebsite(ticker);
+  }
+  let edgarUrl: string | null = null;
+  try {
+    const filings = await loadResearchFilings(env, ticker, 1);
+    edgarUrl = filings[0]?.edgar_url ?? null;
+  } catch {
+    edgarUrl = null;
+  }
+  const links: ExternalSiteLink[] = researchExternalSites({
+    ticker,
+    isEtf,
+    etfFamily: family,
+    edgarUrl,
+    companyWebsite,
+  });
+  // Ensure issuer link even when client forgot family but lake has it.
+  if (isEtf && !links.some((l) => l.kind === "issuer")) {
+    try {
+      const etf = await loadResearchEtfProfile(env, ticker);
+      const issuer = etfIssuerMarketingSite(etf?.family ?? family);
+      if (issuer) links.unshift(issuer);
+    } catch {
+      /* optional */
+    }
+  }
+  return json(
+    env,
+    { ticker, links, company_website: companyWebsite, count: links.length },
     200,
     "private",
   );
@@ -3973,7 +4146,14 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   if (path.startsWith("/api/research/")) {
     const rest = decodeURIComponent(path.slice("/api/research/".length));
-    const [tickerPart, sub] = rest.split("/");
+    const parts = rest.split("/").filter(Boolean);
+    const [tickerPart, sub, third] = parts;
+
+    // /api/research/kalshi/{marketOrSeries} — Kalshi market research detail
+    if (tickerPart === "kalshi" && sub && !third && req.method === "GET") {
+      return handleKalshiMarketResearchGet(env, sub);
+    }
+
     if (sub === "chats" && req.method === "GET") {
       const ticker = parseTickerParam(tickerPart);
       if (!ticker) return json(env, { error: "invalid ticker" }, 400, "private");
@@ -3992,6 +4172,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     }
     if (sub === "kalshi" && req.method === "GET") {
       return handleResearchKalshiGet(env, req, tickerPart);
+    }
+    if (sub === "sites" && req.method === "GET") {
+      return handleResearchSitesGet(env, req, tickerPart);
     }
     if (!sub && (req.method === "GET" || req.method === "POST")) {
       return handleResearchGet(env, req, tickerPart, ctx);

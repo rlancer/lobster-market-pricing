@@ -17,12 +17,15 @@ import { AssistantMark } from './Sunglasses';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
 import type {
   ResearchChatLink,
+  ResearchExternalSite,
   KalshiMarketItem,
   OhlcBar,
   ChainContract,
   TickerEarningsIntel,
   TickerResearch,
 } from './api';
+import { EntityLink } from './EntityLink';
+import { etfIssuerMarketingSite } from './externalSites';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
@@ -274,6 +277,7 @@ export function ResearchBriefView({
   chainNearSpot = 50,
   onChainExpirationChange,
   onChainNearSpotChange,
+  externalSites = [],
 }: {
   research: TickerResearch;
   relatedChats?: ResearchChatLink[];
@@ -294,6 +298,8 @@ export function ResearchBriefView({
   chainNearSpot?: number;
   onChainExpirationChange?: (expiration: string) => void;
   onChainNearSpotChange?: (nearSpot: number) => void;
+  /** Company / issuer marketing sites (idle-loaded). */
+  externalSites?: ResearchExternalSite[];
 }) {
   const navigate = useNavigate();
   const [followUp, setFollowUp] = useState('');
@@ -343,6 +349,11 @@ export function ResearchBriefView({
   const spot = price.spot;
   const commentaryId = `research-lobster-${identity.ticker}`;
   const chainId = `research-chain-${identity.ticker}`;
+  const localIssuer = etf ? etfIssuerMarketingSite(etf.family) : null;
+  const siteLinks: ResearchExternalSite[] = [
+    ...externalSites,
+    ...(localIssuer && !externalSites.some((l) => l.kind === 'issuer') ? [localIssuer] : []),
+  ];
 
   useEffect(() => {
     if (!onCommentaryVisible || !research.computed_at) return;
@@ -390,6 +401,21 @@ export function ResearchBriefView({
           {identity.figi ? `FIGI ${identity.figi}` : (research.computed_at ? 'FIGI pending' : 'Loading brief…')}
           {` · via ${identity.source}`}
         </Text>
+        {siteLinks.length > 0 ? (
+          <HStack gap={2} wrap="wrap" className="research-external-links">
+            {siteLinks.map((link) => (
+              <a
+                key={`${link.kind}-${link.url}`}
+                href={link.url}
+                className="research-chip-link"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {link.label}
+              </a>
+            ))}
+          </HStack>
+        ) : null}
       </VStack>
 
       <HStack gap={4} wrap="wrap" className="research-stats">
@@ -467,13 +493,10 @@ export function ResearchBriefView({
                             <td>{h.rank ?? '—'}</td>
                             <td>
                               {sym ? (
-                                <Link
-                                  to="/research/$ticker"
-                                  params={{ ticker: sym }}
+                                <EntityLink
+                                  value={sym}
                                   className="research-chip-link research-holding-link"
-                                >
-                                  {sym}
-                                </Link>
+                                />
                               ) : (
                                 '—'
                               )}
@@ -633,13 +656,24 @@ export function ResearchBriefView({
                               label={item.title}
                               description={description}
                               endContent={
-                                <Text type="supporting" className="research-kalshi-yes">
-                                  YES {yes}
-                                </Text>
+                                <HStack gap={2} vAlign="center">
+                                  <Text type="supporting" className="research-kalshi-yes">
+                                    YES {yes}
+                                  </Text>
+                                  {item.url ? (
+                                    <a
+                                      href={item.url}
+                                      className="entity-link-external"
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      Kalshi
+                                    </a>
+                                  ) : null}
+                                </HStack>
                               }
-                              href={item.url ?? undefined}
-                              target={item.url ? '_blank' : undefined}
-                              rel={item.url ? 'noreferrer' : undefined}
+                              href={`/research/kalshi/${encodeURIComponent(item.market_ticker)}`}
                             />
                           );
                         })}
