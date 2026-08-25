@@ -1,95 +1,158 @@
-// US Treasury / rates curve enrichment for the options lake.
+// FRED inflation / price-index levels for the options lake.
 //
-// Fetches curated FRED series observations (constant-maturity Treasuries,
-// curve spreads, TIPS / breakevens, overnight policy rates) and publishes
-// normalized rows to `options.yields` via a Pipeline. Values are the FRED
-// published units — percent for DGS*/DFII*/DFF/SOFR and percentage points for
-// spreads / breakevens (e.g. 4.25 = 4.25%).
+// Sibling to yields.ts: curated CPI / core CPI / PCE / core PCE / PPI
+// observations land in `options.macro` (not options.yields — that table stays
+// the Treasury curve). Values are FRED published units — index levels for
+// `units=index` rows and year-over-year percent for `units=yoy_pct` (fetched
+// with FRED `units=pc1`). YoY series keep a stable lake series_id
+// (`CPIAUCSL_YOY`, …) while still hitting the underlying FRED series id.
 //
-// Pure module (only depends on global fetch / crypto), mirroring econ.ts so
-// the same Worker can publish it and Vitest can drive it without a DO.
+// Pure module (only depends on global fetch / crypto), mirroring yields.ts.
 
 // ---------------------------------------------------------------------------
 // Curated series allowlist
 // ---------------------------------------------------------------------------
-// Constant-maturity H.15 curve + a few spreads / real yields / policy rates
-// that everything else is priced off of. Exact same ids the Worker docs and
-// Copilot prompt teach, so the lake and the chat agree.
-export type YieldKind = "nominal" | "real" | "breakeven" | "forward" | "spread" | "policy";
+export type MacroKind = "cpi" | "pce" | "ppi";
+export type MacroUnits = "index" | "yoy_pct";
 
-export interface YieldSeriesMeta {
+export interface MacroSeriesMeta {
   title: string;
-  /** Human tenor label (1M, 10Y, ON, …); null for derived spreads. */
-  tenor: string | null;
-  kind: YieldKind;
+  kind: MacroKind;
+  /** FRED observation units stored on the row. */
+  units: MacroUnits;
+  /** Monthly for all curated inflation prints. */
+  frequency: "monthly";
+  /**
+   * Underlying FRED series id when the lake series_id is synthetic (YoY
+   * transforms). Defaults to the allowlist key.
+   */
+  fred_series_id?: string;
+  /** FRED observations `units` query param; default `lin` (index levels). */
+  fred_units?: "lin" | "pc1";
 }
 
-export const YIELD_SERIES: Record<string, YieldSeriesMeta> = {
-  DGS1MO: { title: "1-Month Treasury Constant Maturity", tenor: "1M", kind: "nominal" },
-  DGS3MO: { title: "3-Month Treasury Constant Maturity", tenor: "3M", kind: "nominal" },
-  DGS6MO: { title: "6-Month Treasury Constant Maturity", tenor: "6M", kind: "nominal" },
-  DGS1: { title: "1-Year Treasury Constant Maturity", tenor: "1Y", kind: "nominal" },
-  DGS2: { title: "2-Year Treasury Constant Maturity", tenor: "2Y", kind: "nominal" },
-  DGS3: { title: "3-Year Treasury Constant Maturity", tenor: "3Y", kind: "nominal" },
-  DGS5: { title: "5-Year Treasury Constant Maturity", tenor: "5Y", kind: "nominal" },
-  DGS7: { title: "7-Year Treasury Constant Maturity", tenor: "7Y", kind: "nominal" },
-  DGS10: { title: "10-Year Treasury Constant Maturity", tenor: "10Y", kind: "nominal" },
-  DGS20: { title: "20-Year Treasury Constant Maturity", tenor: "20Y", kind: "nominal" },
-  DGS30: { title: "30-Year Treasury Constant Maturity", tenor: "30Y", kind: "nominal" },
-  T10Y2Y: { title: "10-Year Treasury Minus 2-Year Treasury", tenor: null, kind: "spread" },
-  T10Y3M: { title: "10-Year Treasury Minus 3-Month Treasury", tenor: null, kind: "spread" },
-  T5YIE: { title: "5-Year Breakeven Inflation Rate", tenor: "5Y", kind: "breakeven" },
-  T10YIE: { title: "10-Year Breakeven Inflation Rate", tenor: "10Y", kind: "breakeven" },
-  T5YIFR: {
-    title: "5-Year, 5-Year Forward Inflation Expectation Rate",
-    tenor: "5Y5Y",
-    kind: "forward",
+export const MACRO_SERIES: Record<string, MacroSeriesMeta> = {
+  CPIAUCSL: {
+    title: "CPI All Urban Consumers: All Items (SA)",
+    kind: "cpi",
+    units: "index",
+    frequency: "monthly",
   },
-  DFII5: { title: "5-Year Treasury Inflation-Indexed Security", tenor: "5Y", kind: "real" },
-  DFII10: { title: "10-Year Treasury Inflation-Indexed Security", tenor: "10Y", kind: "real" },
-  DFF: { title: "Federal Funds Effective Rate", tenor: "ON", kind: "policy" },
-  SOFR: { title: "Secured Overnight Financing Rate", tenor: "ON", kind: "policy" },
+  CPILFESL: {
+    title: "CPI All Urban Consumers: All Items Less Food and Energy (SA)",
+    kind: "cpi",
+    units: "index",
+    frequency: "monthly",
+  },
+  CPIAUCSL_YOY: {
+    title: "CPI All Items YoY %",
+    kind: "cpi",
+    units: "yoy_pct",
+    frequency: "monthly",
+    fred_series_id: "CPIAUCSL",
+    fred_units: "pc1",
+  },
+  CPILFESL_YOY: {
+    title: "Core CPI YoY %",
+    kind: "cpi",
+    units: "yoy_pct",
+    frequency: "monthly",
+    fred_series_id: "CPILFESL",
+    fred_units: "pc1",
+  },
+  PCEPI: {
+    title: "Personal Consumption Expenditures: Chain-type Price Index",
+    kind: "pce",
+    units: "index",
+    frequency: "monthly",
+  },
+  PCEPILFE: {
+    title: "PCE Excluding Food and Energy (Chain-type Price Index)",
+    kind: "pce",
+    units: "index",
+    frequency: "monthly",
+  },
+  PCEPI_YOY: {
+    title: "PCE Price Index YoY %",
+    kind: "pce",
+    units: "yoy_pct",
+    frequency: "monthly",
+    fred_series_id: "PCEPI",
+    fred_units: "pc1",
+  },
+  PCEPILFE_YOY: {
+    title: "Core PCE YoY %",
+    kind: "pce",
+    units: "yoy_pct",
+    frequency: "monthly",
+    fred_series_id: "PCEPILFE",
+    fred_units: "pc1",
+  },
+  PPIFIS: {
+    title: "Producer Price Index by Commodity: Final Demand",
+    kind: "ppi",
+    units: "index",
+    frequency: "monthly",
+  },
+  PPIFIS_YOY: {
+    title: "PPI Final Demand YoY %",
+    kind: "ppi",
+    units: "yoy_pct",
+    frequency: "monthly",
+    fred_series_id: "PPIFIS",
+    fred_units: "pc1",
+  },
 };
 
 export const FRED_SERIES_OBSERVATIONS_URL =
   "https://api.stlouisfed.org/fred/series/observations";
 
-export const YIELDS_SOURCE = "fred";
+export const MACRO_SOURCE = "fred";
 
-/** ~10y of history — enough for multi-year trend / regime context on direction asks. */
-export const YIELDS_LOOKBACK_DAYS = 3650;
+/** ~20y of monthly history — enough for multi-cycle inflation regime context. */
+export const MACRO_LOOKBACK_DAYS = 7300;
 
-export const YIELDS_FIELDS = [
-  "series_id", "date", "value", "title", "tenor", "kind", "source", "run_id", "fetched_at",
+export const MACRO_FIELDS = [
+  "series_id",
+  "date",
+  "value",
+  "title",
+  "kind",
+  "units",
+  "frequency",
+  "source",
+  "run_id",
+  "fetched_at",
 ] as const;
 
 export const HTTP_RETRIES_DEFAULT = 3;
 export const RETRY_BACKOFF_SECONDS_DEFAULT = 1;
 export const REQUEST_TIMEOUT_SECONDS_DEFAULT = 20;
 
-export interface YieldsEnv {
+export interface MacroEnv {
   FRED_API_KEY?: string;
-  PIPELINE_YIELDS_URL?: string;
+  PIPELINE_MACRO_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   HTTP_RETRIES?: number;
   RETRY_BACKOFF_SECONDS?: number;
   REQUEST_TIMEOUT?: number;
-  YIELDS_LOOKBACK_DAYS?: number;
+  MACRO_LOOKBACK_DAYS?: number;
   now?: () => number;
   runId?: () => string;
 }
 
-export interface YieldRow {
+export interface MacroRow {
   series_id: string;
   date: string; // YYYY-MM-DD
-  value: number; // FRED units (percent / percentage points)
+  value: number;
   title: string;
-  tenor: string | null;
-  kind: YieldKind;
+  kind: MacroKind;
+  units: MacroUnits;
+  frequency: "monthly";
   source: string;
 }
 
-export interface YieldPublishResult {
+export interface MacroPublishResult {
   item: string; // series_id
   row_count: number;
   published: boolean;
@@ -134,7 +197,7 @@ function stripNones(value: unknown): unknown {
   return value;
 }
 
-function backoffSeconds(env: YieldsEnv, attempt: number): number {
+function backoffSeconds(env: MacroEnv, attempt: number): number {
   return num(env.RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS_DEFAULT) * 2 ** attempt;
 }
 
@@ -150,18 +213,26 @@ function isoDate(ms: number): string {
   return `${y}-${m}-${day}`;
 }
 
+function fredSeriesId(seriesId: string, meta: MacroSeriesMeta): string {
+  return meta.fred_series_id || seriesId;
+}
+
+function fredUnitsParam(meta: MacroSeriesMeta): "lin" | "pc1" {
+  return meta.fred_units || "lin";
+}
+
 // ---------------------------------------------------------------------------
 // Universe
 // ---------------------------------------------------------------------------
-/** One series_id per fetch+publish unit (isolation like fred-econ-daily). */
-export function yieldsSeriesList(): string[] {
-  return Object.keys(YIELD_SERIES);
+/** One series_id per fetch+publish unit (isolation like fred-yields-daily). */
+export function macroSeriesList(): string[] {
+  return Object.keys(MACRO_SERIES);
 }
 
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-async function fetchJson(url: string, env: YieldsEnv, label: string): Promise<unknown> {
+async function fetchJson(url: string, env: MacroEnv, label: string): Promise<unknown> {
   const retries = Math.floor(num(env.HTTP_RETRIES, HTTP_RETRIES_DEFAULT));
   const timeoutMs = Math.floor(num(env.REQUEST_TIMEOUT, REQUEST_TIMEOUT_SECONDS_DEFAULT) * 1000);
   let lastError: unknown = null;
@@ -196,7 +267,7 @@ async function requestJson(
   body: unknown,
   idempotencyKey: string,
   authToken: string,
-  env: YieldsEnv,
+  env: MacroEnv,
 ): Promise<void> {
   const retries = Math.floor(num(env.HTTP_RETRIES, HTTP_RETRIES_DEFAULT));
   const payload = JSON.stringify(stripNones(body));
@@ -237,11 +308,11 @@ async function requestJson(
 // ---------------------------------------------------------------------------
 const FRED_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-function lookbackDays(env: YieldsEnv): number {
-  return Math.max(1, Math.floor(num(env.YIELDS_LOOKBACK_DAYS, YIELDS_LOOKBACK_DAYS)));
+function lookbackDays(env: MacroEnv): number {
+  return Math.max(1, Math.floor(num(env.MACRO_LOOKBACK_DAYS, MACRO_LOOKBACK_DAYS)));
 }
 
-function windowIso(env: YieldsEnv): { start: string; end: string } {
+function windowIso(env: MacroEnv): { start: string; end: string } {
   const now = env.now ? env.now() : Date.now();
   return {
     start: isoDate(now - lookbackDays(env) * 86400000),
@@ -249,15 +320,15 @@ function windowIso(env: YieldsEnv): { start: string; end: string } {
   };
 }
 
-/** Parse one FRED observations payload → YieldRow[] (skips missing "." values). */
-export function parseFredObservations(
+/** Parse one FRED observations payload → MacroRow[] (skips missing "." values). */
+export function parseFredMacroObservations(
   seriesId: string,
   payload: unknown,
-): YieldRow[] {
-  const meta = YIELD_SERIES[seriesId];
-  if (!meta) throw new Error(`yields: unknown series_id ${seriesId}`);
+): MacroRow[] {
+  const meta = MACRO_SERIES[seriesId];
+  if (!meta) throw new Error(`macro: unknown series_id ${seriesId}`);
   const data = asRecord(payload);
-  const rows: YieldRow[] = [];
+  const rows: MacroRow[] = [];
   for (const raw of Array.isArray(data?.observations) ? data.observations : []) {
     const o = asRecord(raw);
     const date = strip(o?.date);
@@ -271,46 +342,49 @@ export function parseFredObservations(
       date,
       value,
       title: meta.title,
-      tenor: meta.tenor,
       kind: meta.kind,
-      source: YIELDS_SOURCE,
+      units: meta.units,
+      frequency: meta.frequency,
+      source: MACRO_SOURCE,
     });
   }
   return rows;
 }
 
-/** Fetch observations for one allowlisted series_id → YieldRow[]. */
-export async function fetchYieldSeries(
+/** Fetch observations for one allowlisted series_id → MacroRow[]. */
+export async function fetchMacroSeries(
   seriesId: string,
-  env: YieldsEnv,
-): Promise<YieldRow[]> {
-  if (!YIELD_SERIES[seriesId]) {
-    throw new Error(`yields: unknown series_id ${seriesId}`);
-  }
+  env: MacroEnv,
+): Promise<MacroRow[]> {
+  const meta = MACRO_SERIES[seriesId];
+  if (!meta) throw new Error(`macro: unknown series_id ${seriesId}`);
   const key = env.FRED_API_KEY;
-  if (!key) throw new Error(`yields:${seriesId} requires FRED_API_KEY`);
+  if (!key) throw new Error(`macro:${seriesId} requires FRED_API_KEY`);
   const { start, end } = windowIso(env);
+  const fredId = fredSeriesId(seriesId, meta);
+  const units = fredUnitsParam(meta);
   const url =
     `${FRED_SERIES_OBSERVATIONS_URL}?api_key=${encodeURIComponent(key)}&file_type=json` +
-    `&series_id=${encodeURIComponent(seriesId)}` +
+    `&series_id=${encodeURIComponent(fredId)}` +
+    `&units=${encodeURIComponent(units)}` +
     `&observation_start=${start}&observation_end=${end}` +
     `&sort_order=asc`;
   const data = await fetchJson(url, env, `fred series ${seriesId}`);
-  return parseFredObservations(seriesId, data);
+  return parseFredMacroObservations(seriesId, data);
 }
 
 // ---------------------------------------------------------------------------
 // Publish
 // ---------------------------------------------------------------------------
-export async function publishYieldSeries(
+export async function publishMacroSeries(
   seriesId: string,
-  env: YieldsEnv = {},
-): Promise<YieldPublishResult> {
-  const url = env.PIPELINE_YIELDS_URL || "";
-  if (!url) throw new Error("yields publish requires PIPELINE_YIELDS_URL");
+  env: MacroEnv = {},
+): Promise<MacroPublishResult> {
+  const url = env.PIPELINE_MACRO_URL || "";
+  if (!url) throw new Error("macro publish requires PIPELINE_MACRO_URL");
   const runId = env.runId?.() ?? crypto.randomUUID();
   const fetchedAt = new Date(env.now ? env.now() : Date.now()).toISOString();
-  const rows = await fetchYieldSeries(seriesId, env);
+  const rows = await fetchMacroSeries(seriesId, env);
   if (rows.length === 0) {
     return {
       item: seriesId,
@@ -322,8 +396,8 @@ export async function publishYieldSeries(
   }
   await requestJson(
     url,
-    normalizeYieldRecords(rows, runId, fetchedAt),
-    `yields:${runId}:${seriesId}`,
+    normalizeMacroRecords(rows, runId, fetchedAt),
+    `macro:${runId}:${seriesId}`,
     env.PIPELINE_AUTH_TOKEN || "",
     env,
   );
@@ -336,8 +410,8 @@ export async function publishYieldSeries(
   };
 }
 
-export function normalizeYieldRecords(
-  rows: YieldRow[],
+export function normalizeMacroRecords(
+  rows: MacroRow[],
   runId: string,
   fetchedAt: string,
 ): Array<Record<string, unknown>> {
@@ -347,14 +421,15 @@ export function normalizeYieldRecords(
       date: r.date,
       value: r.value,
       title: r.title,
-      tenor: r.tenor,
       kind: r.kind,
+      units: r.units,
+      frequency: r.frequency,
       source: r.source,
       run_id: runId,
       fetched_at: fetchedAt,
     };
     const out: Record<string, unknown> = {};
-    for (const f of YIELDS_FIELDS) out[f] = rec[f];
+    for (const f of MACRO_FIELDS) out[f] = rec[f];
     return out;
   });
 }

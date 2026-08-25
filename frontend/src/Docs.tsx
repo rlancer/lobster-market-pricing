@@ -124,12 +124,13 @@ const JOBS = [
   ['cfe-futures-daily', 'Daily', 'CFE settlements + delayed monthals (VX curve and siblings) into futures_settlements / futures_quotes.'],
   ['futures-ohlc-daily', 'Daily', 'Yahoo continuous CME/CBOT futures (=F) OHLC into options.ohlc / realized_vol (incl. BTC=F / ETH=F / micros).'],
   ['instruments-daily', 'Daily', 'Manifest classification → options.instruments (security_type equity|etf|index|future|crypto) for type-filtered OHLC queries.'],
-  ['fred-yields-daily', 'Daily', 'FRED Treasury / rates curve → options.yields (DGS* constant-maturity, spreads, TIPS/breakevens, DFF/SOFR).'],
+  ['fred-yields-daily', 'Daily', 'FRED Treasury / rates curve → options.yields (DGS* constant-maturity, spreads, TIPS/breakevens, T5YIFR, DFF/SOFR).'],
+  ['fred-macro-daily', 'Daily', 'FRED CPI/PCE/PPI index + YoY → options.macro (realized inflation levels).'],
   ['kalshi-markets-hourly', 'Hourly', 'Curated Kalshi event contracts (Fed/CPI/indexes/crypto/oil) → options.kalshi_markets.'],
 ];
 
 const TABLES =
-  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes · yields · kalshi_markets';
+  'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes · yields · macro · kalshi_markets';
 
 const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },

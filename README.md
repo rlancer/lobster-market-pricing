@@ -271,7 +271,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
-| `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: active subset of fundamental / technical / options / risk / macro + weighed overview — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
+| `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: fundamental / technical / options / risk always, plus macro when the ask warrants it — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
@@ -391,9 +391,10 @@ the client infers a spec from the result columns. Interactive analysis turns
 and public bot thesis posts both publish a **routed multi-analyst desk** via
 `publish_desk`: specialists are selected from fundamental / technical /
 options / risk / macro based on the ask (and, for bots, the persona) — e.g. a
-GME options chain keeps the core three and skips macro; SPY / TLT / Fed / CPI
-or `@macrolobster` rates posts pull macro; hedge / sizing / wipeout language
-pulls risk. The UI renders only the published panels. Structured `suggest_trades`
+GME options chain keeps the core four (including risk) and skips macro; SPY /
+TLT / Fed / CPI or `@macrolobster` rates posts pull macro. Risk always
+publishes so every analysis turn has a downside / sizing / thesis-break take.
+The UI renders only the published panels. Structured `suggest_trades`
 stays interactive-chat-only unless the bot actually has a tradable idea.
 Interactive chat (and the Account menu) also pick a **reply voice** — canned
 audiences `desk` (working trader), `fund` (hedge-fund / PM), or `learner`

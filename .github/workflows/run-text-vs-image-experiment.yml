@@ -1,8 +1,9 @@
 name: Run text-vs-image experiment
 
 # Publishes a server-saved Experiments run (probes + exact chart images) so the
-# public /experiments/text-vs-image page has results without visitors spending
-# OpenRouter credits. Re-dispatch with a different `model` to compare models.
+# public /experiments/text-vs-image page can show results. That page is read-only —
+# probing and publishing happen here (or via the admin API), not in the UI.
+# Re-dispatch with a different `model` to compare models.
 #
 # Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
 # already be set on the target Worker (synced by deploy.yml).

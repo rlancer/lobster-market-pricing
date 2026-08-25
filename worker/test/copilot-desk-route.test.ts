@@ -29,8 +29,13 @@ test("questionWantsRisk detects hedge / sizing language", () => {
 test("selectDeskSpecialists keeps single-name desks free of macro", () => {
   assert.deepEqual(
     selectDeskSpecialists("analyze NVDA earnings and the options chain"),
-    ["fundamental", "technical", "options"],
+    ["fundamental", "technical", "options", "risk"],
   );
+});
+
+test("selectDeskSpecialists always publishes risk on default desks", () => {
+  assert.ok(selectDeskSpecialists("analyze NVDA").includes("risk"));
+  assert.ok(selectDeskSpecialists("").includes("risk"));
 });
 
 test("selectDeskSpecialists can route from a short reply note", () => {

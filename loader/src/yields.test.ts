@@ -23,7 +23,9 @@ describe("yieldsSeriesList", () => {
     expect(list).toEqual(Object.keys(YIELD_SERIES));
     expect(list).toContain("DGS10");
     expect(list).toContain("T10Y2Y");
+    expect(list).toContain("T5YIFR");
     expect(list).toContain("SOFR");
+    expect(YIELD_SERIES.T5YIFR.kind).toBe("forward");
   });
 });
 

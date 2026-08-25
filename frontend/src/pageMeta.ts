@@ -269,7 +269,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Experiments'),
       description:
-        'Public experiments — text vs image context studies and other model-encoding probes, with server-saved runs.',
+        'Public experiments — text vs image context studies and other model-encoding probes, with server-saved runs from API or CI.',
       path: path === '/notebooks' ? '/notebooks' : '/experiments',
     };
   }

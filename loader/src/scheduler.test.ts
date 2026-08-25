@@ -311,7 +311,8 @@ describe("EtlScheduler — due-scan", () => {
       "fred-econ-daily", "etf-daily",
       "fundamentals-daily", "futures-ohlc-daily", "cfe-futures-daily", "indices-ohlc-daily",
       "crypto-spot-ohlc-daily", "short-interest-daily", "reg-sho-daily", "research-briefs-daily",
-      "sec-filings-daily", "instruments-daily", "fred-yields-daily", "kalshi-markets-hourly",
+      "sec-filings-daily", "instruments-daily", "fred-yields-daily", "fred-macro-daily",
+      "kalshi-markets-hourly",
     ]);
   });
 });
@@ -376,7 +377,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(20);
+    expect(list.jobs).toHaveLength(21);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -462,6 +463,11 @@ describe("EtlScheduler — job observability routes", () => {
     expect(yields.enabled).toBe(1);
     expect(yields.market_gated).toBe(0);
     expect(yields.cadence_seconds).toBe(86400);
+    const macro = byId.get("fred-macro-daily")!;
+    expect(macro.scope).toBe("batch");
+    expect(macro.enabled).toBe(1);
+    expect(macro.market_gated).toBe(0);
+    expect(macro.cadence_seconds).toBe(86400);
     const kalshi = byId.get("kalshi-markets-hourly")!;
     expect(kalshi.scope).toBe("batch");
     expect(kalshi.enabled).toBe(1);

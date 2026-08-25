@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {"name":"series_id","type":"string","required":true},
+    {"name":"date","type":"string","required":true},
+    {"name":"value","type":"float64","required":true},
+    {"name":"title","type":"string","required":true},
+    {"name":"kind","type":"string","required":true},
+    {"name":"units","type":"string","required":true},
+    {"name":"frequency","type":"string","required":true},
+    {"name":"source","type":"string","required":true},
+    {"name":"run_id","type":"string","required":true},
+    {"name":"fetched_at","type":"string","required":true}
+  ]
+}

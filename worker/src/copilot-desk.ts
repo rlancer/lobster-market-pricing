@@ -65,11 +65,12 @@ export const DESK_SPECIALIST_SUMMARIES: Record<DeskViewpointId, string> = {
 export const DESK_OVERVIEW_SUMMARY =
   "Weighs agreement and disagreement across the active specialists only; states the net take and any tradable lean without burying fundamental, options, risk, or macro context under technicals.";
 
-/** Classic three-analyst core used when no route is supplied. */
+/** Classic four-analyst core used when no route is supplied (macro stays routed). */
 export const DESK_CORE_VIEWPOINT_IDS: DeskViewpointId[] = [
   "fundamental",
   "technical",
   "options",
+  "risk",
 ];
 
 const VIEWPOINT_MAX_CHARS = 2_400;
@@ -196,6 +197,6 @@ export function deskAnalystBlock(active?: readonly DeskViewpointId[]): string {
     "- After publish_desk, call suggest_trades (structured trades or empty + skip_reason), then the final message text must be ONLY the desk overview (1–4 sentences) — identical in substance to the overview field. Do not re-paste the specialist takes or the trade list into the prose; the UI already shows them from the tools.",
     "- Skip publish_desk only for pure schema/SQL mechanics, bare calendar lists, or off-analysis tool housekeeping.",
     "- Never overweight technical analysis: if price action is loud but fundamentals, options liquidity, risk, or macro disagree, say so in the overview.",
-    "- Routing examples: single-name options chain (e.g. GME) → usually fundamental + technical + options, not macro. Broad beta / rates ETFs (SPY, TLT) or Fed/CPI asks → include macro. Hedges, sizing, wipeout, or \"what breaks\" → include risk.",
+    "- Routing examples: single-name options chain (e.g. GME) → fundamental + technical + options + risk, not macro. Broad beta / rates ETFs (SPY, TLT) or Fed/CPI asks → include macro. Risk is always active — downside, sizing, and what breaks the thesis.",
   ].join("\n");
 }

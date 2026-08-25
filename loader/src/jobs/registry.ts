@@ -16,6 +16,7 @@ import { regShoDailyJob } from "./reg-sho-daily.js";
 import { secFilingsDailyJob } from "./sec-filings-daily.js";
 import { instrumentsDailyJob } from "./instruments-daily.js";
 import { fredYieldsDailyJob } from "./fred-yields-daily.js";
+import { fredMacroDailyJob } from "./fred-macro-daily.js";
 import { kalshiMarketsHourlyJob } from "./kalshi-markets-hourly.js";
 import { earningsResultsDailyJob } from "./earnings-results-daily.js";
 import { companyFactsDailyJob } from "./company-facts-daily.js";
@@ -60,7 +61,11 @@ import { companyFactsDailyJob } from "./company-facts-daily.js";
 //   - instruments-daily — batch, ungated, daily; manifest classification →
 //     options.instruments (security_type equity|etf|index|future|crypto).
 //   - fred-yields-daily — batch, ungated, daily; FRED Treasury / rates curve
-//     observations → options.yields (DGS* + spreads + TIPS/breakevens + DFF/SOFR).
+//     observations → options.yields (DGS* + spreads + TIPS/breakevens +
+//     T5YIFR forward + DFF/SOFR).
+//   - fred-macro-daily — batch, ungated, daily; FRED CPI/PCE/PPI index + YoY
+//     observations → options.macro (realized inflation levels; calendar dates
+//     stay on options.econ_calendar).
 //   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
 //     contracts (Fed/CPI/indexes/crypto/oil) → options.kalshi_markets.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
@@ -84,6 +89,7 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     secFilingsDailyJob(env),
     instrumentsDailyJob(env),
     fredYieldsDailyJob(env),
+    fredMacroDailyJob(env),
     kalshiMarketsHourlyJob(env),
   ];
 }

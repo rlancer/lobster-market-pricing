@@ -467,7 +467,10 @@ function MobileBottomNavigation() {
 
   if (!isMobile || !mounted) return null;
 
-  const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
+  const isTimeline =
+    location.pathname === '/'
+    || location.pathname.startsWith('/u/')
+    || location.pathname.startsWith('/share/');
   const isResearch = location.pathname.startsWith('/research');
 
   return createPortal(
@@ -570,21 +573,18 @@ function WorkspaceLayout() {
   useEffect(() => { loadStats(); }, [loadStats]);
 
 
-  // Shared chats (/share/:shareId) are PUBLIC artifacts — a recipient who may
-  // never have visited the site gets a bare page with its own minimal chrome
-  // (SharedChat's AppShell): no workspace nav, no stats chrome, no
-  // localStorage reads. Skip the whole shell for them.
-  if (location.pathname.startsWith('/share/')) {
-    return <Outlet />;
-  }
-
   const updatedAt = stats?.last_updated
     ? new Date(stats.last_updated.replace(' ', 'T')).toLocaleString(undefined, {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
       })
     : '–';
 
-  const isTimeline = location.pathname === '/' || location.pathname.startsWith('/u/');
+  // Shared chats live in the workspace shell so recipients can reach Timeline,
+  // Chat, and Research — treat /share/* like timeline/profile for nav highlight.
+  const isTimeline =
+    location.pathname === '/'
+    || location.pathname.startsWith('/u/')
+    || location.pathname.startsWith('/share/');
   const active = isTimeline
     ? SECTIONS[0]
     : isExperimentsNavPath(location.pathname)

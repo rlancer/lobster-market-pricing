@@ -259,12 +259,24 @@ export const FEEDS: CatalogItem[] = [
     id: 'feed:fred-yields',
     kind: 'feed',
     title: 'FRED Treasury / rates curve',
-    summary: 'Constant-maturity yields, spreads, TIPS, SOFR',
+    summary: 'Constant-maturity yields, spreads, TIPS, 5y5y forward, SOFR',
     description:
-      'Daily FRED series observations (~10y lookback) into options.yields: DGS1MO–DGS30 constant-maturity Treasuries, T10Y2Y / T10Y3M curve spreads, T5YIE / T10YIE breakevens, DFII5 / DFII10 TIPS, plus DFF and SOFR overnight policy rates. Values are percent / percentage points. Bond ETF prices (TLT, IEF, SHY) remain in options.ohlc — this table is the actual yield curve levels everything else is priced off of.',
+      'Daily FRED series observations (~10y lookback) into options.yields: DGS1MO–DGS30 constant-maturity Treasuries, T10Y2Y / T10Y3M curve spreads, T5YIE / T10YIE breakevens, T5YIFR 5y5y forward inflation, DFII5 / DFII10 TIPS, plus DFF and SOFR overnight policy rates. Values are percent / percentage points. Bond ETF prices (TLT, IEF, SHY) remain in options.ohlc — this table is the actual yield curve levels everything else is priced off of. Realized CPI/PCE/PPI prints live in options.macro, not here.',
     provider: 'FRED (St. Louis Fed)',
     cadence: 'Daily (fred-yields-daily job)',
     tables: ['yields'],
+    tools: ['run_query', 'render_chart'],
+  },
+  {
+    id: 'feed:fred-macro',
+    kind: 'feed',
+    title: 'FRED inflation / price indexes',
+    summary: 'CPI, core CPI, PCE, core PCE, PPI — index + YoY',
+    description:
+      'Daily FRED observations (~20y lookback) into options.macro: headline/core CPI (CPIAUCSL / CPILFESL + *_YOY), headline/core PCE (PCEPI / PCEPILFE + *_YOY), and PPI final demand (PPIFIS + PPIFIS_YOY). Rows carry kind (cpi|pce|ppi), units (index|yoy_pct), and frequency=monthly. This is realized inflation history for modeling — release dates stay on options.econ_calendar; market-implied CPI odds stay on options.kalshi_markets; breakevens/T5YIFR stay on options.yields.',
+    provider: 'FRED (St. Louis Fed)',
+    cadence: 'Daily (fred-macro-daily job)',
+    tables: ['macro'],
     tools: ['run_query', 'render_chart'],
   },
   {
@@ -592,8 +604,15 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   yields: {
     summary: 'US Treasury / rates curve (FRED)',
     description:
-      'series_id, date, value (percent / percentage points), title, tenor, kind (nominal|real|breakeven|spread|policy), source=fred. Constant-maturity DGS* curve, T10Y2Y/T10Y3M spreads, TIPS/breakevens, DFF/SOFR. ~10y of daily history; latest-wins on (series_id, date). Prefer this over bond ETF closes when the question is about the yield curve.',
+      'series_id, date, value (percent / percentage points), title, tenor, kind (nominal|real|breakeven|forward|spread|policy), source=fred. Constant-maturity DGS* curve, T10Y2Y/T10Y3M spreads, TIPS/breakevens, T5YIFR 5y5y forward, DFF/SOFR. ~10y of daily history; latest-wins on (series_id, date). Prefer this over bond ETF closes when the question is about the yield curve. Realized CPI/PCE/PPI levels live in options.macro.',
     feeds: ['fred-yields'],
+    tools: ['run_query', 'render_chart'],
+  },
+  macro: {
+    summary: 'CPI / PCE / PPI inflation prints (FRED)',
+    description:
+      'series_id, date, value, title, kind (cpi|pce|ppi), units (index|yoy_pct), frequency=monthly, source=fred. Headline/core CPI + PCE and PPI final demand, each as index levels and YoY %. ~20y lookback; latest-wins on (series_id, date). Prefer yoy_pct for “where is inflation?”; use econ_calendar for the next release date and kalshi_markets for event odds.',
+    feeds: ['fred-macro'],
     tools: ['run_query', 'render_chart'],
   },
   kalshi_markets: {
