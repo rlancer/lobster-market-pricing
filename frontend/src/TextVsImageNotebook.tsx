@@ -851,8 +851,13 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="questions" num={questionsNum} title="Questions">
           <Text type="supporting">
+<<<<<<< HEAD
             Each representation answers the same ground-truth prompts. Answers must follow the
             requested exact format; scoring is deterministic and uses no judge model.
+=======
+            Each representation answers the same ground-truth prompts — basic ranking plus
+            density-stress items (counts, median rank, sector means, mid-panel lookups).
+>>>>>>> 42480f8 (Clarify density-stress questions in the experiment notebook UI)
           </Text>
           <div className="notebook-results">
             <table>
