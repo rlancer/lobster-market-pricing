@@ -284,7 +284,7 @@ function composeWrapUp(input: {
   const { models, winningRep, winningFamily, families } = input;
   if (!models.length) {
     return 'Once published runs land, this closing note will pull the cross-model scoreboard '
-      + 'into a single takeaway for Copilot framing — whether structured text, labeled charts, '
+      + 'into a single takeaway for AI framing — whether structured text, labeled charts, '
       + 'or textless charts with a markdown color key best survive LLM context on this panel.';
   }
 
@@ -293,7 +293,7 @@ function composeWrapUp(input: {
   const hybrid = families.find((f) => f.family === 'hybrid');
 
   const parts: string[] = [
-    'This notebook asked a production question: when Copilot reasons over a multi-name '
+    'This notebook asked a production question: when the AI reasons over a multi-name '
       + 'equity panel, which context encoding should we ship — structured text packs, labeled '
       + 'chart images, or textless charts paired with a markdown color key?',
   ];
@@ -317,7 +317,7 @@ function composeWrapUp(input: {
   if (text?.meanAccuracy != null && image?.meanAccuracy != null) {
     if (text.meanAccuracy > image.meanAccuracy + 0.05) {
       parts.push(
-        'Text packs clearly outperform labeled images here, so keeping Copilot\'s '
+        'Text packs clearly outperform labeled images here, so keeping the AI\'s '
           + 'period-stats and tool-summary framing is the safer default until chart encodings catch up.',
       );
     } else if (image.meanAccuracy > text.meanAccuracy + 0.05) {

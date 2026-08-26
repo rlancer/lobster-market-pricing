@@ -552,10 +552,10 @@ export default function TextVsImageNotebookPage() {
             <Heading level={1}>Text vs image context for market panels</Heading>
             <Text type="supporting">
               The same deterministic 20-name synthetic equity panel is shown to a multimodal
-              model either as Copilot-style text summaries, as chart images, or as textless
+              model either as AI-style text summaries, as chart images, or as textless
               charts paired with a markdown color key (so the model does not need OCR).
               Answers are scored against ground truth so we can see which encodings survive
-              LLM context before changing production Copilot framing.
+              LLM context before changing production AI framing.
             </Text>
           </VStack>
 
@@ -765,7 +765,7 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="reading" num={readingNum} title="How to read this">
           <Text type="supporting">
-            Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
+            Compare <code>tool_summary</code> (today&apos;s AI framing) against labeled
             image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
             markdown color key). If hybrids beat labeled images on the same model, OCR was the
             bottleneck — production can send color legends in text and keep charts visual-only.
@@ -845,7 +845,7 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="reps" num={repsNum} title="Representations">
           <Text type="supporting">
-            Text packs mirror today&apos;s Copilot tool summary. Image encodings are labeled
+            Text packs mirror today&apos;s AI tool summary. Image encodings are labeled
             charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
             (no OCR). Pick one to inspect the payload.
           </Text>
@@ -930,7 +930,7 @@ export default function TextVsImageNotebookPage() {
           ) : (
             <Text type="supporting">
               Once published runs land, this closing note will pull the cross-model scoreboard
-              into a single takeaway for Copilot framing — whether structured text, labeled
+              into a single takeaway for AI framing — whether structured text, labeled
               charts, or textless charts with a markdown color key best survive LLM context
               on this panel.
             </Text>
