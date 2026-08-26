@@ -1,27 +1,48 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   parseSaveExperimentRunBody,
 } from "../src/experiment-runs.ts";
+
+const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+const systemPrompt = "Use only the supplied context.";
+const questions = [{
+  id: "q1",
+  prompt: "Who won?",
+  expected: "AERO",
+  kind: "ticker",
+}];
+const repOrder = ["tool_summary", "overlay_normalized"];
+const representationHashes = {
+  tool_summary: sha256("AERO won"),
+  overlay_normalized: sha256("data:image/png;base64,aaa"),
+};
+const designFingerprint = sha256([
+  "text-vs-image-v2",
+  "2",
+  sha256(systemPrompt),
+  sha256(JSON.stringify(questions)),
+  ...repOrder.map((id) => `${id}:${representationHashes[id as keyof typeof representationHashes]}`),
+].join("\n"));
 
 const minimalResults = {
   design_id: "text-vs-image-v2",
   manifest: {
     runner_version: 2,
     source_revision: "abc123",
-    system_prompt_sha256: "a".repeat(64),
-    questions_sha256: "b".repeat(64),
-    representation_sha256: {
-      tool_summary: "c".repeat(64),
-      overlay_normalized: "d".repeat(64),
-    },
+    system_prompt: systemPrompt,
+    system_prompt_sha256: sha256(systemPrompt),
+    questions_sha256: sha256(JSON.stringify(questions)),
+    representation_sha256: representationHashes,
+    design_fingerprint_sha256: designFingerprint,
     execution_order: [
       "overlay_normalized::q1",
       "tool_summary::q1",
     ],
     max_probe_attempts: 3,
   },
-  questions: [{ id: "q1", prompt: "Who won?", expected: "AERO" }],
+  questions,
   text_reps: [{
     id: "tool_summary",
     label: "Tool summary",
@@ -44,7 +65,7 @@ const minimalResults = {
     correct: true,
     latency_ms: 15,
   }],
-  rep_order: ["tool_summary", "overlay_normalized"],
+  rep_order: repOrder,
 };
 
 const minimalImage = {
@@ -56,8 +77,8 @@ const minimalImage = {
   data_url: "data:image/png;base64,aaa",
 };
 
-test("parseSaveExperimentRunBody accepts a complete run", () => {
-  const parsed = parseSaveExperimentRunBody({
+test("parseSaveExperimentRunBody accepts a complete run", async () => {
+  const parsed = await parseSaveExperimentRunBody({
     experiment_slug: "text-vs-image",
     model: "openai/gpt-4o-mini",
     seed: 42,
@@ -72,8 +93,8 @@ test("parseSaveExperimentRunBody accepts a complete run", () => {
   assert.equal(parsed.input.results.design_id, "text-vs-image-v2");
 });
 
-test("parseSaveExperimentRunBody rejects slug mismatch", () => {
-  const parsed = parseSaveExperimentRunBody({
+test("parseSaveExperimentRunBody rejects slug mismatch", async () => {
+  const parsed = await parseSaveExperimentRunBody({
     experiment_slug: "other",
     model: "m",
     seed: 1,
@@ -83,8 +104,8 @@ test("parseSaveExperimentRunBody rejects slug mismatch", () => {
   assert.equal(parsed.ok, false);
 });
 
-test("parseSaveExperimentRunBody requires images fed to the model", () => {
-  const parsed = parseSaveExperimentRunBody({
+test("parseSaveExperimentRunBody requires images fed to the model", async () => {
+  const parsed = await parseSaveExperimentRunBody({
     model: "m",
     seed: 1,
     results: minimalResults,
@@ -93,8 +114,8 @@ test("parseSaveExperimentRunBody requires images fed to the model", () => {
   assert.equal(parsed.ok, false);
 });
 
-test("parseSaveExperimentRunBody rejects non-data-url images", () => {
-  const parsed = parseSaveExperimentRunBody({
+test("parseSaveExperimentRunBody rejects non-data-url images", async () => {
+  const parsed = await parseSaveExperimentRunBody({
     model: "m",
     seed: 1,
     results: minimalResults,
@@ -103,8 +124,8 @@ test("parseSaveExperimentRunBody rejects non-data-url images", () => {
   assert.equal(parsed.ok, false);
 });
 
-test("parseSaveExperimentRunBody rejects incomplete matrices", () => {
-  const parsed = parseSaveExperimentRunBody({
+test("parseSaveExperimentRunBody rejects incomplete matrices", async () => {
+  const parsed = await parseSaveExperimentRunBody({
     model: "m",
     seed: 1,
     results: {
@@ -118,9 +139,9 @@ test("parseSaveExperimentRunBody rejects incomplete matrices", () => {
   assert.match(parsed.error, /exactly 2 cells/i);
 });
 
-test("parseSaveExperimentRunBody rejects unversioned runs", () => {
+test("parseSaveExperimentRunBody rejects unversioned runs", async () => {
   const { design_id: _designId, ...unversioned } = minimalResults;
-  const parsed = parseSaveExperimentRunBody({
+  const parsed = await parseSaveExperimentRunBody({
     model: "m",
     seed: 1,
     results: unversioned,
@@ -129,6 +150,24 @@ test("parseSaveExperimentRunBody rejects unversioned runs", () => {
   assert.equal(parsed.ok, false);
   if (parsed.ok) return;
   assert.match(parsed.error, /design_id/i);
+});
+
+test("parseSaveExperimentRunBody rejects false manifest attestations", async () => {
+  const parsed = await parseSaveExperimentRunBody({
+    model: "m",
+    seed: 1,
+    results: {
+      ...minimalResults,
+      manifest: {
+        ...minimalResults.manifest,
+        questions_sha256: "f".repeat(64),
+      },
+    },
+    images: [minimalImage],
+  }, "text-vs-image");
+  assert.equal(parsed.ok, false);
+  if (parsed.ok) return;
+  assert.match(parsed.error, /questions hash does not match/i);
 });
 
 test("summarizeExperimentResultsJson exposes per-rep accuracy", async () => {

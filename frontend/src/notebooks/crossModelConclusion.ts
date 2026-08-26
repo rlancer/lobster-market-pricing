@@ -19,6 +19,7 @@ export interface RunSummaryForConclusion {
   model: string;
   seed?: number;
   design_id?: string | null;
+  manifest_fingerprint?: string | null;
   matrix_complete?: boolean;
   created_at: number;
   cells_correct: number;
@@ -112,6 +113,10 @@ export function pickLatestRunPerModel(
   const cohort = sorted[0];
   for (const run of sorted) {
     if (cohort?.design_id && run.design_id !== cohort.design_id) continue;
+    if (
+      cohort?.manifest_fingerprint
+      && run.manifest_fingerprint !== cohort.manifest_fingerprint
+    ) continue;
     if (cohort?.seed != null && run.seed !== cohort.seed) continue;
     if (byModel.has(run.model)) continue;
     byModel.set(run.model, run);

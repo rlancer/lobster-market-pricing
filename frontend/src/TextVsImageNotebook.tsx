@@ -403,6 +403,7 @@ export default function TextVsImageNotebookPage() {
         model: run.model,
         seed: run.seed,
         design_id: run.results.design_id,
+        manifest_fingerprint: run.results.manifest.design_fingerprint_sha256,
         matrix_complete: summary?.matrix_complete ?? false,
         created_at: run.created_at,
         cells_correct: summary?.cells_correct

@@ -83,11 +83,14 @@ jobs:
             code=$(curl -sS -o /tmp/exp-list.json -w '%{http_code}' \
               "$API_BASE/api/experiments/$SLUG/runs" || true)
             if [ "$code" = "200" ]; then
-              echo "list endpoint ready (HTTP 200)"
-              cat /tmp/exp-list.json
-              break
+              schema=$(python3 -c 'import json; print(json.load(open("/tmp/exp-list.json")).get("run_schema_version", 0))' 2>/dev/null || echo 0)
+              if [ "$schema" = "2" ]; then
+                echo "versioned run endpoint ready (HTTP 200, schema 2)"
+                cat /tmp/exp-list.json
+                break
+              fi
             fi
-            echo "attempt $i: list HTTP $code — waiting…"
+            echo "attempt $i: list HTTP $code, run schema ${schema:-0} — waiting…"
             if [ "$i" -eq 36 ]; then
               echo "::error::list endpoint never returned 200"
               cat /tmp/exp-list.json || true

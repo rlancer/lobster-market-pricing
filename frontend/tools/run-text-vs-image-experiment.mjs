@@ -18,6 +18,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
+import {
+  deterministicShuffle,
+  probeRetryDelayMs,
+} from './text-vs-image-runner-utils.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FRONTEND_ROOT = join(__dirname, '..');
@@ -140,29 +144,16 @@ async function api(path, { method = 'GET', body } = {}) {
     json = { raw: text };
   }
   if (!res.ok) {
-    throw new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 800)}`);
+    const error = new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 800)}`);
+    error.status = res.status;
+    error.retryAfter = res.headers.get('Retry-After');
+    throw error;
   }
   return json;
 }
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
-}
-
-function deterministicShuffle(items, seed) {
-  let state = seed >>> 0;
-  const random = () => {
-    state += 0x6d2b79f5;
-    let value = Math.imul(state ^ (state >>> 15), 1 | state);
-    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
-  const shuffled = items.slice();
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapWith = Math.floor(random() * (index + 1));
-    [shuffled[index], shuffled[swapWith]] = [shuffled[swapWith], shuffled[index]];
-  }
-  return shuffled;
 }
 
 function sleep(ms) {
@@ -242,7 +233,9 @@ async function main() {
             };
       process.stdout.write(`probe ${repId} × ${question.id}… `);
       let lastError = null;
+      let attempts = 0;
       for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
+        attempts = attempt;
         try {
           const result = await api('/api/admin/notebooks/probe', {
             method: 'POST',
@@ -268,10 +261,10 @@ async function main() {
           break;
         } catch (error) {
           lastError = error;
-          if (attempt < PROBE_ATTEMPTS) {
-            process.stdout.write(`retry ${attempt}/${PROBE_ATTEMPTS}… `);
-            await sleep(500 * (2 ** (attempt - 1)));
-          }
+          const retryDelay = probeRetryDelayMs(error, attempt);
+          if (attempt >= PROBE_ATTEMPTS || retryDelay == null) break;
+          process.stdout.write(`retry ${attempt}/${PROBE_ATTEMPTS} in ${retryDelay}ms… `);
+          await sleep(retryDelay);
         }
       }
       if (lastError) {
@@ -281,7 +274,7 @@ async function main() {
           status: 'error',
           error: String(lastError?.message ?? lastError),
           model: MODEL,
-          attempts: PROBE_ATTEMPTS,
+          attempts,
         });
         console.log('error', String(lastError?.message ?? lastError).slice(0, 200));
       }
@@ -303,6 +296,21 @@ async function main() {
         sha256(`${rep.text_context}\n${rep.data_url}`),
       ]),
     ]);
+    const questionsPayload = payload.questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      expected: question.expected,
+      kind: question.kind,
+    }));
+    const systemPromptHash = sha256(payload.system);
+    const questionsHash = sha256(JSON.stringify(questionsPayload));
+    const designFingerprint = sha256([
+      payload.designId,
+      '2',
+      systemPromptHash,
+      questionsHash,
+      ...repOrder.map((id) => `${id}:${representationHashes[id]}`),
+    ].join('\n'));
 
     const saved = await api(`/api/admin/experiments/${encodeURIComponent(SLUG)}/runs`, {
       method: 'POST',
@@ -316,17 +324,15 @@ async function main() {
           manifest: {
             runner_version: 2,
             source_revision: SOURCE_REVISION,
-            system_prompt_sha256: sha256(payload.system),
-            questions_sha256: sha256(JSON.stringify(payload.questions)),
+            system_prompt: payload.system,
+            system_prompt_sha256: systemPromptHash,
+            questions_sha256: questionsHash,
             representation_sha256: representationHashes,
+            design_fingerprint_sha256: designFingerprint,
             execution_order: jobs.map(({ repId, question }) => `${repId}::${question.id}`),
             max_probe_attempts: PROBE_ATTEMPTS,
           },
-          questions: payload.questions.map((q) => ({
-            id: q.id,
-            prompt: q.prompt,
-            expected: q.expected,
-          })),
+          questions: questionsPayload,
           text_reps: [
             ...payload.textReps,
             ...hybrids.map((h) => ({

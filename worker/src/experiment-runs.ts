@@ -5,6 +5,7 @@
 export const MAX_EXPERIMENT_RESULTS_CHARS = 400_000;
 export const MAX_EXPERIMENT_IMAGE_DATA_URL_CHARS = 1_800_000;
 export const MAX_EXPERIMENT_IMAGES = 12;
+export const EXPERIMENT_RUN_SCHEMA_VERSION = 2;
 
 export interface ExperimentRunImage {
   id: string;
@@ -32,6 +33,7 @@ export interface ExperimentRunQuestion {
   id: string;
   prompt: string;
   expected: string;
+  kind: string;
 }
 
 export interface ExperimentRunTextRep {
@@ -45,9 +47,11 @@ export interface ExperimentRunTextRep {
 export interface ExperimentRunManifest {
   runner_version: number;
   source_revision: string;
+  system_prompt: string;
   system_prompt_sha256: string;
   questions_sha256: string;
   representation_sha256: Record<string, string>;
+  design_fingerprint_sha256: string;
   execution_order: string[];
   max_probe_attempts: number;
 }
@@ -97,10 +101,17 @@ function asString(v: unknown, max: number): string | null {
   return t.length > max ? t.slice(0, max) : t;
 }
 
-export function parseSaveExperimentRunBody(
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function parseSaveExperimentRunBody(
   body: unknown,
   slugFromPath: string,
-): ParseSaveResult {
+): Promise<ParseSaveResult> {
   if (!isRecord(body)) {
     return { ok: false, error: "JSON body required", status: 400 };
   }
@@ -142,8 +153,10 @@ export function parseSaveExperimentRunBody(
     ? manifestRaw.runner_version
     : null;
   const sourceRevision = asString(manifestRaw.source_revision, 120);
+  const systemPrompt = asString(manifestRaw.system_prompt, 4_000);
   const systemHash = asString(manifestRaw.system_prompt_sha256, 64);
   const questionsHash = asString(manifestRaw.questions_sha256, 64);
+  const designFingerprint = asString(manifestRaw.design_fingerprint_sha256, 64);
   const representationHashesRaw = manifestRaw.representation_sha256;
   const executionOrderRaw = Array.isArray(manifestRaw.execution_order)
     ? manifestRaw.execution_order
@@ -159,8 +172,10 @@ export function parseSaveExperimentRunBody(
   if (
     runnerVersion == null
     || !sourceRevision
+    || !systemPrompt
     || !isHash(systemHash)
     || !isHash(questionsHash)
+    || !isHash(designFingerprint)
     || !isRecord(representationHashesRaw)
     || !executionOrderRaw
     || maxProbeAttempts == null
@@ -184,9 +199,11 @@ export function parseSaveExperimentRunBody(
   const manifest: ExperimentRunManifest = {
     runner_version: runnerVersion,
     source_revision: sourceRevision,
+    system_prompt: systemPrompt,
     system_prompt_sha256: systemHash,
     questions_sha256: questionsHash,
     representation_sha256,
+    design_fingerprint_sha256: designFingerprint,
     execution_order,
     max_probe_attempts: maxProbeAttempts,
   };
@@ -205,8 +222,9 @@ export function parseSaveExperimentRunBody(
     const id = asString(q.id, 80);
     const prompt = asString(q.prompt, 4_000);
     const expected = asString(q.expected, 500) ?? "";
-    if (!id || !prompt) continue;
-    questions.push({ id, prompt, expected });
+    const kind = asString(q.kind, 40);
+    if (!id || !prompt || !kind) continue;
+    questions.push({ id, prompt, expected, kind });
   }
   if (!questions.length) {
     return { ok: false, error: "results.questions must be non-empty", status: 400 };
@@ -331,10 +349,6 @@ export function parseSaveExperimentRunBody(
     cells,
     rep_order,
   };
-  const resultsJson = JSON.stringify(results);
-  if (resultsJson.length > MAX_EXPERIMENT_RESULTS_CHARS) {
-    return { ok: false, error: "results payload too large", status: 400 };
-  }
 
   const imagesIn = Array.isArray(body.images) ? body.images : null;
   if (!imagesIn || !imagesIn.length) {
@@ -389,6 +403,44 @@ export function parseSaveExperimentRunBody(
       error: "representation payloads must match results.rep_order",
       status: 400,
     };
+  }
+
+  if (await sha256(manifest.system_prompt) !== manifest.system_prompt_sha256) {
+    return { ok: false, error: "results.manifest system prompt hash does not match", status: 400 };
+  }
+  if (await sha256(JSON.stringify(questions)) !== manifest.questions_sha256) {
+    return { ok: false, error: "results.manifest questions hash does not match", status: 400 };
+  }
+  const textById = new Map(text_reps.map((rep) => [rep.id, rep.body]));
+  const imageById = new Map(images.map((image) => [image.id, image.data_url]));
+  for (const repId of rep_order) {
+    const text = textById.get(repId);
+    const image = imageById.get(repId);
+    const content = text != null && image != null
+      ? `${text}\n${image}`
+      : text ?? image ?? "";
+    if (await sha256(content) !== manifest.representation_sha256[repId]) {
+      return {
+        ok: false,
+        error: `results.manifest representation hash does not match for ${repId}`,
+        status: 400,
+      };
+    }
+  }
+  const fingerprintInput = [
+    design_id,
+    String(manifest.runner_version),
+    manifest.system_prompt_sha256,
+    manifest.questions_sha256,
+    ...rep_order.map((id) => `${id}:${manifest.representation_sha256[id]}`),
+  ].join("\n");
+  if (await sha256(fingerprintInput) !== manifest.design_fingerprint_sha256) {
+    return { ok: false, error: "results.manifest design fingerprint does not match", status: 400 };
+  }
+
+  const resultsJson = JSON.stringify(results);
+  if (resultsJson.length > MAX_EXPERIMENT_RESULTS_CHARS) {
+    return { ok: false, error: "results payload too large", status: 400 };
   }
 
   const created_by = typeof body.created_by === "string"
@@ -565,6 +617,7 @@ export interface ExperimentRunSummary {
   created_at: number;
   created_by: string | null;
   design_id: string | null;
+  manifest_fingerprint: string | null;
   matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
@@ -576,6 +629,7 @@ export interface ExperimentRunSummary {
 
 function summarizeResultsJson(resultsJson: string): {
   design_id: string | null;
+  manifest_fingerprint: string | null;
   matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
@@ -586,6 +640,10 @@ function summarizeResultsJson(resultsJson: string): {
   try {
     const results = JSON.parse(resultsJson) as ExperimentRunResults;
     const design_id = typeof results.design_id === "string" ? results.design_id : null;
+    const manifest_fingerprint =
+      typeof results.manifest?.design_fingerprint_sha256 === "string"
+        ? results.manifest.design_fingerprint_sha256
+        : null;
     const questions = Array.isArray(results.questions) ? results.questions : [];
     const cells = Array.isArray(results.cells) ? results.cells : [];
     const done = cells.filter((c) => c.status === "done");
@@ -625,6 +683,7 @@ function summarizeResultsJson(resultsJson: string): {
         && expectedKeys.has(`${cell.rep_id}::${cell.question_id}`));
     return {
       design_id,
+      manifest_fingerprint,
       matrix_complete,
       cells_total: cells.length,
       cells_done: done.length,
@@ -635,6 +694,7 @@ function summarizeResultsJson(resultsJson: string): {
   } catch {
     return {
       design_id: null,
+      manifest_fingerprint: null,
       matrix_complete: false,
       cells_total: 0,
       cells_done: 0,
@@ -648,6 +708,7 @@ function summarizeResultsJson(resultsJson: string): {
 /** Exported for unit tests — parse results_json into list-summary fields. */
 export function summarizeExperimentResultsJson(resultsJson: string): {
   design_id: string | null;
+  manifest_fingerprint: string | null;
   matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;

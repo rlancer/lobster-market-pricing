@@ -64,6 +64,7 @@ describe('pickLatestRunPerModel', () => {
         model: 'openai/gpt',
         seed: 42,
         design_id: 'v2',
+        manifest_fingerprint: 'fingerprint-a',
         created_at: 10,
       },
       {
@@ -72,6 +73,7 @@ describe('pickLatestRunPerModel', () => {
         model: 'google/gemini',
         seed: 42,
         design_id: 'v1',
+        manifest_fingerprint: 'fingerprint-a',
         created_at: 9,
       },
       {
@@ -80,7 +82,17 @@ describe('pickLatestRunPerModel', () => {
         model: 'anthropic/claude',
         seed: 7,
         design_id: 'v2',
+        manifest_fingerprint: 'fingerprint-a',
         created_at: 8,
+      },
+      {
+        ...base,
+        id: 'wrong-manifest',
+        model: 'x-ai/grok',
+        seed: 42,
+        design_id: 'v2',
+        manifest_fingerprint: 'fingerprint-b',
+        created_at: 7,
       },
     ]);
     assert.deepEqual(picked.map((run) => run.id), ['current']);

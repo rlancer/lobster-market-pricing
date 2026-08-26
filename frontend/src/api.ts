@@ -1188,13 +1188,15 @@ export interface ExperimentRunPayload {
     manifest: {
       runner_version: number;
       source_revision: string;
+      system_prompt: string;
       system_prompt_sha256: string;
       questions_sha256: string;
       representation_sha256: Record<string, string>;
+      design_fingerprint_sha256: string;
       execution_order: string[];
       max_probe_attempts: number;
     };
-    questions: Array<{ id: string; prompt: string; expected: string }>;
+    questions: Array<{ id: string; prompt: string; expected: string; kind: string }>;
     text_reps: Array<{
       id: string;
       label: string;
@@ -1235,6 +1237,7 @@ export interface ExperimentRunSummary {
   created_at: number;
   created_by: string | null;
   design_id: string | null;
+  manifest_fingerprint: string | null;
   matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
@@ -1389,7 +1392,7 @@ export const api = {
     ),
   /** Public: list published runs (newest first) for multi-model comparison. */
   experimentListRuns: (slug: string, limit = 20, designId?: string) =>
-    get<{ items: ExperimentRunSummary[] }>(
+    get<{ items: ExperimentRunSummary[]; run_schema_version: number }>(
       `/api/experiments/${encodeURIComponent(slug)}/runs${qs({ limit, design_id: designId })}`,
     ),
   /** Public: one published run by id. */
