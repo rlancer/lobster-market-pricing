@@ -547,6 +547,11 @@ The `deploy.yml` GitHub Action builds and deploys the frontend to Cloudflare
 Pages on push to main (`robs-options-slop` project, `lobster.mp` domain);
 dev/preview deploys for non-main branches.
 
+The text-vs-image experiment is materialized from its public API during each
+frontend build. Results and exact chart PNGs ship as static assets, so the
+experiment page renders without a client-side results fetch or loading state.
+Its probe workflow rebuilds and redeploys that snapshot after a matrix finishes.
+
 Each route sets its own `<title>`, description, canonical URL, and Open Graph /
 Twitter tags from the path (e.g. `/research/SPY` → `SPY – Research · Lobster MP`).
 The Vite build also emits a Cloudflare Pages `_worker.js` that rewrites those
