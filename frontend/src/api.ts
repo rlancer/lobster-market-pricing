@@ -1226,7 +1226,7 @@ export interface ExperimentRunSummary {
   cells_done: number;
   cells_correct: number;
   cells_total: number;
-  /** Present on newer Worker deploys — used for cross-model conclusions. */
+  /** Present on newer Worker deploys — used for cross-model results. */
   rep_accuracy?: Array<{ rep_id: string; correct: number; done: number }>;
   rep_order?: string[];
 }

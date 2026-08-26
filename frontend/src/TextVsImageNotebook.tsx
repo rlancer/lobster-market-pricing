@@ -46,14 +46,15 @@ const TOC_BEFORE: Array<{ id: string; label: string }> = [
   { id: 'overview', label: 'Overview' },
 ];
 
-/** After per-model results: takeaway, then methodology. */
+/** After per-model results: cross-model scoreboard, methodology, then wrap-up. */
 const TOC_AFTER: Array<{ id: string; label: string }> = [
-  { id: 'conclusion', label: 'Conclusion' },
+  { id: 'cross-model-results', label: 'Cross model results' },
   { id: 'reading', label: 'How to read' },
   { id: 'setup', label: 'Setup' },
   { id: 'images', label: 'Images' },
   { id: 'reps', label: 'Representations' },
   { id: 'questions', label: 'Questions' },
+  { id: 'conclusion', label: 'Conclusion' },
 ];
 
 function modelSectionId(runId: string): string {
@@ -530,12 +531,13 @@ export default function TextVsImageNotebookPage() {
     ? null
     : (displayImages.find((r) => r.id === selectedRep) ?? null);
 
-  const conclusionNum = tocById.get('conclusion')?.num ?? '03';
+  const crossResultsNum = tocById.get('cross-model-results')?.num ?? '03';
   const readingNum = tocById.get('reading')?.num ?? '04';
   const setupNum = tocById.get('setup')?.num ?? '05';
   const imagesNum = tocById.get('images')?.num ?? '06';
   const repsNum = tocById.get('reps')?.num ?? '07';
   const questionsNum = tocById.get('questions')?.num ?? '08';
+  const conclusionNum = tocById.get('conclusion')?.num ?? '09';
 
   return (
     <div className="notebook-layout">
@@ -550,10 +552,10 @@ export default function TextVsImageNotebookPage() {
             <Heading level={1}>Text vs image context for market panels</Heading>
             <Text type="supporting">
               The same deterministic 20-name synthetic equity panel is shown to a multimodal
-              model either as Copilot-style text summaries, as chart images, or as textless
+              model either as AI-style text summaries, as chart images, or as textless
               charts paired with a markdown color key (so the model does not need OCR).
               Answers are scored against ground truth so we can see which encodings survive
-              LLM context before changing production Copilot framing.
+              LLM context before changing production AI framing.
             </Text>
           </VStack>
 
@@ -629,13 +631,13 @@ export default function TextVsImageNotebookPage() {
           </section>
         ) : null}
 
-        <Section id="conclusion" num={conclusionNum} title="Cross-model conclusion">
+        <Section id="cross-model-results" num={crossResultsNum} title="Cross model results">
           {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
             <Text type="supporting">Aggregating saved runs…</Text>
           ) : null}
           {crossCutState === 'idle' && runList.length === 0 ? (
             <Text type="supporting">
-              Cross-model conclusions appear once at least one run is published.
+              Cross model results appear once at least one run is published.
             </Text>
           ) : null}
           {crossCutState === 'error' ? (
@@ -763,7 +765,7 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="reading" num={readingNum} title="How to read this">
           <Text type="supporting">
-            Compare <code>tool_summary</code> (today&apos;s Copilot framing) against labeled
+            Compare <code>tool_summary</code> (today&apos;s AI framing) against labeled
             image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
             markdown color key). If hybrids beat labeled images on the same model, OCR was the
             bottleneck — production can send color legends in text and keep charts visual-only.
@@ -843,7 +845,7 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="reps" num={repsNum} title="Representations">
           <Text type="supporting">
-            Text packs mirror today&apos;s Copilot tool summary. Image encodings are labeled
+            Text packs mirror today&apos;s AI tool summary. Image encodings are labeled
             charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
             (no OCR). Pick one to inspect the payload.
           </Text>
@@ -917,6 +919,22 @@ export default function TextVsImageNotebookPage() {
               </tbody>
             </table>
           </div>
+        </Section>
+
+        <Section id="conclusion" num={conclusionNum} title="Conclusion">
+          {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
+            <Text type="supporting">Wrapping up once saved runs finish loading…</Text>
+          ) : null}
+          {crossCut ? (
+            <Text type="supporting">{crossCut.wrapUp}</Text>
+          ) : (
+            <Text type="supporting">
+              Once published runs land, this closing note will pull the cross-model scoreboard
+              into a single takeaway for AI framing — whether structured text, labeled
+              charts, or textless charts with a markdown color key best survive LLM context
+              on this panel.
+            </Text>
+          )}
         </Section>
       </div>
 

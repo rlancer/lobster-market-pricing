@@ -1,5 +1,5 @@
 /**
- * Text context packs for the notebook. `tool_summary` mirrors Copilot's
+ * Text context packs for the notebook. `tool_summary` mirrors the AI's
  * worker-side `summarizeResult` shape (stats + head/tail), which is the
  * baseline we compare against image encodings.
  */
@@ -31,7 +31,7 @@ function formatRow(columns: string[], row: Record<string, unknown>): string {
     .join(' | ');
 }
 
-/** Closest mirror of Copilot tool summaries today. */
+/** Closest mirror of production AI tool summaries today. */
 export function toolSummaryText(universe: SynthUniverse): string {
   const lines: string[] = [
     'DATASET: synthetic_equity_panel',
@@ -111,9 +111,9 @@ export function buildTextRepresentations(universe: SynthUniverse): TextRep[] {
   const specs: Omit<TextRep, 'approxTokens'>[] = [
     {
       id: 'tool_summary',
-      label: 'Tool summary (current Copilot style)',
+      label: 'Tool summary (current AI style)',
       description:
-        'Per-ticker column stats plus head/tail samples — the same shape Copilot gets from summarizeResult today.',
+        'Per-ticker column stats plus head/tail samples — the same shape the AI gets from summarizeResult today.',
       body: toolSummaryText(universe),
     },
     {
