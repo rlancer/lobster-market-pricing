@@ -12,7 +12,10 @@ export type ImageRepId =
   | 'returns_heatmap'
   | 'ranked_bars'
   | 'overlay_textless'
-  | 'ranked_bars_textless';
+  | 'ranked_bars_textless'
+  | 'tool_summary_as_image'
+  | 'stats_table_as_image'
+  | 'csv_closes_as_image';
 
 export interface ImageRep {
   id: ImageRepId;

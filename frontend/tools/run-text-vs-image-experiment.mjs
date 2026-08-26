@@ -56,13 +56,17 @@ async function bundleBrowserHarness() {
 import { buildSynthUniverse } from ${JSON.stringify(join(NOTEBOOKS, 'syntheticSeries.ts'))};
 import { buildTextRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'textRepresentations.ts'))};
 import { buildImageRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'imageRepresentations.ts'))};
+import { buildTextAsImageRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'textAsImageRepresentations.ts'))};
 import { buildHybridRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'hybridRepresentations.ts'))};
 import { buildQuestions, scoreAnswer, SYSTEM_PROBE } from ${JSON.stringify(join(NOTEBOOKS, 'questions.ts'))};
 import { EXPERIMENT_DESIGN_ID } from ${JSON.stringify(join(NOTEBOOKS, 'experiment.ts'))};
 
 const universe = buildSynthUniverse();
 const textReps = buildTextRepresentations(universe);
-const images = buildImageRepresentations(universe);
+const images = [
+  ...buildImageRepresentations(universe),
+  ...buildTextAsImageRepresentations(universe),
+];
 const hybrids = buildHybridRepresentations(universe);
 const questions = buildQuestions(universe);
 const tickers = universe.series.map((s) => s.ticker);

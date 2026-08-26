@@ -6,7 +6,7 @@
 
 import { REPRESENTATION_LABELS, type RepresentationId } from './experiment.ts';
 
-export type RepFamily = 'text' | 'labeled_image' | 'hybrid';
+export type RepFamily = 'text' | 'text_as_image' | 'labeled_image' | 'hybrid';
 
 export interface RunRepAccuracy {
   rep_id: string;
@@ -76,12 +76,14 @@ export interface CrossModelConclusion {
 
 const FAMILY_LABELS: Record<RepFamily, string> = {
   text: 'Text packs',
+  text_as_image: 'Same text as image',
   labeled_image: 'Labeled chart images',
   hybrid: 'Textless chart + color key',
 };
 
 export function repFamily(repId: string): RepFamily {
   if (repId.endsWith('_color_keyed') || repId.includes('textless')) return 'hybrid';
+  if (repId.endsWith('_as_image')) return 'text_as_image';
   if (
     repId === 'tool_summary'
     || repId === 'stats_table'
@@ -182,7 +184,9 @@ export function buildCrossModelConclusion(
     };
   });
 
-  const families: FamilyScore[] = (['text', 'labeled_image', 'hybrid'] as RepFamily[])
+  const families: FamilyScore[] = (
+    ['text', 'text_as_image', 'labeled_image', 'hybrid'] as RepFamily[]
+  )
     .map((family) => {
       const familyRows = rows.filter((r) => r.family === family);
       const accs = familyRows
@@ -267,8 +271,22 @@ function composeSummary(input: {
   }
 
   const text = families.find((f) => f.family === 'text');
+  const textAsImage = families.find((f) => f.family === 'text_as_image');
   const image = families.find((f) => f.family === 'labeled_image');
   const hybrid = families.find((f) => f.family === 'hybrid');
+  if (text?.meanAccuracy != null && textAsImage?.meanAccuracy != null) {
+    if (text.meanAccuracy > textAsImage.meanAccuracy + 0.05) {
+      parts.push(
+        'Identical text packs beat their rasterized image twins — tokens still win over OCR for this density.',
+      );
+    } else if (textAsImage.meanAccuracy > text.meanAccuracy + 0.05) {
+      parts.push(
+        'Rasterized text images beat the same packs as tokens — modality (not content) favored pixels here.',
+      );
+    } else {
+      parts.push('Same-content text vs text-as-image scores are close — modality alone is not decisive.');
+    }
+  }
   if (text?.meanAccuracy != null && image?.meanAccuracy != null) {
     parts.push(
       `Descriptively, text packs average ${pct(text.meanAccuracy)} and labeled images `

@@ -270,7 +270,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Text vs image experiment'),
       description:
-        'Compare AI-style text, labeled chart images, and textless charts with a markdown color key in a versioned multimodal benchmark on synthetic equity panels.',
+        'Compare AI-style text, the same text as rasterized images, labeled chart images, and textless charts with a markdown color key in a versioned multimodal benchmark on synthetic equity panels.',
       path: path.startsWith('/notebooks') ? path : '/experiments/text-vs-image',
     };
   }

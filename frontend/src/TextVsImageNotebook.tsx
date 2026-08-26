@@ -33,6 +33,7 @@ import {
   buildSynthUniverse,
   universeStats,
 } from './notebooks/syntheticSeries';
+import { buildTextAsImageRepresentations } from './notebooks/textAsImageRepresentations';
 import {
   buildTextRepresentations,
   type TextRep,
@@ -349,7 +350,10 @@ export default function TextVsImageNotebookPage() {
 
   useEffect(() => {
     try {
-      setLocalImages(buildImageRepresentations(universe));
+      setLocalImages([
+        ...buildImageRepresentations(universe),
+        ...buildTextAsImageRepresentations(universe),
+      ]);
       setLocalHybrids(buildHybridRepresentations(universe));
     } catch (error) {
       console.error(error);
@@ -503,10 +507,12 @@ export default function TextVsImageNotebookPage() {
             <Heading level={1}>Text vs image context for market panels</Heading>
             <Text type="supporting">
               The same deterministic 20-name synthetic equity panel is shown to a multimodal
-              model either as AI-style text summaries, as chart images, or as textless
-              charts paired with a markdown color key. This is a task-aligned encoding
-              benchmark: representations expose different information, so scores describe
-              end-to-end usefulness on these prompts rather than a causal text-versus-image effect.
+              model as AI-style text, as those exact text packs rasterized to PNG
+              (modality control), as labeled chart images, or as textless charts with a
+              markdown color key. This is a task-aligned encoding benchmark: charts and
+              text packs expose different information, while <code>*_as_image</code> twins
+              isolate tokens vs pixels. Scores describe end-to-end usefulness on these
+              prompts rather than a causal text-versus-image effect.
             </Text>
           </VStack>
 
@@ -632,7 +638,7 @@ export default function TextVsImageNotebookPage() {
                       return (
                         <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
                           <td>{row.label}</td>
-                          <td>{row.family.replace('_', ' ')}</td>
+                          <td>{row.family.replaceAll('_', ' ')}</td>
                           <td className="num">
                             {row.meanAccuracy == null
                               ? '—'
@@ -707,13 +713,14 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="reading" num={readingNum} title="How to read this">
           <Text type="supporting">
-            Compare <code>tool_summary</code> (today&apos;s AI framing) against labeled
-            image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
-            markdown color key). These are not content-matched pairs: chart geometry, labels,
-            numeric detail, and instructions differ. A hybrid advantage therefore does not isolate
-            OCR, and a family mean is descriptive rather than a significance test. Ranked bars
-            directly support ranking prompts, while tables directly expose exact statistics;
-            interpret each row as an end-to-end encoding result.
+            The decisive control is each text pack vs its <code>*_as_image</code> twin
+            (identical content, tokens vs pixels). Charts and hybrids are not content-matched
+            to text: geometry, labels, numeric detail, and instructions differ, so a hybrid
+            advantage does not isolate OCR and family means are descriptive rather than a
+            significance test. Also compare labeled charts and hybrid{' '}
+            <code>*_color_keyed</code> rows (textless chart + markdown color key). Ranked bars
+            directly support ranking prompts, while tables expose exact statistics; interpret
+            each row as an end-to-end encoding result.
           </Text>
         </Section>
 
@@ -762,11 +769,12 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="images" num={imagesNum} title="Images fed to the LLM">
           <Text type="supporting">
-            These are the exact chart PNGs used as multimodal user content
+            These are the exact PNGs used as multimodal user content
             {hasSavedPayload && savedImages.length
               ? ' in the saved runs (byte-identical to what OpenRouter received).'
               : ' when probes run (local canvas previews until a run is published).'}
-            {' '}Textless hybrids omit labels; ticker identity lives in the companion markdown key.
+            {' '}Includes labeled charts, text-as-image rasters of the text packs, and
+            textless hybrids (ticker identity in the companion markdown key).
           </Text>
           {!displayImages.length ? (
             <Text type="supporting">No images available yet.</Text>
@@ -790,9 +798,10 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="reps" num={repsNum} title="Representations">
           <Text type="supporting">
-            Text packs mirror today&apos;s AI tool summary. Image encodings are labeled
-            charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
-            (no OCR). Pick one to inspect the payload.
+            Text packs mirror today&apos;s AI tool summary. <code>*_as_image</code> rows
+            are those same packs as monospace PNGs. Chart encodings are labeled plots.
+            Hybrid rows send a textless PNG plus a markdown color key (no OCR). Pick one
+            to inspect the payload.
           </Text>
           <HStack gap={2} style={{ flexWrap: 'wrap' }}>
             {allReps.map((rep) => (

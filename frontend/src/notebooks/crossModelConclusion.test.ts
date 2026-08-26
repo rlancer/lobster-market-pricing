@@ -99,6 +99,16 @@ describe('pickLatestRunPerModel', () => {
   });
 });
 
+describe('repFamily', () => {
+  it('classifies text, text-as-image, charts, and hybrids', () => {
+    assert.equal(repFamily('tool_summary'), 'text');
+    assert.equal(repFamily('stats_table_as_image'), 'text_as_image');
+    assert.equal(repFamily('csv_closes_as_image'), 'text_as_image');
+    assert.equal(repFamily('overlay_normalized'), 'labeled_image');
+    assert.equal(repFamily('ranked_bars_color_keyed'), 'hybrid');
+  });
+});
+
 describe('buildCrossModelConclusion', () => {
   it('names the winning representation and family', () => {
     const conclusion = buildCrossModelConclusion([
@@ -136,5 +146,26 @@ describe('buildCrossModelConclusion', () => {
     assert.match(conclusion.wrapUp, /descriptive benchmark evidence/i);
     assert.match(conclusion.wrapUp, /not .*production recommendation/i);
     assert.equal(repFamily('ranked_bars_color_keyed'), 'hybrid');
+  });
+
+  it('calls out same-content text vs text-as-image modality', () => {
+    const conclusion = buildCrossModelConclusion([
+      {
+        id: 'a',
+        model: 'openai/gpt-4o-mini',
+        created_at: 1,
+        cells_correct: 7,
+        cells_done: 8,
+        cells_total: 8,
+        rep_order: ['stats_table', 'stats_table_as_image'],
+        rep_accuracy: [
+          { rep_id: 'stats_table', correct: 4, done: 4 },
+          { rep_id: 'stats_table_as_image', correct: 1, done: 4 },
+        ],
+      },
+    ]);
+    assert.equal(repFamily('stats_table_as_image'), 'text_as_image');
+    assert.match(conclusion.summary, /Identical text packs beat their rasterized image twins/i);
+    assert.ok(conclusion.families.some((f) => f.family === 'text_as_image'));
   });
 });
