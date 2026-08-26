@@ -2,21 +2,19 @@
  * Deterministic synthetic equity panel for notebook experiments.
  * Seeded PRNG + geometric Brownian motion with planted crashes/rallies so
  * graded questions have stable, computable ground truth.
+ *
+ * Density is intentional: a wide cross-section × year-long paths so text packs
+ * and their rasterized twins are not trivially scannable.
  */
 
 export const SYNTH_SEED = 0x1a2b3c4d;
-export const SYNTH_TRADING_DAYS = 126; // ~6 months
+/** ~1 trading year — denser closes CSV / tool samples than a half-year panel. */
+export const SYNTH_TRADING_DAYS = 252;
 export const SYNTH_START_DATE = '2025-01-02';
+/** Cross-section size. Includes 20 hand-planted names plus generated fillers. */
+export const SYNTH_TICKER_COUNT = 80;
 
-/** 20 fictional tickers — avoids leaking real-market priors into the model. */
-export const SYNTH_TICKERS = [
-  'AERO', 'BRIN', 'COVE', 'DRIFT', 'EMBER',
-  'FLINT', 'GLADE', 'HAVEN', 'IVY', 'JADE',
-  'KEEL', 'LUMEN', 'MIRTH', 'NORTH', 'ORBIT',
-  'PRISM', 'QUILL', 'RIDGE', 'SPIRE', 'TRELL',
-] as const;
-
-export type SynthTicker = (typeof SYNTH_TICKERS)[number];
+export type SynthTicker = string;
 
 export interface DailyBar {
   date: string;
@@ -56,20 +54,34 @@ interface TickerSpec {
   rallyPct?: number;
 }
 
-const SPECS: TickerSpec[] = [
+const SECTORS = [
+  'Technology',
+  'Consumer',
+  'Financials',
+  'Energy',
+  'Health Care',
+  'Industrials',
+  'Materials',
+  'Communications',
+  'Utilities',
+  'Real Estate',
+] as const;
+
+/** Hand-tuned core names with planted path events (always first in the panel). */
+const CORE_SPECS: TickerSpec[] = [
   { ticker: 'AERO', name: 'Aero Dynamics', sector: 'Industrials', start: 42, mu: 0.18, sigma: 0.28 },
-  { ticker: 'BRIN', name: 'Brin Softworks', sector: 'Technology', start: 88, mu: 0.55, sigma: 0.45, rallyDay: 90, rallyPct: 0.12 },
+  { ticker: 'BRIN', name: 'Brin Softworks', sector: 'Technology', start: 88, mu: 0.55, sigma: 0.45, rallyDay: 180, rallyPct: 0.12 },
   { ticker: 'COVE', name: 'Cove Retail', sector: 'Consumer', start: 61, mu: 0.08, sigma: 0.22 },
-  { ticker: 'DRIFT', name: 'Drift Payments', sector: 'Financials', start: 73, mu: -0.05, sigma: 0.35, crashDay: 55, crashPct: 0.22 },
+  { ticker: 'DRIFT', name: 'Drift Payments', sector: 'Financials', start: 73, mu: -0.05, sigma: 0.35, crashDay: 110, crashPct: 0.22 },
   { ticker: 'EMBER', name: 'Ember Energy', sector: 'Energy', start: 34, mu: 0.12, sigma: 0.4 },
   { ticker: 'FLINT', name: 'Flint Robotics', sector: 'Technology', start: 51, mu: 0.32, sigma: 0.5 },
   { ticker: 'GLADE', name: 'Glade Foods', sector: 'Consumer', start: 29, mu: 0.06, sigma: 0.18 },
   { ticker: 'HAVEN', name: 'Haven Health', sector: 'Health Care', start: 97, mu: 0.14, sigma: 0.25 },
   { ticker: 'IVY', name: 'Ivy Semiconductors', sector: 'Technology', start: 112, mu: 0.4, sigma: 0.55 },
-  { ticker: 'JADE', name: 'Jade Materials', sector: 'Materials', start: 46, mu: -0.12, sigma: 0.3, crashDay: 40, crashPct: 0.18 },
+  { ticker: 'JADE', name: 'Jade Materials', sector: 'Materials', start: 46, mu: -0.12, sigma: 0.3, crashDay: 80, crashPct: 0.18 },
   { ticker: 'KEEL', name: 'Keel Shipping', sector: 'Industrials', start: 58, mu: 0.1, sigma: 0.27 },
   { ticker: 'LUMEN', name: 'Lumen Networks', sector: 'Communications', start: 39, mu: 0.22, sigma: 0.33 },
-  { ticker: 'MIRTH', name: 'Mirth Media', sector: 'Communications', start: 27, mu: -0.2, sigma: 0.48, crashDay: 70, crashPct: 0.3 },
+  { ticker: 'MIRTH', name: 'Mirth Media', sector: 'Communications', start: 27, mu: -0.2, sigma: 0.48, crashDay: 140, crashPct: 0.3 },
   { ticker: 'NORTH', name: 'North Utilities', sector: 'Utilities', start: 64, mu: 0.05, sigma: 0.14 },
   { ticker: 'ORBIT', name: 'Orbit Cloud', sector: 'Technology', start: 121, mu: 0.48, sigma: 0.42 },
   { ticker: 'PRISM', name: 'Prism Biotech', sector: 'Health Care', start: 76, mu: 0.25, sigma: 0.6 },
@@ -78,6 +90,61 @@ const SPECS: TickerSpec[] = [
   { ticker: 'SPIRE', name: 'Spire Defense', sector: 'Industrials', start: 85, mu: 0.28, sigma: 0.31 },
   { ticker: 'TRELL', name: 'Trell Agriculture', sector: 'Consumer', start: 44, mu: 0.09, sigma: 0.19 },
 ];
+
+const CONSONANTS = 'BCDFGHJKLMNPQRSTVWXZ';
+const VOWELS = 'AEIOU';
+
+/** Deterministic 4-letter ticker from a dense index (avoids real-market priors). */
+function syntheticTicker(index: number): string {
+  let n = index;
+  const c0 = CONSONANTS[n % CONSONANTS.length]!;
+  n = Math.floor(n / CONSONANTS.length);
+  const v0 = VOWELS[n % VOWELS.length]!;
+  n = Math.floor(n / VOWELS.length);
+  const c1 = CONSONANTS[n % CONSONANTS.length]!;
+  n = Math.floor(n / CONSONANTS.length);
+  const v1 = VOWELS[n % VOWELS.length]!;
+  return `${c0}${v0}${c1}${v1}`;
+}
+
+function buildSpecs(): TickerSpec[] {
+  const used = new Set(CORE_SPECS.map((s) => s.ticker));
+  const specs = CORE_SPECS.slice();
+  let gen = 0;
+  while (specs.length < SYNTH_TICKER_COUNT) {
+    const ticker = syntheticTicker(gen++);
+    if (used.has(ticker)) continue;
+    used.add(ticker);
+    const i = specs.length;
+    const sector = SECTORS[i % SECTORS.length]!;
+    const start = 20 + ((i * 17) % 120);
+    const mu = -0.25 + ((i * 13) % 80) / 100;
+    const sigma = 0.15 + ((i * 7) % 50) / 100;
+    const spec: TickerSpec = {
+      ticker,
+      name: `${ticker} Holdings`,
+      sector,
+      start,
+      mu,
+      sigma,
+    };
+    // Plant a few extra path events so crash/rally reads stay non-trivial at N=80.
+    if (i % 11 === 0) {
+      spec.crashDay = 40 + ((i * 3) % 180);
+      spec.crashPct = 0.14 + ((i % 5) * 0.03);
+    } else if (i % 13 === 0) {
+      spec.rallyDay = 50 + ((i * 5) % 170);
+      spec.rallyPct = 0.1 + ((i % 4) * 0.03);
+    }
+    specs.push(spec);
+  }
+  return specs;
+}
+
+const SPECS: TickerSpec[] = buildSpecs();
+
+/** Ordered ticker universe (core first, then generated fillers). */
+export const SYNTH_TICKERS: readonly string[] = SPECS.map((s) => s.ticker);
 
 /** Mulberry32 — small deterministic PRNG. */
 export function createRng(seed: number): () => number {

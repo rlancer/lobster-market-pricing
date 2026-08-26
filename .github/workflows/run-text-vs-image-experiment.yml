@@ -41,6 +41,7 @@ on:
       - 'frontend/src/notebooks/palette.ts'
       - 'frontend/src/notebooks/questions.ts'
       - 'frontend/src/notebooks/syntheticSeries.ts'
+      - 'frontend/src/notebooks/textAsImageRepresentations.ts'
       - 'frontend/src/notebooks/textRepresentations.ts'
       - 'frontend/tools/run-text-vs-image-experiment.mjs'
       - 'frontend/tools/text-vs-image-runner-utils.mjs'

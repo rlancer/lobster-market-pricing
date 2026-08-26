@@ -70,13 +70,15 @@ function legend(
 }
 
 export function renderOverlayNormalized(universe: SynthUniverse): ImageRep {
+  const n = universe.series.length;
   const width = 1100;
-  const height = 640;
+  const legendRows = Math.ceil(n / 10);
+  const height = 640 + Math.max(0, legendRows - 4) * 16;
   const { canvas, ctx } = makeCanvas(width, height);
   paintBg(ctx, width, height);
-  title(ctx, 'Normalized performance (start = 100)', 24, 28);
+  title(ctx, `Normalized performance (start = 100, n=${n})`, 24, 28);
 
-  const pad = { top: 56, right: 24, bottom: 96, left: 56 };
+  const pad = { top: 56, right: 24, bottom: 32 + legendRows * 16, left: 56 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
@@ -121,12 +123,13 @@ export function renderOverlayNormalized(universe: SynthUniverse): ImageRep {
     ctx.stroke();
   });
 
-  legend(ctx, universe.series.map((s) => s.ticker), pad.left, height - 72, 10);
+  legend(ctx, universe.series.map((s) => s.ticker), pad.left, height - pad.bottom + 12, 10);
 
   return {
     id: 'overlay_normalized',
     label: 'Overlay (normalized)',
-    description: 'All 20 names rebased to 100. Strong for relative ranking; weak for absolute levels.',
+    description:
+      `All ${universe.series.length} names rebased to 100. Strong for relative ranking; weak for absolute levels.`,
     width,
     height,
     dataUrl: canvas.toDataURL('image/png'),
@@ -195,15 +198,16 @@ export function renderOverlayTextless(universe: SynthUniverse): ImageRep {
 }
 
 export function renderSmallMultiples(universe: SynthUniverse): ImageRep {
-  const cols = 5;
-  const rows = 4;
-  const cellW = 210;
-  const cellH = 140;
+  const n = universe.series.length;
+  const cols = Math.max(5, Math.ceil(Math.sqrt(n)));
+  const rows = Math.ceil(n / cols);
+  const cellW = n > 40 ? 160 : 210;
+  const cellH = n > 40 ? 110 : 140;
   const width = cols * cellW + 24;
   const height = rows * cellH + 48;
   const { canvas, ctx } = makeCanvas(width, height);
   paintBg(ctx, width, height);
-  title(ctx, 'Small multiples — close with period return', 24, 28);
+  title(ctx, `Small multiples — close with period return (${n})`, 24, 28);
   const stats = universeStats(universe);
 
   universe.series.forEach((series, idx) => {
@@ -215,14 +219,14 @@ export function renderSmallMultiples(universe: SynthUniverse): ImageRep {
     ctx.fillStyle = '#102432';
     ctx.fillRect(x0, y0, cellW - 10, cellH - 10);
     ctx.fillStyle = '#EAF7F3';
-    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText(series.ticker, x0 + 8, y0 + 16);
+    ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillText(series.ticker, x0 + 8, y0 + 14);
     ctx.fillStyle = s.totalReturnPct >= 0 ? '#49D89D' : '#FF806F';
-    ctx.font = '11px ui-monospace, monospace';
+    ctx.font = '10px ui-monospace, monospace';
     ctx.fillText(
       `${s.totalReturnPct >= 0 ? '+' : ''}${s.totalReturnPct.toFixed(1)}%`,
-      x0 + 64,
-      y0 + 16,
+      x0 + Math.min(70, cellW - 54),
+      y0 + 14,
     );
 
     const closes = series.bars.map((b) => b.close);
@@ -230,13 +234,13 @@ export function renderSmallMultiples(universe: SynthUniverse): ImageRep {
     const maxV = Math.max(...closes);
     const span = Math.max(maxV - minV, 1e-6);
     const plotW = cellW - 26;
-    const plotH = cellH - 48;
+    const plotH = cellH - 42;
     ctx.strokeStyle = paletteHex(idx);
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     closes.forEach((v, i) => {
       const x = x0 + 8 + (i / Math.max(closes.length - 1, 1)) * plotW;
-      const y = y0 + 28 + ((maxV - v) / span) * plotH;
+      const y = y0 + 24 + ((maxV - v) / span) * plotH;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
@@ -260,8 +264,9 @@ export function renderReturnsHeatmap(universe: SynthUniverse): ImageRep {
     if (!months.includes(key)) months.push(key);
   }
 
-  const width = 980;
-  const height = 40 + universe.series.length * 24 + 60;
+  const cellH = universe.series.length > 40 ? 16 : 22;
+  const width = Math.max(980, 72 + months.length * 48 + 24);
+  const height = 40 + universe.series.length * cellH + 60;
   const { canvas, ctx } = makeCanvas(width, height);
   paintBg(ctx, width, height);
   title(ctx, 'Monthly return heatmap (%)', 24, 28);
@@ -269,7 +274,6 @@ export function renderReturnsHeatmap(universe: SynthUniverse): ImageRep {
   const left = 72;
   const top = 48;
   const cellW = (width - left - 24) / months.length;
-  const cellH = 22;
 
   ctx.font = '10px ui-monospace, monospace';
   ctx.fillStyle = '#8EA8AA';
@@ -280,8 +284,8 @@ export function renderReturnsHeatmap(universe: SynthUniverse): ImageRep {
   universe.series.forEach((series, row) => {
     const y = top + row * cellH;
     ctx.fillStyle = '#C8D7D3';
-    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText(series.ticker, 16, y + 15);
+    ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillText(series.ticker, 16, y + Math.min(13, cellH - 2));
 
     months.forEach((month, col) => {
       const monthBars = series.bars.filter((b) => b.date.startsWith(month));
@@ -292,9 +296,11 @@ export function renderReturnsHeatmap(universe: SynthUniverse): ImageRep {
         ? `rgba(73, 216, 157, ${0.15 + intensity * 0.85})`
         : `rgba(255, 128, 111, ${0.15 + intensity * 0.85})`;
       ctx.fillRect(left + col * cellW, y, cellW - 2, cellH - 2);
-      ctx.fillStyle = '#0B1520';
-      ctx.font = '9px ui-monospace, monospace';
-      ctx.fillText(`${(ret * 100).toFixed(0)}`, left + col * cellW + 6, y + 14);
+      if (cellH >= 18) {
+        ctx.fillStyle = '#0B1520';
+        ctx.font = '9px ui-monospace, monospace';
+        ctx.fillText(`${(ret * 100).toFixed(0)}`, left + col * cellW + 6, y + 12);
+      }
     });
   });
 
@@ -310,8 +316,9 @@ export function renderReturnsHeatmap(universe: SynthUniverse): ImageRep {
 
 export function renderRankedBars(universe: SynthUniverse): ImageRep {
   const stats = universeStats(universe).slice().sort((a, b) => b.totalReturnPct - a.totalReturnPct);
+  const rowH = stats.length > 40 ? 18 : 26;
   const width = 900;
-  const height = 48 + stats.length * 26 + 24;
+  const height = 48 + stats.length * rowH + 24;
   const { canvas, ctx } = makeCanvas(width, height);
   paintBg(ctx, width, height);
   title(ctx, 'Total return ranking', 24, 28);
@@ -322,18 +329,19 @@ export function renderRankedBars(universe: SynthUniverse): ImageRep {
   const mid = left + barMax / 2;
 
   stats.forEach((s, i) => {
-    const y = 48 + i * 26;
+    const y = 48 + i * rowH;
     ctx.fillStyle = '#C8D7D3';
-    ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText(s.ticker, 16, y + 14);
+    ctx.font = `${rowH >= 26 ? 12 : 10}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.fillText(s.ticker, 16, y + Math.min(14, rowH - 2));
     const w = (Math.abs(s.totalReturnPct) / maxAbs) * (barMax / 2);
     ctx.fillStyle = s.totalReturnPct >= 0 ? '#49D89D' : '#FF806F';
-    if (s.totalReturnPct >= 0) ctx.fillRect(mid, y + 4, w, 14);
-    else ctx.fillRect(mid - w, y + 4, w, 14);
+    const barY = y + Math.max(2, Math.floor((rowH - 12) / 2));
+    if (s.totalReturnPct >= 0) ctx.fillRect(mid, barY, w, Math.min(14, rowH - 4));
+    else ctx.fillRect(mid - w, barY, w, Math.min(14, rowH - 4));
     ctx.fillStyle = '#EAF7F3';
-    ctx.font = '11px ui-monospace, monospace';
+    ctx.font = '10px ui-monospace, monospace';
     const label = `${s.totalReturnPct >= 0 ? '+' : ''}${s.totalReturnPct.toFixed(1)}%`;
-    ctx.fillText(label, mid + (s.totalReturnPct >= 0 ? w + 6 : -w - 48), y + 14);
+    ctx.fillText(label, mid + (s.totalReturnPct >= 0 ? w + 6 : -w - 48), y + Math.min(14, rowH - 2));
   });
 
   ctx.strokeStyle = '#1E2F3C';
@@ -358,8 +366,9 @@ export function renderRankedBars(universe: SynthUniverse): ImageRep {
  */
 export function renderRankedBarsTextless(universe: SynthUniverse): ImageRep {
   const stats = universeStats(universe).slice().sort((a, b) => b.totalReturnPct - a.totalReturnPct);
+  const rowH = stats.length > 40 ? 18 : 26;
   const width = 900;
-  const height = 24 + stats.length * 26 + 24;
+  const height = 24 + stats.length * rowH + 24;
   const { canvas, ctx } = makeCanvas(width, height);
   paintBg(ctx, width, height);
 
@@ -369,14 +378,15 @@ export function renderRankedBarsTextless(universe: SynthUniverse): ImageRep {
   const mid = left + barMax / 2;
 
   stats.forEach((s, i) => {
-    const y = 24 + i * 26;
+    const y = 24 + i * rowH;
     const w = (Math.abs(s.totalReturnPct) / maxAbs) * (barMax / 2);
     const seriesIdx = universe.series.findIndex((ser) => ser.ticker === s.ticker);
     ctx.fillStyle = seriesIdx >= 0
       ? paletteHex(seriesIdx)
       : (s.totalReturnPct >= 0 ? '#49D89D' : '#FF806F');
-    if (s.totalReturnPct >= 0) ctx.fillRect(mid, y + 4, w, 14);
-    else ctx.fillRect(mid - w, y + 4, w, 14);
+    const barY = y + Math.max(2, Math.floor((rowH - 12) / 2));
+    if (s.totalReturnPct >= 0) ctx.fillRect(mid, barY, w, Math.min(14, rowH - 4));
+    else ctx.fillRect(mid - w, barY, w, Math.min(14, rowH - 4));
   });
 
   ctx.strokeStyle = '#1E2F3C';

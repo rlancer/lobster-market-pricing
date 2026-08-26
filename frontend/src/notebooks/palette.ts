@@ -1,6 +1,7 @@
 /**
  * Shared palette for chart encodings + markdown color legends.
  * Human-readable names let multimodal probes map color → ticker without OCR.
+ * Sized for dense panels (80+ names) with unique swatch labels.
  */
 
 export interface PaletteSwatch {
@@ -8,29 +9,43 @@ export interface PaletteSwatch {
   name: string;
 }
 
-/** Stable 20-color panel palette (order matches synthetic series index). */
-export const PANEL_PALETTE: PaletteSwatch[] = [
-  { hex: '#35D0BA', name: 'teal' },
-  { hex: '#4C8DFF', name: 'blue' },
-  { hex: '#E0A84C', name: 'gold' },
-  { hex: '#C56E8F', name: 'rose' },
-  { hex: '#9B7EE0', name: 'violet' },
-  { hex: '#58B6C9', name: 'cyan' },
-  { hex: '#E07A5F', name: 'coral' },
-  { hex: '#81B29A', name: 'sage' },
-  { hex: '#F2CC8F', name: 'sand' },
-  { hex: '#3D405B', name: 'slate' },
-  { hex: '#E9C46A', name: 'amber' },
-  { hex: '#2A9D8F', name: 'seafoam' },
-  { hex: '#E76F51', name: 'terracotta' },
-  { hex: '#264653', name: 'ink' },
-  { hex: '#A8DADC', name: 'mist' },
-  { hex: '#457B9D', name: 'steel' },
-  { hex: '#1D3557', name: 'navy' },
-  { hex: '#F4A261', name: 'peach' },
-  { hex: '#2B2D42', name: 'charcoal' },
-  { hex: '#8D99AE', name: 'pewter' },
-];
+function hslToHex(h: number, s: number, l: number): string {
+  const sat = s / 100;
+  const light = l / 100;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hp >= 0 && hp < 1) [r, g, b] = [c, x, 0];
+  else if (hp < 2) [r, g, b] = [x, c, 0];
+  else if (hp < 3) [r, g, b] = [0, c, x];
+  else if (hp < 4) [r, g, b] = [0, x, c];
+  else if (hp < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = light - c / 2;
+  const to = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${to(r)}${to(g)}${to(b)}`.toUpperCase();
+}
+
+/** Golden-angle HSL palette with unique cNN names (no OCR collisions). */
+export function buildPanelPalette(count: number): PaletteSwatch[] {
+  const out: PaletteSwatch[] = [];
+  for (let i = 0; i < count; i++) {
+    const h = (i * 137.508) % 360;
+    const s = 52 + (i % 4) * 8;
+    const l = 42 + (i % 5) * 6;
+    out.push({
+      hex: hslToHex(h, s, l),
+      name: `c${String(i + 1).padStart(2, '0')}`,
+    });
+  }
+  return out;
+}
+
+/** Stable panel palette covering dense synthetic universes. */
+export const PANEL_PALETTE: PaletteSwatch[] = buildPanelPalette(96);
 
 export function paletteHex(index: number): string {
   return PANEL_PALETTE[index % PANEL_PALETTE.length]!.hex;

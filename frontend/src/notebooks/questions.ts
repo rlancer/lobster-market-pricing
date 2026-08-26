@@ -1,6 +1,9 @@
 /**
  * Graded questions for the text-vs-image notebook. Answers are derived from
  * the deterministic synthetic panel so scoring does not need a judge model.
+ *
+ * Includes basic ranking prompts plus density-stress items that require
+ * scanning many rows/cells (counts, medians, sector aggregates, lookups).
  */
 
 import { type SynthUniverse, universeStats } from './syntheticSeries.ts';
@@ -32,8 +35,38 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
   const best = byReturn[0]!;
   const worst = byReturn[byReturn.length - 1]!;
   const mostVol = byVol[0]!;
+  const secondVol = byVol[1]!;
   const top3 = byReturn.slice(0, 3).map((s) => s.ticker);
+  const top5 = byReturn.slice(0, 5).map((s) => s.ticker);
+  const bottom3 = byReturn.slice(-3).map((s) => s.ticker);
   const crash = stats.slice().sort((a, b) => a.worstDailyReturnPct - b.worstDailyReturnPct)[0]!;
+
+  const positiveCount = stats.filter((s) => s.totalReturnPct > 0).length;
+  const medianIdx = Math.floor(byReturn.length / 2);
+  const median = byReturn[medianIdx]!;
+
+  const sectorMeans = new Map<string, { sum: number; n: number }>();
+  for (const s of stats) {
+    const cur = sectorMeans.get(s.sector) ?? { sum: 0, n: 0 };
+    cur.sum += s.totalReturnPct;
+    cur.n += 1;
+    sectorMeans.set(s.sector, cur);
+  }
+  let bestSector = '';
+  let bestSectorMean = -Infinity;
+  for (const [sector, { sum, n }] of sectorMeans) {
+    const mean = sum / n;
+    if (mean > bestSectorMean) {
+      bestSectorMean = mean;
+      bestSector = sector;
+    }
+  }
+
+  // Mid-panel lookup: forces reading a non-extreme row in dense tables/CSVs.
+  const probeRank = Math.min(byReturn.length - 1, Math.max(10, Math.floor(byReturn.length * 0.4)));
+  const probe = byReturn[probeRank]!;
+  const probeSeries = universe.series.find((s) => s.ticker === probe.ticker)!;
+  const probeBar = probeSeries.bars[Math.floor(probeSeries.bars.length / 2)]!;
 
   return [
     {
@@ -58,11 +91,32 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
       notes: `Ground truth daily std ${mostVol.dailyReturnStdPct.toFixed(3)}%.`,
     },
     {
+      id: 'second_most_volatile',
+      prompt: 'Which ticker had the second-highest daily-return volatility? Reply with the ticker only.',
+      kind: 'ticker',
+      expected: secondVol.ticker,
+      notes: `Ground truth daily std ${secondVol.dailyReturnStdPct.toFixed(3)}%.`,
+    },
+    {
       id: 'top3',
       prompt: 'List the top 3 tickers by total return, best first. Reply as three tickers separated by commas.',
       kind: 'ticker_list',
       expected: top3.join(','),
       notes: `Expected order ${top3.join(' > ')}.`,
+    },
+    {
+      id: 'top5',
+      prompt: 'List the top 5 tickers by total return, best first. Reply as five tickers separated by commas.',
+      kind: 'ticker_list',
+      expected: top5.join(','),
+      notes: `Expected order ${top5.join(' > ')}.`,
+    },
+    {
+      id: 'bottom3',
+      prompt: 'List the 3 worst tickers by total return, worst first. Reply as three tickers separated by commas.',
+      kind: 'ticker_list',
+      expected: bottom3.slice().reverse().join(','),
+      notes: `Worst-first ${bottom3.slice().reverse().join(' > ')}.`,
     },
     {
       id: 'best_peak_date',
@@ -96,6 +150,48 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
       tolerance: 1.5,
       notes: 'Allows ±1.5 percentage points for chart-reading error.',
     },
+    {
+      id: 'positive_count',
+      prompt: 'How many tickers finished the sample with a positive total return? Reply with an integer only.',
+      kind: 'number',
+      expected: String(positiveCount),
+      tolerance: 0,
+      notes: `Count of total_return_pct > 0 among ${stats.length} names.`,
+    },
+    {
+      id: 'median_return_ticker',
+      prompt:
+        `Among all ${stats.length} tickers sorted by total return (best first), which ticker sits at 0-based index ${medianIdx} (the median rank)? Reply with the ticker only.`,
+      kind: 'ticker',
+      expected: median.ticker,
+      notes: `Median rank return ${median.totalReturnPct.toFixed(2)}%.`,
+    },
+    {
+      id: 'best_sector_mean',
+      prompt:
+        'Which sector has the highest mean total return across its tickers? Reply with the sector name only (exact spelling from the data).',
+      kind: 'ticker',
+      expected: bestSector,
+      notes: `Mean ${bestSectorMean.toFixed(2)}% — scored via exact string match on sector label.`,
+    },
+    {
+      id: 'mid_rank_return_pct',
+      prompt:
+        `What was ${probe.ticker}'s total return over the sample in percent? Reply with a number only (no % sign).`,
+      kind: 'number',
+      expected: probe.totalReturnPct.toFixed(2),
+      tolerance: 2,
+      notes: `Non-extreme rank ${probeRank}; ±2pp tolerance.`,
+    },
+    {
+      id: 'mid_panel_close',
+      prompt:
+        `What was ${probe.ticker}'s closing price on ${probeBar.date}? Reply with a number only.`,
+      kind: 'number',
+      expected: probeBar.close.toFixed(2),
+      tolerance: 0.5,
+      notes: 'Exact mid-sample close lookup — stresses dense CSV / tool samples.',
+    },
   ];
 }
 
@@ -110,6 +206,16 @@ export function scoreAnswer(
   if (question.kind === 'ticker') {
     const got = observed.toUpperCase();
     const expected = question.expected.toUpperCase();
+    // Sector names and other non-ticker labels: exact match without the ticker allowlist.
+    if (!allowed.has(expected)) {
+      const correct = got === expected;
+      return {
+        correct,
+        expected,
+        observed: got,
+        detail: correct ? 'exact label match' : `expected ${expected}, got ${got}`,
+      };
+    }
     const correct = allowed.has(got) && got === expected;
     return {
       correct,

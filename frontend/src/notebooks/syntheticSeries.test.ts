@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  SYNTH_TICKER_COUNT,
   SYNTH_TICKERS,
+  SYNTH_TRADING_DAYS,
   buildSynthUniverse,
   tickerStats,
   universeStats,
@@ -12,8 +14,10 @@ import { buildQuestions, scoreAnswer } from './questions.ts';
 test('synthetic universe is deterministic for a fixed seed', () => {
   const a = buildSynthUniverse(42);
   const b = buildSynthUniverse(42);
+  assert.equal(a.series.length, SYNTH_TICKER_COUNT);
   assert.equal(a.series.length, SYNTH_TICKERS.length);
-  assert.equal(a.series[0]!.bars.length, a.tradingDays);
+  assert.equal(a.series[0]!.bars.length, SYNTH_TRADING_DAYS);
+  assert.equal(a.tradingDays, SYNTH_TRADING_DAYS);
   assert.deepEqual(
     a.series.map((s) => s.bars.map((bar) => bar.close)),
     b.series.map((s) => s.bars.map((bar) => bar.close)),
@@ -59,12 +63,18 @@ test('text representations are non-empty and tool_summary mentions every ticker'
   for (const ticker of SYNTH_TICKERS) {
     assert.match(tool.body, new RegExp(`\\b${ticker}\\b`));
   }
-  assert.ok(tool.approxTokens > 500);
+  // Dense 80×252 panel — Copilot-style summary stays large but under extreme context.
+  assert.ok(tool.approxTokens > 8_000);
+  const csv = reps.find((r) => r.id === 'csv_closes')!;
+  assert.ok(csv.approxTokens > 15_000);
+  const table = reps.find((r) => r.id === 'stats_table')!;
+  assert.ok(table.body.split('\n').length > 80);
 });
 
 test('questions score exact ticker and numeric answers', () => {
   const universe = buildSynthUniverse();
   const questions = buildQuestions(universe);
+  assert.ok(questions.length >= 14);
   const tickers = universe.series.map((s) => s.ticker);
   const best = questions.find((q) => q.id === 'best_total_return')!;
   assert.equal(scoreAnswer(best, best.expected, tickers).correct, true);
@@ -78,6 +88,13 @@ test('questions score exact ticker and numeric answers', () => {
   assert.equal(scoreAnswer(pct, String(expectedNum + 1), tickers).correct, true);
   assert.equal(scoreAnswer(pct, `${expectedNum}%`, tickers).correct, false);
   assert.equal(scoreAnswer(pct, String(expectedNum + 10), tickers).correct, false);
+
+  const positive = questions.find((q) => q.id === 'positive_count')!;
+  assert.equal(scoreAnswer(positive, positive.expected, tickers).correct, true);
+  assert.equal(scoreAnswer(positive, String(Number(positive.expected) + 1), tickers).correct, false);
+
+  const sector = questions.find((q) => q.id === 'best_sector_mean')!;
+  assert.equal(scoreAnswer(sector, sector.expected, tickers).correct, true);
 });
 
 test('top3 scoring requires order', () => {

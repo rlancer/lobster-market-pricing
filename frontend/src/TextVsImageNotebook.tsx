@@ -506,12 +506,12 @@ export default function TextVsImageNotebookPage() {
             </Text>
             <Heading level={1}>Text vs image context for market panels</Heading>
             <Text type="supporting">
-              The same deterministic 20-name synthetic equity panel is shown to a multimodal
-              model as AI-style text, as those exact text packs rasterized to PNG
-              (modality control), as labeled chart images, or as textless charts with a
-              markdown color key. This is a task-aligned encoding benchmark: charts and
-              text packs expose different information, while <code>*_as_image</code> twins
-              isolate tokens vs pixels. Scores describe end-to-end usefulness on these
+              The same deterministic dense synthetic equity panel (80 names × ~1 trading year)
+              is shown to a multimodal model as AI-style text, as those exact text packs
+              rasterized to PNG (modality control), as labeled chart images, or as textless
+              charts with a markdown color key. This is a task-aligned encoding benchmark:
+              charts and text packs expose different information, while <code>*_as_image</code>
+              twins isolate tokens vs pixels. Scores describe end-to-end usefulness on these
               prompts rather than a causal text-versus-image effect.
             </Text>
           </VStack>
@@ -728,7 +728,8 @@ export default function TextVsImageNotebookPage() {
           <Text type="supporting">
             Seed <code>{universe.seed}</code>, {universe.tradingDays} trading days from{' '}
             {universe.startDate}, {universe.series.length} fictional tickers (GBM with planted
-            crashes/rallies). Design <code>{EXPERIMENT_DESIGN_ID}</code> isolates these prompts,
+            crashes/rallies). Density is intentional — wide cross-section plus year-long
+            paths. Design <code>{EXPERIMENT_DESIGN_ID}</code> isolates these prompts,
             scorers, and representations from legacy runs. Only complete matrices are published;
             probe order is deterministically shuffled and transient failures are retried.
           </Text>

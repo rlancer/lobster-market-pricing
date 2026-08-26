@@ -12,7 +12,7 @@ export const EXPERIMENTS: ExperimentMeta[] = [
     slug: 'text-vs-image',
     title: 'Text vs image context',
     subtitle:
-      'Can a multimodal model read synthetic equity panels better from AI-style text, the same text rasterized as images, labeled charts, or textless charts with a markdown color key?',
+      'Can a multimodal model read a dense synthetic equity panel better from AI-style text, the same text rasterized as images, labeled charts, or textless charts with a markdown color key?',
     status: 'ready',
   },
 ];

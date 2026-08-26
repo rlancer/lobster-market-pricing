@@ -83,10 +83,13 @@ export function toolSummaryText(universe: SynthUniverse): string {
     );
     lines.push('---');
     lines.push('Sample:');
-    lines.push('head (5):');
-    for (const row of rows.slice(0, 5)) lines.push(formatRow(columns, row));
-    lines.push('tail (5):');
-    for (const row of rows.slice(-5)) lines.push(formatRow(columns, row));
+    lines.push('head (8):');
+    for (const row of rows.slice(0, 8)) lines.push(formatRow(columns, row));
+    lines.push('mid (4):');
+    const mid = Math.max(0, Math.floor(rows.length / 2) - 2);
+    for (const row of rows.slice(mid, mid + 4)) lines.push(formatRow(columns, row));
+    lines.push('tail (8):');
+    for (const row of rows.slice(-8)) lines.push(formatRow(columns, row));
     lines.push('');
   }
   return lines.join('\n');
@@ -132,7 +135,7 @@ export function buildTextRepresentations(universe: SynthUniverse): TextRep[] {
       id: 'tool_summary',
       label: 'Tool summary (current AI style)',
       description:
-        'Consolidated period table plus per-ticker stats and samples — the production summarizeResult shape.',
+        'Per-ticker column stats plus head/mid/tail samples — the production summarizeResult shape, densified for the wide panel.',
       body: toolSummaryText(universe),
     },
     {
