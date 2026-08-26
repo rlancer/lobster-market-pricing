@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FRONTEND_ROOT = join(__dirname, '..');
 const DEFAULT_API_BASE = 'https://api-dev.lobster.mp';
-const DEFAULT_DESIGN_ID = 'text-vs-image-v3';
+const DEFAULT_DESIGN_ID = 'text-vs-image-v4';
 
 export function selectComparableRuns(items, designId) {
   const candidates = items

@@ -1225,6 +1225,18 @@ export interface ExperimentRunPayload {
       attempts?: number;
     }>;
     rep_order: string[];
+    /** Context-window footprint per representation (tokens in the probe payload). */
+    rep_footprints?: Array<{
+      rep_id: string;
+      mode: 'text' | 'image' | 'multimodal';
+      text_tokens: number;
+      image_tokens: number;
+      total_tokens: number;
+      image_width?: number;
+      image_height?: number;
+      image_tiles?: number;
+      estimator?: string;
+    }>;
   };
   images: Array<{
     id: string;

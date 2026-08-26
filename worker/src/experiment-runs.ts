@@ -2,9 +2,9 @@
  * Persist and load published experiment runs (results + LLM-fed images).
  */
 
-export const MAX_EXPERIMENT_RESULTS_CHARS = 400_000;
-export const MAX_EXPERIMENT_IMAGE_DATA_URL_CHARS = 1_800_000;
-export const MAX_EXPERIMENT_IMAGES = 12;
+export const MAX_EXPERIMENT_RESULTS_CHARS = 800_000;
+export const MAX_EXPERIMENT_IMAGE_DATA_URL_CHARS = 2_500_000;
+export const MAX_EXPERIMENT_IMAGES = 16;
 export const EXPERIMENT_RUN_SCHEMA_VERSION = 2;
 
 export interface ExperimentRunImage {
@@ -56,6 +56,18 @@ export interface ExperimentRunManifest {
   max_probe_attempts: number;
 }
 
+export interface ExperimentRunFootprint {
+  rep_id: string;
+  mode: "text" | "image" | "multimodal";
+  text_tokens: number;
+  image_tokens: number;
+  total_tokens: number;
+  image_width?: number;
+  image_height?: number;
+  image_tiles?: number;
+  estimator?: string;
+}
+
 /** JSON stored in experiment_runs.results_json (no image blobs). */
 export interface ExperimentRunResults {
   design_id: string;
@@ -64,6 +76,8 @@ export interface ExperimentRunResults {
   text_reps: ExperimentRunTextRep[];
   cells: ExperimentRunCell[];
   rep_order: string[];
+  /** Optional context-window footprint per representation. */
+  rep_footprints?: ExperimentRunFootprint[];
 }
 
 export interface ExperimentRunRecord {
@@ -241,7 +255,7 @@ export async function parseSaveExperimentRunBody(
     const description = asString(r.description, 800) ?? "";
     const bodyText = typeof r.body === "string" ? r.body : "";
     if (!id || !label || !bodyText.trim()) continue;
-    if (bodyText.length > 120_000) {
+    if (bodyText.length > 200_000) {
       return { ok: false, error: `text_rep ${id} body too large`, status: 400 };
     }
     const approx = typeof r.approx_tokens === "number" && Number.isFinite(r.approx_tokens)
@@ -341,6 +355,50 @@ export async function parseSaveExperimentRunBody(
     };
   }
 
+  const footprintsIn = Array.isArray(resultsRaw.rep_footprints)
+    ? resultsRaw.rep_footprints
+    : null;
+  const rep_footprints: ExperimentRunFootprint[] = [];
+  if (footprintsIn) {
+    for (const f of footprintsIn) {
+      if (!isRecord(f)) continue;
+      const rep_id = asString(f.rep_id, 80);
+      const mode = f.mode === "text" || f.mode === "image" || f.mode === "multimodal"
+        ? f.mode
+        : null;
+      if (!rep_id || !mode) continue;
+      const text_tokens = typeof f.text_tokens === "number" && Number.isFinite(f.text_tokens)
+        ? Math.max(0, Math.trunc(f.text_tokens))
+        : 0;
+      const image_tokens = typeof f.image_tokens === "number" && Number.isFinite(f.image_tokens)
+        ? Math.max(0, Math.trunc(f.image_tokens))
+        : 0;
+      const total_tokens = typeof f.total_tokens === "number" && Number.isFinite(f.total_tokens)
+        ? Math.max(0, Math.trunc(f.total_tokens))
+        : text_tokens + image_tokens;
+      const row: ExperimentRunFootprint = {
+        rep_id,
+        mode,
+        text_tokens,
+        image_tokens,
+        total_tokens,
+      };
+      if (typeof f.image_width === "number" && Number.isFinite(f.image_width)) {
+        row.image_width = Math.trunc(f.image_width);
+      }
+      if (typeof f.image_height === "number" && Number.isFinite(f.image_height)) {
+        row.image_height = Math.trunc(f.image_height);
+      }
+      if (typeof f.image_tiles === "number" && Number.isFinite(f.image_tiles)) {
+        row.image_tiles = Math.trunc(f.image_tiles);
+      }
+      if (typeof f.estimator === "string" && f.estimator.trim()) {
+        row.estimator = f.estimator.trim().slice(0, 120);
+      }
+      rep_footprints.push(row);
+    }
+  }
+
   const results: ExperimentRunResults = {
     design_id,
     manifest,
@@ -348,6 +406,7 @@ export async function parseSaveExperimentRunBody(
     text_reps,
     cells,
     rep_order,
+    ...(rep_footprints.length ? { rep_footprints } : {}),
   };
 
   const imagesIn = Array.isArray(body.images) ? body.images : null;

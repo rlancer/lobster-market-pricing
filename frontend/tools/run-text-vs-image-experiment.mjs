@@ -60,6 +60,11 @@ import { buildTextAsImageRepresentations } from ${JSON.stringify(join(NOTEBOOKS,
 import { buildHybridRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'hybridRepresentations.ts'))};
 import { buildQuestions, scoreAnswer, SYSTEM_PROBE } from ${JSON.stringify(join(NOTEBOOKS, 'questions.ts'))};
 import { EXPERIMENT_DESIGN_ID } from ${JSON.stringify(join(NOTEBOOKS, 'experiment.ts'))};
+import {
+  imageFootprint,
+  multimodalFootprint,
+  textFootprint,
+} from ${JSON.stringify(join(NOTEBOOKS, 'contextFootprint.ts'))};
 
 const universe = buildSynthUniverse();
 const textReps = buildTextRepresentations(universe);
@@ -72,11 +77,18 @@ const questions = buildQuestions(universe);
 const tickers = universe.series.map((s) => s.ticker);
 const system = Array.isArray(SYSTEM_PROBE) ? SYSTEM_PROBE.join(' ') : String(SYSTEM_PROBE);
 
+const footprints = [
+  ...textReps.map((r) => textFootprint(r.id, r.body)),
+  ...images.map((r) => imageFootprint(r.id, r.width, r.height)),
+  ...hybrids.map((h) => multimodalFootprint(h.id, h.textContext, h.width, h.height)),
+];
+
 globalThis.__TVSI__ = {
   designId: EXPERIMENT_DESIGN_ID,
   seed: universe.seed,
   system,
   tickers,
+  footprints,
   textReps: textReps.map((r) => ({
     id: r.id,
     label: r.label,
@@ -193,6 +205,12 @@ async function main() {
     console.log(
       `design=${payload.designId} seed=${payload.seed} textReps=${payload.textReps.length} images=${payload.images.length} hybrids=${hybrids.length} questions=${payload.questions.length}`,
     );
+    for (const fp of payload.footprints ?? []) {
+      console.log(
+        `context ${fp.rep_id}: total=${fp.total_tokens} text=${fp.text_tokens} image=${fp.image_tokens}`
+          + (fp.image_width ? ` ${fp.image_width}x${fp.image_height}` : ''),
+      );
+    }
 
     const textById = Object.fromEntries(payload.textReps.map((r) => [r.id, r]));
     const imageById = Object.fromEntries(payload.images.map((r) => [r.id, r]));
@@ -365,6 +383,7 @@ async function main() {
           ],
           cells,
           rep_order: repOrder,
+          rep_footprints: payload.footprints ?? [],
         },
         images: [
           ...payload.images,

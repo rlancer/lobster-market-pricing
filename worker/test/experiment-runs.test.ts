@@ -194,3 +194,36 @@ test("summarizeExperimentResultsJson exposes per-rep accuracy", async () => {
     { rep_id: "ranked_bars", correct: 1, done: 1 },
   ]);
 });
+
+test("parseSaveExperimentRunBody stores context footprints", () => {
+  const parsed = parseSaveExperimentRunBody({
+    experiment_slug: "text-vs-image",
+    model: "openai/gpt-4o-mini",
+    seed: 42,
+    results: {
+      ...minimalResults,
+      rep_footprints: [{
+        rep_id: "tool_summary",
+        mode: "text",
+        text_tokens: 1200,
+        image_tokens: 0,
+        total_tokens: 1200,
+        estimator: "openai-gpt4o-high-detail-tiles+chars/4",
+      }, {
+        rep_id: "overlay_normalized",
+        mode: "image",
+        text_tokens: 0,
+        image_tokens: 765,
+        total_tokens: 765,
+        image_width: 1024,
+        image_height: 1024,
+        image_tiles: 4,
+      }],
+    },
+    images: [minimalImage],
+  }, "text-vs-image");
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.input.results.rep_footprints?.length, 2);
+  assert.equal(parsed.input.results.rep_footprints?.[0]?.total_tokens, 1200);
+});

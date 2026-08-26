@@ -69,7 +69,7 @@ jobs:
       MODEL: ${{ matrix.model }}
       API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
       SLUG: text-vs-image
-      DESIGN_ID: text-vs-image-v3
+      DESIGN_ID: text-vs-image-v4
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -185,7 +185,7 @@ jobs:
           done = [c for c in cells if c.get("status") == "done"]
           correct = [c for c in done if c.get("correct")]
           print(f"id={run.get('id')} model={run.get('model')} correct={len(correct)}/{len(done)} images={len(run.get('images', []))}")
-          if results.get("design_id") != "text-vs-image-v3":
+          if results.get("design_id") != "text-vs-image-v4":
               raise SystemExit("published run has the wrong design_id")
           if len(cells) != len(questions) * len(reps) or len(done) != len(cells):
               raise SystemExit("published run matrix is incomplete")
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
-      DESIGN_ID: text-vs-image-v3
+      DESIGN_ID: text-vs-image-v4
       VITE_API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
     steps:
       - name: Check out repository

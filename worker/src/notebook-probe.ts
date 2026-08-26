@@ -8,7 +8,7 @@ import { generateText, type LanguageModel } from "ai";
 import { createCopilotModel, type CopilotModelEnv } from "./copilot-contract";
 
 export const DEFAULT_NOTEBOOK_MODEL = "openai/gpt-4o-mini";
-export const MAX_TEXT_CONTEXT_CHARS = 120_000;
+export const MAX_TEXT_CONTEXT_CHARS = 200_000;
 export const MAX_IMAGE_DATA_URL_CHARS = 2_500_000;
 
 export type NotebookProbeMode = "text" | "image" | "multimodal";

@@ -15,6 +15,14 @@ import {
   type CrossModelConclusion,
   type RunSummaryForConclusion,
 } from './notebooks/crossModelConclusion';
+import {
+  CONTEXT_ESTIMATOR_ID,
+  formatContextTokens,
+  imageFootprint,
+  multimodalFootprint,
+  textFootprint,
+  type ContextFootprint,
+} from './notebooks/contextFootprint';
 import { EXPERIMENT_DESIGN_ID } from './notebooks/experiment';
 import {
   buildHybridRepresentations,
@@ -52,6 +60,7 @@ const TOC_AFTER: Array<{ id: string; label: string }> = [
   { id: 'cross-model-results', label: 'Cross model results' },
   { id: 'reading', label: 'How to read' },
   { id: 'setup', label: 'Setup' },
+  { id: 'footprint', label: 'Context space' },
   { id: 'images', label: 'Images' },
   { id: 'reps', label: 'Representations' },
   { id: 'questions', label: 'Questions' },
@@ -232,8 +241,44 @@ function repLabelFromRun(run: ExperimentRunPayload, repId: string): string {
   return repId;
 }
 
+/** Prefer published footprints; otherwise derive from stored text/image payloads. */
+function footprintsFromRun(run: ExperimentRunPayload): Map<string, ContextFootprint> {
+  const map = new Map<string, ContextFootprint>();
+  for (const fp of run.results.rep_footprints ?? []) {
+    map.set(fp.rep_id, {
+      ...fp,
+      estimator: (fp.estimator as typeof CONTEXT_ESTIMATOR_ID | undefined) ?? CONTEXT_ESTIMATOR_ID,
+    });
+  }
+  if (map.size) return map;
+
+  const textById = new Map((run.results.text_reps ?? []).map((r) => [r.id, r]));
+  const imageById = new Map(run.images.map((img) => [img.id, img]));
+  const order = run.results.rep_order.length
+    ? run.results.rep_order
+    : [...new Set([
+      ...(run.results.text_reps ?? []).map((r) => r.id),
+      ...run.images.map((img) => img.id),
+    ])];
+
+  for (const repId of order) {
+    if (map.has(repId)) continue;
+    const text = textById.get(repId);
+    const image = imageById.get(repId);
+    if (text && image) {
+      map.set(repId, multimodalFootprint(repId, text.body, image.width, image.height));
+    } else if (image) {
+      map.set(repId, imageFootprint(repId, image.width, image.height));
+    } else if (text) {
+      map.set(repId, textFootprint(repId, text.body));
+    }
+  }
+  return map;
+}
+
 function ModelResultsTable({ run }: { run: ExperimentRunPayload }) {
   const matrix = useMemo(() => matrixFromRun(run), [run]);
+  const footprints = useMemo(() => footprintsFromRun(run), [run]);
   const questions = run.results.questions;
   const repIds = run.results.rep_order.length
     ? run.results.rep_order
@@ -244,12 +289,21 @@ function ModelResultsTable({ run }: { run: ExperimentRunPayload }) {
     const doneCells = cells.filter((c) => c.status === 'done');
     const correct = doneCells.filter((c) => c.correct).length;
     const done = doneCells.length;
+    const fp = footprints.get(repId);
     return {
       repId,
       label: repLabelFromRun(run, repId),
       done,
       correct,
       acc: done ? correct / done : null,
+      contextTokens: fp?.total_tokens ?? null,
+      contextDetail: fp
+        ? fp.mode === 'text'
+          ? 'text'
+          : fp.mode === 'image'
+            ? `vision (${fp.image_tiles ?? '?'} tiles)`
+            : 'text+vision'
+        : null,
     };
   });
 
@@ -259,6 +313,7 @@ function ModelResultsTable({ run }: { run: ExperimentRunPayload }) {
         <thead>
           <tr>
             <th>Representation</th>
+            <th className="num">Context</th>
             <th>Correct</th>
             <th>Accuracy</th>
             {questions.map((q) => (
@@ -270,6 +325,9 @@ function ModelResultsTable({ run }: { run: ExperimentRunPayload }) {
           {summaryRows.map((row) => (
             <tr key={row.repId}>
               <td>{row.label}</td>
+              <td className="num" title={row.contextDetail ?? undefined}>
+                {row.contextTokens == null ? '—' : formatContextTokens(row.contextTokens)}
+              </td>
               <td className="num">{row.done ? `${row.correct}/${row.done}` : '—'}</td>
               <td className="num">
                 {row.acc == null ? '—' : `${(row.acc * 100).toFixed(0)}%`}
@@ -480,6 +538,25 @@ export default function TextVsImageNotebookPage() {
     [displayTextReps, displayImages, displayHybrids],
   );
 
+  const localFootprints = useMemo(() => {
+    const list: ContextFootprint[] = [
+      ...textReps.map((r) => textFootprint(r.id, r.body)),
+      ...localImages.filter((img) => !isHybridRepId(img.id)).map((img) => (
+        imageFootprint(img.id, img.width, img.height)
+      )),
+      ...localHybrids.map((h) => multimodalFootprint(h.id, h.textContext, h.width, h.height)),
+    ];
+    return list;
+  }, [textReps, localImages, localHybrids]);
+
+  const displayFootprints = useMemo(() => {
+    if (hasSavedPayload && referenceRun) {
+      const fromRun = footprintsFromRun(referenceRun);
+      if (fromRun.size) return [...fromRun.values()];
+    }
+    return localFootprints;
+  }, [hasSavedPayload, referenceRun, localFootprints]);
+
   const selectedText = displayTextReps.find((r) => r.id === selectedRep) ?? null;
   const selectedHybrid = displayHybrids.find((r) => r.id === selectedRep) ?? null;
   const selectedImage = selectedHybrid
@@ -489,10 +566,11 @@ export default function TextVsImageNotebookPage() {
   const crossResultsNum = tocById.get('cross-model-results')?.num ?? '03';
   const readingNum = tocById.get('reading')?.num ?? '04';
   const setupNum = tocById.get('setup')?.num ?? '05';
-  const imagesNum = tocById.get('images')?.num ?? '06';
-  const repsNum = tocById.get('reps')?.num ?? '07';
-  const questionsNum = tocById.get('questions')?.num ?? '08';
-  const conclusionNum = tocById.get('conclusion')?.num ?? '09';
+  const footprintNum = tocById.get('footprint')?.num ?? '06';
+  const imagesNum = tocById.get('images')?.num ?? '07';
+  const repsNum = tocById.get('reps')?.num ?? '08';
+  const questionsNum = tocById.get('questions')?.num ?? '09';
+  const conclusionNum = tocById.get('conclusion')?.num ?? '10';
 
   return (
     <div className="notebook-layout">
@@ -624,6 +702,7 @@ export default function TextVsImageNotebookPage() {
                     <tr>
                       <th>Representation</th>
                       <th>Family</th>
+                      <th className="num">Context</th>
                       <th className="num">Mean</th>
                       {crossCut.models.map((m) => (
                         <th key={m.runId} className="num">
@@ -635,10 +714,14 @@ export default function TextVsImageNotebookPage() {
                   <tbody>
                     {crossCut.rows.map((row) => {
                       const isWinner = crossCut.winningRep?.repId === row.repId;
+                      const fp = displayFootprints.find((f) => f.rep_id === row.repId);
                       return (
                         <tr key={row.repId} className={isWinner ? 'notebook-row-winner' : undefined}>
                           <td>{row.label}</td>
                           <td>{row.family.replaceAll('_', ' ')}</td>
+                          <td className="num">
+                            {fp ? formatContextTokens(fp.total_tokens) : '—'}
+                          </td>
                           <td className="num">
                             {row.meanAccuracy == null
                               ? '—'
@@ -656,6 +739,7 @@ export default function TextVsImageNotebookPage() {
                     })}
                     <tr>
                       <td><strong>Overall</strong></td>
+                      <td />
                       <td />
                       <td className="num">
                         {(() => {
@@ -714,8 +798,10 @@ export default function TextVsImageNotebookPage() {
         <Section id="reading" num={readingNum} title="How to read this">
           <Text type="supporting">
             The decisive control is each text pack vs its <code>*_as_image</code> twin
-            (identical content, tokens vs pixels). Charts and hybrids are not content-matched
-            to text: geometry, labels, numeric detail, and instructions differ, so a hybrid
+            (identical content, tokens vs pixels). Compare accuracy against{' '}
+            <strong>context space</strong> — how many estimated tokens each encoding burns
+            in the model window. Charts and hybrids are not content-matched to text:
+            geometry, labels, numeric detail, and instructions differ, so a hybrid
             advantage does not isolate OCR and family means are descriptive rather than a
             significance test. Also compare labeled charts and hybrid{' '}
             <code>*_color_keyed</code> rows (textless chart + markdown color key). Ranked bars
@@ -766,6 +852,58 @@ export default function TextVsImageNotebookPage() {
               </tbody>
             </table>
           </div>
+        </Section>
+
+        <Section id="footprint" num={footprintNum} title="Context space">
+          <Text type="supporting">
+            Estimated tokens each encoding occupies in the model context window.
+            Text uses chars÷4. Images use the OpenAI GPT-4o / GPT-4.1 high-detail tile
+            formula (fit 2048², short side ≤768, then 85 + 170×512² tiles). Hybrids sum
+            both. Absolute bills vary by provider; these numbers are for comparing
+            encodings on one scale.
+          </Text>
+          {!displayFootprints.length ? (
+            <Text type="supporting">No footprint estimates yet.</Text>
+          ) : (
+            <div className="notebook-results">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Representation</th>
+                    <th>Mode</th>
+                    <th className="num">Text tok</th>
+                    <th className="num">Vision tok</th>
+                    <th className="num">Total context</th>
+                    <th className="num">Image</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayFootprints
+                    .slice()
+                    .sort((a, b) => b.total_tokens - a.total_tokens)
+                    .map((fp) => {
+                      const label = allReps.find((r) => r.id === fp.rep_id)?.label
+                        ?? (referenceRun ? repLabelFromRun(referenceRun, fp.rep_id) : fp.rep_id);
+                      return (
+                        <tr key={fp.rep_id}>
+                          <td>{label}</td>
+                          <td>{fp.mode}</td>
+                          <td className="num">{formatContextTokens(fp.text_tokens)}</td>
+                          <td className="num">{formatContextTokens(fp.image_tokens)}</td>
+                          <td className="num"><strong>{formatContextTokens(fp.total_tokens)}</strong></td>
+                          <td className="num">
+                            {fp.image_width && fp.image_height
+                              ? `${fp.image_width}×${fp.image_height}`
+                                + (fp.image_tiles != null ? ` · ${fp.image_tiles} tiles` : '')
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
 
         <Section id="images" num={imagesNum} title="Images fed to the LLM">
@@ -851,13 +989,10 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="questions" num={questionsNum} title="Questions">
           <Text type="supporting">
-<<<<<<< HEAD
-            Each representation answers the same ground-truth prompts. Answers must follow the
-            requested exact format; scoring is deterministic and uses no judge model.
-=======
             Each representation answers the same ground-truth prompts — basic ranking plus
             density-stress items (counts, median rank, sector means, mid-panel lookups).
->>>>>>> 42480f8 (Clarify density-stress questions in the experiment notebook UI)
+            Answers must follow the requested exact format; scoring is deterministic and
+            uses no judge model.
           </Text>
           <div className="notebook-results">
             <table>

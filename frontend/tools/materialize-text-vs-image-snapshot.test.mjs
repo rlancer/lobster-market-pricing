@@ -10,7 +10,7 @@ const summary = (overrides = {}) => ({
   model: 'model/a',
   seed: 42,
   created_at: 10,
-  design_id: 'text-vs-image-v3',
+  design_id: 'text-vs-image-v4',
   manifest_fingerprint: 'fingerprint-a',
   matrix_complete: true,
   cells_done: 72,
@@ -31,7 +31,7 @@ test('selectComparableRuns keeps newest complete run per model in one cohort', (
       created_at: 17,
     }),
     summary({ id: 'partial', model: 'model/e', cells_done: 71, created_at: 16 }),
-  ], 'text-vs-image-v3');
+  ], 'text-vs-image-v4');
   assert.deepEqual(selected.map((run) => run.id), ['new-a', 'b']);
 });
 
@@ -50,7 +50,7 @@ test('fetchExperimentSnapshot embeds runs and extracts first-run images', async 
     return Response.json({
       id,
       model: id === 'run-a' ? 'model/a' : 'model/b',
-      results: { design_id: 'text-vs-image-v3' },
+      results: { design_id: 'text-vs-image-v4' },
       images: id === 'run-a'
         ? [{
             id: 'overlay',
@@ -66,7 +66,7 @@ test('fetchExperimentSnapshot embeds runs and extracts first-run images', async 
 
   const materialized = await fetchExperimentSnapshot({
     apiBase: 'https://api.example',
-    designId: 'text-vs-image-v3',
+    designId: 'text-vs-image-v4',
     fetchImpl,
     generatedAt: '2026-08-26T12:00:00.000Z',
   });
@@ -76,7 +76,7 @@ test('fetchExperimentSnapshot embeds runs and extracts first-run images', async 
   assert.equal(materialized.imageFiles[0].bytes.toString(), 'hello');
   assert.equal(
     materialized.snapshot.model_runs[0].images[0].data_url,
-    '/generated/text-vs-image/text-vs-image-v3/overlay.png',
+    '/generated/text-vs-image/text-vs-image-v4/overlay.png',
   );
   assert.match(calls[1], /images=1/);
   assert.match(calls[2], /images=0/);
