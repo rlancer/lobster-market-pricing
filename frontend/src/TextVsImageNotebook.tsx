@@ -9,10 +9,9 @@ import {
   VStack,
 } from '@astryxdesign/core';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
+import { type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import {
   buildCrossModelConclusion,
-  pickLatestRunPerModel,
   type CrossModelConclusion,
   type RunSummaryForConclusion,
 } from './notebooks/crossModelConclusion';
@@ -38,9 +37,8 @@ import {
   buildTextRepresentations,
   type TextRep,
 } from './notebooks/textRepresentations';
+import { textVsImageSnapshot } from './notebooks/textVsImageSnapshot';
 import './Notebooks.css';
-
-const EXPERIMENT_SLUG = 'text-vs-image';
 
 type TocEntry = { id: string; num: string; label: string };
 
@@ -171,21 +169,45 @@ function runAccuracyLabel(row: Pick<ExperimentRunSummary, 'cells_correct' | 'cel
   return row.cells_done ? `${row.cells_correct}/${row.cells_done}` : '—';
 }
 
-/** Use the same complete-run selection as the cross-model analysis. */
-function uniqueModelSummaries(runList: ExperimentRunSummary[]): ExperimentRunSummary[] {
-  const byId = new Map(runList.map((run) => [run.id, run]));
-  const comparable = runList
-    .filter((run) =>
-      run.design_id === EXPERIMENT_DESIGN_ID
-      && run.matrix_complete)
-    .map((run) => ({
-      ...run,
-      rep_accuracy: run.rep_accuracy ?? [],
-      rep_order: run.rep_order ?? [],
-    }));
-  return pickLatestRunPerModel(comparable)
-    .map((run) => byId.get(run.id))
-    .filter((run): run is ExperimentRunSummary => Boolean(run));
+function buildSnapshotConclusion(
+  runList: ExperimentRunSummary[],
+  modelRuns: ExperimentRunPayload[],
+): CrossModelConclusion | null {
+  if (!modelRuns.length) return null;
+  const enriched: RunSummaryForConclusion[] = modelRuns.map((run) => {
+    const summary = runList.find((row) => row.id === run.id);
+    const byRep = new Map<string, { correct: number; done: number }>();
+    for (const cell of run.results.cells) {
+      if (cell.status !== 'done') continue;
+      const current = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
+      current.done += 1;
+      if (cell.correct) current.correct += 1;
+      byRep.set(cell.rep_id, current);
+    }
+    const repOrder = run.results.rep_order.length
+      ? run.results.rep_order
+      : [...byRep.keys()];
+    return {
+      id: run.id,
+      model: run.model,
+      seed: run.seed,
+      design_id: run.results.design_id,
+      manifest_fingerprint: run.results.manifest.design_fingerprint_sha256,
+      matrix_complete: summary?.matrix_complete ?? false,
+      created_at: run.created_at,
+      cells_correct: summary?.cells_correct
+        ?? run.results.cells.filter((cell) => cell.status === 'done' && cell.correct).length,
+      cells_done: summary?.cells_done
+        ?? run.results.cells.filter((cell) => cell.status === 'done').length,
+      cells_total: summary?.cells_total ?? run.results.cells.length,
+      rep_order: repOrder,
+      rep_accuracy: repOrder.map((repId) => {
+        const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
+        return { rep_id: repId, correct: stats.correct, done: stats.done };
+      }),
+    };
+  });
+  return buildCrossModelConclusion(enriched);
 }
 
 function repLabelFromRun(run: ExperimentRunPayload, repId: string): string {
@@ -274,16 +296,17 @@ function ModelResultsTable({ run }: { run: ExperimentRunPayload }) {
 export default function TextVsImageNotebookPage() {
   const [localImages, setLocalImages] = useState<ImageRep[]>([]);
   const [localHybrids, setLocalHybrids] = useState<HybridRep[]>([]);
-  const [runList, setRunList] = useState<ExperimentRunSummary[]>([]);
-  const [modelRuns, setModelRuns] = useState<ExperimentRunPayload[]>([]);
-  const [referenceRun, setReferenceRun] = useState<ExperimentRunPayload | null>(null);
-  const [crossCut, setCrossCut] = useState<CrossModelConclusion | null>(null);
-  const [crossCutState, setCrossCutState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [runLoadState, setRunLoadState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
-  const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [selectedRep, setSelectedRep] = useState('tool_summary');
   const [activeSection, setActiveSection] = useState('overview');
   const [expandedModels, setExpandedModels] = useState<Set<string>>(() => new Set());
+  const snapshotMatchesDesign = textVsImageSnapshot.design_id === EXPERIMENT_DESIGN_ID;
+  const runList = snapshotMatchesDesign ? textVsImageSnapshot.items : [];
+  const modelRuns = snapshotMatchesDesign ? textVsImageSnapshot.model_runs : [];
+  const referenceRun = modelRuns[0] ?? null;
+  const crossCut = useMemo(
+    () => buildSnapshotConclusion(runList, modelRuns),
+    [runList, modelRuns],
+  );
 
   const toc = useMemo(() => buildToc(modelRuns), [modelRuns]);
   const tocById = useMemo(() => {
@@ -325,103 +348,6 @@ export default function TextVsImageNotebookPage() {
       setLocalHybrids([]);
     }
   }, [universe]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setRunLoadState('loading');
-    setRunLoadError(null);
-    void (async () => {
-      try {
-        const listed = await api.experimentListRuns(
-          EXPERIMENT_SLUG,
-          20,
-          EXPERIMENT_DESIGN_ID,
-        );
-        if (cancelled) return;
-        setRunList(listed.items);
-        const unique = uniqueModelSummaries(listed.items);
-        if (!unique.length) {
-          setModelRuns([]);
-          setReferenceRun(null);
-          setRunLoadState('missing');
-          return;
-        }
-        const loaded: ExperimentRunPayload[] = [];
-        for (let i = 0; i < unique.length; i += 1) {
-          const row = unique[i]!;
-          // First run keeps images for the methodology gallery; later runs skip blobs.
-          // eslint-disable-next-line no-await-in-loop
-          const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, {
-            images: i === 0,
-            designId: EXPERIMENT_DESIGN_ID,
-          });
-          loaded.push(full);
-        }
-        if (cancelled) return;
-        setModelRuns(loaded);
-        setReferenceRun(loaded[0] ?? null);
-        setRunLoadState('ready');
-      } catch (error: unknown) {
-        if (cancelled) return;
-        const message = String((error as Error)?.message ?? error);
-        if (/404|no published run|run not found/i.test(message)) {
-          setRunList([]);
-          setModelRuns([]);
-          setReferenceRun(null);
-          setRunLoadState('missing');
-        } else {
-          setRunLoadState('error');
-          setRunLoadError(message);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (!modelRuns.length) {
-      setCrossCut(null);
-      setCrossCutState(runLoadState === 'loading' ? 'loading' : 'idle');
-      return;
-    }
-
-    const enriched: RunSummaryForConclusion[] = modelRuns.map((run) => {
-      const summary = runList.find((row) => row.id === run.id);
-      const byRep = new Map<string, { correct: number; done: number }>();
-      for (const cell of run.results.cells) {
-        if (cell.status !== 'done') continue;
-        const cur = byRep.get(cell.rep_id) ?? { correct: 0, done: 0 };
-        cur.done += 1;
-        if (cell.correct) cur.correct += 1;
-        byRep.set(cell.rep_id, cur);
-      }
-      const repOrder = run.results.rep_order.length
-        ? run.results.rep_order
-        : [...byRep.keys()];
-      return {
-        id: run.id,
-        model: run.model,
-        seed: run.seed,
-        design_id: run.results.design_id,
-        manifest_fingerprint: run.results.manifest.design_fingerprint_sha256,
-        matrix_complete: summary?.matrix_complete ?? false,
-        created_at: run.created_at,
-        cells_correct: summary?.cells_correct
-          ?? run.results.cells.filter((c) => c.status === 'done' && c.correct).length,
-        cells_done: summary?.cells_done
-          ?? run.results.cells.filter((c) => c.status === 'done').length,
-        cells_total: summary?.cells_total
-          ?? run.results.cells.length,
-        rep_order: repOrder,
-        rep_accuracy: repOrder.map((repId) => {
-          const stats = byRep.get(repId) ?? { correct: 0, done: 0 };
-          return { rep_id: repId, correct: stats.correct, done: stats.done };
-        }),
-      };
-    });
-    setCrossCut(buildCrossModelConclusion(enriched));
-    setCrossCutState('ready');
-  }, [modelRuns, runList, runLoadState]);
 
   useEffect(() => {
     const syncHash = () => {
@@ -575,21 +501,16 @@ export default function TextVsImageNotebookPage() {
             </Text>
           </VStack>
 
-          {runLoadState === 'loading' ? (
-            <Text type="supporting">Loading saved runs…</Text>
-          ) : null}
-          {runLoadState === 'missing' ? (
+          {!modelRuns.length ? (
             <Text type="supporting">
-              No saved run yet. Methodology and local chart previews are free;
-              results appear after a run is published via API or CI.
+              No generated results snapshot is available yet. Methodology and local chart
+              previews remain available.
             </Text>
           ) : null}
-          {runLoadState === 'error' ? (
-            <Text type="supporting">Could not load saved runs: {runLoadError}</Text>
-          ) : null}
-          {runLoadState === 'ready' && modelRuns.length ? (
+          {modelRuns.length ? (
             <Text type="supporting">
-              {modelRuns.length} model{modelRuns.length === 1 ? '' : 's'} published
+              {modelRuns.length} model{modelRuns.length === 1 ? '' : 's'} published in the
+              {' '}static snapshot generated {formatRunWhen(Date.parse(textVsImageSnapshot.generated_at))}
               {' — '}
               use the table of contents to jump; per-model matrices start collapsed.
             </Text>
@@ -641,7 +562,7 @@ export default function TextVsImageNotebookPage() {
           );
         })}
 
-        {!modelRuns.length && runLoadState !== 'loading' ? (
+        {!modelRuns.length ? (
           <section className="notebook-section">
             <Text type="supporting">
               Per-model result matrices appear here once runs are published via API or CI.
@@ -650,18 +571,12 @@ export default function TextVsImageNotebookPage() {
         ) : null}
 
         <Section id="cross-model-results" num={crossResultsNum} title="Cross model results">
-          {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
-            <Text type="supporting">Aggregating saved runs…</Text>
-          ) : null}
-          {crossCutState === 'idle' && runList.length === 0 ? (
+          {!crossCut ? (
             <Text type="supporting">
-              Cross model results appear once at least one run is published.
+              Cross model results appear once a generated snapshot contains a complete run.
             </Text>
           ) : null}
-          {crossCutState === 'error' ? (
-            <Text type="supporting">Could not build the cross-model summary.</Text>
-          ) : null}
-          {crossCut && crossCutState === 'ready' ? (
+          {crossCut ? (
             <>
               <Text type="supporting">{crossCut.summary}</Text>
               <HStack gap={2} style={{ flexWrap: 'wrap' }}>
@@ -943,17 +858,11 @@ export default function TextVsImageNotebookPage() {
         </Section>
 
         <Section id="conclusion" num={conclusionNum} title="Conclusion">
-          {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
-            <Text type="supporting">Wrapping up once saved runs finish loading…</Text>
-          ) : null}
           {crossCut ? (
             <Text type="supporting">{crossCut.wrapUp}</Text>
           ) : (
             <Text type="supporting">
-              Once published runs land, this closing note will pull the cross-model scoreboard
-              into a single takeaway for AI framing — whether structured text, labeled
-              charts, or textless charts with a markdown color key best survive LLM context
-              on this panel.
+              A generated results snapshot will add the cross-model conclusion here.
             </Text>
           )}
         </Section>
