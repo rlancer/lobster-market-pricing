@@ -27,6 +27,8 @@ on:
         default: https://api-dev.lobster.mp
   push:
     branches:
+      # Experiment feature branches should publish a fresh saved run after push.
+      - 'cursor/*text*image*'
       - 'cursor/run-text-vs-image-experiment-ca84'
       - 'cursor/textless-chart-legend-244c'
       - 'cursor/experiment-gpt41-244c'
