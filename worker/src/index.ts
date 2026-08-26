@@ -58,6 +58,7 @@ import { chartFitsResult, type ChartSpec } from "./chart-spec";
 import { createCopilotModel } from "./copilot-contract";
 import { parseNotebookProbeBody, runNotebookProbe } from "./notebook-probe";
 import {
+  EXPERIMENT_RUN_SCHEMA_VERSION,
   experimentRunToPublicJson,
   getExperimentRunById,
   getLatestExperimentRun,
@@ -3550,7 +3551,8 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     if (latestMatch && req.method === "GET") {
       const slug = decodeURIComponent(latestMatch[1]!);
       if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
-      const run = await getLatestExperimentRun(env.SCHEMA_DB, slug);
+      const designId = new URL(req.url).searchParams.get("design_id")?.trim() || undefined;
+      const run = await getLatestExperimentRun(env.SCHEMA_DB, slug, designId);
       if (!run) return json(env, { error: "no published run" }, 404);
       return json(env, experimentRunToPublicJson(run), 200, "public");
     }
@@ -3562,9 +3564,16 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     if (listMatch && req.method === "GET") {
       const slug = decodeURIComponent(listMatch[1]!);
       if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
-      const limitRaw = Number(new URL(req.url).searchParams.get("limit") ?? 20);
-      const items = await listExperimentRuns(env.SCHEMA_DB, slug, limitRaw);
-      return json(env, { items }, 200, "public");
+      const url = new URL(req.url);
+      const limitRaw = Number(url.searchParams.get("limit") ?? 20);
+      const designId = url.searchParams.get("design_id")?.trim() || undefined;
+      const items = await listExperimentRuns(env.SCHEMA_DB, slug, limitRaw, designId);
+      return json(
+        env,
+        { items, run_schema_version: EXPERIMENT_RUN_SCHEMA_VERSION },
+        200,
+        "public",
+      );
     }
   }
 
@@ -3578,7 +3587,8 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
         // handled above
       } else {
         if (!env.SCHEMA_DB) return json(env, { error: "database unavailable" }, 503);
-        const run = await getExperimentRunById(env.SCHEMA_DB, slug, runId);
+        const designId = new URL(req.url).searchParams.get("design_id")?.trim() || undefined;
+        const run = await getExperimentRunById(env.SCHEMA_DB, slug, runId, designId);
         if (!run) return json(env, { error: "run not found" }, 404);
         const omitImages = new URL(req.url).searchParams.get("images") === "0";
         return json(
@@ -3605,7 +3615,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       } catch {
         return json(env, { error: "invalid JSON body" }, 400, "private");
       }
-      const parsed = parseSaveExperimentRunBody(body, slug);
+      const parsed = await parseSaveExperimentRunBody(body, slug);
       if (!parsed.ok) {
         return json(env, { error: parsed.error }, parsed.status, "private");
       }

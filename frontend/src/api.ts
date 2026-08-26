@@ -1184,7 +1184,19 @@ export interface ExperimentRunPayload {
   created_at: number;
   created_by: string | null;
   results: {
-    questions: Array<{ id: string; prompt: string; expected: string }>;
+    design_id: string;
+    manifest: {
+      runner_version: number;
+      source_revision: string;
+      system_prompt: string;
+      system_prompt_sha256: string;
+      questions_sha256: string;
+      representation_sha256: Record<string, string>;
+      design_fingerprint_sha256: string;
+      execution_order: string[];
+      max_probe_attempts: number;
+    };
+    questions: Array<{ id: string; prompt: string; expected: string; kind: string }>;
     text_reps: Array<{
       id: string;
       label: string;
@@ -1202,6 +1214,7 @@ export interface ExperimentRunPayload {
       latency_ms?: number;
       error?: string;
       model?: string;
+      attempts?: number;
     }>;
     rep_order: string[];
   };
@@ -1223,6 +1236,9 @@ export interface ExperimentRunSummary {
   seed: number;
   created_at: number;
   created_by: string | null;
+  design_id: string | null;
+  manifest_fingerprint: string | null;
+  matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
   cells_total: number;
@@ -1370,20 +1386,27 @@ export const api = {
       latency_ms: number;
     }>('/api/admin/notebooks/probe', body),
   /** Public: latest published experiment run (results + exact LLM-fed images). */
-  experimentLatestRun: (slug: string) =>
+  experimentLatestRun: (slug: string, designId?: string) =>
     get<ExperimentRunPayload>(
-      `/api/experiments/${encodeURIComponent(slug)}/runs/latest`,
+      `/api/experiments/${encodeURIComponent(slug)}/runs/latest${qs({ design_id: designId })}`,
     ),
   /** Public: list published runs (newest first) for multi-model comparison. */
-  experimentListRuns: (slug: string, limit = 20) =>
-    get<{ items: ExperimentRunSummary[] }>(
-      `/api/experiments/${encodeURIComponent(slug)}/runs${qs({ limit })}`,
+  experimentListRuns: (slug: string, limit = 20, designId?: string) =>
+    get<{ items: ExperimentRunSummary[]; run_schema_version: number }>(
+      `/api/experiments/${encodeURIComponent(slug)}/runs${qs({ limit, design_id: designId })}`,
     ),
   /** Public: one published run by id. */
-  experimentRun: (slug: string, runId: string, opts?: { images?: boolean }) =>
+  experimentRun: (
+    slug: string,
+    runId: string,
+    opts?: { images?: boolean; designId?: string },
+  ) =>
     get<ExperimentRunPayload>(
       `/api/experiments/${encodeURIComponent(slug)}/runs/${encodeURIComponent(runId)}${
-        opts?.images === false ? '?images=0' : ''
+        qs({
+          images: opts?.images === false ? 0 : undefined,
+          design_id: opts?.designId,
+        })
       }`,
     ),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */

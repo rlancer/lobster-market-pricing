@@ -17,6 +17,10 @@ export interface RunRepAccuracy {
 export interface RunSummaryForConclusion {
   id: string;
   model: string;
+  seed?: number;
+  design_id?: string | null;
+  manifest_fingerprint?: string | null;
+  matrix_complete?: boolean;
   created_at: number;
   cells_correct: number;
   cells_done: number;
@@ -95,16 +99,26 @@ export function repLabel(repId: string): string {
   return repId.replace(/_/g, ' ');
 }
 
-/** Newest complete-enough run per model (dedupes repeated publishes). */
+/** Newest complete run per model within one design and seed cohort. */
 export function pickLatestRunPerModel(
   runs: RunSummaryForConclusion[],
 ): RunSummaryForConclusion[] {
   const byModel = new Map<string, RunSummaryForConclusion>();
-  const sorted = runs.slice().sort((a, b) => b.created_at - a.created_at);
+  const sorted = runs
+    .filter((run) =>
+      run.cells_done > 0
+      && run.cells_done === run.cells_total
+      && run.matrix_complete !== false)
+    .sort((a, b) => b.created_at - a.created_at);
+  const cohort = sorted[0];
   for (const run of sorted) {
+    if (cohort?.design_id && run.design_id !== cohort.design_id) continue;
+    if (
+      cohort?.manifest_fingerprint
+      && run.manifest_fingerprint !== cohort.manifest_fingerprint
+    ) continue;
+    if (cohort?.seed != null && run.seed !== cohort.seed) continue;
     if (byModel.has(run.model)) continue;
-    // Prefer runs that finished most cells; skip empty shells.
-    if (run.cells_done <= 0) continue;
     byModel.set(run.model, run);
   }
   return [...byModel.values()].sort((a, b) => b.created_at - a.created_at);
@@ -241,14 +255,14 @@ function composeSummary(input: {
 
   if (winningFamily?.meanAccuracy != null) {
     parts.push(
-      `the winning method family is ${winningFamily.label.toLowerCase()} `
-        + `(mean ${pct(winningFamily.meanAccuracy)} across encodings).`,
+      `the highest observed method-family mean is ${winningFamily.label.toLowerCase()} `
+        + `at ${pct(winningFamily.meanAccuracy)} across its encodings.`,
     );
   }
 
   if (winningRep?.meanAccuracy != null) {
     parts.push(
-      `Best single representation: ${winningRep.label} at mean ${pct(winningRep.meanAccuracy)}.`,
+      `Highest observed representation: ${winningRep.label} at mean ${pct(winningRep.meanAccuracy)}.`,
     );
   }
 
@@ -256,22 +270,19 @@ function composeSummary(input: {
   const image = families.find((f) => f.family === 'labeled_image');
   const hybrid = families.find((f) => f.family === 'hybrid');
   if (text?.meanAccuracy != null && image?.meanAccuracy != null) {
-    if (text.meanAccuracy > image.meanAccuracy + 0.05) {
-      parts.push('Text packs beat labeled chart images on this panel.');
-    } else if (image.meanAccuracy > text.meanAccuracy + 0.05) {
-      parts.push('Labeled chart images beat text packs on this panel.');
-    } else {
-      parts.push('Text packs and labeled images are close overall.');
-    }
+    parts.push(
+      `Descriptively, text packs average ${pct(text.meanAccuracy)} and labeled images `
+        + `${pct(image.meanAccuracy)}.`,
+    );
   }
   if (hybrid?.meanAccuracy != null && image?.meanAccuracy != null) {
-    if (hybrid.meanAccuracy + 0.05 < image.meanAccuracy) {
-      parts.push('Textless charts + markdown color keys underperform labeled images — OCR was not the bottleneck.');
-    } else if (hybrid.meanAccuracy > image.meanAccuracy + 0.05) {
-      parts.push('Textless + color-key hybrids beat labeled images — offloading identity to markdown helps.');
-    }
+    parts.push(
+      `Hybrids average ${pct(hybrid.meanAccuracy)} versus ${pct(image.meanAccuracy)} for `
+        + 'labeled images; because those encodings differ beyond labels, this does not isolate OCR.',
+    );
   }
 
+  parts.push('These small, task-coupled samples are descriptive; no significance claim is made.');
   return parts.join(' ');
 }
 
@@ -293,65 +304,46 @@ function composeWrapUp(input: {
   const hybrid = families.find((f) => f.family === 'hybrid');
 
   const parts: string[] = [
-    'This notebook asked a production question: when the AI reasons over a multi-name '
-      + 'equity panel, which context encoding should we ship — structured text packs, labeled '
-      + 'chart images, or textless charts paired with a markdown color key?',
+    'This notebook benchmarks how several end-to-end context encodings support a fixed set '
+      + 'of questions over the same synthetic equity panel.',
   ];
 
   if (winningFamily?.meanAccuracy != null && winningRep?.meanAccuracy != null) {
     parts.push(
       `Across ${models.length} published model${models.length === 1 ? '' : 's'}, `
-        + `the winning method family is ${winningFamily.label.toLowerCase()} `
-        + `(mean ${pct(winningFamily.meanAccuracy)}), with `
-        + `${winningRep.label} as the strongest single encoding `
+        + `the highest observed method-family mean is ${winningFamily.label.toLowerCase()} `
+        + `(${pct(winningFamily.meanAccuracy)}), with `
+        + `${winningRep.label} as the highest observed single encoding `
         + `(mean ${pct(winningRep.meanAccuracy)}).`,
     );
   } else if (winningFamily?.meanAccuracy != null) {
     parts.push(
       `Across ${models.length} published model${models.length === 1 ? '' : 's'}, `
-        + `the winning method family is ${winningFamily.label.toLowerCase()} `
+        + `the highest observed method-family mean is ${winningFamily.label.toLowerCase()} `
         + `at mean ${pct(winningFamily.meanAccuracy)}.`,
     );
   }
 
   if (text?.meanAccuracy != null && image?.meanAccuracy != null) {
-    if (text.meanAccuracy > image.meanAccuracy + 0.05) {
-      parts.push(
-        'Text packs clearly outperform labeled images here, so keeping the AI\'s '
-          + 'period-stats and tool-summary framing is the safer default until chart encodings catch up.',
-      );
-    } else if (image.meanAccuracy > text.meanAccuracy + 0.05) {
-      parts.push(
-        'Labeled chart images beat text packs on this panel — multimodal chart context is '
-          + 'worth investing in for production framing.',
-      );
-    } else {
-      parts.push(
-        'Text packs and labeled images land in a similar band, so encoding choice can follow '
-          + 'latency and token budget rather than raw accuracy alone.',
-      );
-    }
+    parts.push(
+      `Text packs average ${pct(text.meanAccuracy)} and labeled images `
+        + `${pct(image.meanAccuracy)} on these prompts.`,
+    );
   }
 
   if (hybrid?.meanAccuracy != null && image?.meanAccuracy != null) {
-    if (hybrid.meanAccuracy > image.meanAccuracy + 0.05) {
-      parts.push(
-        'Hybrids that offload ticker identity to markdown beat labeled images, which suggests '
-          + 'OCR — not visual structure — is the bottleneck, and production can keep charts '
-          + 'visual-only while sending color legends in text.',
-      );
-    } else if (hybrid.meanAccuracy + 0.05 < image.meanAccuracy) {
-      parts.push(
-        'Textless + color-key hybrids did not beat labeled images, so OCR was not the main '
-          + 'failure mode — labeled chart design still matters.',
-      );
-    }
+    parts.push(
+      `Textless chart + color-key hybrids average ${pct(hybrid.meanAccuracy)}. The labeled `
+        + 'and hybrid variants also differ in geometry, numeric detail, and instructions, so '
+        + 'their delta cannot identify OCR as the cause.',
+    );
   }
 
   parts.push(
-    'The sections above keep the methodology inspectable: synthetic panel seed, exact chart '
-      + 'PNGs, representation payloads, and graded prompts, so the next publish can re-check '
-      + 'the same ground truth.',
+    'The sample is small and the questions favor different encodings by construction. Treat '
+      + 'the scores as descriptive benchmark evidence, not a causal modality test or a '
+      + 'production recommendation. Versioned manifests, exact PNGs, payloads, and prompts '
+      + 'keep future runs comparable.',
   );
 
   return parts.join(' ');

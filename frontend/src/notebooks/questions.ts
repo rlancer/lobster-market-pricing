@@ -33,9 +33,7 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
   const worst = byReturn[byReturn.length - 1]!;
   const mostVol = byVol[0]!;
   const top3 = byReturn.slice(0, 3).map((s) => s.ticker);
-  const crash = stats
-    .filter((s) => s.crashDay)
-    .sort((a, b) => a.totalReturnPct - b.totalReturnPct)[0] ?? worst;
+  const crash = stats.slice().sort((a, b) => a.worstDailyReturnPct - b.worstDailyReturnPct)[0]!;
 
   return [
     {
@@ -86,9 +84,9 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
       prompt: 'Which ticker shows the sharpest single-day crash in the sample? Reply with the ticker only.',
       kind: 'ticker',
       expected: crash.ticker,
-      notes: crash.crashDay
-        ? `Sharp drop on ${crash.crashDay}.`
-        : 'Fallback to lowest total return when no ≤-12% day exists.',
+      notes:
+        `Worst one-day return ${crash.worstDailyReturnPct.toFixed(2)}% `
+        + `on ${crash.worstDailyReturnDate}.`,
     },
     {
       id: 'best_return_pct',
@@ -101,15 +99,6 @@ export function buildQuestions(universe: SynthUniverse): ExperimentQuestion[] {
   ];
 }
 
-function extractTickers(text: string, allowed: Set<string>): string[] {
-  const upper = text.toUpperCase();
-  const found: string[] = [];
-  for (const ticker of allowed) {
-    if (new RegExp(`\\b${ticker}\\b`).test(upper)) found.push(ticker);
-  }
-  return found;
-}
-
 export function scoreAnswer(
   question: ExperimentQuestion,
   raw: string,
@@ -119,39 +108,32 @@ export function scoreAnswer(
   const allowed = new Set(allowedTickers.map((t) => t.toUpperCase()));
 
   if (question.kind === 'ticker') {
-    const hits = extractTickers(observed, allowed);
+    const got = observed.toUpperCase();
     const expected = question.expected.toUpperCase();
-    const correct = hits[0] === expected || observed.toUpperCase() === expected;
+    const correct = allowed.has(got) && got === expected;
     return {
       correct,
       expected,
-      observed: hits[0] ?? observed,
-      detail: correct ? 'ticker match' : `expected ${expected}, got ${hits[0] ?? observed}`,
+      observed: got,
+      detail: correct ? 'exact ticker match' : `expected ${expected}, got ${got}`,
     };
   }
 
   if (question.kind === 'ticker_list') {
     const expected = question.expected.split(',').map((t) => t.trim().toUpperCase());
-    const hits = extractTickers(observed, allowed);
-    const upper = observed.toUpperCase();
-    const ordered = expected
-      .map((t) => ({ t, i: upper.indexOf(t) }))
-      .filter((p) => p.i >= 0)
-      .sort((a, b) => a.i - b.i)
-      .map((p) => p.t);
-    const use = ordered.length ? ordered : hits;
-    const correct = expected.every((t, i) => use[i] === t);
+    const got = observed.split(',').map((t) => t.trim().toUpperCase());
+    const correct = got.length === expected.length
+      && got.every((ticker, index) => allowed.has(ticker) && ticker === expected[index]);
     return {
       correct,
       expected: expected.join(','),
-      observed: use.join(','),
-      detail: correct ? 'ordered ticker list match' : `expected ${expected.join(',')}, got ${use.join(',')}`,
+      observed: got.join(','),
+      detail: correct ? 'exact ordered ticker list match' : `expected ${expected.join(',')}, got ${got.join(',')}`,
     };
   }
 
   if (question.kind === 'date') {
-    const match = observed.match(/\d{4}-\d{2}-\d{2}/);
-    const got = match?.[0] ?? observed;
+    const got = observed;
     const correct = got === question.expected;
     return {
       correct,
@@ -163,9 +145,7 @@ export function scoreAnswer(
 
   if (question.kind === 'boolean') {
     const upper = observed.toUpperCase();
-    const yes = /\b(YES|TRUE|Y)\b/.test(upper);
-    const no = /\b(NO|FALSE|N)\b/.test(upper);
-    const got = yes && !no ? 'YES' : no && !yes ? 'NO' : upper;
+    const got = upper;
     const aliases = new Set([
       question.expected.toUpperCase(),
       ...(question.aliases ?? []).map((a) => a.toUpperCase()),
@@ -179,8 +159,7 @@ export function scoreAnswer(
     };
   }
 
-  const numMatch = observed.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
-  const got = numMatch ? Number(numMatch[0]) : NaN;
+  const got = /^-?\d+(?:\.\d+)?$/.test(observed) ? Number(observed) : NaN;
   const expected = Number(question.expected);
   const tol = question.tolerance ?? 0.5;
   const correct = Number.isFinite(got) && Math.abs(got - expected) <= tol;

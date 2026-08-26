@@ -6,6 +6,12 @@ import type { HybridRepId } from './hybridRepresentations.ts';
 import type { ImageRepId } from './imageRepresentations.ts';
 import type { TextRepId } from './textRepresentations.ts';
 
+/**
+ * Bump whenever prompts, scorers, representations, or matrix composition
+ * change. Public comparisons only combine runs with this exact design.
+ */
+export const EXPERIMENT_DESIGN_ID = 'text-vs-image-v3';
+
 export type RepresentationId = TextRepId | ImageRepId | HybridRepId;
 
 export type ProbeMode = 'text' | 'image' | 'multimodal';

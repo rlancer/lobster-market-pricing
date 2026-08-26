@@ -16,7 +16,13 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
+import {
+  deterministicShuffle,
+  isNoAnswerError,
+  probeRetryDelayMs,
+} from './text-vs-image-runner-utils.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FRONTEND_ROOT = join(__dirname, '..');
@@ -28,6 +34,10 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const MODEL = process.env.MODEL ?? 'openai/gpt-4o-mini';
 const SLUG = process.env.SLUG ?? 'text-vs-image';
 const INCLUDE_HYBRIDS = (process.env.INCLUDE_HYBRIDS ?? '1') !== '0';
+const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 3) || 3));
+const SOURCE_REVISION = process.env.GITHUB_SHA?.trim()
+  || process.env.SOURCE_REVISION?.trim()
+  || 'local';
 
 if (!ADMIN_TOKEN) {
   console.error('ADMIN_TOKEN is required');
@@ -48,6 +58,7 @@ import { buildTextRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'textR
 import { buildImageRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'imageRepresentations.ts'))};
 import { buildHybridRepresentations } from ${JSON.stringify(join(NOTEBOOKS, 'hybridRepresentations.ts'))};
 import { buildQuestions, scoreAnswer, SYSTEM_PROBE } from ${JSON.stringify(join(NOTEBOOKS, 'questions.ts'))};
+import { EXPERIMENT_DESIGN_ID } from ${JSON.stringify(join(NOTEBOOKS, 'experiment.ts'))};
 
 const universe = buildSynthUniverse();
 const textReps = buildTextRepresentations(universe);
@@ -58,6 +69,7 @@ const tickers = universe.series.map((s) => s.ticker);
 const system = Array.isArray(SYSTEM_PROBE) ? SYSTEM_PROBE.join(' ') : String(SYSTEM_PROBE);
 
 globalThis.__TVSI__ = {
+  designId: EXPERIMENT_DESIGN_ID,
   seed: universe.seed,
   system,
   tickers,
@@ -133,9 +145,21 @@ async function api(path, { method = 'GET', body } = {}) {
     json = { raw: text };
   }
   if (!res.ok) {
-    throw new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 800)}`);
+    const error = new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 800)}`);
+    error.status = res.status;
+    error.retryAfter = res.headers.get('Retry-After');
+    error.apiError = typeof json?.error === 'string' ? json.error : null;
+    throw error;
   }
   return json;
+}
+
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function main() {
@@ -143,6 +167,7 @@ async function main() {
   console.log(`MODEL=${MODEL}`);
   console.log(`SLUG=${SLUG}`);
   console.log(`INCLUDE_HYBRIDS=${INCLUDE_HYBRIDS}`);
+  console.log(`PROBE_ATTEMPTS=${PROBE_ATTEMPTS}`);
 
   const harness = await bundleBrowserHarness();
   const browser = await chromium.launch({
@@ -162,7 +187,7 @@ async function main() {
       console.log('INCLUDE_HYBRIDS=0 — skipping textless color-keyed multimodal reps');
     }
     console.log(
-      `seed=${payload.seed} textReps=${payload.textReps.length} images=${payload.images.length} hybrids=${hybrids.length} questions=${payload.questions.length}`,
+      `design=${payload.designId} seed=${payload.seed} textReps=${payload.textReps.length} images=${payload.images.length} hybrids=${hybrids.length} questions=${payload.questions.length}`,
     );
 
     const textById = Object.fromEntries(payload.textReps.map((r) => [r.id, r]));
@@ -174,47 +199,50 @@ async function main() {
       ...hybrids.map((r) => r.id),
     ];
 
+    const jobs = deterministicShuffle(
+      repOrder.flatMap((repId) =>
+        payload.questions.map((question) => ({ repId, question }))),
+      payload.seed,
+    );
     const cells = [];
-    for (const repId of repOrder) {
-      for (const question of payload.questions) {
-        const text = textById[repId];
-        const image = imageById[repId];
-        const hybrid = hybridById[repId];
-        process.stdout.write(`probe ${repId} × ${question.id}… `);
+    for (const { repId, question } of jobs) {
+      const text = textById[repId];
+      const image = imageById[repId];
+      const hybrid = hybridById[repId];
+      const requestBody = hybrid
+        ? {
+            model: MODEL,
+            mode: 'multimodal',
+            question: question.prompt,
+            system: payload.system,
+            text_context: hybrid.text_context,
+            image_data_url: hybrid.data_url,
+          }
+        : text
+          ? {
+              model: MODEL,
+              mode: 'text',
+              question: question.prompt,
+              system: payload.system,
+              text_context: text.body,
+            }
+          : {
+              model: MODEL,
+              mode: 'image',
+              question: question.prompt,
+              system: payload.system,
+              image_data_url: image.data_url,
+            };
+      process.stdout.write(`probe ${repId} × ${question.id}… `);
+      let lastError = null;
+      let attempts = 0;
+      for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
+        attempts = attempt;
         try {
-          const result = hybrid
-            ? await api('/api/admin/notebooks/probe', {
-                method: 'POST',
-                body: {
-                  model: MODEL,
-                  mode: 'multimodal',
-                  question: question.prompt,
-                  system: payload.system,
-                  text_context: hybrid.text_context,
-                  image_data_url: hybrid.data_url,
-                },
-              })
-            : text
-              ? await api('/api/admin/notebooks/probe', {
-                  method: 'POST',
-                  body: {
-                    model: MODEL,
-                    mode: 'text',
-                    question: question.prompt,
-                    system: payload.system,
-                    text_context: text.body,
-                  },
-                })
-              : await api('/api/admin/notebooks/probe', {
-                  method: 'POST',
-                  body: {
-                    model: MODEL,
-                    mode: 'image',
-                    question: question.prompt,
-                    system: payload.system,
-                    image_data_url: image.data_url,
-                  },
-                });
+          const result = await api('/api/admin/notebooks/probe', {
+            method: 'POST',
+            body: requestBody,
+          });
           const scored = await page.evaluate(
             ({ questionId, answer }) => globalThis.__TVSI__.score(questionId, answer),
             { questionId: question.id, answer: result.answer },
@@ -228,17 +256,42 @@ async function main() {
             detail: scored.detail,
             latency_ms: result.latency_ms,
             model: result.model ?? MODEL,
+            attempts: attempt,
           });
-          console.log(scored.correct ? 'ok' : 'miss', `(${result.latency_ms}ms)`);
+          console.log(scored.correct ? 'ok' : 'miss', `(${result.latency_ms}ms, attempt ${attempt})`);
+          lastError = null;
+          break;
         } catch (error) {
+          lastError = error;
+          const retryDelay = probeRetryDelayMs(error, attempt);
+          if (attempt >= PROBE_ATTEMPTS || retryDelay == null) break;
+          process.stdout.write(`retry ${attempt}/${PROBE_ATTEMPTS} in ${retryDelay}ms… `);
+          await sleep(retryDelay);
+        }
+      }
+      if (lastError) {
+        if (isNoAnswerError(lastError)) {
+          cells.push({
+            rep_id: repId,
+            question_id: question.id,
+            status: 'done',
+            answer: '[no answer]',
+            correct: false,
+            detail: `model returned no answer after ${attempts} attempts`,
+            model: MODEL,
+            attempts,
+          });
+          console.log('miss', `(no answer after ${attempts} attempts)`);
+        } else {
           cells.push({
             rep_id: repId,
             question_id: question.id,
             status: 'error',
-            error: String(error?.message ?? error),
+            error: String(lastError?.message ?? lastError),
             model: MODEL,
+            attempts,
           });
-          console.log('error', String(error?.message ?? error).slice(0, 200));
+          console.log('error', String(lastError?.message ?? lastError).slice(0, 200));
         }
       }
     }
@@ -246,6 +299,34 @@ async function main() {
     const done = cells.filter((c) => c.status === 'done');
     const correct = done.filter((c) => c.correct).length;
     console.log(`scoring: ${correct}/${done.length} correct (${cells.length} cells)`);
+    const errors = cells.filter((c) => c.status === 'error');
+    if (errors.length) {
+      throw new Error(`refusing to publish incomplete matrix: ${errors.length}/${cells.length} probes failed`);
+    }
+
+    const representationHashes = Object.fromEntries([
+      ...payload.textReps.map((rep) => [rep.id, sha256(rep.body)]),
+      ...payload.images.map((rep) => [rep.id, sha256(rep.data_url)]),
+      ...hybrids.map((rep) => [
+        rep.id,
+        sha256(`${rep.text_context}\n${rep.data_url}`),
+      ]),
+    ]);
+    const questionsPayload = payload.questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      expected: question.expected,
+      kind: question.kind,
+    }));
+    const systemPromptHash = sha256(payload.system);
+    const questionsHash = sha256(JSON.stringify(questionsPayload));
+    const designFingerprint = sha256([
+      payload.designId,
+      '3',
+      systemPromptHash,
+      questionsHash,
+      ...repOrder.map((id) => `${id}:${representationHashes[id]}`),
+    ].join('\n'));
 
     const saved = await api(`/api/admin/experiments/${encodeURIComponent(SLUG)}/runs`, {
       method: 'POST',
@@ -255,11 +336,19 @@ async function main() {
         seed: payload.seed,
         created_by: 'github-actions:run-text-vs-image-experiment',
         results: {
-          questions: payload.questions.map((q) => ({
-            id: q.id,
-            prompt: q.prompt,
-            expected: q.expected,
-          })),
+          design_id: payload.designId,
+          manifest: {
+            runner_version: 3,
+            source_revision: SOURCE_REVISION,
+            system_prompt: payload.system,
+            system_prompt_sha256: systemPromptHash,
+            questions_sha256: questionsHash,
+            representation_sha256: representationHashes,
+            design_fingerprint_sha256: designFingerprint,
+            execution_order: jobs.map(({ repId, question }) => `${repId}::${question.id}`),
+            max_probe_attempts: PROBE_ATTEMPTS,
+          },
+          questions: questionsPayload,
           text_reps: [
             ...payload.textReps,
             ...hybrids.map((h) => ({
@@ -288,7 +377,9 @@ async function main() {
     });
 
     console.log(`published run id=${saved.run?.id} model=${saved.run?.model}`);
-    const list = await api(`/api/experiments/${encodeURIComponent(SLUG)}/runs`);
+    const list = await api(
+      `/api/experiments/${encodeURIComponent(SLUG)}/runs?design_id=${encodeURIComponent(payload.designId)}`,
+    );
     console.log(
       'runs:',
       (list.items ?? [])

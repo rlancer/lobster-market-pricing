@@ -12,9 +12,11 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { api, type ExperimentRunPayload, type ExperimentRunSummary } from './api';
 import {
   buildCrossModelConclusion,
+  pickLatestRunPerModel,
   type CrossModelConclusion,
   type RunSummaryForConclusion,
 } from './notebooks/crossModelConclusion';
+import { EXPERIMENT_DESIGN_ID } from './notebooks/experiment';
 import {
   buildHybridRepresentations,
   isHybridRepId,
@@ -169,16 +171,21 @@ function runAccuracyLabel(row: Pick<ExperimentRunSummary, 'cells_correct' | 'cel
   return row.cells_done ? `${row.cells_correct}/${row.cells_done}` : '—';
 }
 
-/** Newest-first list with one row per model (first win). */
+/** Use the same complete-run selection as the cross-model analysis. */
 function uniqueModelSummaries(runList: ExperimentRunSummary[]): ExperimentRunSummary[] {
-  const seen = new Set<string>();
-  const out: ExperimentRunSummary[] = [];
-  for (const row of runList) {
-    if (seen.has(row.model)) continue;
-    seen.add(row.model);
-    out.push(row);
-  }
-  return out;
+  const byId = new Map(runList.map((run) => [run.id, run]));
+  const comparable = runList
+    .filter((run) =>
+      run.design_id === EXPERIMENT_DESIGN_ID
+      && run.matrix_complete)
+    .map((run) => ({
+      ...run,
+      rep_accuracy: run.rep_accuracy ?? [],
+      rep_order: run.rep_order ?? [],
+    }));
+  return pickLatestRunPerModel(comparable)
+    .map((run) => byId.get(run.id))
+    .filter((run): run is ExperimentRunSummary => Boolean(run));
 }
 
 function repLabelFromRun(run: ExperimentRunPayload, repId: string): string {
@@ -325,7 +332,11 @@ export default function TextVsImageNotebookPage() {
     setRunLoadError(null);
     void (async () => {
       try {
-        const listed = await api.experimentListRuns(EXPERIMENT_SLUG, 20);
+        const listed = await api.experimentListRuns(
+          EXPERIMENT_SLUG,
+          20,
+          EXPERIMENT_DESIGN_ID,
+        );
         if (cancelled) return;
         setRunList(listed.items);
         const unique = uniqueModelSummaries(listed.items);
@@ -342,6 +353,7 @@ export default function TextVsImageNotebookPage() {
           // eslint-disable-next-line no-await-in-loop
           const full = await api.experimentRun(EXPERIMENT_SLUG, row.id, {
             images: i === 0,
+            designId: EXPERIMENT_DESIGN_ID,
           });
           loaded.push(full);
         }
@@ -389,6 +401,10 @@ export default function TextVsImageNotebookPage() {
       return {
         id: run.id,
         model: run.model,
+        seed: run.seed,
+        design_id: run.results.design_id,
+        manifest_fingerprint: run.results.manifest.design_fingerprint_sha256,
+        matrix_complete: summary?.matrix_complete ?? false,
         created_at: run.created_at,
         cells_correct: summary?.cells_correct
           ?? run.results.cells.filter((c) => c.status === 'done' && c.correct).length,
@@ -553,9 +569,9 @@ export default function TextVsImageNotebookPage() {
             <Text type="supporting">
               The same deterministic 20-name synthetic equity panel is shown to a multimodal
               model either as AI-style text summaries, as chart images, or as textless
-              charts paired with a markdown color key (so the model does not need OCR).
-              Answers are scored against ground truth so we can see which encodings survive
-              LLM context before changing production AI framing.
+              charts paired with a markdown color key. This is a task-aligned encoding
+              benchmark: representations expose different information, so scores describe
+              end-to-end usefulness on these prompts rather than a causal text-versus-image effect.
             </Text>
           </VStack>
 
@@ -610,7 +626,9 @@ export default function TextVsImageNotebookPage() {
                 <VStack gap={3}>
                   <Text type="supporting">
                     Per-representation scores for <code>{run.model}</code>
-                    {' '}(seed <code>{run.seed}</code>).
+                    {' '}(seed <code>{run.seed}</code>, design{' '}
+                    <code>{run.results.design_id}</code>, source{' '}
+                    <code>{run.results.manifest.source_revision.slice(0, 12)}</code>).
                   </Text>
                   <ModelResultsTable run={run} />
                 </VStack>
@@ -649,7 +667,7 @@ export default function TextVsImageNotebookPage() {
               <HStack gap={2} style={{ flexWrap: 'wrap' }}>
                 {crossCut.winningFamily ? (
                   <Token
-                    label={`Winner family: ${crossCut.winningFamily.label} (${
+                    label={`Highest observed family: ${crossCut.winningFamily.label} (${
                       crossCut.winningFamily.meanAccuracy == null
                         ? '—'
                         : `${Math.round(crossCut.winningFamily.meanAccuracy * 100)}%`
@@ -660,7 +678,7 @@ export default function TextVsImageNotebookPage() {
                 ) : null}
                 {crossCut.winningRep ? (
                   <Token
-                    label={`Best encoding: ${crossCut.winningRep.label} (${
+                    label={`Highest observed encoding: ${crossCut.winningRep.label} (${
                       crossCut.winningRep.meanAccuracy == null
                         ? '—'
                         : `${Math.round(crossCut.winningRep.meanAccuracy * 100)}%`
@@ -767,10 +785,11 @@ export default function TextVsImageNotebookPage() {
           <Text type="supporting">
             Compare <code>tool_summary</code> (today&apos;s AI framing) against labeled
             image encodings and the hybrid <code>*_color_keyed</code> rows (textless chart +
-            markdown color key). If hybrids beat labeled images on the same model, OCR was the
-            bottleneck — production can send color legends in text and keep charts visual-only.
-            Ranked bars and small multiples should dominate who-won / who-lost questions;
-            heatmaps help regime/crash reads; crowded overlays often lose ticker identity.
+            markdown color key). These are not content-matched pairs: chart geometry, labels,
+            numeric detail, and instructions differ. A hybrid advantage therefore does not isolate
+            OCR, and a family mean is descriptive rather than a significance test. Ranked bars
+            directly support ranking prompts, while tables directly expose exact statistics;
+            interpret each row as an end-to-end encoding result.
           </Text>
         </Section>
 
@@ -778,7 +797,9 @@ export default function TextVsImageNotebookPage() {
           <Text type="supporting">
             Seed <code>{universe.seed}</code>, {universe.tradingDays} trading days from{' '}
             {universe.startDate}, {universe.series.length} fictional tickers (GBM with planted
-            crashes/rallies).
+            crashes/rallies). Design <code>{EXPERIMENT_DESIGN_ID}</code> isolates these prompts,
+            scorers, and representations from legacy runs. Only complete matrices are published;
+            probe order is deterministically shuffled and transient failures are retried.
           </Text>
           <div className="notebook-results">
             <table>
@@ -896,8 +917,8 @@ export default function TextVsImageNotebookPage() {
 
         <Section id="questions" num={questionsNum} title="Questions">
           <Text type="supporting">
-            Each representation answers the same ground-truth prompts (tickers from the
-            synthetic panel).
+            Each representation answers the same ground-truth prompts. Answers must follow the
+            requested exact format; scoring is deterministic and uses no judge model.
           </Text>
           <div className="notebook-results">
             <table>

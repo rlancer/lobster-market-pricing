@@ -36,9 +36,17 @@ test('stats identify a unique best and worst total return', () => {
   assert.ok(sorted[0]!.totalReturnPct > sorted[sorted.length - 1]!.totalReturnPct);
 });
 
-test('planted crash names expose a crashDay', () => {
-  const withCrash = universeStats(buildSynthUniverse()).filter((s) => s.crashDay != null);
+test('sharpest-crash ground truth uses the worst one-day return', () => {
+  const universe = buildSynthUniverse();
+  const stats = universeStats(universe);
+  const withCrash = stats.filter((s) => s.crashDay != null);
   assert.ok(withCrash.length >= 1);
+  const sharpest = stats.slice().sort((a, b) => a.worstDailyReturnPct - b.worstDailyReturnPct)[0]!;
+  assert.equal(sharpest.ticker, 'MIRTH');
+
+  const question = buildQuestions(universe).find((q) => q.id === 'crash_name')!;
+  assert.equal(question.expected, sharpest.ticker);
+  assert.match(question.notes, new RegExp(sharpest.worstDailyReturnDate));
 });
 
 test('text representations are non-empty and tool_summary mentions every ticker', () => {
@@ -46,6 +54,8 @@ test('text representations are non-empty and tool_summary mentions every ticker'
   const reps = buildTextRepresentations(universe);
   assert.equal(reps.length, 3);
   const tool = reps.find((r) => r.id === 'tool_summary')!;
+  assert.match(tool.body, /Period performance \(by ticker; close=close, date=date\):/);
+  assert.match(tool.body, /ticker \| start \| end \| total_return_pct/);
   for (const ticker of SYNTH_TICKERS) {
     assert.match(tool.body, new RegExp(`\\b${ticker}\\b`));
   }
@@ -58,13 +68,15 @@ test('questions score exact ticker and numeric answers', () => {
   const tickers = universe.series.map((s) => s.ticker);
   const best = questions.find((q) => q.id === 'best_total_return')!;
   assert.equal(scoreAnswer(best, best.expected, tickers).correct, true);
-  assert.equal(scoreAnswer(best, `I think ${best.expected} won.`, tickers).correct, true);
+  assert.equal(scoreAnswer(best, `I think ${best.expected} won.`, tickers).correct, false);
+  assert.equal(scoreAnswer(best, `${best.expected},${tickers[1]}`, tickers).correct, false);
   assert.equal(scoreAnswer(best, 'NOTREAL', tickers).correct, false);
 
   const pct = questions.find((q) => q.id === 'best_return_pct')!;
   const expectedNum = Number(pct.expected);
   assert.equal(scoreAnswer(pct, String(expectedNum), tickers).correct, true);
   assert.equal(scoreAnswer(pct, String(expectedNum + 1), tickers).correct, true);
+  assert.equal(scoreAnswer(pct, `${expectedNum}%`, tickers).correct, false);
   assert.equal(scoreAnswer(pct, String(expectedNum + 10), tickers).correct, false);
 });
 
@@ -76,6 +88,7 @@ test('top3 scoring requires order', () => {
   assert.equal(scoreAnswer(top3, top3.expected, tickers).correct, true);
   const reversed = top3.expected.split(',').reverse().join(',');
   assert.equal(scoreAnswer(top3, reversed, tickers).correct, false);
+  assert.equal(scoreAnswer(top3, `${top3.expected},${tickers[0]}`, tickers).correct, false);
 });
 
 test('tickerStats matches series endpoints', () => {
@@ -83,4 +96,7 @@ test('tickerStats matches series endpoints', () => {
   const stats = tickerStats(series);
   assert.equal(stats.startClose, series.bars[0]!.close);
   assert.equal(stats.endClose, series.bars[series.bars.length - 1]!.close);
+  const dailyReturns = series.bars.slice(1).map((bar, index) =>
+    (bar.close / series.bars[index]!.close - 1) * 100);
+  assert.equal(stats.worstDailyReturnPct, Math.min(...dailyReturns));
 });

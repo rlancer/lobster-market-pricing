@@ -114,5 +114,8 @@ test('truncateTitle prefers the opening sentence over a mid-word cut', () => {
 
 test('experiments routes have titles', () => {
   assert.equal(pageMetaForUrl('/experiments').title, `Experiments · ${SITE_NAME}`);
-  assert.equal(pageMetaForUrl('/experiments/text-vs-image').title, `Text vs image experiment · ${SITE_NAME}`);
+  const experiment = pageMetaForUrl('/experiments/text-vs-image');
+  assert.equal(experiment.title, `Text vs image experiment · ${SITE_NAME}`);
+  assert.match(experiment.description ?? '', /AI-style text/);
+  assert.doesNotMatch(experiment.description ?? '', /Copilot-style/);
 });

@@ -173,6 +173,8 @@ export interface TickerStats {
   minClose: number;
   minCloseDate: string;
   dailyReturnStdPct: number;
+  worstDailyReturnPct: number;
+  worstDailyReturnDate: string;
   crashDay: string | null;
 }
 
@@ -203,15 +205,16 @@ export function tickerStats(series: TickerSeries): TickerStats {
   const variance = dailyReturns.reduce((a, b) => a + (b - mean) ** 2, 0) / dailyReturns.length;
   const std = Math.sqrt(variance);
 
-  let crashDay: string | null = null;
-  let worst = 0;
+  let worstDailyReturn = Infinity;
+  let worstDailyReturnDate = series.bars[0]!.date;
   for (let i = 1; i < series.bars.length; i++) {
     const dayRet = series.bars[i]!.close / series.bars[i - 1]!.close - 1;
-    if (dayRet < worst) {
-      worst = dayRet;
-      if (dayRet <= -0.12) crashDay = series.bars[i]!.date;
+    if (dayRet < worstDailyReturn) {
+      worstDailyReturn = dayRet;
+      worstDailyReturnDate = series.bars[i]!.date;
     }
   }
+  const crashDay = worstDailyReturn <= -0.12 ? worstDailyReturnDate : null;
 
   return {
     ticker: series.ticker,
@@ -225,6 +228,8 @@ export function tickerStats(series: TickerSeries): TickerStats {
     minClose,
     minCloseDate,
     dailyReturnStdPct: std * 100,
+    worstDailyReturnPct: worstDailyReturn * 100,
+    worstDailyReturnDate,
     crashDay,
   };
 }

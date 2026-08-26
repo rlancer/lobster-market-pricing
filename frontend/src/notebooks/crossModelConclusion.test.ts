@@ -28,6 +28,15 @@ describe('pickLatestRunPerModel', () => {
         rep_accuracy: [],
       },
       {
+        id: 'partial',
+        model: 'openai/gpt-4o-mini',
+        created_at: 10,
+        cells_correct: 1,
+        cells_done: 1,
+        cells_total: 56,
+        rep_accuracy: [],
+      },
+      {
         id: 'g',
         model: 'google/gemini-3.7-flash',
         created_at: 5,
@@ -39,6 +48,54 @@ describe('pickLatestRunPerModel', () => {
     ]);
     assert.equal(picked.length, 2);
     assert.equal(picked.find((r) => r.model.includes('gpt-4o'))?.id, 'new');
+  });
+
+  it('does not pool different designs or seeds', () => {
+    const base = {
+      cells_correct: 8,
+      cells_done: 8,
+      cells_total: 8,
+      rep_accuracy: [],
+    };
+    const picked = pickLatestRunPerModel([
+      {
+        ...base,
+        id: 'current',
+        model: 'openai/gpt',
+        seed: 42,
+        design_id: 'v2',
+        manifest_fingerprint: 'fingerprint-a',
+        created_at: 10,
+      },
+      {
+        ...base,
+        id: 'wrong-design',
+        model: 'google/gemini',
+        seed: 42,
+        design_id: 'v1',
+        manifest_fingerprint: 'fingerprint-a',
+        created_at: 9,
+      },
+      {
+        ...base,
+        id: 'wrong-seed',
+        model: 'anthropic/claude',
+        seed: 7,
+        design_id: 'v2',
+        manifest_fingerprint: 'fingerprint-a',
+        created_at: 8,
+      },
+      {
+        ...base,
+        id: 'wrong-manifest',
+        model: 'x-ai/grok',
+        seed: 42,
+        design_id: 'v2',
+        manifest_fingerprint: 'fingerprint-b',
+        created_at: 7,
+      },
+    ]);
+    assert.deepEqual(picked.map((run) => run.id), ['current']);
   });
 });
 
@@ -74,9 +131,10 @@ describe('buildCrossModelConclusion', () => {
     ]);
     assert.equal(conclusion.winningRep?.repId, 'tool_summary');
     assert.equal(conclusion.winningFamily?.family, 'text');
-    assert.match(conclusion.summary, /winning method family is text packs/i);
-    assert.match(conclusion.wrapUp, /production question/i);
-    assert.match(conclusion.wrapUp, /text packs clearly outperform/i);
+    assert.match(conclusion.summary, /highest observed method-family mean is text packs/i);
+    assert.match(conclusion.summary, /no significance claim/i);
+    assert.match(conclusion.wrapUp, /descriptive benchmark evidence/i);
+    assert.match(conclusion.wrapUp, /not .*production recommendation/i);
     assert.equal(repFamily('ranked_bars_color_keyed'), 'hybrid');
   });
 });
