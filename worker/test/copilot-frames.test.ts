@@ -4,6 +4,7 @@ import { COPILOT_TOOL_INPUT_SCHEMAS, LAST_FRAME_NAME } from "../src/copilot-cont
 import {
   MAX_TOOL_SUMMARY_CHARS,
   buildFrameSummary,
+  buildPeriodStatsTable,
   compileFrameQuery,
   jsonPath,
   summarizeResult,
@@ -82,6 +83,58 @@ test("summarizeResult is capped at MAX_TOOL_SUMMARY_CHARS", () => {
   assert.ok(text.length <= MAX_TOOL_SUMMARY_CHARS);
   assert.match(text, /^Columns:/);
   assert.match(text, /Stats:/);
+});
+
+test("buildPeriodStatsTable rolls multi-ticker OHLC into ranked period returns", () => {
+  const columns = ["symbol", "date", "close"];
+  const rows = [
+    { symbol: "AAA", date: "2024-01-02", close: 100 },
+    { symbol: "AAA", date: "2024-01-03", close: 110 },
+    { symbol: "AAA", date: "2024-01-04", close: 121 },
+    { symbol: "BBB", date: "2024-01-02", close: 50 },
+    { symbol: "BBB", date: "2024-01-03", close: 40 },
+    { symbol: "BBB", date: "2024-01-04", close: 35 },
+    { symbol: "CCC", date: "2024-01-02", close: 200 },
+    { symbol: "CCC", date: "2024-01-03", close: 170 }, // -15% crash
+    { symbol: "CCC", date: "2024-01-04", close: 180 },
+  ];
+  const table = buildPeriodStatsTable(columns, rows);
+  assert.ok(table);
+  assert.equal(table!.seriesColumn, "symbol");
+  assert.equal(table!.rows.length, 3);
+  assert.equal(table!.rows[0]!.series, "AAA");
+  assert.ok(Math.abs(table!.rows[0]!.totalReturnPct - 21) < 1e-9);
+  assert.equal(table!.rows[2]!.series, "BBB");
+  const ccc = table!.rows.find((r) => r.series === "CCC")!;
+  assert.equal(ccc.sharpDropDate, "2024-01-03");
+});
+
+test("summarizeResult appends period performance for OHLC panels, not option chains", () => {
+  const ohlcRows = [
+    { ticker: "AAA", date: "2024-01-02", close: 100 },
+    { ticker: "AAA", date: "2024-01-03", close: 105 },
+    { ticker: "AAA", date: "2024-01-04", close: 110 },
+    { ticker: "BBB", date: "2024-01-02", close: 80 },
+    { ticker: "BBB", date: "2024-01-03", close: 78 },
+    { ticker: "BBB", date: "2024-01-04", close: 76 },
+  ];
+  const ohlcText = summarizeResult({
+    columns: ["ticker", "date", "close"],
+    rows: ohlcRows,
+    row_count: ohlcRows.length,
+  });
+  assert.match(ohlcText, /Period performance \(by ticker/);
+  assert.match(ohlcText, /total_return_pct/);
+  assert.match(ohlcText, /AAA \|/);
+  assert.match(ohlcText, /BBB \|/);
+
+  const chainText = summarizeResult({
+    columns: chain.columns,
+    rows: chain.rows,
+    row_count: chain.rows.length,
+  });
+  assert.doesNotMatch(chainText, /Period performance/);
+  assert.equal(buildPeriodStatsTable(chain.columns, chain.rows), null);
 });
 
 test("compileFrameQuery filter path stays parameterized and placeholder-aligned", () => {

@@ -11,6 +11,12 @@ export const SAMPLE_HEAD_ROWS = 5;
 export const SAMPLE_TAIL_ROWS = 5;
 export const SAMPLE_EXTREMA_COLUMNS = 3;
 export const TOP_VALUE_LIMIT = 8;
+/** Minimum distinct dates + closes per series before we emit a period table. */
+export const PERIOD_STATS_MIN_POINTS = 3;
+/** Same threshold as the text-vs-image experiment's planted crash day. */
+export const PERIOD_STATS_SHARP_DROP_PCT = -12;
+/** Cap rows so a huge panel does not crowd out head/tail in the tool summary. */
+export const PERIOD_STATS_MAX_SERIES = 40;
 
 export type SqlValue = string | number | boolean | null;
 
@@ -237,6 +243,205 @@ function extremaRows(
   return out;
 }
 
+const DATE_COL_RE = /^(date|day|dt|as_of|asof|trade_date|tradedate|session_date|timestamp|ts)$/i;
+const CLOSE_COL_RE = /^(close|adj_close|adjclose|adjusted_close|price|last|px|settle|settlement)$/i;
+const SERIES_COL_RE = /^(symbol|ticker|underlying|name|series|asset)$/i;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
+
+function pickNamedColumn(columns: string[], re: RegExp): string | null {
+  return columns.find((c) => re.test(c)) ?? null;
+}
+
+function cellDate(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (ISO_DATE_RE.test(trimmed)) return trimmed.slice(0, 10);
+    return null;
+  }
+  if (typeof value === "number" && Number.isFinite(value) && value > 1e11) {
+    // epoch ms — uncommon in lake frames but cheap to accept
+    return new Date(value).toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+function cellNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function stdDev(values: number[]): number | null {
+  if (values.length < 2) return null;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / (values.length - 1);
+  return Math.sqrt(variance);
+}
+
+export interface PeriodSeriesStats {
+  series: string;
+  start: number;
+  end: number;
+  totalReturnPct: number;
+  dailyStdPct: number | null;
+  maxClose: number;
+  maxCloseDate: string;
+  minClose: number;
+  minCloseDate: string;
+  sharpDropDate: string | null;
+  points: number;
+}
+
+export interface PeriodStatsTable {
+  seriesColumn: string | null;
+  dateColumn: string;
+  closeColumn: string;
+  rows: PeriodSeriesStats[];
+}
+
+/**
+ * Detect long-format OHLC / close panels (date + close [+ symbol/ticker]) and
+ * roll them into the experiment's winning `stats_table` shape: one row per
+ * series with period return, daily σ, extrema dates, and optional crash day.
+ * Returns null for option chains and other non-time-series frames.
+ */
+export function buildPeriodStatsTable(
+  columns: string[],
+  rows: Record<string, unknown>[],
+): PeriodStatsTable | null {
+  if (rows.length < PERIOD_STATS_MIN_POINTS) return null;
+
+  const dateColumn = pickNamedColumn(columns, DATE_COL_RE);
+  const closeColumn = pickNamedColumn(columns, CLOSE_COL_RE);
+  if (!dateColumn || !closeColumn || dateColumn === closeColumn) return null;
+
+  const seriesColumn = pickNamedColumn(columns, SERIES_COL_RE);
+  // Avoid mistaking option chains: expiration-like dates + strike/IV without a
+  // close column already fail above; also require several distinct dates.
+  const distinctDates = new Set<string>();
+  for (const row of rows) {
+    const d = cellDate(row[dateColumn]);
+    if (d) distinctDates.add(d);
+  }
+  if (distinctDates.size < PERIOD_STATS_MIN_POINTS) return null;
+
+  type Point = { date: string; close: number };
+  const bySeries = new Map<string, Point[]>();
+  for (const row of rows) {
+    const date = cellDate(row[dateColumn]);
+    const close = cellNumber(row[closeColumn]);
+    if (!date || close == null) continue;
+    const key = seriesColumn
+      ? String(row[seriesColumn] ?? "").trim().toUpperCase() || "—"
+      : "series";
+    let list = bySeries.get(key);
+    if (!list) {
+      list = [];
+      bySeries.set(key, list);
+    }
+    list.push({ date, close });
+  }
+
+  const stats: PeriodSeriesStats[] = [];
+  for (const [series, points] of bySeries) {
+    if (points.length < PERIOD_STATS_MIN_POINTS) continue;
+    points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Collapse duplicate dates (keep last close of the day).
+    const deduped: Point[] = [];
+    for (const p of points) {
+      const last = deduped[deduped.length - 1];
+      if (last && last.date === p.date) last.close = p.close;
+      else deduped.push({ ...p });
+    }
+    if (deduped.length < PERIOD_STATS_MIN_POINTS) continue;
+
+    const start = deduped[0]!.close;
+    const end = deduped[deduped.length - 1]!.close;
+    if (!(start > 0)) continue;
+
+    let maxClose = deduped[0]!.close;
+    let maxCloseDate = deduped[0]!.date;
+    let minClose = deduped[0]!.close;
+    let minCloseDate = deduped[0]!.date;
+    const dailyReturns: number[] = [];
+    let sharpDropDate: string | null = null;
+    let sharpDropPct = 0;
+    for (let i = 0; i < deduped.length; i++) {
+      const p = deduped[i]!;
+      if (p.close > maxClose) {
+        maxClose = p.close;
+        maxCloseDate = p.date;
+      }
+      if (p.close < minClose) {
+        minClose = p.close;
+        minCloseDate = p.date;
+      }
+      if (i > 0) {
+        const prev = deduped[i - 1]!.close;
+        if (prev > 0) {
+          const retPct = ((p.close - prev) / prev) * 100;
+          dailyReturns.push(retPct);
+          if (retPct <= PERIOD_STATS_SHARP_DROP_PCT && retPct < sharpDropPct) {
+            sharpDropPct = retPct;
+            sharpDropDate = p.date;
+          }
+        }
+      }
+    }
+
+    stats.push({
+      series,
+      start,
+      end,
+      totalReturnPct: ((end - start) / start) * 100,
+      dailyStdPct: stdDev(dailyReturns),
+      maxClose,
+      maxCloseDate,
+      minClose,
+      minCloseDate,
+      sharpDropDate,
+      points: deduped.length,
+    });
+  }
+
+  if (!stats.length) return null;
+  // Multi-ticker panels are the experiment win; single-series still helps.
+  stats.sort((a, b) => b.totalReturnPct - a.totalReturnPct);
+  return {
+    seriesColumn,
+    dateColumn,
+    closeColumn,
+    rows: stats.slice(0, PERIOD_STATS_MAX_SERIES),
+  };
+}
+
+function formatPeriodPct(value: number): string {
+  return value.toFixed(2);
+}
+
+/** Markdown-ish pipe table matching the notebook `stats_table` encoding. */
+export function formatPeriodStatsTable(table: PeriodStatsTable): string[] {
+  const idHeader = table.seriesColumn ?? "series";
+  const lines = [
+    `Period performance (by ${idHeader}; close=${table.closeColumn}, date=${table.dateColumn}):`,
+    `${idHeader} | start | end | total_return_pct | daily_std_pct | max_date | min_date | sharp_drop_date`,
+    "-------|-------|-----|------------------|---------------|----------|----------|----------------",
+  ];
+  for (const row of table.rows) {
+    lines.push(
+      `${row.series} | ${formatStat(row.start)} | ${formatStat(row.end)} | `
+        + `${formatPeriodPct(row.totalReturnPct)} | `
+        + `${row.dailyStdPct == null ? "—" : formatPeriodPct(row.dailyStdPct)} | `
+        + `${row.maxCloseDate} | ${row.minCloseDate} | ${row.sharpDropDate ?? "—"}`,
+    );
+  }
+  return lines;
+}
+
 export function summarizeResult(result: ResultView, notes: string[] = []): string {
   const lines = [`Columns: ${result.columns.join(", ")}`, `Row count: ${result.row_count}`, ...notes];
   if (result.truncated) lines.push("Truncated: true");
@@ -246,6 +451,12 @@ export function summarizeResult(result: ResultView, notes: string[] = []): strin
     for (const column of result.columns) {
       const sketch = summary[column] ?? { type: "other" as const, count: 0, nulls: result.rows.length };
       lines.push("  " + formatColumnSketch(column, sketch));
+    }
+    // text-vs-image: period stats tables beat chart images and match/beat raw
+    // tool summaries for multi-name close panels — inject when detectable.
+    const period = buildPeriodStatsTable(result.columns, result.rows);
+    if (period) {
+      lines.push("---", ...formatPeriodStatsTable(period));
     }
     lines.push("---", "Sample:");
     const headN = Math.min(SAMPLE_HEAD_ROWS, result.rows.length);
