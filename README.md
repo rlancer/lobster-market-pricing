@@ -551,4 +551,7 @@ Each route sets its own `<title>`, description, canonical URL, and Open Graph /
 Twitter tags from the path (e.g. `/research/SPY` → `SPY – Research · Lobster MP`).
 The Vite build also emits a Cloudflare Pages `_worker.js` that rewrites those
 tags in `index.html`, so crawlers and chat unfurlers see the right preview
-without executing JavaScript.
+without executing JavaScript. SPA deep links fall back to `index.html` inside
+that worker (extensionless routes only) — there is no `public/_redirects`
+catch-all, so static crawler files (`/robots.txt`, `/sitemap.xml`) stay
+`text/plain` / XML instead of the app shell.
