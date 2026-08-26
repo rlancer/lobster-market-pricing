@@ -44,10 +44,11 @@ type TocEntry = { id: string; num: string; label: string };
 
 const TOC_BEFORE: Array<{ id: string; label: string }> = [
   { id: 'overview', label: 'Overview' },
-  { id: 'conclusion', label: 'Conclusion' },
 ];
 
+/** After per-model results: takeaway, then methodology. */
 const TOC_AFTER: Array<{ id: string; label: string }> = [
+  { id: 'conclusion', label: 'Conclusion' },
   { id: 'reading', label: 'How to read' },
   { id: 'setup', label: 'Setup' },
   { id: 'images', label: 'Images' },
@@ -529,7 +530,7 @@ export default function TextVsImageNotebookPage() {
     ? null
     : (displayImages.find((r) => r.id === selectedRep) ?? null);
 
-  const conclusionNum = tocById.get('conclusion')?.num ?? '02';
+  const conclusionNum = tocById.get('conclusion')?.num ?? '03';
   const readingNum = tocById.get('reading')?.num ?? '04';
   const setupNum = tocById.get('setup')?.num ?? '05';
   const imagesNum = tocById.get('images')?.num ?? '06';
@@ -576,6 +577,57 @@ export default function TextVsImageNotebookPage() {
             </Text>
           ) : null}
         </section>
+
+        {modelRuns.map((run) => {
+          const sectionId = modelSectionId(run.id);
+          const entry = tocById.get(sectionId);
+          const expanded = expandedModels.has(run.id);
+          const summary = runList.find((row) => row.id === run.id);
+          const meta = [
+            formatRunWhen(run.created_at),
+            summary ? runAccuracyLabel(summary) : null,
+          ].filter(Boolean).join(' · ');
+          return (
+            <section key={run.id} id={sectionId} className="notebook-section notebook-model-section">
+              <button
+                type="button"
+                className="notebook-model-toggle"
+                aria-expanded={expanded}
+                onClick={() => toggleModel(run.id)}
+              >
+                {expanded
+                  ? <ChevronDown size={16} aria-hidden />
+                  : <ChevronRight size={16} aria-hidden />}
+                <span className="notebook-model-title">
+                  <span className="notebook-sec-num">{entry?.num ?? '—'}</span>
+                  {shortModel(run.model)}
+                </span>
+                <span className="notebook-model-meta">{meta}</span>
+              </button>
+              {expanded ? (
+                <VStack gap={3}>
+                  <Text type="supporting">
+                    Per-representation scores for <code>{run.model}</code>
+                    {' '}(seed <code>{run.seed}</code>).
+                  </Text>
+                  <ModelResultsTable run={run} />
+                </VStack>
+              ) : (
+                <Text type="supporting">
+                  Collapsed — expand here or jump from the table of contents.
+                </Text>
+              )}
+            </section>
+          );
+        })}
+
+        {!modelRuns.length && runLoadState !== 'loading' ? (
+          <section className="notebook-section">
+            <Text type="supporting">
+              Per-model result matrices appear here once runs are published via API or CI.
+            </Text>
+          </section>
+        ) : null}
 
         <Section id="conclusion" num={conclusionNum} title="Cross-model conclusion">
           {crossCutState === 'loading' || (crossCutState === 'idle' && runList.length > 0) ? (
@@ -708,57 +760,6 @@ export default function TextVsImageNotebookPage() {
             </>
           ) : null}
         </Section>
-
-        {modelRuns.map((run) => {
-          const sectionId = modelSectionId(run.id);
-          const entry = tocById.get(sectionId);
-          const expanded = expandedModels.has(run.id);
-          const summary = runList.find((row) => row.id === run.id);
-          const meta = [
-            formatRunWhen(run.created_at),
-            summary ? runAccuracyLabel(summary) : null,
-          ].filter(Boolean).join(' · ');
-          return (
-            <section key={run.id} id={sectionId} className="notebook-section notebook-model-section">
-              <button
-                type="button"
-                className="notebook-model-toggle"
-                aria-expanded={expanded}
-                onClick={() => toggleModel(run.id)}
-              >
-                {expanded
-                  ? <ChevronDown size={16} aria-hidden />
-                  : <ChevronRight size={16} aria-hidden />}
-                <span className="notebook-model-title">
-                  <span className="notebook-sec-num">{entry?.num ?? '—'}</span>
-                  {shortModel(run.model)}
-                </span>
-                <span className="notebook-model-meta">{meta}</span>
-              </button>
-              {expanded ? (
-                <VStack gap={3}>
-                  <Text type="supporting">
-                    Per-representation scores for <code>{run.model}</code>
-                    {' '}(seed <code>{run.seed}</code>).
-                  </Text>
-                  <ModelResultsTable run={run} />
-                </VStack>
-              ) : (
-                <Text type="supporting">
-                  Collapsed — expand here or jump from the table of contents.
-                </Text>
-              )}
-            </section>
-          );
-        })}
-
-        {!modelRuns.length && runLoadState !== 'loading' ? (
-          <section className="notebook-section">
-            <Text type="supporting">
-              Per-model result matrices appear here once runs are published via API or CI.
-            </Text>
-          </section>
-        ) : null}
 
         <Section id="reading" num={readingNum} title="How to read this">
           <Text type="supporting">
