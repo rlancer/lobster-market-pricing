@@ -3,7 +3,8 @@ name: Run text-vs-image experiment
 # Publishes a server-saved Experiments run (probes + exact chart images) so the
 # public /experiments/text-vs-image page can show results. That page is read-only —
 # probing and publishing happen here (or via the admin API), not in the UI.
-# Re-dispatch with a different `model` to compare models.
+# Pushes run the full configured model set. Manual dispatch accepts one model
+# slug or `all`.
 #
 # Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
 # already be set on the target Worker (synced by deploy.yml).
@@ -15,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: 'OpenRouter model slug'
+        description: 'OpenRouter model slug, or all'
         type: string
-        default: 'google/gemini-3.7-flash'
+        default: 'all'
       api_base:
         description: 'Worker API origin'
         type: choice
@@ -43,12 +44,16 @@ permissions:
 
 jobs:
   run-experiment:
+    name: run-experiment (${{ matrix.model }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ${{ fromJSON((github.event_name == 'push' || inputs.model == 'all') && '["openai/gpt-4o-mini","google/gemini-3.7-flash","openai/gpt-5.6-luna","anthropic/claude-sonnet-4.6","x-ai/grok-4.6"]' || format('["{0}"]', inputs.model)) }}
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      # Push default: current-generation multimodal (not gpt-4o-mini / 2.5-flash).
-      MODEL: ${{ inputs.model || 'google/gemini-3.7-flash' }}
+      MODEL: ${{ matrix.model }}
       API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
       SLUG: text-vs-image
       DESIGN_ID: text-vs-image-v2
