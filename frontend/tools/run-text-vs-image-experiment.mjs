@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
 import {
   deterministicShuffle,
+  isNoAnswerError,
   probeRetryDelayMs,
 } from './text-vs-image-runner-utils.mjs';
 
@@ -147,6 +148,7 @@ async function api(path, { method = 'GET', body } = {}) {
     const error = new Error(`${method} ${path} → HTTP ${res.status}: ${text.slice(0, 800)}`);
     error.status = res.status;
     error.retryAfter = res.headers.get('Retry-After');
+    error.apiError = typeof json?.error === 'string' ? json.error : null;
     throw error;
   }
   return json;
@@ -268,15 +270,29 @@ async function main() {
         }
       }
       if (lastError) {
-        cells.push({
-          rep_id: repId,
-          question_id: question.id,
-          status: 'error',
-          error: String(lastError?.message ?? lastError),
-          model: MODEL,
-          attempts,
-        });
-        console.log('error', String(lastError?.message ?? lastError).slice(0, 200));
+        if (isNoAnswerError(lastError)) {
+          cells.push({
+            rep_id: repId,
+            question_id: question.id,
+            status: 'done',
+            answer: '[no answer]',
+            correct: false,
+            detail: `model returned no answer after ${attempts} attempts`,
+            model: MODEL,
+            attempts,
+          });
+          console.log('miss', `(no answer after ${attempts} attempts)`);
+        } else {
+          cells.push({
+            rep_id: repId,
+            question_id: question.id,
+            status: 'error',
+            error: String(lastError?.message ?? lastError),
+            model: MODEL,
+            attempts,
+          });
+          console.log('error', String(lastError?.message ?? lastError).slice(0, 200));
+        }
       }
     }
 
@@ -306,7 +322,7 @@ async function main() {
     const questionsHash = sha256(JSON.stringify(questionsPayload));
     const designFingerprint = sha256([
       payload.designId,
-      '2',
+      '3',
       systemPromptHash,
       questionsHash,
       ...repOrder.map((id) => `${id}:${representationHashes[id]}`),
@@ -322,7 +338,7 @@ async function main() {
         results: {
           design_id: payload.designId,
           manifest: {
-            runner_version: 2,
+            runner_version: 3,
             source_revision: SOURCE_REVISION,
             system_prompt: payload.system,
             system_prompt_sha256: systemPromptHash,

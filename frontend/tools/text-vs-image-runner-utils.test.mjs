@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   deterministicShuffle,
+  isNoAnswerError,
   probeRetryDelayMs,
 } from './text-vs-image-runner-utils.mjs';
 
@@ -23,4 +24,9 @@ test('probeRetryDelayMs retries transient failures and honors Retry-After', () =
 test('probeRetryDelayMs does not retry permanent HTTP failures', () => {
   assert.equal(probeRetryDelayMs({ status: 400 }, 1), null);
   assert.equal(probeRetryDelayMs({ status: 403 }, 1), null);
+});
+
+test('isNoAnswerError identifies exhausted empty model responses', () => {
+  assert.equal(isNoAnswerError({ apiError: 'model returned an empty answer' }), true);
+  assert.equal(isNoAnswerError({ apiError: 'upstream unavailable' }), false);
 });

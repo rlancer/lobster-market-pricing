@@ -37,3 +37,7 @@ export function probeRetryDelayMs(error, attempt, nowMs = Date.now()) {
   const exponential = 500 * (2 ** Math.max(0, attempt - 1));
   return Math.max(exponential, retryAfterMs(error?.retryAfter, nowMs));
 }
+
+export function isNoAnswerError(error) {
+  return error?.apiError === 'model returned an empty answer';
+}
