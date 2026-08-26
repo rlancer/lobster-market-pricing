@@ -25,6 +25,7 @@ export interface ExperimentRunCell {
   latency_ms?: number;
   error?: string;
   model?: string;
+  attempts?: number;
 }
 
 export interface ExperimentRunQuestion {
@@ -41,8 +42,20 @@ export interface ExperimentRunTextRep {
   body: string;
 }
 
+export interface ExperimentRunManifest {
+  runner_version: number;
+  source_revision: string;
+  system_prompt_sha256: string;
+  questions_sha256: string;
+  representation_sha256: Record<string, string>;
+  execution_order: string[];
+  max_probe_attempts: number;
+}
+
 /** JSON stored in experiment_runs.results_json (no image blobs). */
 export interface ExperimentRunResults {
+  design_id: string;
+  manifest: ExperimentRunManifest;
   questions: ExperimentRunQuestion[];
   text_reps: ExperimentRunTextRep[];
   cells: ExperimentRunCell[];
@@ -114,6 +127,70 @@ export function parseSaveExperimentRunBody(
     return { ok: false, error: "results is required", status: 400 };
   }
 
+  const design_id = asString(resultsRaw.design_id, 120);
+  if (!design_id || !/^[a-z0-9][a-z0-9-]{0,119}$/.test(design_id)) {
+    return { ok: false, error: "results.design_id is required and must be versioned", status: 400 };
+  }
+
+  const manifestRaw = resultsRaw.manifest;
+  if (!isRecord(manifestRaw)) {
+    return { ok: false, error: "results.manifest is required", status: 400 };
+  }
+  const runnerVersion = typeof manifestRaw.runner_version === "number"
+    && Number.isInteger(manifestRaw.runner_version)
+    && manifestRaw.runner_version > 0
+    ? manifestRaw.runner_version
+    : null;
+  const sourceRevision = asString(manifestRaw.source_revision, 120);
+  const systemHash = asString(manifestRaw.system_prompt_sha256, 64);
+  const questionsHash = asString(manifestRaw.questions_sha256, 64);
+  const representationHashesRaw = manifestRaw.representation_sha256;
+  const executionOrderRaw = Array.isArray(manifestRaw.execution_order)
+    ? manifestRaw.execution_order
+    : null;
+  const maxProbeAttempts = typeof manifestRaw.max_probe_attempts === "number"
+    && Number.isInteger(manifestRaw.max_probe_attempts)
+    && manifestRaw.max_probe_attempts >= 1
+    && manifestRaw.max_probe_attempts <= 5
+    ? manifestRaw.max_probe_attempts
+    : null;
+  const isHash = (value: string | null): value is string =>
+    Boolean(value && /^[a-f0-9]{64}$/.test(value));
+  if (
+    runnerVersion == null
+    || !sourceRevision
+    || !isHash(systemHash)
+    || !isHash(questionsHash)
+    || !isRecord(representationHashesRaw)
+    || !executionOrderRaw
+    || maxProbeAttempts == null
+  ) {
+    return { ok: false, error: "results.manifest is invalid or incomplete", status: 400 };
+  }
+  const representation_sha256: Record<string, string> = {};
+  for (const [repId, hashValue] of Object.entries(representationHashesRaw)) {
+    const id = asString(repId, 80);
+    const hash = asString(hashValue, 64);
+    if (!id || !isHash(hash)) {
+      return { ok: false, error: "results.manifest representation hashes are invalid", status: 400 };
+    }
+    representation_sha256[id] = hash;
+  }
+  const execution_order = executionOrderRaw.map((item) =>
+    typeof item === "string" ? item.trim().slice(0, 170) : "");
+  if (execution_order.some((item) => !item)) {
+    return { ok: false, error: "results.manifest execution_order is invalid", status: 400 };
+  }
+  const manifest: ExperimentRunManifest = {
+    runner_version: runnerVersion,
+    source_revision: sourceRevision,
+    system_prompt_sha256: systemHash,
+    questions_sha256: questionsHash,
+    representation_sha256,
+    execution_order,
+    max_probe_attempts: maxProbeAttempts,
+  };
+
   const questionsIn = Array.isArray(resultsRaw.questions) ? resultsRaw.questions : null;
   const textRepsIn = Array.isArray(resultsRaw.text_reps) ? resultsRaw.text_reps : null;
   const cellsIn = Array.isArray(resultsRaw.cells) ? resultsRaw.cells : null;
@@ -134,6 +211,9 @@ export function parseSaveExperimentRunBody(
   if (!questions.length) {
     return { ok: false, error: "results.questions must be non-empty", status: 400 };
   }
+  if (questions.length !== questionsIn.length) {
+    return { ok: false, error: "results.questions contains invalid entries", status: 400 };
+  }
 
   const text_reps: ExperimentRunTextRep[] = [];
   for (const r of textRepsIn) {
@@ -150,6 +230,9 @@ export function parseSaveExperimentRunBody(
       ? Math.max(0, Math.trunc(r.approx_tokens))
       : undefined;
     text_reps.push({ id, label, description, approx_tokens: approx, body: bodyText });
+  }
+  if (text_reps.length !== textRepsIn.length) {
+    return { ok: false, error: "results.text_reps contains invalid entries", status: 400 };
   }
 
   const cells: ExperimentRunCell[] = [];
@@ -171,10 +254,16 @@ export function parseSaveExperimentRunBody(
         : undefined,
       error: typeof c.error === "string" ? c.error.slice(0, 1_000) : undefined,
       model: typeof c.model === "string" ? c.model.slice(0, 120) : undefined,
+      attempts: typeof c.attempts === "number" && Number.isInteger(c.attempts)
+        ? Math.max(1, Math.min(5, c.attempts))
+        : undefined,
     });
   }
   if (!cells.length) {
     return { ok: false, error: "results.cells must be non-empty", status: 400 };
+  }
+  if (cells.length !== cellsIn.length) {
+    return { ok: false, error: "results.cells contains invalid entries", status: 400 };
   }
 
   const rep_order = orderIn
@@ -184,7 +273,64 @@ export function parseSaveExperimentRunBody(
     return { ok: false, error: "results.rep_order must be non-empty", status: 400 };
   }
 
-  const results: ExperimentRunResults = { questions, text_reps, cells, rep_order };
+  const questionIds = new Set(questions.map((question) => question.id));
+  const repIds = new Set(rep_order);
+  if (questionIds.size !== questions.length) {
+    return { ok: false, error: "results.questions ids must be unique", status: 400 };
+  }
+  if (repIds.size !== rep_order.length) {
+    return { ok: false, error: "results.rep_order ids must be unique", status: 400 };
+  }
+  const expectedCellCount = questions.length * rep_order.length;
+  if (cells.length !== expectedCellCount) {
+    return {
+      ok: false,
+      error: `results matrix must contain exactly ${expectedCellCount} cells`,
+      status: 400,
+    };
+  }
+  const cellKeys = new Set<string>();
+  for (const cell of cells) {
+    const key = `${cell.rep_id}::${cell.question_id}`;
+    if (!repIds.has(cell.rep_id) || !questionIds.has(cell.question_id)) {
+      return { ok: false, error: `results cell ${key} is outside the declared matrix`, status: 400 };
+    }
+    if (cellKeys.has(key)) {
+      return { ok: false, error: `results cell ${key} is duplicated`, status: 400 };
+    }
+    if (cell.status !== "done" || typeof cell.correct !== "boolean") {
+      return { ok: false, error: `results cell ${key} is incomplete`, status: 400 };
+    }
+    cellKeys.add(key);
+  }
+  if (
+    manifest.execution_order.length !== expectedCellCount
+    || new Set(manifest.execution_order).size !== expectedCellCount
+    || manifest.execution_order.some((key) => !cellKeys.has(key))
+  ) {
+    return { ok: false, error: "results.manifest execution_order must match the matrix", status: 400 };
+  }
+  const hashIds = Object.keys(manifest.representation_sha256);
+  if (
+    hashIds.length !== rep_order.length
+    || hashIds.some((id) => !repIds.has(id))
+    || rep_order.some((id) => !manifest.representation_sha256[id])
+  ) {
+    return {
+      ok: false,
+      error: "results.manifest must hash every declared representation exactly once",
+      status: 400,
+    };
+  }
+
+  const results: ExperimentRunResults = {
+    design_id,
+    manifest,
+    questions,
+    text_reps,
+    cells,
+    rep_order,
+  };
   const resultsJson = JSON.stringify(results);
   if (resultsJson.length > MAX_EXPERIMENT_RESULTS_CHARS) {
     return { ok: false, error: "results payload too large", status: 400 };
@@ -225,6 +371,24 @@ export function parseSaveExperimentRunBody(
   }
   if (!images.length) {
     return { ok: false, error: "images must be non-empty", status: 400 };
+  }
+  if (images.length !== imagesIn.length) {
+    return { ok: false, error: "images contains invalid entries", status: 400 };
+  }
+  const textRepIds = new Set(text_reps.map((rep) => rep.id));
+  const imageIds = new Set(images.map((image) => image.id));
+  if (textRepIds.size !== text_reps.length || imageIds.size !== images.length) {
+    return { ok: false, error: "representation ids must be unique within each payload type", status: 400 };
+  }
+  if (
+    rep_order.some((id) => !textRepIds.has(id) && !imageIds.has(id))
+    || [...textRepIds, ...imageIds].some((id) => !repIds.has(id))
+  ) {
+    return {
+      ok: false,
+      error: "representation payloads must match results.rep_order",
+      status: 400,
+    };
   }
 
   const created_by = typeof body.created_by === "string"
@@ -298,14 +462,16 @@ export async function saveExperimentRun(
 export async function getLatestExperimentRun(
   db: D1Database,
   experimentSlug: string,
+  designId?: string,
 ): Promise<ExperimentRunRecord | null> {
   const row = await db.prepare(
     `SELECT id, experiment_slug, model, seed, created_at, created_by, results_json
      FROM experiment_runs
      WHERE experiment_slug = ?1
+       AND (?2 IS NULL OR json_extract(results_json, '$.design_id') = ?2)
      ORDER BY created_at DESC
      LIMIT 1`,
-  ).bind(experimentSlug).first<{
+  ).bind(experimentSlug, designId ?? null).first<{
     id: string;
     experiment_slug: string;
     model: string;
@@ -398,6 +564,8 @@ export interface ExperimentRunSummary {
   seed: number;
   created_at: number;
   created_by: string | null;
+  design_id: string | null;
+  matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
   cells_total: number;
@@ -407,6 +575,8 @@ export interface ExperimentRunSummary {
 }
 
 function summarizeResultsJson(resultsJson: string): {
+  design_id: string | null;
+  matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
   cells_total: number;
@@ -415,6 +585,8 @@ function summarizeResultsJson(resultsJson: string): {
 } {
   try {
     const results = JSON.parse(resultsJson) as ExperimentRunResults;
+    const design_id = typeof results.design_id === "string" ? results.design_id : null;
+    const questions = Array.isArray(results.questions) ? results.questions : [];
     const cells = Array.isArray(results.cells) ? results.cells : [];
     const done = cells.filter((c) => c.status === "done");
     const byRep = new Map<string, { correct: number; done: number }>();
@@ -439,7 +611,21 @@ function summarizeResultsJson(resultsJson: string): {
       if (seen.has(rid)) continue;
       rep_accuracy.push({ rep_id: rid, correct: stats.correct, done: stats.done });
     }
+    const expectedKeys = new Set<string>();
+    for (const repId of rep_order) {
+      for (const question of questions) expectedKeys.add(`${repId}::${question.id}`);
+    }
+    const actualKeys = new Set(cells.map((cell) => `${cell.rep_id}::${cell.question_id}`));
+    const matrix_complete = expectedKeys.size > 0
+      && cells.length === expectedKeys.size
+      && actualKeys.size === expectedKeys.size
+      && cells.every((cell) =>
+        cell.status === "done"
+        && typeof cell.correct === "boolean"
+        && expectedKeys.has(`${cell.rep_id}::${cell.question_id}`));
     return {
+      design_id,
+      matrix_complete,
       cells_total: cells.length,
       cells_done: done.length,
       cells_correct: done.filter((c) => c.correct).length,
@@ -448,6 +634,8 @@ function summarizeResultsJson(resultsJson: string): {
     };
   } catch {
     return {
+      design_id: null,
+      matrix_complete: false,
       cells_total: 0,
       cells_done: 0,
       cells_correct: 0,
@@ -459,6 +647,8 @@ function summarizeResultsJson(resultsJson: string): {
 
 /** Exported for unit tests — parse results_json into list-summary fields. */
 export function summarizeExperimentResultsJson(resultsJson: string): {
+  design_id: string | null;
+  matrix_complete: boolean;
   cells_done: number;
   cells_correct: number;
   cells_total: number;
@@ -473,15 +663,17 @@ export async function listExperimentRuns(
   db: D1Database,
   experimentSlug: string,
   limit = 20,
+  designId?: string,
 ): Promise<ExperimentRunSummary[]> {
   const capped = Math.max(1, Math.min(50, Math.trunc(limit)));
   const rows = await db.prepare(
     `SELECT id, experiment_slug, model, seed, created_at, created_by, results_json
      FROM experiment_runs
      WHERE experiment_slug = ?1
+       AND (?2 IS NULL OR json_extract(results_json, '$.design_id') = ?2)
      ORDER BY created_at DESC
-     LIMIT ?2`,
-  ).bind(experimentSlug, capped).all<{
+     LIMIT ?3`,
+  ).bind(experimentSlug, designId ?? null, capped).all<{
     id: string;
     experiment_slug: string;
     model: string;
@@ -509,13 +701,15 @@ export async function getExperimentRunById(
   db: D1Database,
   experimentSlug: string,
   runId: string,
+  designId?: string,
 ): Promise<ExperimentRunRecord | null> {
   const row = await db.prepare(
     `SELECT id, experiment_slug, model, seed, created_at, created_by, results_json
      FROM experiment_runs
      WHERE experiment_slug = ?1 AND id = ?2
+       AND (?3 IS NULL OR json_extract(results_json, '$.design_id') = ?3)
      LIMIT 1`,
-  ).bind(experimentSlug, runId).first<{
+  ).bind(experimentSlug, runId, designId ?? null).first<{
     id: string;
     experiment_slug: string;
     model: string;

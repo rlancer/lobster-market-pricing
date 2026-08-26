@@ -1,7 +1,7 @@
 /**
  * Text context packs for the notebook. `tool_summary` mirrors the AI's
- * worker-side `summarizeResult` shape (stats + head/tail), which is the
- * baseline we compare against image encodings.
+ * worker-side `summarizeResult` shape (period table + stats + samples), which
+ * is the baseline we compare against image encodings.
  */
 
 import {
@@ -31,12 +31,31 @@ function formatRow(columns: string[], row: Record<string, unknown>): string {
     .join(' | ');
 }
 
+function periodStatsTableLines(universe: SynthUniverse): string[] {
+  const stats = universeStats(universe).slice().sort((a, b) => b.totalReturnPct - a.totalReturnPct);
+  const lines = [
+    'Period performance (by ticker; close=close, date=date):',
+    'ticker | start | end | total_return_pct | daily_std_pct | max_date | min_date | sharp_drop_date',
+    '-------|-------|-----|------------------|---------------|----------|----------|----------------',
+  ];
+  for (const s of stats) {
+    lines.push(
+      `${s.ticker} | ${s.startClose.toFixed(2)} | ${s.endClose.toFixed(2)} | `
+        + `${s.totalReturnPct.toFixed(2)} | ${s.dailyReturnStdPct.toFixed(2)} | `
+        + `${s.maxCloseDate} | ${s.minCloseDate} | ${s.crashDay ?? '—'}`,
+    );
+  }
+  return lines;
+}
+
 /** Closest mirror of production AI tool summaries today. */
 export function toolSummaryText(universe: SynthUniverse): string {
   const lines: string[] = [
     'DATASET: synthetic_equity_panel',
     `seed=${universe.seed} trading_days=${universe.tradingDays} start=${universe.startDate}`,
     `tickers=${universe.series.map((s) => s.ticker).join(',')}`,
+    '',
+    ...periodStatsTableLines(universe),
     '',
   ];
 
@@ -113,7 +132,7 @@ export function buildTextRepresentations(universe: SynthUniverse): TextRep[] {
       id: 'tool_summary',
       label: 'Tool summary (current AI style)',
       description:
-        'Per-ticker column stats plus head/tail samples — the same shape the AI gets from summarizeResult today.',
+        'Consolidated period table plus per-ticker stats and samples — the production summarizeResult shape.',
       body: toolSummaryText(universe),
     },
     {

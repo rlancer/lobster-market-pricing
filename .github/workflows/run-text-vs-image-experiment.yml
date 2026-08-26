@@ -49,6 +49,7 @@ jobs:
       MODEL: ${{ inputs.model || 'google/gemini-3.7-flash' }}
       API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
       SLUG: text-vs-image
+      DESIGN_ID: text-vs-image-v2
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -96,7 +97,6 @@ jobs:
           done
 
       - name: Wait for multimodal probe support (Deploy may still be rolling)
-        id: multimodal
         run: |
           set -euo pipefail
           TINY='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -129,12 +129,12 @@ jobs:
             echo "multimodal accepted (HTTP $body)"
             exit 0
           done
-          echo "::warning::Worker does not accept multimodal yet — publishing classic reps only"
-          echo "supported=no" >> "$GITHUB_OUTPUT"
+          echo "::error::Worker does not accept multimodal probes"
+          exit 1
 
       - name: Run probes and publish saved run
         env:
-          INCLUDE_HYBRIDS: ${{ steps.multimodal.outputs.supported == 'yes' && '1' || '0' }}
+          INCLUDE_HYBRIDS: '1'
         run: |
           set -euo pipefail
           cd frontend
@@ -145,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           code=$(curl -sS -o /tmp/latest.json -w '%{http_code}' \
-            "$API_BASE/api/experiments/$SLUG/runs/latest")
+            "$API_BASE/api/experiments/$SLUG/runs/latest?design_id=$DESIGN_ID")
           echo "HTTP $code"
           head -c 400 /tmp/latest.json; echo
           if [ "$code" != "200" ]; then
@@ -155,12 +155,17 @@ jobs:
           python3 - <<'PY'
           import json
           run = json.load(open("/tmp/latest.json"))
-          cells = run.get("results", {}).get("cells", [])
+          results = run.get("results", {})
+          cells = results.get("cells", [])
+          questions = results.get("questions", [])
+          reps = results.get("rep_order", [])
           done = [c for c in cells if c.get("status") == "done"]
           correct = [c for c in done if c.get("correct")]
           print(f"id={run.get('id')} model={run.get('model')} correct={len(correct)}/{len(done)} images={len(run.get('images', []))}")
-          if not done:
-              raise SystemExit("published run has no completed cells")
+          if results.get("design_id") != "text-vs-image-v2":
+              raise SystemExit("published run has the wrong design_id")
+          if len(cells) != len(questions) * len(reps) or len(done) != len(cells):
+              raise SystemExit("published run matrix is incomplete")
           if not run.get("images"):
               raise SystemExit("published run missing images")
           PY
