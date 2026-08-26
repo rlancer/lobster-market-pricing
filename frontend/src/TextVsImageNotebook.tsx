@@ -210,6 +210,19 @@ function buildSnapshotConclusion(
   return buildCrossModelConclusion(enriched);
 }
 
+const STATIC_SNAPSHOT_MATCHES_DESIGN =
+  textVsImageSnapshot.design_id === EXPERIMENT_DESIGN_ID;
+const STATIC_RUN_LIST = STATIC_SNAPSHOT_MATCHES_DESIGN
+  ? textVsImageSnapshot.items
+  : [];
+const STATIC_MODEL_RUNS = STATIC_SNAPSHOT_MATCHES_DESIGN
+  ? textVsImageSnapshot.model_runs
+  : [];
+const STATIC_CROSS_CUT = buildSnapshotConclusion(
+  STATIC_RUN_LIST,
+  STATIC_MODEL_RUNS,
+);
+
 function repLabelFromRun(run: ExperimentRunPayload, repId: string): string {
   const text = run.results.text_reps?.find((r) => r.id === repId);
   if (text) return text.label;
@@ -299,14 +312,10 @@ export default function TextVsImageNotebookPage() {
   const [selectedRep, setSelectedRep] = useState('tool_summary');
   const [activeSection, setActiveSection] = useState('overview');
   const [expandedModels, setExpandedModels] = useState<Set<string>>(() => new Set());
-  const snapshotMatchesDesign = textVsImageSnapshot.design_id === EXPERIMENT_DESIGN_ID;
-  const runList = snapshotMatchesDesign ? textVsImageSnapshot.items : [];
-  const modelRuns = snapshotMatchesDesign ? textVsImageSnapshot.model_runs : [];
+  const runList = STATIC_RUN_LIST;
+  const modelRuns = STATIC_MODEL_RUNS;
   const referenceRun = modelRuns[0] ?? null;
-  const crossCut = useMemo(
-    () => buildSnapshotConclusion(runList, modelRuns),
-    [runList, modelRuns],
-  );
+  const crossCut = STATIC_CROSS_CUT;
 
   const toc = useMemo(() => buildToc(modelRuns), [modelRuns]);
   const tocById = useMemo(() => {
