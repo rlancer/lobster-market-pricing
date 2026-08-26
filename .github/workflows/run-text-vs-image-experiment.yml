@@ -34,6 +34,17 @@ on:
       - 'cursor/textless-chart-legend-244c'
       - 'cursor/experiment-gpt41-244c'
       - 'cursor/experiment-gemini37-244c'
+    paths:
+      - 'frontend/src/notebooks/experiment.ts'
+      - 'frontend/src/notebooks/hybridRepresentations.ts'
+      - 'frontend/src/notebooks/imageRepresentations.ts'
+      - 'frontend/src/notebooks/palette.ts'
+      - 'frontend/src/notebooks/questions.ts'
+      - 'frontend/src/notebooks/syntheticSeries.ts'
+      - 'frontend/src/notebooks/textRepresentations.ts'
+      - 'frontend/tools/run-text-vs-image-experiment.mjs'
+      - 'frontend/tools/text-vs-image-runner-utils.mjs'
+      - 'worker/src/notebook-probe.ts'
 
 concurrency:
   group: run-text-vs-image-experiment
@@ -180,3 +191,55 @@ jobs:
           if not run.get("images"):
               raise SystemExit("published run missing images")
           PY
+
+  publish-static-output:
+    name: Publish static experiment output
+    needs: run-experiment
+    runs-on: ubuntu-latest
+    env:
+      API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
+      DESIGN_ID: text-vs-image-v3
+      VITE_API_BASE: ${{ inputs.api_base || 'https://api-dev.lobster.mp' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Materialize completed experiment
+        run: cd frontend && npm run materialize:text-vs-image
+
+      - name: Build static experiment page
+        run: cd frontend && npm run build
+
+      - name: Deploy static experiment page
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >
+            pages deploy frontend/dist
+            --project-name robs-options-slop-dev
+            --branch ${{ github.ref_name }}
+            --commit-hash ${{ github.sha }}
+            --commit-message "deploy(experiment-static): ${{ github.sha }}"
+
+      - name: Deploy stable dev static experiment page
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >
+            pages deploy frontend/dist
+            --project-name robs-options-slop-dev
+            --branch dev
+            --commit-hash ${{ github.sha }}
+            --commit-message "deploy(experiment-static-dev): ${{ github.sha }}"

@@ -38,6 +38,12 @@ jobs:
       - name: Install dependencies
         run: cd frontend && npm ci
 
+      - name: Materialize text-vs-image results
+        env:
+          API_BASE: ${{ github.ref == 'refs/heads/main' && 'https://api.lobster.mp' || 'https://api-dev.lobster.mp' }}
+          DESIGN_ID: text-vs-image-v3
+        run: cd frontend && npm run materialize:text-vs-image
+
       - name: Build
         env:
           VITE_API_BASE: ${{ github.ref == 'refs/heads/main' && 'https://api.lobster.mp' || 'https://api-dev.lobster.mp' }}
