@@ -1,5 +1,5 @@
 /**
- * Cross-model conclusion for the text-vs-image experiment.
+ * Cross-model results for the text-vs-image experiment.
  * Aggregates per-representation accuracy across published runs so visitors
  * can see which encoding wins without opening each model separately.
  */
@@ -64,8 +64,10 @@ export interface CrossModelConclusion {
   families: FamilyScore[];
   winningRep: CrossRepRow | null;
   winningFamily: FamilyScore | null;
-  /** One-paragraph visitor-facing takeaway. */
+  /** Short scoreboard takeaway for the cross-model results section. */
   summary: string;
+  /** Closing narrative for the page-level Conclusion section. */
+  wrapUp: string;
 }
 
 const FAMILY_LABELS: Record<RepFamily, string> = {
@@ -199,8 +201,14 @@ export function buildCrossModelConclusion(
     winningFamily,
     families,
   });
+  const wrapUp = composeWrapUp({
+    models,
+    winningRep,
+    winningFamily,
+    families,
+  });
 
-  return { models, rows, families, winningRep, winningFamily, summary };
+  return { models, rows, families, winningRep, winningFamily, summary, wrapUp };
 }
 
 function pct(n: number | null): string {
@@ -220,7 +228,7 @@ function composeSummary(input: {
 }): string {
   const { models, winningRep, winningFamily, families } = input;
   if (!models.length) {
-    return 'No published runs yet — cross-model conclusions appear after the first probe matrix is saved.';
+    return 'No published runs yet — cross-model results appear after the first probe matrix is saved.';
   }
 
   const modelBits = models
@@ -263,6 +271,88 @@ function composeSummary(input: {
       parts.push('Textless + color-key hybrids beat labeled images — offloading identity to markdown helps.');
     }
   }
+
+  return parts.join(' ');
+}
+
+function composeWrapUp(input: {
+  models: CrossModelConclusion['models'];
+  winningRep: CrossRepRow | null;
+  winningFamily: FamilyScore | null;
+  families: FamilyScore[];
+}): string {
+  const { models, winningRep, winningFamily, families } = input;
+  if (!models.length) {
+    return 'Once published runs land, this closing note will pull the cross-model scoreboard '
+      + 'into a single takeaway for Copilot framing — whether structured text, labeled charts, '
+      + 'or textless charts with a markdown color key best survive LLM context on this panel.';
+  }
+
+  const text = families.find((f) => f.family === 'text');
+  const image = families.find((f) => f.family === 'labeled_image');
+  const hybrid = families.find((f) => f.family === 'hybrid');
+
+  const parts: string[] = [
+    'This notebook asked a production question: when Copilot reasons over a multi-name '
+      + 'equity panel, which context encoding should we ship — structured text packs, labeled '
+      + 'chart images, or textless charts paired with a markdown color key?',
+  ];
+
+  if (winningFamily?.meanAccuracy != null && winningRep?.meanAccuracy != null) {
+    parts.push(
+      `Across ${models.length} published model${models.length === 1 ? '' : 's'}, `
+        + `the winning method family is ${winningFamily.label.toLowerCase()} `
+        + `(mean ${pct(winningFamily.meanAccuracy)}), with `
+        + `${winningRep.label} as the strongest single encoding `
+        + `(mean ${pct(winningRep.meanAccuracy)}).`,
+    );
+  } else if (winningFamily?.meanAccuracy != null) {
+    parts.push(
+      `Across ${models.length} published model${models.length === 1 ? '' : 's'}, `
+        + `the winning method family is ${winningFamily.label.toLowerCase()} `
+        + `at mean ${pct(winningFamily.meanAccuracy)}.`,
+    );
+  }
+
+  if (text?.meanAccuracy != null && image?.meanAccuracy != null) {
+    if (text.meanAccuracy > image.meanAccuracy + 0.05) {
+      parts.push(
+        'Text packs clearly outperform labeled images here, so keeping Copilot\'s '
+          + 'period-stats and tool-summary framing is the safer default until chart encodings catch up.',
+      );
+    } else if (image.meanAccuracy > text.meanAccuracy + 0.05) {
+      parts.push(
+        'Labeled chart images beat text packs on this panel — multimodal chart context is '
+          + 'worth investing in for production framing.',
+      );
+    } else {
+      parts.push(
+        'Text packs and labeled images land in a similar band, so encoding choice can follow '
+          + 'latency and token budget rather than raw accuracy alone.',
+      );
+    }
+  }
+
+  if (hybrid?.meanAccuracy != null && image?.meanAccuracy != null) {
+    if (hybrid.meanAccuracy > image.meanAccuracy + 0.05) {
+      parts.push(
+        'Hybrids that offload ticker identity to markdown beat labeled images, which suggests '
+          + 'OCR — not visual structure — is the bottleneck, and production can keep charts '
+          + 'visual-only while sending color legends in text.',
+      );
+    } else if (hybrid.meanAccuracy + 0.05 < image.meanAccuracy) {
+      parts.push(
+        'Textless + color-key hybrids did not beat labeled images, so OCR was not the main '
+          + 'failure mode — labeled chart design still matters.',
+      );
+    }
+  }
+
+  parts.push(
+    'The sections above keep the methodology inspectable: synthetic panel seed, exact chart '
+      + 'PNGs, representation payloads, and graded prompts, so the next publish can re-check '
+      + 'the same ground truth.',
+  );
 
   return parts.join(' ');
 }

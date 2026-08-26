@@ -75,6 +75,8 @@ describe('buildCrossModelConclusion', () => {
     assert.equal(conclusion.winningRep?.repId, 'tool_summary');
     assert.equal(conclusion.winningFamily?.family, 'text');
     assert.match(conclusion.summary, /winning method family is text packs/i);
+    assert.match(conclusion.wrapUp, /production question/i);
+    assert.match(conclusion.wrapUp, /text packs clearly outperform/i);
     assert.equal(repFamily('ranked_bars_color_keyed'), 'hybrid');
   });
 });
