@@ -124,6 +124,11 @@ site and SameSite=Lax will not send it.
 - **Edit-tool hazard:** `read`/`grep` elide long bodies as `{ … }` — never
   anchor a text edit on that literal ellipsis text; it will corrupt the real
   body (happened in `frontend/src/api.ts`). Use `:raw` reads for unknown text.
+- **Schwab OAuth:** after portal app edits (callbacks/products), wait for
+  **Ready for Use** before testing Connect — Pending apps loop on Schwab’s
+  `#/login-one-step` / `#/authenticators`. Callbacks must be comma-separated
+  HTTPS URLs matching `worker/src/schwab.ts` exactly. Full URLs, API table,
+  and external reference links: `README.md` → “Charles Schwab connect”.
 
 ## Documentation policy — no `PLAN-*.md` rollups
 
