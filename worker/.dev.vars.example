@@ -50,6 +50,17 @@ BETTER_AUTH_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
+# Charles Schwab Trader API OAuth (optional — Connect Schwab on Account).
+# App key + secret from https://developer.schwab.com. Register Callback URLs:
+#   https://api.lobster.mp/api/schwab/callback
+#   https://api-dev.lobster.mp/api/schwab/callback
+# Deploy: wrangler secret put SCHWAB_CLIENT_ID / SCHWAB_CLIENT_SECRET
+# (+ GitHub secrets so deploy.yml reinjects). Optional SCHWAB_REDIRECT_URI
+# override must match a registered callback exactly.
+SCHWAB_CLIENT_ID=
+SCHWAB_CLIENT_SECRET=
+# SCHWAB_REDIRECT_URI=https://api.lobster.mp/api/schwab/callback
+
 # Pipeline stream ingest for Copilot chat history (cboe_chat_history_v2) —
 # POST /api/chat/history publishes one record per chat turn to
 # options.chat_history. The URL subdomain is the credential: set as a Worker

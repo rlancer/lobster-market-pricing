@@ -11,7 +11,7 @@ import {
   VStack,
 } from '@astryxdesign/core';
 import { LogOut, UserRound } from 'lucide-react';
-import { api, type ProfileMe } from './api';
+import { api, type ProfileMe, type SchwabStatus } from './api';
 import { authClient, signInWithGoogle, signOut } from './auth';
 import { AvatarCropDialog } from './AvatarCropDialog';
 import { HandleField } from './HandleField';
@@ -62,6 +62,10 @@ export default function AccountPage() {
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
   const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [schwabConfigured, setSchwabConfigured] = useState(false);
+  const [schwab, setSchwab] = useState<SchwabStatus | null>(null);
+  const [schwabBusy, setSchwabBusy] = useState(false);
+  const [schwabMessage, setSchwabMessage] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileMe | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [draft, setDraft] = useState('');
@@ -79,12 +83,49 @@ export default function AccountPage() {
   useEffect(() => {
     let active = true;
     api.health().then((health) => {
-      if (active) setGoogleEnabled(Boolean(health.auth?.google));
+      if (active) {
+        setGoogleEnabled(Boolean(health.auth?.google));
+        setSchwabConfigured(Boolean(health.auth?.schwab));
+      }
     }).catch(() => {
-      if (active) setGoogleEnabled(false);
+      if (active) {
+        setGoogleEnabled(false);
+        setSchwabConfigured(false);
+      }
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get('schwab');
+    if (!flag) return;
+    if (flag === 'connected') setSchwabMessage('Schwab account connected.');
+    else if (flag === 'error') {
+      const detail = params.get('schwab_error');
+      setSchwabMessage(
+        detail ? `Could not connect Schwab (${detail}).` : 'Could not connect Schwab.',
+      );
+    }
+    params.delete('schwab');
+    params.delete('schwab_error');
+    const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+  }, []);
+
+  useEffect(() => {
+    if (!user || !schwabConfigured) {
+      setSchwab(null);
+      return;
+    }
+    let active = true;
+    api.schwabStatus().then((status) => {
+      if (active) setSchwab(status);
+    }).catch(() => {
+      if (active) setSchwab(null);
+    });
+    return () => { active = false; };
+  }, [user, schwabConfigured]);
 
   useEffect(() => {
     if (!user) {
@@ -354,6 +395,28 @@ export default function AccountPage() {
     }
   }
 
+  async function disconnectSchwab() {
+    setSchwabBusy(true);
+    setSchwabMessage(null);
+    try {
+      await api.disconnectSchwab();
+      setSchwab((prev) => (
+        prev
+          ? { ...prev, connected: false, connected_at: null, expires_at: null }
+          : prev
+      ));
+      setSchwabMessage('Schwab disconnected.');
+    } catch (err) {
+      setSchwabMessage(err instanceof Error ? err.message : 'Could not disconnect Schwab');
+    } finally {
+      setSchwabBusy(false);
+    }
+  }
+
+  function connectSchwab() {
+    window.location.assign(api.schwabConnectUrl(`${window.location.origin}/account`));
+  }
+
   function onDraftChange(value: string) {
     setDraft(normalizeHandleInput(value));
     setError(null);
@@ -447,6 +510,41 @@ export default function AccountPage() {
         </VStack>
 
         <ReplyStylePicker />
+
+        {schwabConfigured ? (
+          <VStack gap={3} className="account-schwab">
+            <VStack gap={1}>
+              <Heading level={2}>Schwab</Heading>
+              <Text type="supporting">
+                Connect your Charles Schwab account so Lobster can use your brokerage
+                authorization. Tokens stay on the server.
+              </Text>
+            </VStack>
+            <HStack gap={2} vAlign="center" wrap="wrap">
+              {schwab?.connected ? (
+                <>
+                  <Text type="body">Connected{schwab.connected_at ? ` · ${new Date(schwab.connected_at).toLocaleDateString()}` : ''}</Text>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    label={schwabBusy ? 'Disconnecting…' : 'Disconnect'}
+                    isDisabled={schwabBusy}
+                    onClick={() => { void disconnectSchwab(); }}
+                  />
+                </>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  label="Connect Schwab"
+                  isDisabled={schwabBusy}
+                  onClick={connectSchwab}
+                />
+              )}
+            </HStack>
+            {schwabMessage ? <Text type="supporting">{schwabMessage}</Text> : null}
+          </VStack>
+        ) : null}
 
         <Button
           variant="ghost"
