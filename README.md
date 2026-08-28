@@ -210,7 +210,10 @@ Authorized JavaScript origins: `https://lobster.mp`, `https://dev.lobster.mp`,
 
 Signed-in users can link a Schwab brokerage OAuth grant from **Account →
 Connect Schwab**. Tokens stay in D1 (`schwab_connections`) and are never
-returned to the browser. Store app credentials as Worker + GitHub secrets:
+returned to the browser. Implementation: `worker/src/schwab.ts` +
+`worker/src/schwab-http.ts` (migration `0030_schwab_connections.sql`).
+
+Store app credentials as Worker + GitHub secrets (`deploy.yml` reinjects):
 
 ```bash
 cd worker && npx wrangler secret put SCHWAB_CLIENT_ID
@@ -219,15 +222,53 @@ cd worker && npx wrangler secret put SCHWAB_CLIENT_SECRET
 # cd worker && npx wrangler secret put SCHWAB_REDIRECT_URI
 ```
 
-Schwab developer portal Callback URL(s) — HTTPS required; must match the
-Worker redirect exactly:
+**Callback URL(s)** in the [Schwab developer portal](https://developer.schwab.com)
+— HTTPS only; must match the Worker `redirect_uri` character-for-character
+(lowercase `https`, no trailing slash). Multiple URLs: **comma-separated**
+in one field (space-only lists break redirects):
 
-- `https://api.lobster.mp/api/schwab/callback`
-- `https://api-dev.lobster.mp/api/schwab/callback`
+```text
+https://api.lobster.mp/api/schwab/callback,https://api-dev.lobster.mp/api/schwab/callback
+```
 
-API surface: `GET /api/schwab/status`, `GET /api/schwab/connect` (302 to
+Do **not** register `http://localhost` / `http://127.0.0.1` — Schwab rejects
+non-HTTPS. Prefer testing Connect on `https://dev.lobster.mp` → `api-dev`.
+
+**OAuth (authorization code)** — what Lobster uses today:
+
+| Step | URL / detail |
+| --- | --- |
+| Authorize | `https://api.schwabapi.com/v1/oauth/authorize` — query: `client_id`, `redirect_uri`, `response_type=code`, `scope=api`, `state` (HMAC-signed) |
+| Token | `POST https://api.schwabapi.com/v1/oauth/token` — `application/x-www-form-urlencoded`; `Authorization: Basic base64(client_id:client_secret)`; body `grant_type=authorization_code\|refresh_token`, `code`, `redirect_uri` |
+| Auth code quirk | Callback `code` often ends with `%40` → decode to `@` before exchange |
+| LMS host | Browser login/MFA runs on `https://sws-gateway.schwab.com/ui/host/#/…` (not our domain) |
+
+**API surface:** `GET /api/schwab/status`, `GET /api/schwab/connect` (302 →
 Schwab), `GET /api/schwab/callback`, `POST /api/schwab/disconnect`. Health
 reports `auth.schwab` when both secrets are present.
+
+**Portal / ops gotchas (learned the hard way):**
+
+- After **any** app edit (callbacks, products), status often returns to
+  **Approved – Pending**. OAuth will not complete until **Ready for Use**
+  again. Portal copy: modification review “can vary and may not be ready to
+  accept traffic until after market hours.”
+- Symptom while Pending / bad callback: login then loop on
+  `#/login-one-step` or `#/authenticators` instead of hitting our callback.
+- Enable the API products you need on the app (e.g. Accounts and Trading
+  and/or Market Data Production) — missing products can look like redirect
+  failures.
+- Skip local HTTP callbacks; use `api-dev` for Connect QA.
+
+**External references** (summaries only — do not mirror Schwab’s docs here):
+
+| Link | Why it’s useful |
+| --- | --- |
+| [developer.schwab.com](https://developer.schwab.com) | App keys, callback registration, Ready for Use status |
+| [Authenticate with OAuth (Schwab user guide)](https://developer.schwab.com/user-guides/get-started/authenticate-with-oauth) | Official three-legged OAuth / CAG overview (portal login may be required) |
+| [Schwab OAuth security profile (apis.io)](https://apis.io/security/charles-schwab/charles-schwab-authentication/) | Machine-readable authorize/token URLs derived from Schwab OpenAPI |
+| [schwab-py auth](https://schwab-py.readthedocs.io/en/stable/auth.html) | Community notes on exact callback matching + Pending → Ready delays |
+| [Schwabdev#53](https://github.com/tylerebowers/Schwabdev/issues/53) | Real-world `#/login-one-step` loops: callback string match + API products |
 
 ### Frontend — `VITE_API_BASE`
 
@@ -297,6 +338,10 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: fundamental / technical / options / risk always, plus macro when the ask warrants it — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
+| `GET /api/schwab/status` | Schwab connect flag for the session (`configured` / `connected` / timestamps). No tokens. |
+| `GET /api/schwab/connect` | Start Schwab OAuth (302 → Schwab LMS). Session required. |
+| `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account`. |
+| `POST /api/schwab/disconnect` | Delete stored Schwab tokens for the signed-in user. |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
 | `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
