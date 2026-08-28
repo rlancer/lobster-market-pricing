@@ -195,8 +195,8 @@ test("summarizeExperimentResultsJson exposes per-rep accuracy", async () => {
   ]);
 });
 
-test("parseSaveExperimentRunBody stores context footprints", () => {
-  const parsed = parseSaveExperimentRunBody({
+test("parseSaveExperimentRunBody stores context footprints", async () => {
+  const parsed = await parseSaveExperimentRunBody({
     experiment_slug: "text-vs-image",
     model: "openai/gpt-4o-mini",
     seed: 42,
