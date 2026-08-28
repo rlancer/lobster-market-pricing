@@ -105,11 +105,13 @@ site and SameSite=Lax will not send it.
 - **`LOADER_TOKEN` is almost never in local `.env`.** It lives as a GitHub
   Actions secret (and on the Worker). `gh secret` cannot read values back, so
   agents cannot curl `/jobs/*/trigger` from the desktop unless the human
-  pastes the token. Force a pass via workflow instead:
+  pastes the token. **Do not block on pasting it** — dispatch a workflow that
+  already has the secret:
   - Most jobs: `gh workflow run "Force loader pass (market-closed override)" -f job=<id>`
     (`.github/workflows/force-loader-pass.yml` — choice list may lag new jobs).
   - **Kalshi** (`kalshi-markets-hourly`): prefer
     `gh workflow run "Provision Kalshi markets pipeline" --ref <branch-with-workflow>`
+    then `gh run watch` (or the Actions URL from create output).
     (`.github/workflows/provision-kalshi-markets.yml`). It uses `LOADER_TOKEN`
     from secrets, triggers with `?force=1&async=1`, and polls until the paced
     pass finishes. Sync `?force=1` alone can hang past Action/curl limits.
