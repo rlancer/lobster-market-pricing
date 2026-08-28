@@ -862,7 +862,15 @@ export interface TimelineRail {
 
 export interface Health {
   ok: boolean;
-  auth?: { google: boolean };
+  auth?: { google: boolean; schwab?: boolean };
+}
+
+export interface SchwabStatus {
+  ok: true;
+  configured: boolean;
+  connected: boolean;
+  connected_at: string | null;
+  expires_at: string | null;
 }
 
 export interface ProfileMe {
@@ -1585,6 +1593,15 @@ export const api = {
       `/api/portfolio/positions/${encodeURIComponent(positionId)}/close`,
       {},
     ),
+  schwabStatus: () => get<SchwabStatus>('/api/schwab/status'),
+  disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),
+  /** Full-page OAuth start URL (do not fetch — navigate so cookies + redirects work). */
+  schwabConnectUrl: (returnTo?: string) => {
+    const params = new URLSearchParams();
+    if (returnTo) params.set('return_to', returnTo);
+    const q = params.toString();
+    return `${API_BASE}/api/schwab/connect${q ? `?${q}` : ''}`;
+  },
   bots: () => get<{ items: BotProfile[] }>('/api/bots'),
   botTrades: (
     handle: string,

@@ -206,6 +206,29 @@ Authorized JavaScript origins: `https://lobster.mp`, `https://dev.lobster.mp`,
 `http://localhost:5173`, `http://127.0.0.1:5173`. Mirror the secrets in
 `worker/.dev.vars` for local development.
 
+### Charles Schwab connect (optional)
+
+Signed-in users can link a Schwab brokerage OAuth grant from **Account →
+Connect Schwab**. Tokens stay in D1 (`schwab_connections`) and are never
+returned to the browser. Store app credentials as Worker + GitHub secrets:
+
+```bash
+cd worker && npx wrangler secret put SCHWAB_CLIENT_ID
+cd worker && npx wrangler secret put SCHWAB_CLIENT_SECRET
+# optional exact callback override (must match the Schwab portal):
+# cd worker && npx wrangler secret put SCHWAB_REDIRECT_URI
+```
+
+Schwab developer portal Callback URL(s) — HTTPS required; must match the
+Worker redirect exactly:
+
+- `https://api.lobster.mp/api/schwab/callback`
+- `https://api-dev.lobster.mp/api/schwab/callback`
+
+API surface: `GET /api/schwab/status`, `GET /api/schwab/connect` (302 to
+Schwab), `GET /api/schwab/callback`, `POST /api/schwab/disconnect`. Health
+reports `auth.schwab` when both secrets are present.
+
 ### Frontend — `VITE_API_BASE`
 
 `frontend/.env` points the frontend at the Worker:

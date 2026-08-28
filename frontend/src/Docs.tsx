@@ -133,7 +133,10 @@ const TABLES =
   'option_contracts · underlying_snapshots · refresh_runs · ohlc · realized_vol · securities · instruments · symbol_history · corporate_actions · etf_profiles · etf_holdings · fundamentals · futures_settlements · futures_quotes · yields · macro · kalshi_markets';
 
 const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
-  { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true}'}</code></> },
+  { method: 'GET', path: '/api/health', desc: <>Liveness check → <code>{'{ok:true, auth:{google,schwab}}'}</code></> },
+  { method: 'GET', path: '/api/schwab/status', desc: <>Schwab connect status for the signed-in user (no tokens)</> },
+  { method: 'GET', path: '/api/schwab/connect', desc: <>Start Schwab OAuth (302 → Schwab; session required)</> },
+  { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },

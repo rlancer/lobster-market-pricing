@@ -160,6 +160,8 @@ import {
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
 import { listBotTrades, trackBotSuggestedTrades } from "./bot-trades";
+import { handleSchwab } from "./schwab-http";
+import { schwabConfigured } from "./schwab";
 
 
 // ---------------------------------------------------------------------------
@@ -174,6 +176,10 @@ export interface Env extends Cloudflare.Env {
   BETTER_AUTH_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  SCHWAB_CLIENT_ID?: string;
+  SCHWAB_CLIENT_SECRET?: string;
+  /** Optional; must match a Callback URL registered in the Schwab developer portal. */
+  SCHWAB_REDIRECT_URI?: string;
   /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
   OPEN_FIGI?: string;
   /** Bot schedule market gate — set "false" to run schedules around the clock. */
@@ -3991,7 +3997,12 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   // latest-underlying subquery is reused; precompute nothing here (cached on demand).
 
-  if (path === "/api/health") return json(env, { ok: true, auth: { google: googleConfigured(env) } });
+  if (path === "/api/health") {
+    return json(env, {
+      ok: true,
+      auth: { google: googleConfigured(env), schwab: schwabConfigured(env) },
+    });
+  }
 
   // Read-only pass-through to the continuous loader's live /loop state.
   if (path === "/loader/status")
@@ -4133,6 +4144,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     (sql, key) => r2sql(env, sql, key),
   );
   if (portfolio) return portfolio;
+
+  const schwab = await handleSchwab(env, req, path);
+  if (schwab) return schwab;
 
   const avatar = await handleAvatarGet(env, req, path);
   if (avatar) return avatar;

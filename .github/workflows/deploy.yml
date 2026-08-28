@@ -235,6 +235,30 @@ jobs:
           fi
         working-directory: worker
 
+      - name: Set SCHWAB_CLIENT_ID secret on Worker (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.SCHWAB_CLIENT_ID }}" ]; then
+            echo "${{ secrets.SCHWAB_CLIENT_ID }}" | npx wrangler secret put SCHWAB_CLIENT_ID --name screener-api
+          else
+            echo "SCHWAB_CLIENT_ID not set — skipping (Connect Schwab stays off)"
+          fi
+        working-directory: worker
+
+      - name: Set SCHWAB_CLIENT_SECRET secret on Worker (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.SCHWAB_CLIENT_SECRET }}" ]; then
+            echo "${{ secrets.SCHWAB_CLIENT_SECRET }}" | npx wrangler secret put SCHWAB_CLIENT_SECRET --name screener-api
+          else
+            echo "SCHWAB_CLIENT_SECRET not set — skipping (Connect Schwab stays off)"
+          fi
+        working-directory: worker
+
       # Apply pending D1 migrations to the REMOTE database explicitly BEFORE
       # deploy. wrangler's auto-apply-on-deploy prompt never fires when the
       # runner has no TTY (wrangler-action) — the 0003_shared_chats.sql deploy
@@ -367,6 +391,30 @@ jobs:
             echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name screener-api-dev
           else
             echo "GOOGLE_CLIENT_SECRET not set — skipping"
+          fi
+        working-directory: worker
+
+      - name: Set SCHWAB_CLIENT_ID secret on screener-api-dev (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.SCHWAB_CLIENT_ID }}" ]; then
+            echo "${{ secrets.SCHWAB_CLIENT_ID }}" | npx wrangler secret put SCHWAB_CLIENT_ID --name screener-api-dev
+          else
+            echo "SCHWAB_CLIENT_ID not set — skipping"
+          fi
+        working-directory: worker
+
+      - name: Set SCHWAB_CLIENT_SECRET secret on screener-api-dev (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${{ secrets.SCHWAB_CLIENT_SECRET }}" ]; then
+            echo "${{ secrets.SCHWAB_CLIENT_SECRET }}" | npx wrangler secret put SCHWAB_CLIENT_SECRET --name screener-api-dev
+          else
+            echo "SCHWAB_CLIENT_SECRET not set — skipping"
           fi
         working-directory: worker
 
