@@ -1,3 +1,5 @@
+# Ephemeral debug: HTTP status for /api/schwab* on api-dev.
+# Trigger: push to cursor/run-debug-worker-logs-913d
 name: Debug worker logs
 on:
   push:
@@ -6,29 +8,32 @@ jobs:
   logs:
     runs-on: ubuntu-latest
     steps:
-      - name: Introspect + query
+      - name: Query schwab HTTP statuses
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           START=$(date -u -d '8 hours ago' +%Y-%m-%dT%H:%M:%SZ)
           END=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           ZONE=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/zones?name=lobster.mp" | jq -r '.result[0].id')
-          echo ZONE=$ZONE
-          # Try sum { count } and sum { visits }
-          for sumfield in count visits requests edgeResponseBytes; do
-            echo "== try sum.$sumfield =="
-            GQL=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" --arg sf "$sumfield" \
-              '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 20\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", clientRequestPath_like:\"/api/schwab%\"}\n      ) {\n        dimensions { clientRequestPath edgeResponseStatus }\n        sum { "+$sf+" }\n      }\n    }\n  }\n}")}')
-            curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/graphql" -d "$GQL" | tee "try-$sumfield.json" | head -c 3000
-            echo
-          done
+          echo "ZONE=$ZONE window=$START..$END"
+          GQL=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
+            '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 100\n        orderBy: [count_DESC]\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", clientRequestPath_like:\"/api/schwab%\"}\n      ) {\n        count\n        sum { edgeResponseBytes visits }\n        dimensions { datetimeFifteenMinutes clientRequestPath edgeResponseStatus clientRequestHTTPMethodName }\n      }\n    }\n  }\n}")}')
+          curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/graphql" -d "$GQL" | tee schwab-http.json | head -c 200000
+          echo
+          GQL2=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
+            '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 50\n        orderBy: [count_DESC]\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", edgeResponseStatus_geq:400}\n      ) {\n        count\n        dimensions { clientRequestPath edgeResponseStatus clientRequestHTTPMethodName }\n      }\n    }\n  }\n}")}')
+          curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/graphql" -d "$GQL2" | tee errors-http.json | head -c 100000
+          echo
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: http-status-dump
-          path: try-*.json
+          path: |
+            schwab-http.json
+            errors-http.json
