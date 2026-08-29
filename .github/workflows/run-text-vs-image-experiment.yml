@@ -57,7 +57,7 @@ jobs:
   run-experiment:
     name: run-experiment (${{ matrix.model }})
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       max-parallel: 2
