@@ -516,8 +516,8 @@ export default function AccountPage() {
             <VStack gap={1}>
               <Heading level={2}>Schwab</Heading>
               <Text type="supporting">
-                Connect your Charles Schwab account so Lobster can use your brokerage
-                authorization. Tokens stay on the server.
+                Connect your Charles Schwab account to explore live trade history
+                on Portfolio. Tokens stay on the server.
               </Text>
             </VStack>
             <HStack gap={2} vAlign="center" wrap="wrap">

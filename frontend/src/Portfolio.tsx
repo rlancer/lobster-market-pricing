@@ -18,11 +18,12 @@ import {
 } from './api';
 import { authClient } from './auth';
 import { BotTradesSection } from './BotTradesSection';
+import { SchwabTradesSection } from './SchwabTradesSection';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
 type PositionRow = PaperPosition & Record<string, unknown>;
-type BookMode = 'paper' | 'suggested';
+type BookMode = 'suggested' | 'paper' | 'schwab';
 type StatusFilter = 'all' | 'open' | 'closed';
 type ConvictionFilter = 'all' | 'high' | 'medium' | 'low';
 
@@ -176,8 +177,8 @@ export default function PortfolioPage() {
         <VStack gap={2}>
           <Heading level={1}>Portfolio</Heading>
           <Text type="supporting">
-            Public lobster suggested-trade performance (no sign-in). Optionally
-            track your own paper book after Google sign-in. Filter by conviction.
+            Public lobster suggested-trade performance, an optional paper book,
+            and live Schwab trade history when connected.
           </Text>
         </VStack>
         <HStack gap={2} wrap="wrap" role="tablist" aria-label="Portfolio book">
@@ -199,10 +200,21 @@ export default function PortfolioPage() {
               setBookMode('paper');
             }}
           />
+          <Button
+            size="sm"
+            variant={bookMode === 'schwab' ? 'primary' : 'ghost'}
+            label="Schwab trades"
+            onClick={() => {
+              setError(null);
+              setBookMode('schwab');
+            }}
+          />
         </HStack>
       </HStack>
 
-      {bookMode === 'suggested' ? (
+      {bookMode === 'schwab' ? (
+        <SchwabTradesSection />
+      ) : bookMode === 'suggested' ? (
         <VStack gap={4}>
           {bots.length > 0 ? (
             <HStack gap={2} wrap="wrap" aria-label="Bot book">

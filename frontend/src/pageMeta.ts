@@ -216,7 +216,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Portfolio'),
       description:
-        'Public lobster suggested-trade performance and an optional signed-in paper book, filterable by conviction.',
+        'Public lobster suggested-trade performance, an optional paper book, and live Schwab trade history when connected.',
       path: '/portfolio',
     };
   }
