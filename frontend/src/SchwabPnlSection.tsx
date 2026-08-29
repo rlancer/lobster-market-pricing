@@ -114,9 +114,10 @@ export function SchwabPnlSection({
   return (
     <VStack gap={4} className="portfolio-pnl-section">
       <Text type="supporting">
-        Realized trading PnL from closed Schwab trades (FIFO). Open mark-to-market,
-        deposits, and withdrawals are not included. Schwab history is capped at
-        ~1 year per request.
+        Realized trading PnL for positions opened in this period (FIFO). Closes of
+        older lots are listed separately so losses from before the window are not
+        carried into the chart. Open mark-to-market, deposits, and withdrawals are
+        not included.
       </Text>
 
       <HStack gap={3} wrap="wrap" justify="between" align="end">
@@ -240,7 +241,7 @@ export function SchwabPnlSection({
       {summary && !loading ? (
         <HStack gap={6} wrap="wrap" className="portfolio-summary">
           <VStack gap={0}>
-            <Text type="supporting" size="sm">Trades in ledger</Text>
+            <Text type="supporting" size="sm">Trades in period</Text>
             <Text hasTabularNumbers weight="semibold">
               {summary.trade_count.toLocaleString()}
             </Text>
@@ -261,7 +262,27 @@ export function SchwabPnlSection({
               {moneySigned(summary.period_pnl)}
             </Text>
           </VStack>
+          {summary.prior_open_pnl !== 0 ? (
+            <VStack gap={0}>
+              <Text type="supporting" size="sm">Prior-lot closes</Text>
+              <Text
+                hasTabularNumbers
+                weight="semibold"
+                className={`portfolio-pnl-${pnlTone(summary.prior_open_pnl)}`}
+              >
+                {moneySigned(summary.prior_open_pnl)}
+              </Text>
+            </VStack>
+          ) : null}
         </HStack>
+      ) : null}
+
+      {summary && summary.prior_open_pnl !== 0 && !loading ? (
+        <Text type="supporting">
+          Prior-lot closes are realized P&L on positions opened before{' '}
+          {windowLabel?.split(' → ')[0] ?? 'this period'} and closed inside it —
+          excluded from the chart so pre-period losses are not carried forward.
+        </Text>
       ) : null}
     </VStack>
   );

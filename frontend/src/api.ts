@@ -964,6 +964,8 @@ export interface SchwabPnlResponse {
   points: SchwabPnlPoint[];
   summary: {
     period_pnl: number;
+    /** Realized on in-window closes of lots opened before the chart start (excluded from chart). */
+    prior_open_pnl: number;
     trade_count: number;
     closing_trade_count: number;
     unmatched_close_count: number;

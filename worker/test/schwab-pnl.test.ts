@@ -32,8 +32,12 @@ function trade(partial: Partial<SchwabTrade> & Pick<SchwabTrade, "id" | "trade_d
   };
 }
 
+function daySum(ledger: ReturnType<typeof buildRealizedPnlLedger>, day: string): number {
+  return ledger.events.filter((e) => e.day === day).reduce((s, e) => s + e.amount, 0);
+}
+
 test("resolvePnlRange accepts presets and defaults to YTD", () => {
-  const now = new Date("2026-08-28T16:00:00.000Z"); // afternoon ET still Aug 28
+  const now = new Date("2026-08-28T16:00:00.000Z");
   const ytd = resolvePnlRange(null, now);
   assert.ok(!("error" in ytd));
   if ("error" in ytd) return;
@@ -51,7 +55,6 @@ test("resolvePnlRange accepts presets and defaults to YTD", () => {
   assert.ok(!("error" in oneY));
   if ("error" in oneY) return;
   assert.equal(oneY.range, "1Y");
-  // 365 calendar days inclusive → start = end - 364d
   assert.equal(oneY.start, "2025-08-29");
 
   assert.ok("error" in resolvePnlRange("ALL", now));
@@ -61,7 +64,6 @@ test("resolvePnlRange accepts presets and defaults to YTD", () => {
 test("fetchWindowForPnl extends to Schwab max lookback for basis", () => {
   const w = fetchWindowForPnl("2026-08-01", "2026-08-28");
   assert.equal(w.end, "2026-08-28");
-  // 365 inclusive days (Schwab-safe), not the full 366 constant.
   const endMs = Date.parse("2026-08-28T00:00:00.000Z");
   const expectedStart = new Date(
     endMs - (365 - 1) * 24 * 60 * 60 * 1000,
@@ -93,12 +95,13 @@ test("FIFO long round-trip realizes proceeds − basis", () => {
       position_effect: "CLOSING",
     }),
   ]);
-  assert.equal(ledger.daily.get("2026-02-10"), 150);
+  assert.equal(daySum(ledger, "2026-02-10"), 150);
   assert.equal(ledger.closingTradeCount, 1);
   assert.equal(ledger.unmatchedCloseCount, 0);
 
   const { points, summary } = seriesFromLedger(ledger, "2026-01-01", "2026-03-01");
   assert.equal(summary.period_pnl, 150);
+  assert.equal(summary.prior_open_pnl, 0);
   assert.equal(points[0]!.cumulative_pnl, 0);
   assert.equal(points[points.length - 1]!.cumulative_pnl, 150);
 });
@@ -126,7 +129,7 @@ test("FIFO short cover realizes short proceeds − buyback", () => {
       symbol: "MSFT",
     }),
   ]);
-  assert.equal(ledger.daily.get("2026-03-15"), 50);
+  assert.equal(daySum(ledger, "2026-03-15"), 50);
 });
 
 test("partial FIFO close realizes pro-rata", () => {
@@ -150,8 +153,7 @@ test("partial FIFO close realizes pro-rata", () => {
       position_effect: "CLOSING",
     }),
   ]);
-  // basis 40/100 * 10000 = 4000; proceeds 4800 → +800
-  assert.equal(ledger.daily.get("2026-01-20"), 800);
+  assert.equal(daySum(ledger, "2026-01-20"), 800);
 });
 
 test("CLOSING without in-window open is unmatched (no phantom PnL)", () => {
@@ -167,7 +169,7 @@ test("CLOSING without in-window open is unmatched (no phantom PnL)", () => {
     }),
   ]);
   assert.equal(ledger.unmatchedCloseCount, 1);
-  assert.equal(ledger.daily.size, 0);
+  assert.equal(ledger.events.length, 0);
 });
 
 test("seriesFromLedger only accumulates chart-window days", () => {
@@ -211,8 +213,58 @@ test("seriesFromLedger only accumulates chart-window days", () => {
       symbol: "XYZ",
     }),
   ]);
-  // Dec close +200 is outside YTD window; Feb close +200 is inside.
   const { summary, points } = seriesFromLedger(ledger, "2026-01-01", "2026-02-28");
   assert.equal(summary.period_pnl, 200);
+  assert.equal(summary.prior_open_pnl, 0);
   assert.equal(points[points.length - 1]!.cumulative_pnl, 200);
+});
+
+test("closes of lots opened before the period are excluded from period_pnl", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "1",
+      activity_id: 1,
+      trade_date: "2026-07-15",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1000,
+      position_effect: "OPENING",
+      symbol: "SVIX",
+    }),
+    trade({
+      id: "2",
+      activity_id: 2,
+      trade_date: "2026-08-03",
+      side: "sell",
+      quantity: 10,
+      net_amount: 700,
+      position_effect: "CLOSING",
+      symbol: "SVIX",
+    }),
+    trade({
+      id: "3",
+      activity_id: 3,
+      trade_date: "2026-08-05",
+      side: "buy",
+      quantity: 5,
+      net_amount: -200,
+      position_effect: "OPENING",
+      symbol: "LOFD",
+    }),
+    trade({
+      id: "4",
+      activity_id: 4,
+      trade_date: "2026-08-10",
+      side: "sell",
+      quantity: 5,
+      net_amount: 250,
+      position_effect: "CLOSING",
+      symbol: "LOFD",
+    }),
+  ]);
+  // SVIX: opened July, closed Aug → −300 prior; LOFD: open+close in Aug → +50 period
+  const { summary, points } = seriesFromLedger(ledger, "2026-08-01", "2026-08-31");
+  assert.equal(summary.period_pnl, 50);
+  assert.equal(summary.prior_open_pnl, -300);
+  assert.equal(points[points.length - 1]!.cumulative_pnl, 50);
 });

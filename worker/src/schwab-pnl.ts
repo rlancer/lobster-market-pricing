@@ -1,9 +1,11 @@
 /**
  * Realized trading PnL time series from Schwab TRADE history.
  *
- * Builds a FIFO lot ledger from normalized trades, then daily + cumulative
- * realized PnL for chart presets (MTD / YTD / 1M / … / 1Y). Not an account
- * equity curve — deposits, withdrawals, and open mark-to-market are excluded.
+ * Builds a FIFO lot ledger from normalized trades, then a cumulative series for
+ * chart presets (MTD / YTD / 1M / … / 1Y). Period P&L only includes lots that
+ * were opened on or after the chart start — closes of older lots are reported
+ * separately as prior_open_pnl so pre-period drawdowns are not dumped into the
+ * selected window. Not an account equity curve (no deposits / open MTM).
  */
 
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
@@ -35,7 +37,13 @@ export interface SchwabPnlPoint {
 }
 
 export interface SchwabPnlSummary {
+  /** Realized PnL for lots opened on/after the chart start and closed in-window. */
   period_pnl: number;
+  /**
+   * Realized on closes in-window whose lots were opened before the chart start.
+   * Excluded from period_pnl / the chart so pre-period losses are not carried in.
+   */
+  prior_open_pnl: number;
   trade_count: number;
   closing_trade_count: number;
   unmatched_close_count: number;
@@ -141,21 +149,33 @@ interface Lot {
   /** Absolute dollars tied to the open (paid for long, received for short). */
   costTotal: number;
   direction: "long" | "short";
+  /** YYYY-MM-DD the tranche was opened. */
+  opened: string;
+}
+
+export interface RealizedEvent {
+  /** Close / realization day. */
+  day: string;
+  /** Lot open day (FIFO tranche). */
+  opened: string;
+  amount: number;
 }
 
 export interface RealizedPnlLedger {
-  /** YYYY-MM-DD → realized dollars that day. */
-  daily: Map<string, number>;
+  events: RealizedEvent[];
   tradeCount: number;
   closingTradeCount: number;
   unmatchedCloseCount: number;
   skippedTradeCount: number;
+  /** Trade calendar days seen (for window-scoped counts). */
+  tradeDays: string[];
+  closingDays: string[];
 }
 
 /**
  * FIFO realized PnL from chronological trades.
- * Opens add lots; opposite-side fills close lots and realize proceeds − basis.
- * CLOSING fills with no in-window basis are skipped (counted unmatched).
+ * Opens add lots (not merged — preserves open dates); opposite-side fills
+ * close lots and emit realized events.
  */
 export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger {
   const chron = [...trades].sort((a, b) => {
@@ -168,14 +188,16 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
   });
 
   const books = new Map<string, Lot[]>();
-  const daily = new Map<string, number>();
+  const events: RealizedEvent[] = [];
+  const tradeDays: string[] = [];
+  const closingDays: string[] = [];
   let tradeCount = 0;
   let closingTradeCount = 0;
   let unmatchedCloseCount = 0;
   let skippedTradeCount = 0;
 
-  const bump = (day: string, amount: number) => {
-    daily.set(day, (daily.get(day) ?? 0) + amount);
+  const bump = (day: string, opened: string, amount: number) => {
+    events.push({ day, opened, amount });
   };
 
   for (const trade of chron) {
@@ -187,6 +209,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
       continue;
     }
     tradeCount += 1;
+    tradeDays.push(day);
 
     const effect = (trade.position_effect ?? "").toUpperCase();
     const signed = trade.side === "buy" ? qty : -qty;
@@ -215,7 +238,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
         head.direction === "long"
           ? closeCash - closeBasis
           : closeBasis + closeCash;
-      bump(day, realized);
+      bump(day, head.opened, realized);
       closedQtyTotal += closeQty;
 
       head.qty -= closeQty;
@@ -226,15 +249,17 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
       if (head.qty <= 1e-12) lots.shift();
     }
 
-    if (closedQtyTotal > 0) closingTradeCount += 1;
+    if (closedQtyTotal > 0) {
+      closingTradeCount += 1;
+      closingDays.push(day);
+    }
 
     const rem = Math.abs(remaining);
     if (rem <= 1e-12) {
-      if (Math.abs(cashLeft) > 1e-6) bump(day, cashLeft);
+      if (Math.abs(cashLeft) > 1e-6) bump(day, day, cashLeft);
       continue;
     }
 
-    // Explicit CLOSING with no (or insufficient) basis in the fetch window.
     if (effect === "CLOSING") {
       unmatchedCloseCount += 1;
       continue;
@@ -242,39 +267,53 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
 
     const direction: "long" | "short" = remaining > 0 ? "long" : "short";
     const costTotal = Math.abs(direction === "long" ? -cashLeft : cashLeft);
-    const last = lots[lots.length - 1];
-    if (last && last.direction === direction) {
-      last.qty += rem;
-      last.costTotal += costTotal;
-    } else {
-      lots.push({ qty: rem, costTotal, direction });
-    }
+    // Do not merge tranches — each open keeps its own date for period attribution.
+    lots.push({ qty: rem, costTotal, direction, opened: day });
   }
 
   return {
-    daily,
+    events,
     tradeCount,
     closingTradeCount,
     unmatchedCloseCount,
     skippedTradeCount,
+    tradeDays,
+    closingDays,
   };
 }
 
-/** Sparse daily points + cumulative series between start/end (inclusive). */
+/**
+ * Sparse daily points + cumulative series between start/end (inclusive).
+ * Only lots opened on/after `start` contribute to the chart / period_pnl.
+ */
 export function seriesFromLedger(
   ledger: RealizedPnlLedger,
   start: string,
   end: string,
 ): { points: SchwabPnlPoint[]; summary: SchwabPnlSummary } {
-  const activeDays = [...ledger.daily.keys()].filter((d) => d >= start && d <= end).sort();
+  const daily = new Map<string, number>();
+  let period = 0;
+  let priorOpen = 0;
+
+  for (const e of ledger.events) {
+    if (e.day < start || e.day > end) continue;
+    if (e.opened >= start) {
+      period += e.amount;
+      daily.set(e.day, (daily.get(e.day) ?? 0) + e.amount);
+    } else {
+      priorOpen += e.amount;
+    }
+  }
+
+  const activeDays = [...daily.keys()].sort();
   const pointDays = new Set<string>([start, end, ...activeDays]);
   const ordered = [...pointDays].sort();
 
   let cumulative = 0;
   const points: SchwabPnlPoint[] = [];
   for (const date of ordered) {
-    const dayPnl = date >= start && date <= end ? (ledger.daily.get(date) ?? 0) : 0;
-    if (date >= start && date <= end) cumulative += dayPnl;
+    const dayPnl = daily.get(date) ?? 0;
+    cumulative += dayPnl;
     points.push({
       date,
       daily_pnl: round2(dayPnl),
@@ -282,17 +321,16 @@ export function seriesFromLedger(
     });
   }
 
-  let period = 0;
-  for (const [d, v] of ledger.daily) {
-    if (d >= start && d <= end) period += v;
-  }
+  const tradeCount = ledger.tradeDays.filter((d) => d >= start && d <= end).length;
+  const closingTradeCount = ledger.closingDays.filter((d) => d >= start && d <= end).length;
 
   return {
     points,
     summary: {
       period_pnl: round2(period),
-      trade_count: ledger.tradeCount,
-      closing_trade_count: ledger.closingTradeCount,
+      prior_open_pnl: round2(priorOpen),
+      trade_count: tradeCount,
+      closing_trade_count: closingTradeCount,
       unmatched_close_count: ledger.unmatchedCloseCount,
       skipped_trade_count: ledger.skippedTradeCount,
     },
@@ -352,6 +390,7 @@ export async function loadSchwabPnl(
           ],
           summary: {
             period_pnl: 0,
+            prior_open_pnl: 0,
             trade_count: 0,
             closing_trade_count: 0,
             unmatched_close_count: 0,
@@ -383,8 +422,6 @@ export async function loadSchwabPnl(
         token.tokenType,
       );
     } catch (e) {
-      // Schwab is strict about the 1y window on some accounts — fall back to the
-      // chart window alone (still enough for MTD/YTD early in the year).
       if (
         e instanceof SchwabApiError &&
         (e.status === 400 || e.status === 404) &&
