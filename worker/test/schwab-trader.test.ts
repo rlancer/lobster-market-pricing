@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dayBoundsIso,
+  formatOccOptionSymbol,
   inferTradeSide,
   normalizeTrade,
   opaqueAccountId,
@@ -132,7 +133,7 @@ test("normalizeTrade prefers equity leg over CURRENCY_USD cash leg", () => {
   assert.equal(trade.fees, -10);
 });
 
-test("normalizeTrade builds a readable option symbol when needed", () => {
+test("normalizeTrade builds an OCC option symbol when Schwab omits symbol", () => {
   const trade = normalizeTrade({
     activityId: 1,
     description: "SOLD 1 SPY PUT",
@@ -153,7 +154,37 @@ test("normalizeTrade builds a readable option symbol when needed", () => {
     ],
   });
   assert.equal(trade.underlying, "SPY");
-  assert.equal(trade.symbol, "SPY 2026-09-18 P 500");
+  assert.equal(trade.symbol, "SPY   260918P00500000");
   assert.equal(trade.side, "sell");
   assert.equal(trade.asset_type, "OPTION");
+});
+
+test("formatOccOptionSymbol pads root and strike millis", () => {
+  assert.equal(
+    formatOccOptionSymbol({
+      underlying: "CAR",
+      expiration: "2026-06-18",
+      right: "PUT",
+      strike: 390,
+    }),
+    "CAR   260618P00390000",
+  );
+  assert.equal(
+    formatOccOptionSymbol({
+      underlying: "AAPL",
+      expiration: "260119",
+      right: "C",
+      strike: 150.5,
+    }),
+    "AAPL  260119C00150500",
+  );
+  assert.equal(
+    formatOccOptionSymbol({
+      underlying: "SPY",
+      expiration: "",
+      right: "P",
+      strike: 500,
+    }),
+    null,
+  );
 });

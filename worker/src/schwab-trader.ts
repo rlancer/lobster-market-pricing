@@ -165,6 +165,30 @@ function isCurrencyItem(item: SchwabRawTransferItem): boolean {
   return false;
 }
 
+/**
+ * Build a space-padded OCC equity-option symbol from instrument fields
+ * (`SPY   260918P00500000`). Returns null when any field is incomplete.
+ */
+export function formatOccOptionSymbol(opts: {
+  underlying: string;
+  expiration: string;
+  right: string;
+  strike: number | null;
+}): string | null {
+  const root = opts.underlying.toUpperCase().replace(/\s+/g, "");
+  if (!root || root.length > 6) return null;
+  let exp = opts.expiration.trim().toUpperCase();
+  if (/^\d{4}-\d{2}-\d{2}/.test(exp)) exp = exp.slice(2, 4) + exp.slice(5, 7) + exp.slice(8, 10);
+  else exp = exp.replace(/-/g, "");
+  if (!/^\d{6}$/.test(exp)) return null;
+  const right = opts.right.trim().toUpperCase().slice(0, 1);
+  if (right !== "C" && right !== "P") return null;
+  if (opts.strike == null || !Number.isFinite(opts.strike) || opts.strike < 0) return null;
+  const strikePart = String(Math.round(opts.strike * 1000)).padStart(8, "0");
+  if (strikePart.length > 8) return null;
+  return `${root.padEnd(6, " ")}${exp}${right}${strikePart}`;
+}
+
 function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem | null {
   // Prefer real securities — cash/CURRENCY legs also carry a symbol (CURRENCY_USD)
   // and must not win over the equity/option transfer item on the same TRADE.
@@ -221,12 +245,13 @@ export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
   let symbol = inst?.symbol?.trim() || null;
   const underlying = inst?.underlyingSymbol?.trim() || null;
   if (!symbol && underlying && inst?.assetType === "OPTION") {
-    const right = (inst.putCall ?? "").slice(0, 1).toUpperCase();
-    const strike = asNumber(inst.strikePrice);
-    const exp = inst.expirationDate?.slice(0, 10) ?? "";
-    symbol = [underlying, exp, right || null, strike != null ? String(strike) : null]
-      .filter(Boolean)
-      .join(" ");
+    // Emit OCC so FIFO / assignment synth share one lot key with Schwab-native symbols.
+    symbol = formatOccOptionSymbol({
+      underlying,
+      expiration: inst.expirationDate ?? "",
+      right: inst.putCall ?? "",
+      strike: asNumber(inst.strikePrice),
+    });
   }
 
   const description = tx.description ?? null;

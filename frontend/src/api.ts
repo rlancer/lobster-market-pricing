@@ -1002,6 +1002,8 @@ export interface SchwabPnlResponse {
   fills: SchwabPnlFill[];
   distributions: SchwabDistribution[];
   may_be_truncated?: boolean;
+  /** True when cost-basis lookback failed and only the chart window was fetched. */
+  lookback_truncated?: boolean;
 }
 
 export interface ProfileMe {

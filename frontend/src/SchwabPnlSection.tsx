@@ -100,6 +100,7 @@ export function SchwabPnlSection({
   const [distributions, setDistributions] = useState<SchwabDistribution[]>([]);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
   const [mayBeTruncated, setMayBeTruncated] = useState(false);
+  const [lookbackTruncated, setLookbackTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,7 +117,8 @@ export function SchwabPnlSection({
       setFills(Array.isArray(res.fills) ? res.fills : []);
       setDistributions(Array.isArray(res.distributions) ? res.distributions : []);
       setWindowLabel(`${res.start} → ${res.end}`);
-      setMayBeTruncated(Boolean(res.may_be_truncated));
+      setLookbackTruncated(Boolean(res.lookback_truncated));
+      setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
     } catch (err) {
       setError(formatApiError(err));
       setPoints([]);
@@ -124,6 +126,8 @@ export function SchwabPnlSection({
       setFills([]);
       setDistributions([]);
       setWindowLabel(null);
+      setLookbackTruncated(false);
+      setMayBeTruncated(false);
     } finally {
       setLoading(false);
     }
@@ -187,6 +191,14 @@ export function SchwabPnlSection({
         <Text className="portfolio-error" role="alert">{error}</Text>
       ) : null}
 
+      {lookbackTruncated ? (
+        <Text type="supporting" role="status">
+          Cost-basis lookback was unavailable, so only trades inside this chart
+          window were loaded. Closes of positions opened earlier may be missing
+          from realized PnL.
+        </Text>
+      ) : null}
+
       {mayBeTruncated ? (
         <Text type="supporting">
           Schwab may have truncated trade history (~3000 rows). Some closes may
@@ -197,8 +209,8 @@ export function SchwabPnlSection({
       {(summary?.unmatched_close_count ?? 0) > 0 ? (
         <Text type="supporting">
           {summary!.unmatched_close_count.toLocaleString()} closing trade
-          {summary!.unmatched_close_count === 1 ? '' : 's'} lacked an in-window
-          open and were excluded from realized PnL.
+          {summary!.unmatched_close_count === 1 ? '' : 's'} in this window lacked
+          a matching open and were excluded from realized PnL.
         </Text>
       ) : null}
 

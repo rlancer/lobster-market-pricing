@@ -348,6 +348,13 @@ test("parseOccOptionSymbol reads root right strike", () => {
   assert.equal(p!.right, "P");
   assert.equal(p!.strike, 390);
   assert.equal(parseOccOptionSymbol("AAPL") , null);
+
+  const readable = parseOccOptionSymbol("CAR 2026-06-18 P 390");
+  assert.ok(readable);
+  assert.equal(readable!.underlying, "CAR");
+  assert.equal(readable!.expiration, "260618");
+  assert.equal(readable!.right, "P");
+  assert.equal(readable!.strike, 390);
 });
 
 test("short put assignment synthesizes zero-cash cover before stock delivery", () => {
@@ -444,4 +451,199 @@ test("short put assignment synthesizes zero-cash cover before stock delivery", (
   const shortPut = fills.find((f) => f.symbol === "CAR   260618P00390000");
   assert.ok(shortPut);
   assert.ok((shortPut!.realized_pnl ?? 0) > 8200);
+});
+
+test("readable option symbols still match FIFO lots and assignment synth", () => {
+  const trades = [
+    trade({
+      id: "open",
+      activity_id: 1,
+      trade_date: "2026-04-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "CAR 2026-06-18 P 390",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 800,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "stock",
+      activity_id: 2,
+      trade_date: "2026-05-08T04:00:00.000Z",
+      side: "buy",
+      symbol: "CAR",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 390,
+      net_amount: -39000,
+      position_effect: "OPENING",
+      description: "AVIS BUDGET GROUP INC",
+    }),
+  ];
+  const synth = synthesizeOptionAssignmentCloses(trades).find((t) =>
+    t.id.startsWith("synth-assign-"),
+  );
+  assert.ok(synth);
+  assert.equal(synth!.symbol, "CAR 2026-06-18 P 390");
+
+  // Mixed readable open + OCC cover still share a lot book.
+  const ledger = buildRealizedPnlLedger([
+    trades[0]!,
+    trade({
+      id: "cover",
+      activity_id: 3,
+      trade_date: "2026-05-09T15:00:00.000Z",
+      side: "buy",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: -100,
+      position_effect: "CLOSING",
+    }),
+  ]);
+  assert.equal(ledger.unmatchedCloseCount, 0);
+  assert.ok(daySum(ledger, "2026-05-09") > 0);
+});
+
+test("short call assignment synthesizes zero-cash cover before stock delivery", () => {
+  const trades = [
+    trade({
+      id: "short-call",
+      activity_id: 1,
+      trade_date: "2026-03-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL  260417C00150000",
+      underlying: "AAPL",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 350,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "deliver",
+      activity_id: 2,
+      trade_date: "2026-04-17T04:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 150,
+      net_amount: 15000,
+      position_effect: "OPENING",
+      description: "APPLE INC",
+    }),
+  ];
+  const withSynth = synthesizeOptionAssignmentCloses(trades);
+  const synth = withSynth.find((t) => t.id.startsWith("synth-assign-"));
+  assert.ok(synth);
+  assert.equal(synth!.symbol, "AAPL  260417C00150000");
+  assert.equal(synth!.side, "buy");
+  assert.equal(synth!.net_amount, 0);
+
+  const ledger = buildRealizedPnlLedger(trades);
+  const { summary } = seriesFromLedger(ledger, "2026-01-01", "2026-04-30");
+  // Short premium realized (+350) + stock short opened (no close yet) = +350
+  assert.equal(summary.period_pnl, 350);
+});
+
+test("ordinary BOUGHT fill at strike does not synthesize assignment cover", () => {
+  const trades = [
+    trade({
+      id: "short-put",
+      activity_id: 1,
+      trade_date: "2026-04-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 800,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "voluntary-buy",
+      activity_id: 2,
+      trade_date: "2026-05-08T15:00:00.000Z",
+      side: "buy",
+      symbol: "CAR",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 390,
+      net_amount: -39000,
+      position_effect: "OPENING",
+      description: "BOUGHT 100 CAR @ 390",
+    }),
+  ];
+  const withSynth = synthesizeOptionAssignmentCloses(trades);
+  assert.equal(
+    withSynth.filter((t) => t.id.startsWith("synth-assign-")).length,
+    0,
+  );
+});
+
+test("CLOSING equity at strike does not synthesize assignment cover", () => {
+  const trades = [
+    trade({
+      id: "short-call",
+      activity_id: 1,
+      trade_date: "2026-03-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL  260417C00150000",
+      underlying: "AAPL",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 350,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "sell-to-close-stock",
+      activity_id: 2,
+      trade_date: "2026-04-10T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 150,
+      net_amount: 15000,
+      position_effect: "CLOSING",
+      description: "APPLE INC",
+    }),
+  ];
+  assert.equal(
+    synthesizeOptionAssignmentCloses(trades).filter((t) => t.id.startsWith("synth-assign-"))
+      .length,
+    0,
+  );
+});
+
+test("seriesFromLedger scopes unmatched_close_count to the chart window", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "old-orphan",
+      activity_id: 1,
+      trade_date: "2025-12-15",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1000,
+      position_effect: "CLOSING",
+      symbol: "OLD",
+    }),
+    trade({
+      id: "new-orphan",
+      activity_id: 2,
+      trade_date: "2026-02-10",
+      side: "sell",
+      quantity: 5,
+      net_amount: 500,
+      position_effect: "CLOSING",
+      symbol: "NEW",
+    }),
+  ]);
+  assert.equal(ledger.unmatchedCloseCount, 2);
+  const { summary } = seriesFromLedger(ledger, "2026-01-01", "2026-02-28");
+  assert.equal(summary.unmatched_close_count, 1);
+  const outside = seriesFromLedger(ledger, "2026-03-01", "2026-03-31");
+  assert.equal(outside.summary.unmatched_close_count, 0);
 });

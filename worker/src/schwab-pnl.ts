@@ -92,7 +92,13 @@ export interface SchwabPnlView {
   fills: SchwabPnlFill[];
   /** Dividends / interest in the chart window (newest first). */
   distributions: SchwabDistribution[];
+  /** True when Schwab may have capped the trade page (~3000 rows). */
   may_be_truncated: boolean;
+  /**
+   * True when the extended cost-basis lookback fetch failed and we fell back to
+   * the chart window only — closes of older lots may lack basis.
+   */
+  lookback_truncated: boolean;
 }
 
 export type SchwabPnlResult =
@@ -167,21 +173,43 @@ export type OccOption = {
 
 /**
  * Parse a Schwab/OCC option symbol. Accepts space-padded roots
- * (`CAR   260618P00390000`) and compact forms.
+ * (`CAR   260618P00390000`), compact forms, and the readable fallback
+ * (`CAR 2026-06-18 P 390`) formerly emitted by normalizeTrade.
  */
 export function parseOccOptionSymbol(symbol: string | null | undefined): OccOption | null {
   if (!symbol) return null;
-  const compact = symbol.toUpperCase().replace(/\s+/g, "");
+  const upper = symbol.toUpperCase().trim();
+  const compact = upper.replace(/\s+/g, "");
   const m = /^([A-Z0-9.\-]{1,6})(\d{6})([CP])(\d{8})$/.exec(compact);
-  if (!m) return null;
-  const strikeRaw = Number(m[4]);
-  if (!Number.isFinite(strikeRaw)) return null;
+  if (m) {
+    const strikeRaw = Number(m[4]);
+    if (!Number.isFinite(strikeRaw)) return null;
+    return {
+      root: m[1]!,
+      underlying: m[1]!,
+      expiration: m[2]!,
+      right: m[3] as "C" | "P",
+      strike: strikeRaw / 1000,
+    };
+  }
+
+  // Readable: `AAPL 2026-09-18 C 150` or `AAPL 2026-09-18 CALL 150.5`
+  const readable =
+    /^([A-Z0-9.\-]{1,6})\s+(\d{4}-\d{2}-\d{2})\s+(C|P|CALL|PUT)\s+(\d+(?:\.\d+)?)$/.exec(
+      upper,
+    );
+  if (!readable) return null;
+  const strike = Number(readable[4]);
+  if (!Number.isFinite(strike)) return null;
+  const rightRaw = readable[3]!;
+  const right: "C" | "P" = rightRaw.startsWith("P") ? "P" : "C";
+  const ymd = readable[2]!;
   return {
-    root: m[1]!,
-    underlying: m[1]!,
-    expiration: m[2]!,
-    right: m[3] as "C" | "P",
-    strike: strikeRaw / 1000,
+    root: readable[1]!,
+    underlying: readable[1]!,
+    expiration: ymd.slice(2, 4) + ymd.slice(5, 7) + ymd.slice(8, 10),
+    right,
+    strike,
   };
 }
 
@@ -194,8 +222,24 @@ function isEquityLike(trade: SchwabTrade): boolean {
 }
 
 function strikeMatchesDelivery(strike: number, deliveryPrice: number): boolean {
-  // Assignment/exercise delivers shares at the option strike (penny tolerance).
-  return Math.abs(strike - deliveryPrice) <= 0.051;
+  // Assignment delivers shares at the option strike (1¢ tolerance — avoid
+  // matching ordinary fills that happen to trade near a short strike).
+  return Math.abs(strike - deliveryPrice) <= 0.011;
+}
+
+/** Regular equity executions usually say BOUGHT/SOLD; assignment stock legs often do not. */
+function looksLikeRegularEquityExecution(trade: SchwabTrade): boolean {
+  const d = (trade.description ?? "").toUpperCase();
+  if (/\b(ASSIGN|ASGN|ASSIGNMENT)\b/.test(d)) return false;
+  return /\b(BOUGHT|SOLD)\b/.test(d);
+}
+
+/** Equity delivery from assignment opens a stock position; skip CLOSING stock legs. */
+function equityDeliveryCanBeAssignment(trade: SchwabTrade): boolean {
+  const effect = (trade.position_effect ?? "").toUpperCase();
+  if (effect === "CLOSING") return false;
+  if (looksLikeRegularEquityExecution(trade)) return false;
+  return true;
 }
 
 type OpenShortOption = {
@@ -211,8 +255,8 @@ type OpenShortOption = {
  * Without a synthetic cover, short option premium stays unrealized and the
  * chart dumps the full stock loss (e.g. May 8 CAR put spread).
  *
- * Insert zero-cash buy-to-close (put) or sell-to-close (call) rows immediately
- * before matching equity delivery fills.
+ * Insert zero-cash buy-to-close rows immediately before matching equity
+ * delivery fills (puts and calls).
  */
 export function synthesizeOptionAssignmentCloses(trades: SchwabTrade[]): SchwabTrade[] {
   const chron = [...trades].sort((a, b) => {
@@ -255,7 +299,13 @@ export function synthesizeOptionAssignmentCloses(trades: SchwabTrade[]): SchwabT
     const qty = absQty(trade);
     const day = tradeDay(trade);
 
-    if (isEquityLike(trade) && qty != null && day && trade.side !== "unknown") {
+    if (
+      isEquityLike(trade) &&
+      qty != null &&
+      day &&
+      trade.side !== "unknown" &&
+      equityDeliveryCanBeAssignment(trade)
+    ) {
       const deliveryPrice =
         trade.price != null && Number.isFinite(trade.price)
           ? Math.abs(trade.price)
@@ -373,6 +423,11 @@ export function synthesizeOptionAssignmentCloses(trades: SchwabTrade[]): SchwabT
 }
 
 function lotKey(trade: SchwabTrade): string {
+  // Canonical OCC key so spaced / compact / readable symbols share one book.
+  const occ = parseOccOptionSymbol(trade.symbol);
+  if (occ) {
+    return `occ:${occ.underlying}:${occ.expiration}:${occ.right}:${occ.strike}`;
+  }
   // Prefer symbol over position_id — Schwab often assigns different position
   // ids on open vs close, which would orphan closes and zero out period PnL.
   if (trade.symbol) return `sym:${trade.symbol}`;
@@ -422,6 +477,8 @@ export interface RealizedPnlLedger {
   tradeCount: number;
   closingTradeCount: number;
   unmatchedCloseCount: number;
+  /** Calendar days of unmatched CLOSING fills (for window-scoped counts). */
+  unmatchedCloseDays: string[];
   skippedTradeCount: number;
   /** Trade calendar days seen (for window-scoped counts). */
   tradeDays: string[];
@@ -443,6 +500,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
   let tradeCount = 0;
   let closingTradeCount = 0;
   let unmatchedCloseCount = 0;
+  const unmatchedCloseDays: string[] = [];
   let skippedTradeCount = 0;
 
   for (const trade of chron) {
@@ -521,6 +579,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
 
     if (effect === "CLOSING") {
       unmatchedCloseCount += 1;
+      unmatchedCloseDays.push(day);
       continue;
     }
 
@@ -535,6 +594,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
     tradeCount,
     closingTradeCount,
     unmatchedCloseCount,
+    unmatchedCloseDays,
     skippedTradeCount,
     tradeDays,
     closingDays,
@@ -582,6 +642,9 @@ export function seriesFromLedger(
 
   const tradeCount = ledger.tradeDays.filter((d) => d >= start && d <= end).length;
   const closingTradeCount = ledger.closingDays.filter((d) => d >= start && d <= end).length;
+  const unmatchedCloseCount = ledger.unmatchedCloseDays.filter(
+    (d) => d >= start && d <= end,
+  ).length;
 
   return {
     points,
@@ -590,7 +653,7 @@ export function seriesFromLedger(
       prior_open_pnl: round2(priorOpen),
       trade_count: tradeCount,
       closing_trade_count: closingTradeCount,
-      unmatched_close_count: ledger.unmatchedCloseCount,
+      unmatched_close_count: unmatchedCloseCount,
       skipped_trade_count: ledger.skippedTradeCount,
     },
   };
@@ -788,6 +851,7 @@ export async function loadSchwabPnl(
           fills: [],
           distributions: [],
           may_be_truncated: false,
+          lookback_truncated: false,
         },
       };
     }
@@ -801,6 +865,7 @@ export async function loadSchwabPnl(
 
     const fetchBounds = fetchWindowForPnl(opts.start, opts.end);
     let raw: Awaited<ReturnType<typeof listSchwabTransactions>>;
+    let lookbackTruncated = false;
     try {
       raw = await listSchwabTransactions(
         token.accessToken,
@@ -824,6 +889,7 @@ export async function loadSchwabPnl(
           lookback: fetchBounds,
           chart: { start: opts.start, end: opts.end },
         });
+        lookbackTruncated = true;
         raw = await listSchwabTransactions(
           token.accessToken,
           selected.hash,
@@ -874,6 +940,7 @@ export async function loadSchwabPnl(
       distributions.reduce((s, d) => s + (d.amount ?? 0), 0),
     );
 
+    const rowTruncated = trades.length >= 3000;
     return {
       ok: true,
       view: {
@@ -889,7 +956,8 @@ export async function loadSchwabPnl(
         },
         fills,
         distributions,
-        may_be_truncated: trades.length >= 3000,
+        may_be_truncated: rowTruncated || lookbackTruncated,
+        lookback_truncated: lookbackTruncated,
       },
     };
   } catch (e) {
