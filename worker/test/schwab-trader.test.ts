@@ -131,6 +131,8 @@ test("normalizeTrade prefers equity leg over CURRENCY_USD cash leg", () => {
   assert.equal(trade.position_effect, "CLOSING");
   assert.equal(trade.fees, -10);
 });
+
+test("normalizeTrade builds a readable option symbol when needed", () => {
   const trade = normalizeTrade({
     activityId: 1,
     description: "SOLD 1 SPY PUT",
