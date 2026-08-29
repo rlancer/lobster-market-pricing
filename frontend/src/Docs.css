@@ -290,6 +290,7 @@
 .docs-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--panel-2) 30%, transparent); }
 .docs-table td { color: var(--muted); font-size: var(--font-size-sm); line-height: 1.5; }
 .docs-table td:nth-child(2) { white-space: nowrap; }
+.docs-table-wrap-prose .docs-table td:nth-child(2) { white-space: normal; }
 .docs-table .m-method {
   color: var(--accent);
   font-weight: var(--font-weight-semibold);

@@ -245,9 +245,44 @@ non-HTTPS. Prefer testing Connect on `https://dev.lobster.mp` → `api-dev`.
 
 **API surface:** `GET /api/schwab/status`, `GET /api/schwab/connect` (302 →
 Schwab), `GET /api/schwab/callback`, `POST /api/schwab/disconnect`,
-`GET /api/schwab/portfolio` (accounts + positions). Health reports
-`auth.schwab` when both secrets are present. Portfolio UI shows a **Schwab**
-book tab beside suggested trades and the paper book when configured.
+`GET /api/schwab/portfolio` (accounts + positions),
+`GET /api/schwab/trades` (TRADE history ≤366 days),
+`GET /api/schwab/pnl` (realized trading PnL series: MTD / YTD / 1M / 3M / 6M / 1Y).
+Health reports `auth.schwab` when both secrets are present. Portfolio UI shows a
+**Schwab** book tab beside suggested trades and the paper book when configured,
+with Positions, Performance, and Trade history panes. User-facing copy is
+`/docs/schwab-pnl`. Matching rules for implementers:
+
+**Schwab Performance matching (internal)** — `worker/src/schwab-pnl.ts` +
+`worker/src/schwab-trader.ts`. Tests:
+`cd worker && node --import tsx --test test/schwab-pnl.test.ts test/schwab-trader.test.ts`.
+
+- Chart presets and trade days are America/New_York. `dayBoundsIso` is ET
+  midnight → next ET midnight − 1 ms. After-hours ISO timestamps stay on the
+  ET session date.
+- TRADE fetch looks back ~365 inclusive days for cost basis; 400/404 on that
+  window retries the chart range and sets `lookback_truncated`. ~3000-row
+  pages set `may_be_truncated`.
+- `normalizeTrade` skips `CURRENCY` / `USD` / `CURRENCY_*` / `feeType` legs so
+  cash does not mask the security. Missing option `symbol` is rebuilt as OCC
+  from underlying + expiry + right + strike.
+- Lot key: canonical OCC, else uppercased symbol / underlying, else
+  `position_id` (Schwab ids often differ open vs close).
+- Assignment: walk shorts chronologically; on a 100-share-round equity
+  delivery within 1¢ of a short strike, insert a zero-cash BTC of that option
+  before the stock leg. Puts on buy-stock, calls on sell-stock. Prefer the
+  expiry closest to the delivery day. Skip ordinary `BOUGHT`/`SOLD` and
+  `CLOSING` equity. Long exercise is not synthesized.
+- FIFO lots are not merged (each open keeps its date). Period chart /
+  `period_pnl` = lots opened on/after chart start and closed in-window.
+  Older-lot closes → `prior_open_pnl` and a prior-lot fill tag. Window-scope
+  `trade_count`, `closing_trade_count`, `unmatched_close_count`,
+  `skipped_trade_count`. Unmatched `CLOSING` fills are counted, not invented.
+- `DIVIDEND_OR_INTEREST` is a second fetch over the chart window only;
+  `distributions[]` / `distributions_total` stay off the trading curve.
+- Admin: `GET /api/admin/schwab/pnl?user_id=` (`Bearer ADMIN_TOKEN`) plus a
+  trade sample (`trade_start` / `trade_end`, `symbol`, `limit`, `trade_types`).
+  Tokens never leave the Worker.
 
 **Portal / ops gotchas (learned the hard way):**
 
@@ -345,6 +380,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account` or `/portfolio`. |
 | `POST /api/schwab/disconnect` | Delete stored Schwab tokens for the signed-in user. |
 | `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. |
+| `GET /api/schwab/trades` | Historical TRADE transactions for a linked account (`start`/`end` YYYY-MM-DD, optional `account` + `symbol`). Schwab caps a single query at ≤366 days. |
+| `GET /api/schwab/pnl` | Realized trading PnL time series from TRADE history (`range=MTD\|YTD\|1M\|3M\|6M\|1Y`, optional `account`). FIFO lot matching on the America/New_York calendar; synthesizes zero-cash option covers when Schwab posts assignment stock delivery without an option close (nearest expiry when several shorts share a strike); cumulative curve plus closing-fill rows (fees, realized) and `DIVIDEND_OR_INTEREST` distributions for the Portfolio Performance pane. Not an equity curve (excludes deposits/withdrawals and open MTM). When the extended cost-basis lookback fails, `lookback_truncated: true` and the response uses the chart window only. User help: `/docs/schwab-pnl`. Matching rules: this README, Schwab Performance matching. |
+| `GET /api/admin/schwab/pnl` | Admin diagnostic (`Bearer ADMIN_TOKEN`): same PnL series for `user_id=` plus a sample of trades (`trade_start`/`trade_end`, `symbol`, `limit`, `trade_types`). Tokens never leave the Worker. |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
 | `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |

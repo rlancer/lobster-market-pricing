@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dayBoundsIso,
+  etMidnightUtc,
+  etTradeDay,
+  formatOccOptionSymbol,
   inferTradeSide,
   normalizeTrade,
   opaqueAccountId,
@@ -44,11 +47,28 @@ test("parseTradeDateRange defaults to ~90 days and enforces max window", () => {
   });
 });
 
-test("dayBoundsIso covers full UTC days", () => {
+test("dayBoundsIso covers full America/New_York calendar days", () => {
+  // 2026-01-01/02 are EST (UTC−5).
   assert.deepEqual(dayBoundsIso("2026-01-01", "2026-01-02"), {
-    startIso: "2026-01-01T00:00:00.000Z",
-    endIso: "2026-01-02T23:59:59.999Z",
+    startIso: "2026-01-01T05:00:00.000Z",
+    endIso: "2026-01-03T04:59:59.999Z",
   });
+  // 2026-08-01 is EDT (UTC−4).
+  assert.equal(etMidnightUtc("2026-08-01").toISOString(), "2026-08-01T04:00:00.000Z");
+  assert.deepEqual(dayBoundsIso("2026-08-01", "2026-08-01"), {
+    startIso: "2026-08-01T04:00:00.000Z",
+    endIso: "2026-08-02T03:59:59.999Z",
+  });
+});
+
+test("etTradeDay buckets after-hours ISO timestamps onto the ET calendar", () => {
+  assert.equal(etTradeDay("2026-08-28"), "2026-08-28");
+  // 5:30pm ET Aug 28 (still same UTC date).
+  assert.equal(etTradeDay("2026-08-28T21:30:00.000Z"), "2026-08-28");
+  // 9:30pm ET Aug 28 is already Aug 29 UTC.
+  assert.equal(etTradeDay("2026-08-29T01:30:00.000Z"), "2026-08-28");
+  // Schwab midnight-ET-as-UTC (`+0000`).
+  assert.equal(etTradeDay("2026-05-08T04:00:00+0000"), "2026-05-08");
 });
 
 test("inferTradeSide prefers description then cost sign", () => {
@@ -94,7 +114,45 @@ test("normalizeTrade extracts equity leg + fees", () => {
   assert.equal(trade.id, "9876543210");
 });
 
-test("normalizeTrade builds a readable option symbol when needed", () => {
+test("normalizeTrade prefers equity leg over CURRENCY_USD cash leg", () => {
+  const trade = normalizeTrade({
+    activityId: 42,
+    description: "SOLD 50 AAPL @ 200",
+    type: "TRADE",
+    status: "VALID",
+    tradeDate: "2026-06-01T15:00:00.000Z",
+    netAmount: 9990,
+    activityType: "EXECUTION",
+    transferItems: [
+      {
+        instrument: { assetType: "CURRENCY", symbol: "CURRENCY_USD" },
+        amount: 0,
+        cost: 9990,
+        price: 0,
+      },
+      {
+        instrument: {
+          assetType: "EQUITY",
+          symbol: "AAPL",
+          description: "Apple Inc",
+        },
+        amount: -50,
+        cost: 10000,
+        price: 200,
+        positionEffect: "CLOSING",
+      },
+      { amount: -10, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trade.symbol, "AAPL");
+  assert.equal(trade.asset_type, "EQUITY");
+  assert.equal(trade.side, "sell");
+  assert.equal(trade.quantity, -50);
+  assert.equal(trade.position_effect, "CLOSING");
+  assert.equal(trade.fees, -10);
+});
+
+test("normalizeTrade builds an OCC option symbol when Schwab omits symbol", () => {
   const trade = normalizeTrade({
     activityId: 1,
     description: "SOLD 1 SPY PUT",
@@ -115,7 +173,37 @@ test("normalizeTrade builds a readable option symbol when needed", () => {
     ],
   });
   assert.equal(trade.underlying, "SPY");
-  assert.equal(trade.symbol, "SPY 2026-09-18 P 500");
+  assert.equal(trade.symbol, "SPY   260918P00500000");
   assert.equal(trade.side, "sell");
   assert.equal(trade.asset_type, "OPTION");
+});
+
+test("formatOccOptionSymbol pads root and strike millis", () => {
+  assert.equal(
+    formatOccOptionSymbol({
+      underlying: "CAR",
+      expiration: "2026-06-18",
+      right: "PUT",
+      strike: 390,
+    }),
+    "CAR   260618P00390000",
+  );
+  assert.equal(
+    formatOccOptionSymbol({
+      underlying: "AAPL",
+      expiration: "260119",
+      right: "C",
+      strike: 150.5,
+    }),
+    "AAPL  260119C00150500",
+  );
+  assert.equal(
+    formatOccOptionSymbol({
+      underlying: "SPY",
+      expiration: "",
+      right: "P",
+      strike: 500,
+    }),
+    null,
+  );
 });

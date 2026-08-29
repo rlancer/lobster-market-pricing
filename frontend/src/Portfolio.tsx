@@ -22,6 +22,7 @@ import {
 } from './api';
 import { authClient } from './auth';
 import { BotTradesSection } from './BotTradesSection';
+import { SchwabPnlSection } from './SchwabPnlSection';
 import { SchwabTradesSection } from './SchwabTradesSection';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
@@ -29,7 +30,7 @@ import './Portfolio.css';
 type PositionRow = PaperPosition & Record<string, unknown>;
 type SchwabPositionRow = SchwabPortfolioPosition & Record<string, unknown>;
 type BookMode = 'paper' | 'suggested' | 'schwab';
-type SchwabPane = 'positions' | 'trades';
+type SchwabPane = 'positions' | 'performance' | 'trades';
 type StatusFilter = 'all' | 'open' | 'closed';
 type ConvictionFilter = 'all' | 'high' | 'medium' | 'low';
 
@@ -413,6 +414,12 @@ export default function PortfolioPage() {
                 />
                 <Button
                   size="sm"
+                  variant={schwabPane === 'performance' ? 'primary' : 'ghost'}
+                  label="Performance"
+                  onClick={() => setSchwabPane('performance')}
+                />
+                <Button
+                  size="sm"
                   variant={schwabPane === 'trades' ? 'primary' : 'ghost'}
                   label="Trade history"
                   onClick={() => setSchwabPane('trades')}
@@ -431,6 +438,8 @@ export default function PortfolioPage() {
 
             {schwabPane === 'trades' ? (
               <SchwabTradesSection accountId={schwabAccount?.id ?? null} />
+            ) : schwabPane === 'performance' ? (
+              <SchwabPnlSection accountId={schwabAccount?.id ?? null} />
             ) : (
               <>
             {schwabSummary ? (

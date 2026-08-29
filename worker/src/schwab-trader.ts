@@ -119,11 +119,60 @@ export function toTradeAccounts(rows: SchwabAccountNumber[]): SchwabTradeAccount
   return out;
 }
 
-/** YYYY-MM-DD → UTC day bounds for Schwab startDate/endDate. */
+/** America/New_York calendar date as YYYY-MM-DD. */
+export function etDateString(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
+ * Bucket a Schwab timestamp onto the ET trading calendar.
+ * Date-only `YYYY-MM-DD` is returned as-is; ISO timestamps (including Schwab's
+ * `+0000` offset form) convert through America/New_York so after-hours fills
+ * stay on the session date the UI range labels use.
+ */
+export function etTradeDay(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const normalized = trimmed.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const ms = Date.parse(normalized);
+  if (Number.isFinite(ms)) return etDateString(new Date(ms));
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
+}
+
+function addCalendarDay(ymd: string): string {
+  const ms = Date.parse(`${ymd}T12:00:00.000Z`);
+  return new Date(ms + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** UTC instant of local midnight America/New_York on `ymd`. */
+export function etMidnightUtc(ymd: string): Date {
+  for (const offset of ["-04:00", "-05:00"] as const) {
+    const candidate = new Date(`${ymd}T00:00:00.000${offset}`);
+    if (!Number.isFinite(candidate.getTime())) continue;
+    if (etDateString(candidate) !== ymd) continue;
+    const hour = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).format(candidate);
+    if (hour === "00") return candidate;
+  }
+  return new Date(`${ymd}T04:00:00.000Z`);
+}
+
+/** Inclusive ET calendar-day bounds as UTC ISO instants for Schwab startDate/endDate. */
 export function dayBoundsIso(startDate: string, endDate: string): { startIso: string; endIso: string } {
+  const start = etMidnightUtc(startDate);
+  const endExclusive = etMidnightUtc(addCalendarDay(endDate));
   return {
-    startIso: `${startDate}T00:00:00.000Z`,
-    endIso: `${endDate}T23:59:59.999Z`,
+    startIso: start.toISOString(),
+    endIso: new Date(endExclusive.getTime() - 1).toISOString(),
   };
 }
 
@@ -156,11 +205,48 @@ export function parseTradeDateRange(
   return { start, end };
 }
 
+function isCurrencyItem(item: SchwabRawTransferItem): boolean {
+  const asset = (item.instrument?.assetType ?? item.instrument?.type ?? "").toUpperCase();
+  const sym = (item.instrument?.symbol ?? "").toUpperCase();
+  if (item.feeType) return true;
+  if (asset === "CURRENCY") return true;
+  if (sym === "USD" || sym.startsWith("CURRENCY_")) return true;
+  return false;
+}
+
+/**
+ * Build a space-padded OCC equity-option symbol from instrument fields
+ * (`SPY   260918P00500000`). Returns null when any field is incomplete.
+ */
+export function formatOccOptionSymbol(opts: {
+  underlying: string;
+  expiration: string;
+  right: string;
+  strike: number | null;
+}): string | null {
+  const root = opts.underlying.toUpperCase().replace(/\s+/g, "");
+  if (!root || root.length > 6) return null;
+  let exp = opts.expiration.trim().toUpperCase();
+  if (/^\d{4}-\d{2}-\d{2}/.test(exp)) exp = exp.slice(2, 4) + exp.slice(5, 7) + exp.slice(8, 10);
+  else exp = exp.replace(/-/g, "");
+  if (!/^\d{6}$/.test(exp)) return null;
+  const right = opts.right.trim().toUpperCase().slice(0, 1);
+  if (right !== "C" && right !== "P") return null;
+  if (opts.strike == null || !Number.isFinite(opts.strike) || opts.strike < 0) return null;
+  const strikePart = String(Math.round(opts.strike * 1000)).padStart(8, "0");
+  if (strikePart.length > 8) return null;
+  return `${root.padEnd(6, " ")}${exp}${right}${strikePart}`;
+}
+
 function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem | null {
+  // Prefer real securities — cash/CURRENCY legs also carry a symbol (CURRENCY_USD)
+  // and must not win over the equity/option transfer item on the same TRADE.
   for (const item of items) {
+    if (isCurrencyItem(item)) continue;
     if (item.instrument?.symbol || item.instrument?.underlyingSymbol) return item;
   }
   for (const item of items) {
+    if (isCurrencyItem(item)) continue;
     if (item.instrument) return item;
   }
   return null;
@@ -208,12 +294,13 @@ export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
   let symbol = inst?.symbol?.trim() || null;
   const underlying = inst?.underlyingSymbol?.trim() || null;
   if (!symbol && underlying && inst?.assetType === "OPTION") {
-    const right = (inst.putCall ?? "").slice(0, 1).toUpperCase();
-    const strike = asNumber(inst.strikePrice);
-    const exp = inst.expirationDate?.slice(0, 10) ?? "";
-    symbol = [underlying, exp, right || null, strike != null ? String(strike) : null]
-      .filter(Boolean)
-      .join(" ");
+    // Emit OCC so FIFO / assignment synth share one lot key with Schwab-native symbols.
+    symbol = formatOccOptionSymbol({
+      underlying,
+      expiration: inst.expirationDate ?? "",
+      right: inst.putCall ?? "",
+      strike: asNumber(inst.strikePrice),
+    });
   }
 
   const description = tx.description ?? null;
@@ -321,7 +408,14 @@ export type SchwabTradesResult =
 export async function loadSchwabTrades(
   env: SchwabEnv,
   userId: string,
-  opts: { start: string; end: string; accountId?: string | null; symbol?: string | null },
+  opts: {
+    start: string;
+    end: string;
+    accountId?: string | null;
+    symbol?: string | null;
+    /** Schwab transactions `types` query (default TRADE). */
+    types?: string | null;
+  },
   now = Date.now(),
 ): Promise<SchwabTradesResult> {
   let token: { accessToken: string; tokenType: string } | null;
@@ -368,7 +462,7 @@ export async function loadSchwabTrades(
       {
         start: opts.start,
         end: opts.end,
-        types: "TRADE",
+        types: opts.types?.trim() || "TRADE",
         symbol: opts.symbol ?? undefined,
       },
       token.tokenType,

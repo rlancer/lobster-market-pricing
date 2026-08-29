@@ -111,8 +111,8 @@ export function SchwabTradesSection({
   return (
     <VStack gap={4}>
       <Text type="supporting">
-        Live TRADE history from Schwab (up to 366 days per request). Not stored
-        yet — foundation for performance tracking.
+        Live TRADE history from Schwab (up to 366 days per request). Use the
+        Performance tab for realized PnL over MTD, YTD, and trailing windows.
       </Text>
 
       <HStack gap={3} wrap="wrap" align="end">

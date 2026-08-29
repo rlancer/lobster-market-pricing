@@ -946,6 +946,66 @@ export interface SchwabTradesResponse {
   may_be_truncated?: boolean;
 }
 
+export type SchwabPnlRange = 'MTD' | 'YTD' | '1M' | '3M' | '6M' | '1Y';
+
+export interface SchwabPnlPoint {
+  date: string;
+  daily_pnl: number;
+  cumulative_pnl: number;
+}
+
+export interface SchwabPnlFill {
+  id: string;
+  date: string;
+  symbol: string | null;
+  description: string | null;
+  side: 'buy' | 'sell' | 'unknown';
+  quantity: number | null;
+  price: number | null;
+  net_amount: number | null;
+  fees: number | null;
+  realized_pnl: number;
+  opened: string;
+  prior_open: boolean;
+  asset_type: string | null;
+}
+
+export interface SchwabDistribution {
+  id: string;
+  date: string;
+  symbol: string | null;
+  description: string | null;
+  amount: number | null;
+  type: string | null;
+  status: string | null;
+}
+
+export interface SchwabPnlResponse {
+  ok: true;
+  accounts: Array<{ id: string; label: string }>;
+  account: string | null;
+  range: SchwabPnlRange;
+  start: string;
+  end: string;
+  points: SchwabPnlPoint[];
+  summary: {
+    period_pnl: number;
+    /** Realized on in-window closes of lots opened before the chart start (excluded from chart). */
+    prior_open_pnl: number;
+    /** Net dividends / interest in the chart window. */
+    distributions_total: number;
+    trade_count: number;
+    closing_trade_count: number;
+    unmatched_close_count: number;
+    skipped_trade_count: number;
+  };
+  fills: SchwabPnlFill[];
+  distributions: SchwabDistribution[];
+  may_be_truncated?: boolean;
+  /** True when cost-basis lookback failed and only the chart window was fetched. */
+  lookback_truncated?: boolean;
+}
+
 export interface ProfileMe {
   ok: true;
   id: string;
@@ -1680,6 +1740,13 @@ export const api = {
         end: opts?.end,
         account: opts?.account,
         symbol: opts?.symbol,
+      })}`,
+    ),
+  schwabPnl: (opts?: { range?: SchwabPnlRange; account?: string }) =>
+    get<SchwabPnlResponse>(
+      `/api/schwab/pnl${qs({
+        range: opts?.range,
+        account: opts?.account,
       })}`,
     ),
   disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),

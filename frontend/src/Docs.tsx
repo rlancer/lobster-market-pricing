@@ -19,6 +19,7 @@ const DOCS_PAGES = [
   { to: '/docs/frontend', num: '05', label: 'Frontend surfaces' },
   { to: '/docs/run', num: '06', label: 'Run it locally' },
   { to: '/docs/deploy', num: '07', label: 'Deployment' },
+  { to: '/docs/schwab-pnl', num: '08', label: 'Schwab Performance' },
 ];
 
 type FlowStep = { glyph: string; title: string; sub: ReactNode };
@@ -139,6 +140,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
   { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; ≤366 days)</> },
+  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account)</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
@@ -201,7 +203,7 @@ const SURFACES = [
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark.',
+    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history.',
   },
   {
     route: '/data',
@@ -551,6 +553,114 @@ export function DocsDeploy() {
       <p className="docs-note">
         Credentials are the project’s de-facto secret store: every token lives in GitHub Actions secrets
         plus wherever the runtime needs it (Worker secrets, <code>.env</code> / <code>.dev.vars</code>).
+      </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 08 · Schwab Performance — what Portfolio users see.
+// ---------------------------------------------------------------------------
+export function DocsSchwabPnl() {
+  return (
+    <Section id="schwab-pnl" num="08" title="Schwab Performance">
+      <p className="docs-lede">
+        After you connect Schwab, Portfolio has a Schwab book with Positions,
+        Performance, and Trade history. This page explains Performance — the
+        chart and tables on that pane — in the same language as the screen.
+      </p>
+      <p className="docs-callout">
+        <b>This is not your account balance over time.</b> The big number and the
+        chart are realized trading P&amp;L for positions you <em>opened in the
+        selected range</em>. They do not include deposits, withdrawals, or the
+        open mark-to-market on positions you still hold. Dividends and interest
+        show in their own table under the chart, not in the curve.
+      </p>
+
+      <h3>Where to find it</h3>
+      <p className="docs-lede">
+        Open <Link to="/portfolio">Portfolio</Link>, choose the Schwab tab, then
+        Performance. Connect Schwab from Account if you have not already.
+      </p>
+
+      <h3>The headline number and chart</h3>
+      <p className="docs-lede">
+        The range buttons (MTD, YTD, 1M, 3M, 6M, 1Y) pick a window in US Eastern
+        time, ending today. The headline is realized P&amp;L for trades that both
+        opened and closed inside that window. The step chart is that same total,
+        accumulated day by day.
+      </p>
+      <div className="docs-table-wrap">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Range</th><th>What it covers</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>YTD</td><td>January 1 through today (Eastern)</td></tr>
+            <tr><td>MTD</td><td>The 1st of this month through today</td></tr>
+            <tr><td>1M / 3M / 6M / 1Y</td><td>The last 30 / 90 / 180 / 365 days through today</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="docs-note">
+        After-hours fills stay on that Eastern session date — a 9:30pm trade is
+        still “today,” not tomorrow.
+      </p>
+
+      <h3>Period vs prior-lot</h3>
+      <p className="docs-lede">
+        If you close something you opened <em>before</em> the range (for example
+        a July position closed in August on an MTD chart), that P&amp;L is
+        <b>prior-lot</b>. It appears in the closing-fills table with a prior tag,
+        and in a “Prior-lot closes” stat when it is not zero — but it is left
+        out of the headline and the chart so last year’s losers are not dumped
+        into this month.
+      </p>
+
+      <h3>Closing fills</h3>
+      <p className="docs-lede">
+        The table under the chart lists each trade that realized P&amp;L in the
+        window: side, symbol, quantity, price, fees on the close, realized
+        amount, when the lot was opened, and whether it is period or prior-lot.
+        Use it to trace a spike or drop on a given day.
+      </p>
+
+      <h3>Dividends and interest</h3>
+      <p className="docs-lede">
+        Cash credits in the same window (ordinary dividends, interest) are listed
+        separately and totaled as “Dividends / interest.” They are not added
+        into the trading chart.
+      </p>
+
+      <h3>Option assignment</h3>
+      <p className="docs-lede">
+        When a short put or call is assigned, Schwab often shows only the stock
+        (bought at a put strike, or sold at a call strike) and not the option
+        closing. Performance treats that delivery as also closing the short
+        option, so the premium you collected is realized instead of looking like
+        a naked stock loss.
+      </p>
+      <p className="docs-note">
+        If you hold more than one short at the same strike (a roll or calendar),
+        the expiry closest to the assignment day is the one we close. Ordinary
+        bought/sold stock fills are not treated as assignment.
+      </p>
+      <p className="docs-lede">
+        Exercising a <em>long</em> option is not handled the same way yet. If
+        Schwab only posts the stock and omits the long option close, the premium
+        you paid may stay off the chart.
+      </p>
+
+      <h3>Warnings you may see</h3>
+      <ul className="docs-ordered">
+        <li><b>Cost-basis lookback was unavailable</b> — only trades inside the visible range could be loaded. Closes of older positions may be missing from realized P&amp;L.</li>
+        <li><b>Trade history may be truncated</b> — Schwab can cap how many rows come back. Some closes may lack a matching open.</li>
+        <li><b>Closing trades lacked a matching open</b> — those rows are excluded so we do not invent a profit or loss without a cost basis.</li>
+      </ul>
+      <p className="docs-note">
+        History is limited to about one year of Schwab trades. This view is
+        rebuilt from that history; it is not Schwab’s official statement, tax
+        lot, or Form 1099.
       </p>
     </Section>
   );

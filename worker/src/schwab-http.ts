@@ -7,6 +7,7 @@
  * POST /api/schwab/disconnect — drop stored tokens
  * GET  /api/schwab/portfolio  — linked accounts, balances, positions (no tokens)
  * GET  /api/schwab/trades     — historical TRADE transactions (≤366 days)
+ * GET  /api/schwab/pnl        — realized trading PnL time series (MTD/YTD/…)
  */
 
 import {
@@ -24,8 +25,10 @@ import {
   type SchwabEnv,
 } from "./schwab";
 import { loadSchwabPortfolio } from "./schwab-portfolio";
+import { loadSchwabPnl, resolvePnlRange } from "./schwab-pnl";
 import { loadSchwabTrades, parseTradeDateRange } from "./schwab-trader";
 import { getSessionUser } from "./auth";
+import { adminTokenAuthorized } from "./bots";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -206,6 +209,123 @@ export async function handleSchwab(
       return schwabLoadError(result);
     }
     return json({ ok: true, ...result.view });
+  }
+
+  if (path === "/api/schwab/pnl" && req.method === "GET") {
+    if (!schwabConfigured(env)) {
+      return json({ error: "Schwab is not configured on this deployment" }, 503);
+    }
+    const user = await getSessionUser(env, req);
+    if (!user) return unauthorized();
+
+    const url = new URL(req.url);
+    const range = resolvePnlRange(url.searchParams.get("range"));
+    if ("error" in range) return json({ error: range.error }, 400);
+
+    const result = await loadSchwabPnl(env, user.id, {
+      range: range.range,
+      start: range.start,
+      end: range.end,
+      accountId: url.searchParams.get("account"),
+    });
+    if (!result.ok) {
+      if (result.reason === "bad_request") return json({ error: result.message }, 400);
+      console.error("schwab pnl request failed", {
+        reason: result.reason,
+        status: "status" in result ? result.status : undefined,
+        message: "message" in result ? result.message.slice(0, 300) : undefined,
+        range: range.range,
+      });
+      return schwabLoadError(result);
+    }
+    return json({ ok: true, ...result.view });
+  }
+
+  // Admin diagnostic: run PnL / trades for a user_id using their stored Schwab
+  // connection (Bearer ADMIN_TOKEN). Tokens never leave the Worker.
+  if (path === "/api/admin/schwab/pnl" && req.method === "GET") {
+    if (!adminTokenAuthorized(req, env)) return unauthorized();
+    if (!schwabConfigured(env)) {
+      return json({ error: "Schwab is not configured on this deployment" }, 503);
+    }
+    const url = new URL(req.url);
+    const userId = url.searchParams.get("user_id")?.trim();
+    if (!userId) return json({ error: "user_id is required" }, 400);
+    const range = resolvePnlRange(url.searchParams.get("range"));
+    if ("error" in range) return json({ error: range.error }, 400);
+
+    const status = await getSchwabConnectionStatus(env, { id: userId, email: "", name: "" });
+    const result = await loadSchwabPnl(env, userId, {
+      range: range.range,
+      start: range.start,
+      end: range.end,
+      accountId: url.searchParams.get("account"),
+    });
+    if (!result.ok) {
+      if (result.reason === "bad_request") return json({ error: result.message }, 400);
+      return schwabLoadError(result);
+    }
+
+    // Companion trades for spot-checking FIFO / assignment. Optional
+    // trade_start/trade_end (YYYY-MM-DD) narrow the window; default = chart range.
+    // symbol= filters (substring, case-insensitive). limit caps rows (default 80, max 400).
+    const tradeStart = url.searchParams.get("trade_start")?.trim() || range.start;
+    const tradeEnd = url.searchParams.get("trade_end")?.trim() || range.end;
+    const symbolFilter = url.searchParams.get("symbol")?.trim().toUpperCase() || null;
+    const limitRaw = Number(url.searchParams.get("limit") ?? "80");
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(400, Math.max(1, Math.floor(limitRaw)))
+      : 80;
+
+    const tradeTypes = url.searchParams.get("trade_types")?.trim() || "TRADE";
+    const tradesResult = await loadSchwabTrades(env, userId, {
+      start: tradeStart,
+      end: tradeEnd,
+      accountId: result.view.account,
+      // Always fetch the window unfiltered — Schwab's symbol= param misses
+      // option OCC symbols; we substring-filter client-side below.
+      symbol: null,
+      types: tradeTypes,
+    });
+    const sampleTrades =
+      tradesResult.ok
+        ? tradesResult.view.trades
+            .filter((t) => {
+              if (!symbolFilter) return true;
+              const sym = (t.symbol ?? "").toUpperCase();
+              const und = (t.underlying ?? "").toUpperCase();
+              return sym.includes(symbolFilter) || und.includes(symbolFilter);
+            })
+            .slice(0, limit)
+            .map((t) => ({
+              id: t.id,
+              trade_date: t.trade_date,
+              side: t.side,
+              symbol: t.symbol,
+              underlying: t.underlying,
+              quantity: t.quantity,
+              price: t.price,
+              net_amount: t.net_amount,
+              fees: t.fees,
+              position_effect: t.position_effect,
+              asset_type: t.asset_type,
+              activity_type: t.activity_type,
+              description: t.description,
+            }))
+        : [];
+
+    return json({
+      ok: true,
+      user_id: userId,
+      connection: status,
+      pnl: result.view,
+      sample_trades: sampleTrades,
+      sample_trades_error: tradesResult.ok
+        ? null
+        : tradesResult.reason === "bad_request"
+          ? tradesResult.message
+          : tradesResult.reason,
+    });
   }
 
   return null;

@@ -60,6 +60,11 @@ const DOCS: Record<string, { title: string; description: string }> = {
     description:
       'Cloudflare Pages for the UI, a Worker for the API, and the loader Worker for CBOE ingestion.',
   },
+  'schwab-pnl': {
+    title: 'Schwab Performance',
+    description:
+      'How the Portfolio Performance chart and tables work: period vs prior-lot, assignment, dividends, and the warnings you may see.',
+  },
 };
 
 function pageTitle(head: string): string {
