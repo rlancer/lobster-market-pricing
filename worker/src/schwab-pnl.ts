@@ -121,9 +121,11 @@ function tradeDay(trade: SchwabTrade): string | null {
 }
 
 function lotKey(trade: SchwabTrade): string {
-  if (trade.position_id != null) return `pos:${trade.position_id}`;
+  // Prefer symbol over position_id — Schwab often assigns different position
+  // ids on open vs close, which would orphan closes and zero out period PnL.
   if (trade.symbol) return `sym:${trade.symbol}`;
   if (trade.underlying) return `und:${trade.underlying}`;
+  if (trade.position_id != null) return `pos:${trade.position_id}`;
   return `tx:${trade.id}`;
 }
 
