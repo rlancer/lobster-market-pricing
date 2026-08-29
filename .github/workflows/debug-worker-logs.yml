@@ -1,0 +1,81 @@
+name: Debug worker logs (ephemeral)
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: Worker script name
+        default: screener-api-dev
+      minutes:
+        description: Lookback minutes
+        default: "180"
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Query Cloudflare Workers observability / analytics
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SCRIPT: ${{ inputs.script }}
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "Missing CF secrets"; exit 1
+          fi
+          END=$(date -u +%s)
+          START=$((END - MINUTES * 60))
+          START_MS=$((START * 1000))
+          END_MS=$((END * 1000))
+          echo "== Workers script details =="
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$SCRIPT" \
+            | head -c 2000; echo
+          echo "== Observability telemetry query (schwab/pnl) =="
+          # Workers Observability query API
+          BODY=$(jq -n \
+            --argjson start "$START_MS" \
+            --argjson end "$END_MS" \
+            --arg script "$SCRIPT" \
+            '{
+              query: {
+                queryId: "workers-logs-events",
+                timeframe: { from: $start, to: $end },
+                view: "events",
+                dry: false,
+                parameters: {
+                  datasets: ["cloudflare-workers"],
+                  filters: [
+                    { key: "$metadata.service", operation: "eq", type: "string", value: $script }
+                  ],
+                  filterCombination: "and",
+                  limit: 100
+                }
+              },
+              timeOptions: { timezone: "UTC", bucketCount: 1 }
+            }')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/query" \
+            -d "$BODY" | tee /tmp/obs.json | head -c 50000
+          echo
+          echo "== GraphQL WorkersRequestsAdaptive (errors) =="
+          GQL=$(jq -n \
+            --arg account "$CLOUDFLARE_ACCOUNT_ID" \
+            --arg script "$SCRIPT" \
+            --arg start "$(date -u -d @$START +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg end "$(date -u -d @$END +%Y-%m-%dT%H:%M:%SZ)" \
+            '{query: ("query {\n  viewer {\n    accounts(filter: {accountTag: \"" + $account + "\"}) {\n      workersInvocationsAdaptive(limit: 50, filter: {datetime_geq: \"" + $start + "\", datetime_leq: \"" + $end + "\", scriptName: \"" + $script + "\"}) {\n        dimensions { datetime datetimeHour status scriptName }\n        sum { requests errors subrequests }\n        avg { cpuTime sampleInterval }\n      }\n    }\n  }\n}")}')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/graphql" \
+            -d "$GQL" | tee /tmp/gql.json | head -c 30000
+          echo
+          echo "== Filter local for schwab =="
+          rg -i "schwab|pnl|error|exception|overflow|cpu" /tmp/obs.json /tmp/gql.json || true
