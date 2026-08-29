@@ -19,6 +19,7 @@ const DOCS_PAGES = [
   { to: '/docs/frontend', num: '05', label: 'Frontend surfaces' },
   { to: '/docs/run', num: '06', label: 'Run it locally' },
   { to: '/docs/deploy', num: '07', label: 'Deployment' },
+  { to: '/docs/schwab-pnl', num: '08', label: 'Schwab realized PnL' },
 ];
 
 type FlowStep = { glyph: string; title: string; sub: ReactNode };
@@ -139,7 +140,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
   { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; ≤366 days)</> },
-  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series (range=MTD|YTD|1M|3M|6M|1Y, optional account)</> },
+  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series (range=MTD|YTD|1M|3M|6M|1Y, optional account). Full FIFO / assignment rules: <Link to="/docs/schwab-pnl">Schwab realized PnL</Link>.</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
@@ -202,7 +203,7 @@ const SURFACES = [
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark.',
+    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance (FIFO realized PnL — see /docs/schwab-pnl), and Trade history.',
   },
   {
     route: '/data',
@@ -552,6 +553,183 @@ export function DocsDeploy() {
       <p className="docs-note">
         Credentials are the project’s de-facto secret store: every token lives in GitHub Actions secrets
         plus wherever the runtime needs it (Worker secrets, <code>.env</code> / <code>.dev.vars</code>).
+      </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page: 08 · Schwab realized PnL — the full matching rules.
+// ---------------------------------------------------------------------------
+export function DocsSchwabPnl() {
+  return (
+    <Section id="schwab-pnl" num="08" title="Schwab realized PnL">
+      <p className="docs-lede">
+        Portfolio → Performance is a realized trading P&amp;L curve rebuilt from Schwab TRADE
+        history. This page is the contract: every matching rule, attribution split, and
+        known gap lives here — not only in Worker comments.
+      </p>
+      <p className="docs-callout">
+        <b>Not an account equity curve.</b> The chart is FIFO realized P&amp;L on lots
+        opened in the selected window. It excludes deposits, withdrawals, open
+        mark-to-market, and (from the curve itself) dividends / interest. Those cash
+        credits appear in a separate table.
+      </p>
+
+      <h3>Where it lives</h3>
+      <ul className="docs-ordered">
+        <li><b>UI</b> — <code>/portfolio</code> Schwab tab → Performance (<code>SchwabPnlSection</code>).</li>
+        <li><b>API</b> — <code>GET /api/schwab/pnl?range=MTD|YTD|1M|3M|6M|1Y</code> plus optional <code>account</code>. Session required; tokens never leave the Worker.</li>
+        <li><b>Admin</b> — <code>GET /api/admin/schwab/pnl?user_id=</code> (Bearer <code>ADMIN_TOKEN</code>) runs the same ledger and returns a trade sample for debugging.</li>
+        <li><b>Code</b> — <code>worker/src/schwab-pnl.ts</code> (ledger + series), <code>worker/src/schwab-trader.ts</code> (normalize + fetch bounds).</li>
+      </ul>
+
+      <h3>1. Chart window (America/New_York)</h3>
+      <p className="docs-lede">
+        Range presets resolve to inclusive <code>YYYY-MM-DD</code> bounds on the US equity
+        calendar, not UTC:
+      </p>
+      <div className="docs-table-wrap">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Range</th><th>Start</th><th>End</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>YTD</code></td><td>Jan 1 of the ET year</td><td>Today ET</td></tr>
+            <tr><td><code>MTD</code></td><td>1st of the ET month</td><td>Today ET</td></tr>
+            <tr><td><code>1M</code> / <code>3M</code> / <code>6M</code> / <code>1Y</code></td><td>Today ET minus 30 / 90 / 180 / 365 inclusive days</td><td>Today ET</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul className="docs-ordered">
+        <li><b>Trade day</b> — each fill is bucketed by converting Schwab’s timestamp (including <code>+0000</code> offsets) to America/New_York. A 9:30pm ET fill that is already the next UTC date still belongs to that ET session.</li>
+        <li><b>Fetch bounds</b> — Schwab <code>startDate</code> / <code>endDate</code> are the UTC instants of ET midnight on the start day through one millisecond before ET midnight on the day after the end day, so after-hours on the last day are included.</li>
+        <li><b>Date-only strings</b> — a bare <code>YYYY-MM-DD</code> is already a calendar day and is used as-is.</li>
+      </ul>
+
+      <h3>2. What we fetch</h3>
+      <ol className="docs-ordered">
+        <li><b>Cost-basis lookback</b> — TRADE history is requested from ~365 inclusive days before the chart end (Schwab’s ~1y cap; 366 is rejected on some accounts) through the chart end. FIFO needs opens that happened before the visible window.</li>
+        <li><b>Lookback fallback</b> — if that longer query returns 400/404, we retry the chart window only and set <code>lookback_truncated: true</code>. The Performance pane warns; we do not silently drop basis.</li>
+        <li><b>Row cap</b> — Schwab may truncate a page around 3000 rows. <code>may_be_truncated</code> is true when the TRADE page hits that cap or lookback fell back.</li>
+        <li><b>Distributions</b> — a second query for <code>DIVIDEND_OR_INTEREST</code> over the chart window only. Failure is logged; the curve still renders.</li>
+      </ol>
+
+      <h3>3. Normalize each TRADE</h3>
+      <p className="docs-lede">
+        <code>normalizeTrade</code> turns a Schwab transaction into one security fill:
+      </p>
+      <ul className="docs-ordered">
+        <li><b>Skip cash legs</b> — <code>CURRENCY</code>, <code>USD</code>, <code>CURRENCY_*</code>, or any item with <code>feeType</code> must not win over the equity/option transfer item. Otherwise PnL stays at $0.</li>
+        <li><b>Fees</b> — sum of transfer items that have <code>feeType</code>.</li>
+        <li><b>Side</b> — description (<code>BOUGHT</code>/<code>BUY</code> vs <code>SOLD</code>/<code>SELL</code>), else cost sign, else quantity sign.</li>
+        <li><b>OCC when symbol is missing</b> — option instruments with <code>underlyingSymbol</code> + expiration + put/call + strike emit a space-padded OCC symbol so FIFO and assignment share one book.</li>
+      </ul>
+
+      <h3>4. Lot keys</h3>
+      <p className="docs-lede">
+        Opens and closes must share a book. Schwab <code>positionId</code> often differs on
+        open vs close, so it is last resort:
+      </p>
+      <ol className="docs-ordered">
+        <li>Parsed OCC → <code>occ:UNDERLYING:YYMMDD:C|P:strike</code> (spaced, compact, and readable <code>CAR 2026-06-18 P 390</code> collapse to one key).</li>
+        <li>Else uppercased <code>symbol</code>.</li>
+        <li>Else uppercased <code>underlying</code>.</li>
+        <li>Else <code>position_id</code>, else the transaction id.</li>
+      </ol>
+
+      <h3>5. Assignment synthesis (before FIFO)</h3>
+      <p className="docs-lede">
+        When a short put/call is assigned, Schwab’s TRADE feed often posts only the
+        underlying at strike and omits the option close. Without a synthetic cover,
+        short premium stays unrealized and the stock delivery dumps the full loss
+        into the chart (the May 8 CAR 500/390 put debit spread — about −$3.3k
+        without synth, about +$5.0k with it).
+      </p>
+      <p className="docs-lede">The Worker walks TRADE history in chronological order and:</p>
+      <ol className="docs-ordered">
+        <li>Tracks open short option contracts (sell that is not <code>CLOSING</code>; buy <code>CLOSING</code> or unknown-effect buy reduces the short book).</li>
+        <li>On an equity-like fill of a whole number of 100-share lots, at a price within 1¢ of a tracked short’s strike, on the matching underlying, inserts a <b>zero-cash buy-to-close</b> of that option immediately before the stock leg.</li>
+        <li><b>Put assignment</b> = buy stock at strike → cover short puts. <b>Call assignment</b> = sell stock at strike → cover short calls.</li>
+        <li><b>Expiration preference</b> — if several shorts share underlying + right + strike (calendar / roll), cover the lot whose expiration is closest to the delivery day; same-expiry lots stay FIFO.</li>
+      </ol>
+      <p className="docs-lede">Guards against false positives:</p>
+      <ul className="docs-ordered">
+        <li>Description contains <code>BOUGHT</code> or <code>SOLD</code> (ordinary executions) — unless it also says <code>ASSIGN</code> / <code>ASGN</code> / <code>ASSIGNMENT</code>.</li>
+        <li>Equity <code>position_effect = CLOSING</code> (closing a stock position, not opening delivery).</li>
+        <li>Quantity not a whole number of 100-share contracts, or price farther than 1¢ from the strike.</li>
+      </ul>
+      <p className="docs-note">
+        <b>Known gap — long exercise.</b> If Schwab omits the option close when a
+        <em>long</em> call/put is exercised, long premium stays unrealized and the
+        stock leg is booked alone. Only short assignment is synthesized today.
+      </p>
+
+      <h3>6. FIFO ledger</h3>
+      <ul className="docs-ordered">
+        <li>Chronological after assignment synth. Each symbol book is a queue of lots (not merged — each open keeps its own date).</li>
+        <li>Opposite-side fills close the head lot(s). Long realized = close cash − pro-rata basis. Short realized = pro-rata short proceeds + close cash (buy-to-cover is negative cash).</li>
+        <li>Partial closes take pro-rata cash and basis.</li>
+        <li>Leftover cash on a fully qty-matched close (fees / rounding) is booked as realized that day.</li>
+        <li>A <code>CLOSING</code> fill with no matching open is unmatched: counted, excluded from PnL (no phantom profit from a missing basis).</li>
+        <li>A non-closing leftover quantity opens a new lot dated that day.</li>
+      </ul>
+
+      <h3>7. Period vs prior-lot attribution</h3>
+      <p className="docs-lede">
+        For each realized event, the lot’s <em>open</em> day decides the bucket:
+      </p>
+      <div className="docs-table-wrap docs-table-wrap-prose">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Field</th><th>Rule</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>period_pnl</code> + chart</td><td>Close day in window <em>and</em> lot opened on/after chart start</td></tr>
+            <tr><td><code>prior_open_pnl</code></td><td>Close day in window, lot opened before chart start — shown in the table, excluded from the curve</td></tr>
+            <tr><td>Fill <code>prior_open</code></td><td>True only when every lot that fill closed was a prior-lot (mixed fills stay “period”)</td></tr>
+            <tr><td><code>trade_count</code> / <code>closing_trade_count</code> / <code>unmatched_close_count</code> / <code>skipped_trade_count</code></td><td>Scoped to fills whose ET day is inside the chart window (not the 1y lookback)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>8. Distributions</h3>
+      <p className="docs-lede">
+        Dividend / interest rows sum currency legs (or fall back to <code>netAmount</code>).
+        They contribute to <code>distributions_total</code> and the breakdown table, not
+        the realized trading chart.
+      </p>
+
+      <h3>9. Worked example — CAR May 8 put debit</h3>
+      <p className="docs-lede">
+        Long CAR 18 Jun 500 put, short CAR 18 Jun 390 put (April 22). On May 8 Schwab
+        delivers +100 CAR @ $390 (assignment, no option close in TRADE), the long 500
+        is sold, and the stock is sold @ ~$145.
+      </p>
+      <ul className="docs-ordered">
+        <li>Synth zero-cash cover of the 390 short → realize ~+$8.3k premium.</li>
+        <li>Close the 500 long → realize the option gain.</li>
+        <li>Stock round-trip at 390 in / ~145 out → large stock loss.</li>
+        <li>Net day ≈ +$5.0k (spread width minus debit), not the bogus ≈ −$3.3k from treating assignment as a naked stock buy.</li>
+      </ul>
+
+      <h3>API payload</h3>
+      <div className="docs-table-wrap docs-table-wrap-prose">
+        <table className="docs-table">
+          <thead>
+            <tr><th>Field</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>points[]</code></td><td>Sparse daily + cumulative <code>period_pnl</code> only (start and end always present)</td></tr>
+            <tr><td><code>fills[]</code></td><td>Closing fills in the window: fees, realized, opened date, prior-lot tag</td></tr>
+            <tr><td><code>distributions[]</code></td><td>Dividends / interest in the window</td></tr>
+            <tr><td><code>lookback_truncated</code></td><td>Cost-basis lookback failed; only the chart window was loaded</td></tr>
+            <tr><td><code>may_be_truncated</code></td><td>Lookback fallback or TRADE page ≥ 3000 rows</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="docs-note">
+        Unit tests: <code>cd worker && node --import tsx --test test/schwab-pnl.test.ts test/schwab-trader.test.ts</code>.
       </p>
     </Section>
   );

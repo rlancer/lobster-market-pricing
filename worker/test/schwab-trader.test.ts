@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dayBoundsIso,
+  etMidnightUtc,
+  etTradeDay,
   formatOccOptionSymbol,
   inferTradeSide,
   normalizeTrade,
@@ -45,11 +47,28 @@ test("parseTradeDateRange defaults to ~90 days and enforces max window", () => {
   });
 });
 
-test("dayBoundsIso covers full UTC days", () => {
+test("dayBoundsIso covers full America/New_York calendar days", () => {
+  // 2026-01-01/02 are EST (UTC−5).
   assert.deepEqual(dayBoundsIso("2026-01-01", "2026-01-02"), {
-    startIso: "2026-01-01T00:00:00.000Z",
-    endIso: "2026-01-02T23:59:59.999Z",
+    startIso: "2026-01-01T05:00:00.000Z",
+    endIso: "2026-01-03T04:59:59.999Z",
   });
+  // 2026-08-01 is EDT (UTC−4).
+  assert.equal(etMidnightUtc("2026-08-01").toISOString(), "2026-08-01T04:00:00.000Z");
+  assert.deepEqual(dayBoundsIso("2026-08-01", "2026-08-01"), {
+    startIso: "2026-08-01T04:00:00.000Z",
+    endIso: "2026-08-02T03:59:59.999Z",
+  });
+});
+
+test("etTradeDay buckets after-hours ISO timestamps onto the ET calendar", () => {
+  assert.equal(etTradeDay("2026-08-28"), "2026-08-28");
+  // 5:30pm ET Aug 28 (still same UTC date).
+  assert.equal(etTradeDay("2026-08-28T21:30:00.000Z"), "2026-08-28");
+  // 9:30pm ET Aug 28 is already Aug 29 UTC.
+  assert.equal(etTradeDay("2026-08-29T01:30:00.000Z"), "2026-08-28");
+  // Schwab midnight-ET-as-UTC (`+0000`).
+  assert.equal(etTradeDay("2026-05-08T04:00:00+0000"), "2026-05-08");
 });
 
 test("inferTradeSide prefers description then cost sign", () => {

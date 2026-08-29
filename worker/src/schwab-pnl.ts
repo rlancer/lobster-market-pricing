@@ -10,6 +10,8 @@
 
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
 import {
+  etDateString,
+  etTradeDay,
   listSchwabAccountNumbers,
   listSchwabTransactions,
   normalizeTrade,
@@ -18,6 +20,8 @@ import {
   type SchwabTrade,
   SCHWAB_TRADES_MAX_RANGE_DAYS,
 } from "./schwab-trader";
+
+export { etDateString };
 import { SchwabApiError } from "./schwab-portfolio";
 
 export type SchwabPnlRange = "MTD" | "YTD" | "1M" | "3M" | "6M" | "1Y";
@@ -107,16 +111,6 @@ export type SchwabPnlResult =
   | { ok: false; reason: "bad_request"; message: string }
   | { ok: false; reason: "refresh_failed" | "upstream"; status: number; message: string };
 
-/** America/New_York calendar date as YYYY-MM-DD. */
-export function etDateString(d = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-}
-
 function clampStartToMaxWindow(start: string, end: string): string {
   const endMs = Date.parse(`${end}T00:00:00.000Z`);
   const startMs = Date.parse(`${start}T00:00:00.000Z`);
@@ -155,9 +149,7 @@ export function resolvePnlRange(
 }
 
 function tradeDay(trade: SchwabTrade): string | null {
-  const raw = trade.trade_date;
-  if (!raw) return null;
-  return raw.length >= 10 ? raw.slice(0, 10) : null;
+  return etTradeDay(trade.trade_date);
 }
 
 /** Parsed OCC equity-option symbol (`AAPL  240119C00150000`). */
@@ -211,6 +203,21 @@ export function parseOccOptionSymbol(symbol: string | null | undefined): OccOpti
     right,
     strike,
   };
+}
+
+/** OCC YYMMDD expiration → `20YY-MM-DD` (equity options are 21st-century). */
+export function occExpirationYmd(expiration: string): string | null {
+  if (!/^\d{6}$/.test(expiration)) return null;
+  return `20${expiration.slice(0, 2)}-${expiration.slice(2, 4)}-${expiration.slice(4, 6)}`;
+}
+
+function expirationDistanceMs(occ: OccOption, deliveryDay: string): number {
+  const exp = occExpirationYmd(occ.expiration);
+  if (!exp) return Number.POSITIVE_INFINITY;
+  const a = Date.parse(`${exp}T12:00:00.000Z`);
+  const b = Date.parse(`${deliveryDay}T12:00:00.000Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.POSITIVE_INFINITY;
+  return Math.abs(a - b);
 }
 
 function isEquityLike(trade: SchwabTrade): boolean {
@@ -317,58 +324,31 @@ export function synthesizeOptionAssignmentCloses(trades: SchwabTrade[]): SchwabT
 
       if (deliveryPrice != null && isRoundContracts) {
         const need = Math.round(contracts);
-        let remaining = need;
+        const right: "C" | "P" | null =
+          trade.side === "buy" ? "P" : trade.side === "sell" ? "C" : null;
+        const und = (trade.symbol ?? "").toUpperCase();
 
-        // Short put assignment → buy underlying at strike.
-        if (trade.side === "buy") {
-          for (const lot of openShorts) {
-            if (remaining <= 0) break;
-            if (lot.qty <= 1e-12) continue;
-            if (lot.occ.right !== "P") continue;
-            const und = (trade.symbol ?? "").toUpperCase();
-            if (lot.occ.underlying !== und) continue;
-            if (!strikeMatchesDelivery(lot.occ.strike, deliveryPrice)) continue;
-
-            const take = Math.min(lot.qty, remaining);
-            synthSeq += 1;
-            const activityId =
-              trade.activity_id != null ? trade.activity_id - synthSeq : null;
-            out.push({
-              id: `synth-assign-${trade.id}-${lot.trade.id}-${synthSeq}`,
-              activity_id: activityId,
-              trade_date: trade.trade_date,
-              settlement_date: trade.settlement_date,
-              description: `Option assignment close (${lot.trade.symbol})`,
-              status: "VALID",
-              activity_type: "ASSIGNMENT",
-              net_amount: 0,
-              symbol: lot.trade.symbol,
-              underlying: lot.occ.underlying,
-              asset_type: "OPTION",
-              quantity: take,
-              price: 0,
-              cost: 0,
-              fees: 0,
-              side: "buy",
-              position_effect: "CLOSING",
-              order_id: null,
-              position_id: null,
+        if (right && und) {
+          // Prefer the short whose expiration is closest to the delivery day
+          // (typical assignment is the near expiry). Same-expiry lots stay FIFO.
+          const ranked = openShorts
+            .map((lot, idx) => ({ lot, idx }))
+            .filter(({ lot }) => {
+              if (lot.qty <= 1e-12) return false;
+              if (lot.occ.right !== right) return false;
+              if (lot.occ.underlying !== und) return false;
+              return strikeMatchesDelivery(lot.occ.strike, deliveryPrice);
+            })
+            .sort((a, b) => {
+              const d =
+                expirationDistanceMs(a.lot.occ, day) - expirationDistanceMs(b.lot.occ, day);
+              if (d !== 0) return d;
+              return a.idx - b.idx;
             });
-            lot.qty -= take;
-            remaining -= take;
-          }
-        }
 
-        // Short call assignment → sell underlying at strike; cover the short call.
-        if (trade.side === "sell") {
-          for (const lot of openShorts) {
+          let remaining = need;
+          for (const { lot } of ranked) {
             if (remaining <= 0) break;
-            if (lot.qty <= 1e-12) continue;
-            if (lot.occ.right !== "C") continue;
-            const und = (trade.symbol ?? "").toUpperCase();
-            if (lot.occ.underlying !== und) continue;
-            if (!strikeMatchesDelivery(lot.occ.strike, deliveryPrice)) continue;
-
             const take = Math.min(lot.qty, remaining);
             synthSeq += 1;
             const activityId =
@@ -430,8 +410,8 @@ function lotKey(trade: SchwabTrade): string {
   }
   // Prefer symbol over position_id — Schwab often assigns different position
   // ids on open vs close, which would orphan closes and zero out period PnL.
-  if (trade.symbol) return `sym:${trade.symbol}`;
-  if (trade.underlying) return `und:${trade.underlying}`;
+  if (trade.symbol) return `sym:${trade.symbol.toUpperCase()}`;
+  if (trade.underlying) return `und:${trade.underlying.toUpperCase()}`;
   if (trade.position_id != null) return `pos:${trade.position_id}`;
   return `tx:${trade.id}`;
 }
@@ -480,6 +460,8 @@ export interface RealizedPnlLedger {
   /** Calendar days of unmatched CLOSING fills (for window-scoped counts). */
   unmatchedCloseDays: string[];
   skippedTradeCount: number;
+  /** Calendar days of skipped fills (for window-scoped counts). */
+  skippedDays: string[];
   /** Trade calendar days seen (for window-scoped counts). */
   tradeDays: string[];
   closingDays: string[];
@@ -502,6 +484,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
   let unmatchedCloseCount = 0;
   const unmatchedCloseDays: string[] = [];
   let skippedTradeCount = 0;
+  const skippedDays: string[] = [];
 
   for (const trade of chron) {
     const day = tradeDay(trade);
@@ -509,6 +492,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
     const cash = tradeCash(trade);
     if (!day || qty == null || cash == null || trade.side === "unknown") {
       skippedTradeCount += 1;
+      if (day) skippedDays.push(day);
       continue;
     }
     tradeCount += 1;
@@ -596,6 +580,7 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
     unmatchedCloseCount,
     unmatchedCloseDays,
     skippedTradeCount,
+    skippedDays,
     tradeDays,
     closingDays,
   };
@@ -645,6 +630,7 @@ export function seriesFromLedger(
   const unmatchedCloseCount = ledger.unmatchedCloseDays.filter(
     (d) => d >= start && d <= end,
   ).length;
+  const skippedTradeCount = ledger.skippedDays.filter((d) => d >= start && d <= end).length;
 
   return {
     points,
@@ -654,7 +640,7 @@ export function seriesFromLedger(
       trade_count: tradeCount,
       closing_trade_count: closingTradeCount,
       unmatched_close_count: unmatchedCloseCount,
-      skipped_trade_count: ledger.skippedTradeCount,
+      skipped_trade_count: skippedTradeCount,
     },
   };
 }

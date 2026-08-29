@@ -618,6 +618,120 @@ test("CLOSING equity at strike does not synthesize assignment cover", () => {
   );
 });
 
+test("after-hours close stays on the ET session date for period attribution", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "1",
+      activity_id: 1,
+      trade_date: "2026-08-03T14:00:00.000Z",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1000,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "2",
+      activity_id: 2,
+      // 9:30pm ET Aug 28 → UTC Aug 29; must still count as Aug 28 ET.
+      trade_date: "2026-08-29T01:30:00.000Z",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1200,
+      position_effect: "CLOSING",
+    }),
+  ]);
+  const { summary } = seriesFromLedger(ledger, "2026-08-01", "2026-08-28");
+  assert.equal(summary.period_pnl, 200);
+  assert.equal(summary.closing_trade_count, 1);
+  const outside = seriesFromLedger(ledger, "2026-08-29", "2026-08-31");
+  assert.equal(outside.summary.period_pnl, 0);
+});
+
+test("assignment synth prefers the short expiry closest to the delivery day", () => {
+  const trades = [
+    trade({
+      id: "far-short",
+      activity_id: 1,
+      trade_date: "2026-03-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "CAR   260918P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 400,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "near-short",
+      activity_id: 2,
+      trade_date: "2026-04-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 800,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "assign",
+      activity_id: 3,
+      trade_date: "2026-05-08T04:00:00+0000",
+      side: "buy",
+      symbol: "CAR",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 390,
+      net_amount: -39000,
+      position_effect: "OPENING",
+      description: "AVIS BUDGET GROUP INC",
+    }),
+  ];
+  const synth = synthesizeOptionAssignmentCloses(trades).filter((t) =>
+    t.id.startsWith("synth-assign-"),
+  );
+  assert.equal(synth.length, 1);
+  assert.equal(synth[0]!.symbol, "CAR   260618P00390000");
+});
+
+test("seriesFromLedger scopes skipped_trade_count to the chart window", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "old-skip",
+      activity_id: 1,
+      trade_date: "2025-12-15",
+      side: "unknown",
+      quantity: 10,
+      net_amount: 100,
+      symbol: "OLD",
+    }),
+    trade({
+      id: "new-skip",
+      activity_id: 2,
+      trade_date: "2026-02-10",
+      side: "unknown",
+      quantity: 5,
+      net_amount: 50,
+      symbol: "NEW",
+    }),
+    trade({
+      id: "ok",
+      activity_id: 3,
+      trade_date: "2026-02-11",
+      side: "buy",
+      quantity: 1,
+      net_amount: -10,
+      position_effect: "OPENING",
+      symbol: "OK",
+    }),
+  ]);
+  assert.equal(ledger.skippedTradeCount, 2);
+  const { summary } = seriesFromLedger(ledger, "2026-01-01", "2026-02-28");
+  assert.equal(summary.skipped_trade_count, 1);
+  const outside = seriesFromLedger(ledger, "2026-03-01", "2026-03-31");
+  assert.equal(outside.summary.skipped_trade_count, 0);
+});
+
 test("seriesFromLedger scopes unmatched_close_count to the chart window", () => {
   const ledger = buildRealizedPnlLedger([
     trade({

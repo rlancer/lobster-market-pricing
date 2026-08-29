@@ -14,7 +14,7 @@ import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import ResearchPage from './ResearchPage';
-import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy } from './Docs';
+import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy, DocsSchwabPnl } from './Docs';
 import BrandPage from './Brand';
 import BotsPage from './Bots';
 import UsersPage from './Users';
@@ -290,6 +290,12 @@ const docsDeployRoute = createRoute({
   component: DocsDeploy,
 });
 
+const docsSchwabPnlRoute = createRoute({
+  getParentRoute: () => docsLayoutRoute,
+  path: '/schwab-pnl',
+  component: DocsSchwabPnl,
+});
+
 const docsRoute = docsLayoutRoute.addChildren([
   docsIndexRoute,
   docsOverviewRoute,
@@ -299,6 +305,7 @@ const docsRoute = docsLayoutRoute.addChildren([
   docsFrontendRoute,
   docsRunRoute,
   docsDeployRoute,
+  docsSchwabPnlRoute,
 ]);
 
 const routeTree = rootRoute.addChildren([

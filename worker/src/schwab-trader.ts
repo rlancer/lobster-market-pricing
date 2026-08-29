@@ -119,11 +119,60 @@ export function toTradeAccounts(rows: SchwabAccountNumber[]): SchwabTradeAccount
   return out;
 }
 
-/** YYYY-MM-DD → UTC day bounds for Schwab startDate/endDate. */
+/** America/New_York calendar date as YYYY-MM-DD. */
+export function etDateString(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
+ * Bucket a Schwab timestamp onto the ET trading calendar.
+ * Date-only `YYYY-MM-DD` is returned as-is; ISO timestamps (including Schwab's
+ * `+0000` offset form) convert through America/New_York so after-hours fills
+ * stay on the session date the UI range labels use.
+ */
+export function etTradeDay(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const normalized = trimmed.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const ms = Date.parse(normalized);
+  if (Number.isFinite(ms)) return etDateString(new Date(ms));
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
+}
+
+function addCalendarDay(ymd: string): string {
+  const ms = Date.parse(`${ymd}T12:00:00.000Z`);
+  return new Date(ms + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** UTC instant of local midnight America/New_York on `ymd`. */
+export function etMidnightUtc(ymd: string): Date {
+  for (const offset of ["-04:00", "-05:00"] as const) {
+    const candidate = new Date(`${ymd}T00:00:00.000${offset}`);
+    if (!Number.isFinite(candidate.getTime())) continue;
+    if (etDateString(candidate) !== ymd) continue;
+    const hour = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      hourCycle: "h23",
+    }).format(candidate);
+    if (hour === "00") return candidate;
+  }
+  return new Date(`${ymd}T04:00:00.000Z`);
+}
+
+/** Inclusive ET calendar-day bounds as UTC ISO instants for Schwab startDate/endDate. */
 export function dayBoundsIso(startDate: string, endDate: string): { startIso: string; endIso: string } {
+  const start = etMidnightUtc(startDate);
+  const endExclusive = etMidnightUtc(addCalendarDay(endDate));
   return {
-    startIso: `${startDate}T00:00:00.000Z`,
-    endIso: `${endDate}T23:59:59.999Z`,
+    startIso: start.toISOString(),
+    endIso: new Date(endExclusive.getTime() - 1).toISOString(),
   };
 }
 

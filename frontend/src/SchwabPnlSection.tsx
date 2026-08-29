@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import {
   Area,
   AreaChart,
@@ -155,7 +156,8 @@ export function SchwabPnlSection({
         carried into the chart. Option assignment that delivers stock without an
         option close in Schwab’s TRADE feed is booked as a zero-cash cover so
         short premium is realized. Open mark-to-market, deposits, and withdrawals
-        are not included.
+        are not included.{' '}
+        <Link to="/docs/schwab-pnl" className="portfolio-link">Full matching rules</Link>.
       </Text>
 
       <HStack gap={3} wrap="wrap" justify="between" align="end">

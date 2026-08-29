@@ -62,6 +62,9 @@ test('data query item and sql search both select Query the lake', () => {
 test('docs pages name the topic', () => {
   const meta = pageMetaForUrl('/docs/pipeline');
   assert.equal(meta.title, `Data pipeline – Docs · ${SITE_NAME}`);
+  const pnl = pageMetaForUrl('/docs/schwab-pnl');
+  assert.equal(pnl.title, `Schwab realized PnL – Docs · ${SITE_NAME}`);
+  assert.match(pnl.description ?? '', /FIFO lot matching/);
 });
 
 test('chat, monitor, admin, brand, bots, users, chats, account, and share have route titles', () => {
