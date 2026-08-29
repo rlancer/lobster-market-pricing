@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   legSignedValue,
+  markIsFresh,
+  markStructures,
+  MARK_TTL_MS,
   parseTrackBody,
   quoteMid,
   structureNetValue,
   suggestionKey,
   unrealizedPnl,
 } from "../src/paper-portfolio.ts";
-import type { SuggestedTrade } from "../src/copilot-trades.ts";
+import type { SuggestedTrade, TradeLeg } from "../src/copilot-trades.ts";
 
 test("quoteMid prefers two-sided bid/ask", () => {
   assert.equal(quoteMid(1, 3, 9), 2);
@@ -35,6 +38,13 @@ test("unrealizedPnl is mark − entry", () => {
   assert.equal(unrealizedPnl(500, 700), 200);
   assert.equal(unrealizedPnl(-300, -100), 200);
   assert.equal(unrealizedPnl(100, null), null);
+});
+
+test("markIsFresh respects TTL", () => {
+  const now = 1_000_000;
+  assert.equal(markIsFresh(null, now), false);
+  assert.equal(markIsFresh(now - MARK_TTL_MS + 1, now), true);
+  assert.equal(markIsFresh(now - MARK_TTL_MS - 1, now), false);
 });
 
 const sampleTrade: SuggestedTrade = {
@@ -158,4 +168,52 @@ test("formatPaperPortfolioSummary lists cash and positions", async () => {
   assert.match(text, /AAPL/);
   assert.match(text, /Open PnL/);
   assert.match(text, /bull call debit spread/);
+});
+
+test("markStructures shares one spot query across positions", async () => {
+  const legsA: TradeLeg[] = [
+    { instrument: "option", side: "buy", right: "call", strike: 100, expiration: "2026-09-18" },
+  ];
+  const legsB: TradeLeg[] = [
+    { instrument: "option", side: "buy", right: "put", strike: 90, expiration: "2026-09-18" },
+  ];
+  const sqls: string[] = [];
+  const lake = async (sql: string) => {
+    sqls.push(sql);
+    if (sql.includes("underlying_snapshots")) {
+      return [{ symbol: "AAPL", spot_price: 200 }];
+    }
+    if (sql.includes("option_contracts") && sql.includes("'AAPL'")) {
+      return [
+        { type: "call", strike: 100, expiration: "2026-09-18", bid: 4, ask: 6, last: 5 },
+        { type: "put", strike: 90, expiration: "2026-09-18", bid: 2, ask: 4, last: 3 },
+      ];
+    }
+    if (sql.includes("option_contracts") && sql.includes("'NVDA'")) {
+      return [
+        { type: "call", strike: 140, expiration: "2026-09-18", bid: 8, ask: 10, last: 9 },
+      ];
+    }
+    return [];
+  };
+
+  const marks = await markStructures(lake, [
+    { ticker: "AAPL", legs: legsA, qty: 1 },
+    { ticker: "AAPL", legs: legsB, qty: 1 },
+    {
+      ticker: "NVDA",
+      legs: [
+        { instrument: "option", side: "buy", right: "call", strike: 140, expiration: "2026-09-18" },
+      ],
+      qty: 1,
+    },
+  ]);
+
+  assert.equal(marks.length, 3);
+  assert.equal(marks[0]?.value, 500); // mid 5 × 100
+  assert.equal(marks[1]?.value, 300); // mid 3 × 100
+  assert.equal(marks[2]?.value, 900); // mid 9 × 100
+  // Option-only book: no spot round-trip; one option query per underlying.
+  assert.equal(sqls.filter((s) => s.includes("underlying_snapshots")).length, 0);
+  assert.equal(sqls.filter((s) => s.includes("option_contracts")).length, 2);
 });

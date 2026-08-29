@@ -8,7 +8,9 @@ import { formatTradeLeg, normalizeSuggestedTrades } from "./copilot-trades";
 import { tradesFromToolArgs } from "./admin-trades";
 import { parseToolArgsJson } from "./copilot-tool-events";
 import {
+  markIsFresh,
   markStructure,
+  markStructures,
   suggestionKey,
   unrealizedPnl,
   type LakeSql,
@@ -453,6 +455,33 @@ export async function backfillBotTradesFromToolEvents(
   return { scanned, tracked, already, failed };
 }
 
+/**
+ * Recover missed bot ideas from shares / tool events.
+ * Call from bot-run / suggest_trades paths — not on every public GET.
+ */
+export async function ensureBotTradesBackfilled(
+  db: D1Database,
+  lake: LakeSql,
+  botHandleRaw: string,
+  opts?: { now?: number; shareLimit?: number; eventLimit?: number },
+): Promise<{ scanned: number; tracked: number; already: number; failed: number }> {
+  const now = opts?.now ?? Date.now();
+  const fromShares = await backfillBotTradesFromShares(db, lake, botHandleRaw, {
+    now,
+    limit: opts?.shareLimit ?? 15,
+  });
+  const fromEvents = await backfillBotTradesFromToolEvents(db, lake, botHandleRaw, {
+    now,
+    limit: opts?.eventLimit ?? 25,
+  });
+  return {
+    scanned: fromShares.scanned + fromEvents.scanned,
+    tracked: fromShares.tracked + fromEvents.tracked,
+    already: fromShares.already + fromEvents.already,
+    failed: fromShares.failed + fromEvents.failed,
+  };
+}
+
 export async function listBotTrades(
   db: D1Database,
   lake: LakeSql,
@@ -462,6 +491,7 @@ export async function listBotTrades(
     conviction?: TradeConviction | null;
     refreshMarks?: boolean;
     limit?: number;
+    /** Default false — backfill belongs on bot-run / track paths, not public GET. */
     backfill?: boolean;
   },
   now = Date.now(),
@@ -474,12 +504,9 @@ export async function listBotTrades(
   const refresh = opts?.refreshMarks !== false;
   const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
 
-  if (opts?.backfill !== false) {
+  if (opts?.backfill === true) {
     try {
-      // Shares first (when trades survived the byte budget), then tool events
-      // for the common case where share JSON dropped trades.
-      await backfillBotTradesFromShares(db, lake, botHandle, { now, limit: 15 });
-      await backfillBotTradesFromToolEvents(db, lake, botHandle, { now, limit: 25 });
+      await ensureBotTradesBackfilled(db, lake, botHandle, { now });
     } catch (error) {
       console.warn("bot trades backfill skipped", error);
     }
@@ -505,37 +532,51 @@ export async function listBotTrades(
   }
 
   const positions = rows.results ?? [];
-  const views: BotTradePositionView[] = [];
 
-  for (const row of positions) {
-    if (refresh && row.status === "open") {
+  if (refresh) {
+    const stale: Array<{ row: BotTradePositionRow; legs: TradeLeg[] }> = [];
+    for (const row of positions) {
+      if (row.status !== "open") continue;
+      if (markIsFresh(row.marked_at, now)) continue;
       const legs = parseLegsJson(row.legs_json);
-      if (legs.length) {
-        try {
-          const mark = await markStructure(lake, row.ticker, legs, row.qty, now);
-          if (mark.value != null) {
-            // First successful mark becomes entry when the idea opened unmarkable.
-            const entryValue = row.entry_value ?? mark.value;
-            const entryMarkedAt = row.entry_marked_at ?? now;
-            await db.prepare(
+      if (legs.length) stale.push({ row, legs });
+    }
+    if (stale.length) {
+      try {
+        const marks = await markStructures(
+          lake,
+          stale.map((s) => ({ ticker: s.row.ticker, legs: s.legs, qty: s.row.qty })),
+          now,
+        );
+        const writes: D1PreparedStatement[] = [];
+        for (let i = 0; i < stale.length; i++) {
+          const mark = marks[i];
+          const row = stale[i]!.row;
+          if (!mark || mark.value == null) continue;
+          const entryValue = row.entry_value ?? mark.value;
+          const entryMarkedAt = row.entry_marked_at ?? now;
+          row.mark_value = mark.value;
+          row.marked_at = now;
+          row.entry_value = entryValue;
+          row.entry_marked_at = entryMarkedAt;
+          writes.push(
+            db.prepare(
               `UPDATE bot_trade_positions
                SET mark_value = ?1, marked_at = ?2,
                    entry_value = COALESCE(entry_value, ?1),
                    entry_marked_at = COALESCE(entry_marked_at, ?2)
                WHERE id = ?3`,
-            ).bind(mark.value, now, row.id).run();
-            row.mark_value = mark.value;
-            row.marked_at = now;
-            row.entry_value = entryValue;
-            row.entry_marked_at = entryMarkedAt;
-          }
-        } catch {
-          // Keep last mark.
+            ).bind(mark.value, now, row.id),
+          );
         }
+        if (writes.length) await db.batch(writes);
+      } catch {
+        // Keep last marks.
       }
     }
-    views.push(rowToView(row));
   }
+
+  const views = positions.map(rowToView);
 
   // Book-wide tallies for this bot, optionally scoped by conviction so the
   // performance strip matches the conviction filter while status still only

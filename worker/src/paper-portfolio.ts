@@ -285,6 +285,18 @@ function rowToView(row: PaperPositionRow): PaperPositionView {
   };
 }
 
+/** Lake marks are expensive; skip remake while still within this window. */
+export const MARK_TTL_MS = 10 * 60 * 1000;
+
+/** True when a persisted mark is young enough to serve without another lake round-trip. */
+export function markIsFresh(
+  markedAt: number | null | undefined,
+  now = Date.now(),
+  ttlMs = MARK_TTL_MS,
+): boolean {
+  return markedAt != null && Number.isFinite(markedAt) && now - markedAt < ttlMs;
+}
+
 async function fetchSpotMap(lake: LakeSql, symbols: string[]): Promise<Map<string, number>> {
   const unique = [...new Set(symbols.map((s) => s.toUpperCase()).filter(Boolean))];
   const out = new Map<string, number>();
@@ -315,7 +327,7 @@ async function fetchOptionMids(
   const out = new Map<OptionKey, number>();
   if (keys.length === 0) return out;
 
-  // Batch by underlying to keep SQL bounded.
+  // Batch by underlying to keep SQL bounded; fan out symbols in parallel.
   const bySymbol = new Map<string, typeof keys>();
   for (const k of keys) {
     const list = bySymbol.get(k.symbol) ?? [];
@@ -323,7 +335,7 @@ async function fetchOptionMids(
     bySymbol.set(k.symbol, list);
   }
 
-  for (const [symbol, group] of bySymbol) {
+  await Promise.all([...bySymbol.entries()].map(async ([symbol, group]) => {
     const expirations = [...new Set(group.map((g) => g.expiration))];
     const expList = expirations.map(lit).join(", ");
     const rows = await lake(
@@ -341,26 +353,41 @@ async function fetchOptionMids(
       if (mid == null) continue;
       out.set(optionKey(symbol, right, strike, expiration), mid);
     }
-  }
+  }));
   return out;
 }
 
-/**
- * Mark a structure against lake quotes. Option legs need absolute strike +
- * expiration + right; strike_rel-only legs cannot be marked.
- */
-export async function markStructure(
-  lake: LakeSql,
-  ticker: string,
-  legs: TradeLeg[],
-  structureQty = 1,
-  now = Date.now(),
-): Promise<StructureMark> {
+type PreparedLeg =
+  | {
+    index: number;
+    instrument: "equity";
+    side: "buy" | "sell";
+    qty: number;
+    symbol: string;
+  }
+  | {
+    index: number;
+    instrument: "option";
+    side: "buy" | "sell";
+    qty: number;
+    symbol: string;
+    right?: "call" | "put";
+    strike?: number;
+    expiration?: string;
+    error?: string;
+  };
+
+function prepareStructureLegs(ticker: string, legs: TradeLeg[]): {
+  parent: string;
+  equitySymbols: string[];
+  optionLookups: Array<{ symbol: string; right: string; strike: number; expiration: string; index: number }>;
+  prepared: PreparedLeg[];
+} {
   const parent = ticker.trim().toUpperCase();
   const equitySymbols: string[] = [];
   const optionLookups: Array<{ symbol: string; right: string; strike: number; expiration: string; index: number }> = [];
 
-  const prepared = legs.map((leg, index) => {
+  const prepared: PreparedLeg[] = legs.map((leg, index) => {
     const instrument = resolveInstrument(leg);
     const symbol = (leg.symbol ?? parent).toUpperCase();
     const qty = legQty(leg);
@@ -372,11 +399,11 @@ export async function markStructure(
         qty,
         symbol,
         error: "kalshi legs cannot be marked in the paper book yet",
-      } as const;
+      };
     }
     if (instrument === "equity") {
       equitySymbols.push(symbol);
-      return { index, instrument: "equity" as const, side: leg.side, qty, symbol } as const;
+      return { index, instrument: "equity" as const, side: leg.side, qty, symbol };
     }
     const right = "right" in leg ? leg.right : undefined;
     const strike = "strike" in leg ? leg.strike : undefined;
@@ -392,7 +419,7 @@ export async function markStructure(
         strike: strike ?? undefined,
         expiration: expiration ?? undefined,
         error: "option leg needs right, absolute strike, and expiration to mark",
-      } as const;
+      };
     }
     optionLookups.push({ symbol, right, strike, expiration, index });
     return {
@@ -404,16 +431,21 @@ export async function markStructure(
       right,
       strike,
       expiration,
-    } as const;
+    };
   });
 
-  const [spots, optionMids] = await Promise.all([
-    fetchSpotMap(lake, equitySymbols.length ? equitySymbols : [parent]),
-    fetchOptionMids(lake, optionLookups),
-  ]);
+  return { parent, equitySymbols, optionLookups, prepared };
+}
 
+function completeStructureMark(
+  prepared: PreparedLeg[],
+  structureQty: number,
+  spots: Map<string, number>,
+  optionMids: Map<OptionKey, number>,
+  now: number,
+): StructureMark {
   const legMarks: LegMark[] = prepared.map((p) => {
-    if ("error" in p && p.error) {
+    if (p.instrument === "option" && p.error) {
       return {
         instrument: p.instrument,
         side: p.side,
@@ -430,7 +462,7 @@ export async function markStructure(
     if (p.instrument === "equity") {
       const mid = spots.get(p.symbol) ?? null;
       return {
-        instrument: "equity",
+        instrument: "equity" as const,
         side: p.side,
         qty: p.qty,
         symbol: p.symbol,
@@ -441,7 +473,7 @@ export async function markStructure(
     }
     const mid = optionMids.get(optionKey(p.symbol, p.right!, p.strike!, p.expiration!)) ?? null;
     return {
-      instrument: "option",
+      instrument: "option" as const,
       side: p.side,
       qty: p.qty,
       symbol: p.symbol,
@@ -462,6 +494,63 @@ export async function markStructure(
     marked_at: now,
     incomplete: value == null,
   };
+}
+
+export interface StructureMarkRequest {
+  ticker: string;
+  legs: TradeLeg[];
+  qty?: number;
+}
+
+/**
+ * Mark many structures with shared lake round-trips (one spot query + parallel
+ * option queries by underlying). Use this on portfolio / bot-book list paths.
+ */
+export async function markStructures(
+  lake: LakeSql,
+  requests: StructureMarkRequest[],
+  now = Date.now(),
+): Promise<StructureMark[]> {
+  if (requests.length === 0) return [];
+
+  const preparedList = requests.map((req) => {
+    const qty = req.qty != null && Number.isFinite(req.qty) && req.qty > 0
+      ? Math.floor(req.qty)
+      : 1;
+    const prep = prepareStructureLegs(req.ticker, req.legs);
+    return { ...prep, qty };
+  });
+
+  const allEquity: string[] = [];
+  const allOptions: Array<{ symbol: string; right: string; strike: number; expiration: string; index: number }> = [];
+  for (const prep of preparedList) {
+    allEquity.push(...prep.equitySymbols);
+    allOptions.push(...prep.optionLookups);
+  }
+
+  const [spots, optionMids] = await Promise.all([
+    allEquity.length ? fetchSpotMap(lake, allEquity) : Promise.resolve(new Map<string, number>()),
+    fetchOptionMids(lake, allOptions),
+  ]);
+
+  return preparedList.map((prep) =>
+    completeStructureMark(prep.prepared, prep.qty, spots, optionMids, now),
+  );
+}
+
+/**
+ * Mark a structure against lake quotes. Option legs need absolute strike +
+ * expiration + right; strike_rel-only legs cannot be marked.
+ */
+export async function markStructure(
+  lake: LakeSql,
+  ticker: string,
+  legs: TradeLeg[],
+  structureQty = 1,
+  now = Date.now(),
+): Promise<StructureMark> {
+  const [mark] = await markStructures(lake, [{ ticker, legs, qty: structureQty }], now);
+  return mark!;
 }
 
 export function suggestionKey(chatId: string | null | undefined, tradeIndex: number, trade: SuggestedTrade): string {
@@ -733,28 +822,43 @@ export async function listPortfolio(
   }
 
   const positions = rows.results ?? [];
-  const views: PaperPositionView[] = [];
 
-  for (const row of positions) {
-    if (refresh && row.status === "open") {
+  if (refresh) {
+    const stale: Array<{ row: PaperPositionRow; legs: TradeLeg[] }> = [];
+    for (const row of positions) {
+      if (row.status !== "open") continue;
+      if (markIsFresh(row.marked_at, now)) continue;
       const legs = parseLegsJson(row.legs_json);
-      if (legs.length) {
-        try {
-          const mark = await markStructure(lake, row.ticker, legs, row.qty, now);
-          if (mark.value != null) {
-            await db.prepare(
+      if (legs.length) stale.push({ row, legs });
+    }
+    if (stale.length) {
+      try {
+        const marks = await markStructures(
+          lake,
+          stale.map((s) => ({ ticker: s.row.ticker, legs: s.legs, qty: s.row.qty })),
+          now,
+        );
+        const writes: D1PreparedStatement[] = [];
+        for (let i = 0; i < stale.length; i++) {
+          const mark = marks[i];
+          const row = stale[i]!.row;
+          if (!mark || mark.value == null) continue;
+          row.mark_value = mark.value;
+          row.marked_at = now;
+          writes.push(
+            db.prepare(
               `UPDATE paper_positions SET mark_value = ?1, marked_at = ?2 WHERE id = ?3 AND user_id = ?4`,
-            ).bind(mark.value, now, row.id, userId).run();
-            row.mark_value = mark.value;
-            row.marked_at = now;
-          }
-        } catch {
-          // Keep last persisted mark if lake is unavailable.
+            ).bind(mark.value, now, row.id, userId),
+          );
         }
+        if (writes.length) await db.batch(writes);
+      } catch {
+        // Keep last persisted marks if lake is unavailable.
       }
     }
-    views.push(rowToView(row));
   }
+
+  const views = positions.map(rowToView);
 
   let openPnl = 0;
   let realizedPnl = 0;
