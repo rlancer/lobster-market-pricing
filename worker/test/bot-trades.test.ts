@@ -200,3 +200,95 @@ test("listBotTrades filters positions and tallies by conviction", async () => {
   assert.ok(select, "expected status+conviction select");
   assert.deepEqual(select!.binds.slice(0, 3), ["yololobster", "open", "high"]);
 });
+
+test("listBotTrades skips lake when marks are fresh", async () => {
+  const { listBotTrades } = await import("../src/bot-trades.ts");
+  const now = Date.now();
+  const openHigh = {
+    id: "bpos_high",
+    bot_handle: "yololobster",
+    status: "open",
+    chat_id: "c1",
+    share_id: null,
+    run_id: null,
+    suggestion_key: "sug_high",
+    ticker: "NVDA",
+    bias: "bullish",
+    conviction: "high",
+    structure: "long call",
+    rationale: "x",
+    liquidity: null,
+    legs_json: JSON.stringify([
+      { instrument: "option", side: "buy", right: "call", strike: 140, expiration: "2026-09-18" },
+    ]),
+    qty: 1,
+    entry_value: 100,
+    entry_marked_at: now - 60_000,
+    mark_value: 150,
+    marked_at: now - 60_000,
+    realized_pnl: null,
+    opened_at: 10,
+    closed_at: null,
+  };
+
+  let lakeCalls = 0;
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind() { return this; },
+        async all() {
+          if (sql.includes("SELECT *") && sql.includes("bot_trade_positions")) {
+            return { results: [openHigh] };
+          }
+          return { results: [] };
+        },
+        async first() {
+          if (sql.includes("SUM(CASE WHEN status")) {
+            return { open_count: 1, closed_count: 0, realized_pnl: 0 };
+          }
+          return null;
+        },
+        async run() { return { meta: { changes: 0 } }; },
+      };
+    },
+    async batch() { return []; },
+  } as unknown as D1Database;
+
+  const lake = async () => {
+    lakeCalls += 1;
+    return [];
+  };
+
+  const book = await listBotTrades(db, lake, "yololobster", {
+    status: "open",
+    refreshMarks: true,
+  }, now);
+  assert.ok(book);
+  assert.equal(lakeCalls, 0);
+  assert.equal(book!.positions[0]?.mark_value, 150);
+});
+
+test("listBotTrades does not backfill by default", async () => {
+  const { listBotTrades } = await import("../src/bot-trades.ts");
+  const statements: string[] = [];
+  const db = {
+    prepare(sql: string) {
+      statements.push(sql);
+      return {
+        bind() { return this; },
+        async all() { return { results: [] }; },
+        async first() {
+          if (sql.includes("SUM(CASE WHEN status")) {
+            return { open_count: 0, closed_count: 0, realized_pnl: 0 };
+          }
+          return null;
+        },
+        async run() { return { meta: { changes: 0 } }; },
+      };
+    },
+    async batch() { return []; },
+  } as unknown as D1Database;
+
+  await listBotTrades(db, async () => [], "yololobster", { status: "open" });
+  assert.ok(!statements.some((s) => s.includes("shared_chats") || s.includes("copilot_tool_events")));
+});

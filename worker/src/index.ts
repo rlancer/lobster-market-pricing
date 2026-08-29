@@ -159,7 +159,7 @@ import {
 } from "./enroll-symbol";
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
-import { listBotTrades, trackBotSuggestedTrades } from "./bot-trades";
+import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
 import { handleSchwab } from "./schwab-http";
 import { schwabConfigured } from "./schwab";
 
@@ -2593,7 +2593,19 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       chatId,
       trades,
       { runId },
-    );
+    ).then(async (result) => {
+      // Catch-up historical ideas off the public portfolio GET path.
+      try {
+        await ensureBotTradesBackfilled(
+          this.env.SCHEMA_DB!,
+          (sql, key) => r2sql(this.env, sql, key),
+          handle,
+        );
+      } catch (error) {
+        console.warn("bot trades backfill after track failed", error);
+      }
+      return result;
+    });
   }
 
   /** Load paper book for get_paper_portfolio (same owner resolution as auto-track). */
@@ -3534,11 +3546,12 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       : "open";
     const conviction = parseConviction(url.searchParams.get("conviction"));
     const refresh = url.searchParams.get("refresh") !== "0";
+    const backfill = url.searchParams.get("backfill") === "1";
     const book = await listBotTrades(
       env.SCHEMA_DB,
       (sql, key) => r2sql(env, sql, key),
       bot.handle,
-      { status, conviction, refreshMarks: refresh },
+      { status, conviction, refreshMarks: refresh, backfill },
     );
     if (!book) return json(env, { error: "not found" }, 404);
     return json(env, { ok: true, ...book });
@@ -3818,6 +3831,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const outcome = await runOneBotSchedule(env, schedule, {
       force,
       waitUntil: (p) => ctx.waitUntil(p),
+      lake: (sql, key) => r2sql(env, sql, key),
     });
     if (outcome.ok && outcome.deferred) {
       return json(env, {
@@ -3841,7 +3855,10 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
   if (schedulesTick && req.method === "POST") {
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
-    const summary = await runDueBotSchedules(env, { waitUntil: (p) => ctx.waitUntil(p) });
+    const summary = await runDueBotSchedules(env, {
+      waitUntil: (p) => ctx.waitUntil(p),
+      lake: (sql, key) => r2sql(env, sql, key),
+    });
     return json(env, { ok: true, ...summary }, 200, "private");
   }
 
@@ -4269,7 +4286,10 @@ export default {
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
-      runDueBotSchedules(env, { waitUntil: (p) => ctx.waitUntil(p) }).then((summary) => {
+      runDueBotSchedules(env, {
+        waitUntil: (p) => ctx.waitUntil(p),
+        lake: (sql, key) => r2sql(env, sql, key),
+      }).then((summary) => {
         console.log(JSON.stringify({ botSchedules: true, ...summary }));
       }).catch((error) => {
         console.error("bot schedules tick failed", error);

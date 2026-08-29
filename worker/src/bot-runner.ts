@@ -30,7 +30,8 @@ import type { ShareTurn } from "./share-turns";
 import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 import { clipTitle, TITLE_MAX } from "./user-chats";
-import { linkBotTradesShare } from "./bot-trades";
+import { linkBotTradesShare, ensureBotTradesBackfilled } from "./bot-trades";
+import type { LakeSql } from "./paper-portfolio";
 
 const SHARE_MAX_CONTENT = 5_000;
 const SHARE_MAX_SQL = 10_000;
@@ -263,7 +264,11 @@ export async function runBotChatAndShare(
   env: BotRunnerEnv,
   bot: BotProfile,
   prompt: string,
-  opts?: { waitUntil?: (p: Promise<unknown>) => void },
+  opts?: {
+    waitUntil?: (p: Promise<unknown>) => void;
+    /** When set, recover missed bot ideas after share (off the public GET path). */
+    lake?: LakeSql;
+  },
 ): Promise<
   | { ok: true; run: BotRun; share_id: string; chat_id: string }
   | { ok: false; error: string; run?: BotRun }
@@ -328,6 +333,13 @@ export async function runBotChatAndShare(
       await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "failed", error: share.error });
       return { ok: false, error: share.error, run };
     }
+    if (opts?.lake) {
+      const backfill = ensureBotTradesBackfilled(env.SCHEMA_DB, opts.lake, bot.handle).catch((error) => {
+        console.warn("bot trades backfill after share failed", error);
+      });
+      if (opts.waitUntil) opts.waitUntil(backfill);
+      else await backfill;
+    }
     const updated = await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "shared", share_id: share.share_id });
     return {
       ok: true,
@@ -345,7 +357,11 @@ export async function runBotChatAndShare(
 export async function runOneBotSchedule(
   env: BotRunnerEnv,
   schedule: BotSchedule,
-  opts?: { force?: boolean; waitUntil?: (p: Promise<unknown>) => void },
+  opts?: {
+    force?: boolean;
+    waitUntil?: (p: Promise<unknown>) => void;
+    lake?: LakeSql;
+  },
 ): Promise<
   | { ok: true; deferred?: false; run: BotRun; share_id: string }
   | { ok: true; deferred: true; reason: string; next_run_at: number }
@@ -367,7 +383,10 @@ export async function runOneBotSchedule(
     return { ok: false, error: "bot missing or disabled" };
   }
 
-  const result = await runBotChatAndShare(env, bot, schedule.prompt, { waitUntil: opts?.waitUntil });
+  const result = await runBotChatAndShare(env, bot, schedule.prompt, {
+    waitUntil: opts?.waitUntil,
+    lake: opts?.lake,
+  });
   if (!result.ok) {
     await markScheduleFailure(env.SCHEMA_DB, schedule.handle, result.error, now, env);
     return { ok: false, error: result.error };
@@ -379,7 +398,7 @@ export async function runOneBotSchedule(
 /** Cron entry — process due schedules sequentially (single-flight per handle). */
 export async function runDueBotSchedules(
   env: BotRunnerEnv,
-  opts?: { waitUntil?: (p: Promise<unknown>) => void },
+  opts?: { waitUntil?: (p: Promise<unknown>) => void; lake?: LakeSql },
 ): Promise<{
   processed: number;
   ran: number;
@@ -396,7 +415,10 @@ export async function runDueBotSchedules(
     try {
       const live = await getBotSchedule(env.SCHEMA_DB, schedule.handle);
       if (!live || !live.enabled) continue;
-      const outcome = await runOneBotSchedule(env, live, { waitUntil: opts?.waitUntil });
+      const outcome = await runOneBotSchedule(env, live, {
+        waitUntil: opts?.waitUntil,
+        lake: opts?.lake,
+      });
       if (outcome.ok && outcome.deferred) {
         deferred += 1;
         results.push({ handle: schedule.handle, status: "deferred", detail: outcome.reason });

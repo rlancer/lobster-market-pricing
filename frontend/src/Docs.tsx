@@ -157,7 +157,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
-  { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (lake marks + open/realized PnL; optional status + conviction filters)' },
+  { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (D1 book + lake marks with TTL; optional status/conviction; refresh=0 skips remake; backfill=1 recovers missed ideas)' },
   { method: 'GET', path: '/api/reply-styles', desc: 'Canned Copilot reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },

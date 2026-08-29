@@ -72,14 +72,26 @@ export function BotTradesSection({
     setLoading(true);
     setError(null);
     try {
-      setBook(await api.botTrades(handle, {
+      // Instant D1 book first; then refresh stale lake marks (server TTL skips fresh rows).
+      const cached = await api.botTrades(handle, {
         status,
         conviction: conviction === 'all' ? undefined : conviction,
-      }));
+        refresh: false,
+      });
+      setBook(cached);
+      setLoading(false);
+      try {
+        const live = await api.botTrades(handle, {
+          status,
+          conviction: conviction === 'all' ? undefined : conviction,
+        });
+        setBook(live);
+      } catch {
+        // Keep cached marks if the refresh pass fails.
+      }
     } catch (err) {
       setError(String((err as Error)?.message ?? err));
       setBook(null);
-    } finally {
       setLoading(false);
     }
   }, [handle]);
