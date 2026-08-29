@@ -7,6 +7,7 @@
  * POST /api/schwab/disconnect — drop stored tokens
  * GET  /api/schwab/portfolio  — linked accounts, balances, positions (no tokens)
  * GET  /api/schwab/trades     — historical TRADE transactions (≤366 days)
+ * GET  /api/schwab/pnl        — realized trading PnL time series (MTD/YTD/…)
  */
 
 import {
@@ -24,6 +25,7 @@ import {
   type SchwabEnv,
 } from "./schwab";
 import { loadSchwabPortfolio } from "./schwab-portfolio";
+import { loadSchwabPnl, resolvePnlRange } from "./schwab-pnl";
 import { loadSchwabTrades, parseTradeDateRange } from "./schwab-trader";
 import { getSessionUser } from "./auth";
 
@@ -200,6 +202,30 @@ export async function handleSchwab(
       end: range.end,
       accountId: url.searchParams.get("account"),
       symbol: url.searchParams.get("symbol"),
+    });
+    if (!result.ok) {
+      if (result.reason === "bad_request") return json({ error: result.message }, 400);
+      return schwabLoadError(result);
+    }
+    return json({ ok: true, ...result.view });
+  }
+
+  if (path === "/api/schwab/pnl" && req.method === "GET") {
+    if (!schwabConfigured(env)) {
+      return json({ error: "Schwab is not configured on this deployment" }, 503);
+    }
+    const user = await getSessionUser(env, req);
+    if (!user) return unauthorized();
+
+    const url = new URL(req.url);
+    const range = resolvePnlRange(url.searchParams.get("range"));
+    if ("error" in range) return json({ error: range.error }, 400);
+
+    const result = await loadSchwabPnl(env, user.id, {
+      range: range.range,
+      start: range.start,
+      end: range.end,
+      accountId: url.searchParams.get("account"),
     });
     if (!result.ok) {
       if (result.reason === "bad_request") return json({ error: result.message }, 400);

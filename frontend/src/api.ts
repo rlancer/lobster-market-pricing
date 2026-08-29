@@ -946,6 +946,32 @@ export interface SchwabTradesResponse {
   may_be_truncated?: boolean;
 }
 
+export type SchwabPnlRange = 'MTD' | 'YTD' | '1M' | '3M' | '6M' | '1Y';
+
+export interface SchwabPnlPoint {
+  date: string;
+  daily_pnl: number;
+  cumulative_pnl: number;
+}
+
+export interface SchwabPnlResponse {
+  ok: true;
+  accounts: Array<{ id: string; label: string }>;
+  account: string | null;
+  range: SchwabPnlRange;
+  start: string;
+  end: string;
+  points: SchwabPnlPoint[];
+  summary: {
+    period_pnl: number;
+    trade_count: number;
+    closing_trade_count: number;
+    unmatched_close_count: number;
+    skipped_trade_count: number;
+  };
+  may_be_truncated?: boolean;
+}
+
 export interface ProfileMe {
   ok: true;
   id: string;
@@ -1680,6 +1706,13 @@ export const api = {
         end: opts?.end,
         account: opts?.account,
         symbol: opts?.symbol,
+      })}`,
+    ),
+  schwabPnl: (opts?: { range?: SchwabPnlRange; account?: string }) =>
+    get<SchwabPnlResponse>(
+      `/api/schwab/pnl${qs({
+        range: opts?.range,
+        account: opts?.account,
       })}`,
     ),
   disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),

@@ -245,9 +245,12 @@ non-HTTPS. Prefer testing Connect on `https://dev.lobster.mp` → `api-dev`.
 
 **API surface:** `GET /api/schwab/status`, `GET /api/schwab/connect` (302 →
 Schwab), `GET /api/schwab/callback`, `POST /api/schwab/disconnect`,
-`GET /api/schwab/portfolio` (accounts + positions). Health reports
-`auth.schwab` when both secrets are present. Portfolio UI shows a **Schwab**
-book tab beside suggested trades and the paper book when configured.
+`GET /api/schwab/portfolio` (accounts + positions),
+`GET /api/schwab/trades` (TRADE history ≤366 days),
+`GET /api/schwab/pnl` (realized trading PnL series: MTD / YTD / 1M / 3M / 6M / 1Y).
+Health reports `auth.schwab` when both secrets are present. Portfolio UI shows a
+**Schwab** book tab beside suggested trades and the paper book when configured,
+with Positions, Performance, and Trade history panes.
 
 **Portal / ops gotchas (learned the hard way):**
 
@@ -345,6 +348,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account` or `/portfolio`. |
 | `POST /api/schwab/disconnect` | Delete stored Schwab tokens for the signed-in user. |
 | `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. |
+| `GET /api/schwab/trades` | Historical TRADE transactions for a linked account (`start`/`end` YYYY-MM-DD, optional `account` + `symbol`). Schwab caps a single query at ≤366 days. |
+| `GET /api/schwab/pnl` | Realized trading PnL time series from TRADE history (`range=MTD\|YTD\|1M\|3M\|6M\|1Y`, optional `account`). FIFO lot matching; cumulative curve for the Portfolio Performance pane. Not an equity curve (excludes deposits/withdrawals and open MTM). |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
 | `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
