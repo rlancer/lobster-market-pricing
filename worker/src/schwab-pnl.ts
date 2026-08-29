@@ -154,6 +154,224 @@ function tradeDay(trade: SchwabTrade): string | null {
   return raw.length >= 10 ? raw.slice(0, 10) : null;
 }
 
+/** Parsed OCC equity-option symbol (`AAPL  240119C00150000`). */
+export type OccOption = {
+  root: string;
+  /** Underlying ticker (root trimmed). */
+  underlying: string;
+  /** YYMMDD expiration. */
+  expiration: string;
+  right: "C" | "P";
+  strike: number;
+};
+
+/**
+ * Parse a Schwab/OCC option symbol. Accepts space-padded roots
+ * (`CAR   260618P00390000`) and compact forms.
+ */
+export function parseOccOptionSymbol(symbol: string | null | undefined): OccOption | null {
+  if (!symbol) return null;
+  const compact = symbol.toUpperCase().replace(/\s+/g, "");
+  const m = /^([A-Z0-9.\-]{1,6})(\d{6})([CP])(\d{8})$/.exec(compact);
+  if (!m) return null;
+  const strikeRaw = Number(m[4]);
+  if (!Number.isFinite(strikeRaw)) return null;
+  return {
+    root: m[1]!,
+    underlying: m[1]!,
+    expiration: m[2]!,
+    right: m[3] as "C" | "P",
+    strike: strikeRaw / 1000,
+  };
+}
+
+function isEquityLike(trade: SchwabTrade): boolean {
+  const at = (trade.asset_type ?? "").toUpperCase();
+  if (at === "OPTION") return false;
+  if (at === "EQUITY" || at === "COLLECTIVE_INVESTMENT") return true;
+  // Fall back: non-OCC symbols are treated as underlyings.
+  return parseOccOptionSymbol(trade.symbol) == null && Boolean(trade.symbol);
+}
+
+function strikeMatchesDelivery(strike: number, deliveryPrice: number): boolean {
+  // Assignment/exercise delivers shares at the option strike (penny tolerance).
+  return Math.abs(strike - deliveryPrice) <= 0.051;
+}
+
+type OpenShortOption = {
+  trade: SchwabTrade;
+  occ: OccOption;
+  /** Remaining short contracts. */
+  qty: number;
+};
+
+/**
+ * Schwab TRADE history often omits the option close on assignment — only the
+ * underlying delivery appears (buy stock at put strike / sell at call strike).
+ * Without a synthetic cover, short option premium stays unrealized and the
+ * chart dumps the full stock loss (e.g. May 8 CAR put spread).
+ *
+ * Insert zero-cash buy-to-close (put) or sell-to-close (call) rows immediately
+ * before matching equity delivery fills.
+ */
+export function synthesizeOptionAssignmentCloses(trades: SchwabTrade[]): SchwabTrade[] {
+  const chron = [...trades].sort((a, b) => {
+    const da = a.trade_date ?? "";
+    const db = b.trade_date ?? "";
+    if (da !== db) return da.localeCompare(db);
+    const ia = a.activity_id ?? 0;
+    const ib = b.activity_id ?? 0;
+    return ia - ib;
+  });
+
+  const openShorts: OpenShortOption[] = [];
+  const out: SchwabTrade[] = [];
+  let synthSeq = 0;
+
+  const bumpShort = (trade: SchwabTrade, signedContracts: number) => {
+    const occ = parseOccOptionSymbol(trade.symbol);
+    if (!occ || signedContracts === 0) return;
+    if (signedContracts < 0) {
+      // Opening / adding short.
+      openShorts.push({ trade, occ, qty: Math.abs(signedContracts) });
+      return;
+    }
+    // Covering short (buy put / buy call to close).
+    let left = signedContracts;
+    for (const lot of openShorts) {
+      if (left <= 1e-12) break;
+      if (lot.qty <= 1e-12) continue;
+      if (lot.occ.root !== occ.root || lot.occ.right !== occ.right) continue;
+      if (lot.occ.expiration !== occ.expiration) continue;
+      if (Math.abs(lot.occ.strike - occ.strike) > 0.0005) continue;
+      const take = Math.min(lot.qty, left);
+      lot.qty -= take;
+      left -= take;
+    }
+  };
+
+  for (const trade of chron) {
+    const occ = parseOccOptionSymbol(trade.symbol);
+    const qty = absQty(trade);
+    const day = tradeDay(trade);
+
+    if (isEquityLike(trade) && qty != null && day && trade.side !== "unknown") {
+      const deliveryPrice =
+        trade.price != null && Number.isFinite(trade.price)
+          ? Math.abs(trade.price)
+          : trade.net_amount != null && qty > 0
+            ? Math.abs(trade.net_amount) / qty
+            : null;
+      const contracts = qty / 100;
+      const isRoundContracts = Math.abs(contracts - Math.round(contracts)) < 1e-9 && contracts >= 1;
+
+      if (deliveryPrice != null && isRoundContracts) {
+        const need = Math.round(contracts);
+        let remaining = need;
+
+        // Short put assignment → buy underlying at strike.
+        if (trade.side === "buy") {
+          for (const lot of openShorts) {
+            if (remaining <= 0) break;
+            if (lot.qty <= 1e-12) continue;
+            if (lot.occ.right !== "P") continue;
+            const und = (trade.symbol ?? "").toUpperCase();
+            if (lot.occ.underlying !== und) continue;
+            if (!strikeMatchesDelivery(lot.occ.strike, deliveryPrice)) continue;
+
+            const take = Math.min(lot.qty, remaining);
+            synthSeq += 1;
+            const activityId =
+              trade.activity_id != null ? trade.activity_id - synthSeq : null;
+            out.push({
+              id: `synth-assign-${trade.id}-${lot.trade.id}-${synthSeq}`,
+              activity_id: activityId,
+              trade_date: trade.trade_date,
+              settlement_date: trade.settlement_date,
+              description: `Option assignment close (${lot.trade.symbol})`,
+              status: "VALID",
+              activity_type: "ASSIGNMENT",
+              net_amount: 0,
+              symbol: lot.trade.symbol,
+              underlying: lot.occ.underlying,
+              asset_type: "OPTION",
+              quantity: take,
+              price: 0,
+              cost: 0,
+              fees: 0,
+              side: "buy",
+              position_effect: "CLOSING",
+              order_id: null,
+              position_id: null,
+            });
+            lot.qty -= take;
+            remaining -= take;
+          }
+        }
+
+        // Short call assignment → sell underlying at strike; cover the short call.
+        if (trade.side === "sell") {
+          for (const lot of openShorts) {
+            if (remaining <= 0) break;
+            if (lot.qty <= 1e-12) continue;
+            if (lot.occ.right !== "C") continue;
+            const und = (trade.symbol ?? "").toUpperCase();
+            if (lot.occ.underlying !== und) continue;
+            if (!strikeMatchesDelivery(lot.occ.strike, deliveryPrice)) continue;
+
+            const take = Math.min(lot.qty, remaining);
+            synthSeq += 1;
+            const activityId =
+              trade.activity_id != null ? trade.activity_id - synthSeq : null;
+            out.push({
+              id: `synth-assign-${trade.id}-${lot.trade.id}-${synthSeq}`,
+              activity_id: activityId,
+              trade_date: trade.trade_date,
+              settlement_date: trade.settlement_date,
+              description: `Option assignment close (${lot.trade.symbol})`,
+              status: "VALID",
+              activity_type: "ASSIGNMENT",
+              net_amount: 0,
+              symbol: lot.trade.symbol,
+              underlying: lot.occ.underlying,
+              asset_type: "OPTION",
+              quantity: take,
+              price: 0,
+              cost: 0,
+              fees: 0,
+              side: "buy",
+              position_effect: "CLOSING",
+              order_id: null,
+              position_id: null,
+            });
+            lot.qty -= take;
+            remaining -= take;
+          }
+        }
+      }
+    }
+
+    out.push(trade);
+
+    if (occ && qty != null && trade.side !== "unknown") {
+      const effect = (trade.position_effect ?? "").toUpperCase();
+      if (trade.side === "sell" && effect !== "CLOSING") {
+        // Opening (or unknown) short sale — track for later assignment.
+        bumpShort(trade, -qty);
+      } else if (trade.side === "buy" && effect === "CLOSING") {
+        bumpShort(trade, qty);
+      } else if (trade.side === "buy" && effect !== "OPENING") {
+        // Unknown effect buy may be a cover.
+        bumpShort(trade, qty);
+      }
+      // SELL+CLOSING closes a long — ignore for short inventory.
+      // BUY+OPENING opens a long — ignore.
+    }
+  }
+
+  return out;
+}
+
 function lotKey(trade: SchwabTrade): string {
   // Prefer symbol over position_id — Schwab often assigns different position
   // ids on open vs close, which would orphan closes and zero out period PnL.
@@ -216,14 +434,7 @@ export interface RealizedPnlLedger {
  * close lots and emit realized events.
  */
 export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger {
-  const chron = [...trades].sort((a, b) => {
-    const da = a.trade_date ?? "";
-    const db = b.trade_date ?? "";
-    if (da !== db) return da.localeCompare(db);
-    const ia = a.activity_id ?? 0;
-    const ib = b.activity_id ?? 0;
-    return ia - ib;
-  });
+  const chron = synthesizeOptionAssignmentCloses(trades);
 
   const books = new Map<string, Lot[]>();
   const events: RealizedEvent[] = [];

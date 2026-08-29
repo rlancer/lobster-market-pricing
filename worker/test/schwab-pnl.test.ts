@@ -5,8 +5,10 @@ import {
   buildRealizedPnlLedger,
   fetchWindowForPnl,
   normalizeSchwabDistribution,
+  parseOccOptionSymbol,
   resolvePnlRange,
   seriesFromLedger,
+  synthesizeOptionAssignmentCloses,
   SCHWAB_PNL_RANGES,
 } from "../src/schwab-pnl.ts";
 import type { SchwabTrade } from "../src/schwab-trader.ts";
@@ -337,4 +339,109 @@ test("buildPnlFills includes fees from the closing trade", () => {
   assert.equal(fills[0]!.fees, 5);
   assert.equal(fills[0]!.realized_pnl, 145);
   assert.equal(fills[0]!.quantity, 10);
+});
+
+test("parseOccOptionSymbol reads root right strike", () => {
+  const p = parseOccOptionSymbol("CAR   260618P00390000");
+  assert.ok(p);
+  assert.equal(p!.underlying, "CAR");
+  assert.equal(p!.right, "P");
+  assert.equal(p!.strike, 390);
+  assert.equal(parseOccOptionSymbol("AAPL") , null);
+});
+
+test("short put assignment synthesizes zero-cash cover before stock delivery", () => {
+  // Debit put spread: long 500 / short 390, then short assigned + long closed.
+  const trades = [
+    trade({
+      id: "117236520805",
+      activity_id: 117236520805,
+      trade_date: "2026-04-22T16:12:19+0000",
+      side: "buy",
+      symbol: "CAR   260618P00500000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      price: 142.6,
+      net_amount: -14260.66,
+      fees: 0.66,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "117236520806",
+      activity_id: 117236520806,
+      trade_date: "2026-04-22T16:12:19+0000",
+      side: "sell",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: -1,
+      price: 83.1,
+      net_amount: 8309.17,
+      fees: 0.83,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "118595999427",
+      activity_id: 118595999427,
+      trade_date: "2026-05-08T04:00:00+0000",
+      side: "buy",
+      symbol: "CAR",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 390,
+      net_amount: -39000,
+      position_effect: "OPENING",
+      description: "AVIS BUDGET GROUP INC",
+    }),
+    trade({
+      id: "118647308762",
+      activity_id: 118647308762,
+      trade_date: "2026-05-08T04:00:00+0000",
+      side: "sell",
+      symbol: "CAR   260618P00500000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: -1,
+      price: 354.6,
+      net_amount: 35458.61,
+      fees: 1.39,
+      position_effect: "CLOSING",
+    }),
+    trade({
+      id: "118647309307",
+      activity_id: 118647309307,
+      trade_date: "2026-05-08T15:14:53+0000",
+      side: "sell",
+      symbol: "CAR",
+      asset_type: "EQUITY",
+      quantity: -100,
+      price: 145.14,
+      net_amount: 14513.68,
+      fees: 0.32,
+      position_effect: "CLOSING",
+    }),
+  ];
+
+  const withSynth = synthesizeOptionAssignmentCloses(trades);
+  const synth = withSynth.find((t) => t.id.startsWith("synth-assign-"));
+  assert.ok(synth);
+  assert.equal(synth!.symbol, "CAR   260618P00390000");
+  assert.equal(synth!.side, "buy");
+  assert.equal(synth!.net_amount, 0);
+  assert.equal(synth!.position_effect, "CLOSING");
+
+  const ledger = buildRealizedPnlLedger(trades);
+  const { summary } = seriesFromLedger(ledger, "2026-01-01", "2026-05-31");
+  // Long 500 close ≈ +21197.95; short 390 assign cover ≈ +8309.17; stock ≈ -24486.32
+  // Net ≈ +5020.8 (width of spread minus debit), not the bogus −3288 without synth.
+  assert.ok(summary.period_pnl > 4900 && summary.period_pnl < 5200, `got ${summary.period_pnl}`);
+
+  const may8 = ledger.events.filter((e) => e.day === "2026-05-08").reduce((s, e) => s + e.amount, 0);
+  assert.ok(may8 > 4900 && may8 < 5200, `may8 ${may8}`);
+
+  const fills = buildPnlFills(ledger, "2026-05-01", "2026-05-10");
+  const shortPut = fills.find((f) => f.symbol === "CAR   260618P00390000");
+  assert.ok(shortPut);
+  assert.ok((shortPut!.realized_pnl ?? 0) > 8200);
 });
