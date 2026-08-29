@@ -289,9 +289,9 @@ export async function upsertSchwabConnection(
 ): Promise<void> {
   const expiresAt = now + Math.max(60, Number(tokens.expires_in ?? 1800)) * 1000;
   const existing = await db
-    .prepare("SELECT connected_at FROM schwab_connections WHERE user_id = ?")
+    .prepare("SELECT connected_at, refresh_token FROM schwab_connections WHERE user_id = ?")
     .bind(userId)
-    .first<{ connected_at: number }>();
+    .first<{ connected_at: number; refresh_token: string }>();
   const connectedAt = existing?.connected_at ?? now;
   const refreshToken = tokens.refresh_token?.trim() || existing?.refresh_token;
   if (!refreshToken) {
