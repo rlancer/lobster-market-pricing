@@ -281,7 +281,9 @@ export async function handleSchwab(
       start: tradeStart,
       end: tradeEnd,
       accountId: result.view.account,
-      symbol: symbolFilter && !symbolFilter.includes(" ") ? symbolFilter : null,
+      // Always fetch the window unfiltered — Schwab's symbol= param misses
+      // option OCC symbols; we substring-filter client-side below.
+      symbol: null,
     });
     const sampleTrades =
       tradesResult.ok
