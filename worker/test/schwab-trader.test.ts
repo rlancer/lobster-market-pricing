@@ -94,7 +94,43 @@ test("normalizeTrade extracts equity leg + fees", () => {
   assert.equal(trade.id, "9876543210");
 });
 
-test("normalizeTrade builds a readable option symbol when needed", () => {
+test("normalizeTrade prefers equity leg over CURRENCY_USD cash leg", () => {
+  const trade = normalizeTrade({
+    activityId: 42,
+    description: "SOLD 50 AAPL @ 200",
+    type: "TRADE",
+    status: "VALID",
+    tradeDate: "2026-06-01T15:00:00.000Z",
+    netAmount: 9990,
+    activityType: "EXECUTION",
+    transferItems: [
+      {
+        instrument: { assetType: "CURRENCY", symbol: "CURRENCY_USD" },
+        amount: 0,
+        cost: 9990,
+        price: 0,
+      },
+      {
+        instrument: {
+          assetType: "EQUITY",
+          symbol: "AAPL",
+          description: "Apple Inc",
+        },
+        amount: -50,
+        cost: 10000,
+        price: 200,
+        positionEffect: "CLOSING",
+      },
+      { amount: -10, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trade.symbol, "AAPL");
+  assert.equal(trade.asset_type, "EQUITY");
+  assert.equal(trade.side, "sell");
+  assert.equal(trade.quantity, -50);
+  assert.equal(trade.position_effect, "CLOSING");
+  assert.equal(trade.fees, -10);
+});
   const trade = normalizeTrade({
     activityId: 1,
     description: "SOLD 1 SPY PUT",

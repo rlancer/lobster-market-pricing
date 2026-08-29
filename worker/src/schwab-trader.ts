@@ -156,11 +156,24 @@ export function parseTradeDateRange(
   return { start, end };
 }
 
+function isCurrencyItem(item: SchwabRawTransferItem): boolean {
+  const asset = (item.instrument?.assetType ?? item.instrument?.type ?? "").toUpperCase();
+  const sym = (item.instrument?.symbol ?? "").toUpperCase();
+  if (item.feeType) return true;
+  if (asset === "CURRENCY") return true;
+  if (sym === "USD" || sym.startsWith("CURRENCY_")) return true;
+  return false;
+}
+
 function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem | null {
+  // Prefer real securities — cash/CURRENCY legs also carry a symbol (CURRENCY_USD)
+  // and must not win over the equity/option transfer item on the same TRADE.
   for (const item of items) {
+    if (isCurrencyItem(item)) continue;
     if (item.instrument?.symbol || item.instrument?.underlyingSymbol) return item;
   }
   for (const item of items) {
+    if (isCurrencyItem(item)) continue;
     if (item.instrument) return item;
   }
   return null;
