@@ -20,6 +20,8 @@ export interface SchwabEnv extends AuthEnv {
   SCHWAB_CLIENT_SECRET?: string;
   /** Optional override; must match a Callback URL registered in the Schwab portal. */
   SCHWAB_REDIRECT_URI?: string;
+  /** Used by admin Schwab diagnostics (`/api/admin/schwab/*`). */
+  ADMIN_TOKEN?: string;
 }
 
 export interface SchwabConnectionStatus {

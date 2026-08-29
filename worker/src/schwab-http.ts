@@ -28,6 +28,7 @@ import { loadSchwabPortfolio } from "./schwab-portfolio";
 import { loadSchwabPnl, resolvePnlRange } from "./schwab-pnl";
 import { loadSchwabTrades, parseTradeDateRange } from "./schwab-trader";
 import { getSessionUser } from "./auth";
+import { adminTokenAuthorized } from "./bots";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -238,6 +239,66 @@ export async function handleSchwab(
       return schwabLoadError(result);
     }
     return json({ ok: true, ...result.view });
+  }
+
+  // Admin diagnostic: run PnL / trades for a user_id using their stored Schwab
+  // connection (Bearer ADMIN_TOKEN). Tokens never leave the Worker.
+  if (path === "/api/admin/schwab/pnl" && req.method === "GET") {
+    if (!adminTokenAuthorized(req, env)) return unauthorized();
+    if (!schwabConfigured(env)) {
+      return json({ error: "Schwab is not configured on this deployment" }, 503);
+    }
+    const url = new URL(req.url);
+    const userId = url.searchParams.get("user_id")?.trim();
+    if (!userId) return json({ error: "user_id is required" }, 400);
+    const range = resolvePnlRange(url.searchParams.get("range"));
+    if ("error" in range) return json({ error: range.error }, 400);
+
+    const status = await getSchwabConnectionStatus(env, { id: userId, email: "", name: "" });
+    const result = await loadSchwabPnl(env, userId, {
+      range: range.range,
+      start: range.start,
+      end: range.end,
+      accountId: url.searchParams.get("account"),
+    });
+    if (!result.ok) {
+      if (result.reason === "bad_request") return json({ error: result.message }, 400);
+      return schwabLoadError(result);
+    }
+
+    // Companion trades in the chart window for spot-checking FIFO inputs.
+    const tradesResult = await loadSchwabTrades(env, userId, {
+      start: range.start,
+      end: range.end,
+      accountId: result.view.account,
+    });
+    const sampleTrades =
+      tradesResult.ok
+        ? tradesResult.view.trades.slice(0, 40).map((t) => ({
+            id: t.id,
+            trade_date: t.trade_date,
+            side: t.side,
+            symbol: t.symbol,
+            quantity: t.quantity,
+            net_amount: t.net_amount,
+            fees: t.fees,
+            position_effect: t.position_effect,
+            asset_type: t.asset_type,
+          }))
+        : [];
+
+    return json({
+      ok: true,
+      user_id: userId,
+      connection: status,
+      pnl: result.view,
+      sample_trades: sampleTrades,
+      sample_trades_error: tradesResult.ok
+        ? null
+        : tradesResult.reason === "bad_request"
+          ? tradesResult.message
+          : tradesResult.reason,
+    });
   }
 
   return null;
