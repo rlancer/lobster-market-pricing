@@ -13,12 +13,17 @@ import {
   HStack,
   Spinner,
   Text,
+  Token,
   ToggleButton,
   ToggleButtonGroup,
   VStack,
 } from '@astryxdesign/core';
+import { Timestamp } from '@astryxdesign/core/Timestamp';
+import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import {
   api,
+  type SchwabDistribution,
+  type SchwabPnlFill,
   type SchwabPnlPoint,
   type SchwabPnlRange,
   type SchwabPnlResponse,
@@ -27,6 +32,9 @@ import { formatChartTick } from './tickerChartRange';
 import './Portfolio.css';
 
 const PNL_RANGES: SchwabPnlRange[] = ['MTD', 'YTD', '1M', '3M', '6M', '1Y'];
+
+type FillRow = SchwabPnlFill & Record<string, unknown>;
+type DistRow = SchwabDistribution & Record<string, unknown>;
 
 function money(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -44,9 +52,20 @@ function moneySigned(n: number): string {
   return abs;
 }
 
+function qty(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
 function pnlTone(n: number | null | undefined): 'green' | 'red' | 'gray' {
   if (n == null || !Number.isFinite(n) || n === 0) return 'gray';
   return n > 0 ? 'green' : 'red';
+}
+
+function sideTone(side: SchwabPnlFill['side']): 'green' | 'red' | 'gray' {
+  if (side === 'buy') return 'green';
+  if (side === 'sell') return 'red';
+  return 'gray';
 }
 
 function formatApiError(err: unknown): string {
@@ -77,6 +96,8 @@ export function SchwabPnlSection({
   const [range, setRange] = useState<SchwabPnlRange>('YTD');
   const [points, setPoints] = useState<SchwabPnlPoint[]>([]);
   const [summary, setSummary] = useState<SchwabPnlResponse['summary'] | null>(null);
+  const [fills, setFills] = useState<SchwabPnlFill[]>([]);
+  const [distributions, setDistributions] = useState<SchwabDistribution[]>([]);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
   const [mayBeTruncated, setMayBeTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -92,12 +113,16 @@ export function SchwabPnlSection({
       });
       setPoints(res.points);
       setSummary(res.summary);
+      setFills(Array.isArray(res.fills) ? res.fills : []);
+      setDistributions(Array.isArray(res.distributions) ? res.distributions : []);
       setWindowLabel(`${res.start} → ${res.end}`);
       setMayBeTruncated(Boolean(res.may_be_truncated));
     } catch (err) {
       setError(formatApiError(err));
       setPoints([]);
       setSummary(null);
+      setFills([]);
+      setDistributions([]);
       setWindowLabel(null);
     } finally {
       setLoading(false);
@@ -109,7 +134,14 @@ export function SchwabPnlSection({
   }, [accountId, range, load]);
 
   const periodPnl = summary?.period_pnl ?? 0;
-  const hasActivity = (summary?.closing_trade_count ?? 0) > 0 || points.some((p) => p.daily_pnl !== 0);
+  const hasActivity =
+    (summary?.closing_trade_count ?? 0) > 0 ||
+    points.some((p) => p.daily_pnl !== 0) ||
+    fills.length > 0 ||
+    distributions.length > 0;
+  const fillRows = fills as FillRow[];
+  const distRows = distributions as DistRow[];
+  const periodStart = windowLabel?.split(' → ')[0] ?? 'this period';
 
   return (
     <VStack gap={4} className="portfolio-pnl-section">
@@ -168,7 +200,7 @@ export function SchwabPnlSection({
         </Text>
       ) : null}
 
-      {loading && points.length === 0 ? (
+      {loading && points.length === 0 && fills.length === 0 ? (
         <HStack gap={3} align="center" paddingBlock={8}>
           <Spinner size="md" label="Loading Schwab PnL" />
         </HStack>
@@ -274,15 +306,203 @@ export function SchwabPnlSection({
               </Text>
             </VStack>
           ) : null}
+          {(summary.distributions_total !== 0 || distributions.length > 0) ? (
+            <VStack gap={0}>
+              <Text type="supporting" size="sm">Dividends / interest</Text>
+              <Text
+                hasTabularNumbers
+                weight="semibold"
+                className={`portfolio-pnl-${pnlTone(summary.distributions_total)}`}
+              >
+                {moneySigned(summary.distributions_total)}
+              </Text>
+            </VStack>
+          ) : null}
         </HStack>
       ) : null}
 
       {summary && summary.prior_open_pnl !== 0 && !loading ? (
         <Text type="supporting">
           Prior-lot closes are realized P&L on positions opened before{' '}
-          {windowLabel?.split(' → ')[0] ?? 'this period'} and closed inside it —
-          excluded from the chart so pre-period losses are not carried forward.
+          {periodStart} and closed inside it — excluded from the chart so
+          pre-period losses are not carried forward.
         </Text>
+      ) : null}
+
+      {!loading && fillRows.length > 0 ? (
+        <VStack gap={2} className="portfolio-pnl-breakdown">
+          <Text weight="semibold">Closing fills</Text>
+          <Text type="supporting">
+            Trades that realized P&L in this window. Fees are from the closing
+            fill. Rows tagged prior-lot are excluded from the chart total.
+          </Text>
+          <Table
+            className="portfolio-table"
+            data={fillRows}
+            idKey="id"
+            density="compact"
+            dividers="rows"
+            hasHover
+            textOverflow="truncate"
+            columns={[
+              {
+                key: 'date',
+                header: 'Date',
+                width: pixel(110),
+                renderCell: (row) => (
+                  <Timestamp value={row.date} format="date" type="body" />
+                ),
+              },
+              {
+                key: 'side',
+                header: 'Side',
+                width: pixel(72),
+                renderCell: (row) => (
+                  <Token color={sideTone(row.side)} label={row.side} size="sm" />
+                ),
+              },
+              {
+                key: 'symbol',
+                header: 'Symbol',
+                width: proportional(1.1),
+                renderCell: (row) => (
+                  <Text weight="semibold" hasTabularNumbers>{row.symbol ?? '—'}</Text>
+                ),
+              },
+              {
+                key: 'quantity',
+                header: 'Qty',
+                width: pixel(72),
+                renderCell: (row) => (
+                  <Text hasTabularNumbers>{qty(row.quantity)}</Text>
+                ),
+              },
+              {
+                key: 'price',
+                header: 'Price',
+                width: pixel(88),
+                renderCell: (row) => (
+                  <Text hasTabularNumbers>{money(row.price)}</Text>
+                ),
+              },
+              {
+                key: 'fees',
+                header: 'Fees',
+                width: pixel(72),
+                renderCell: (row) => (
+                  <Text hasTabularNumbers>{money(row.fees)}</Text>
+                ),
+              },
+              {
+                key: 'realized_pnl',
+                header: 'Realized',
+                width: pixel(100),
+                renderCell: (row) => (
+                  <Text
+                    hasTabularNumbers
+                    weight="semibold"
+                    className={`portfolio-pnl-${pnlTone(row.realized_pnl)}`}
+                  >
+                    {moneySigned(row.realized_pnl)}
+                  </Text>
+                ),
+              },
+              {
+                key: 'opened',
+                header: 'Opened',
+                width: pixel(110),
+                renderCell: (row) => (
+                  <Timestamp value={row.opened} format="date" type="body" />
+                ),
+              },
+              {
+                key: 'prior_open',
+                header: 'Lot',
+                width: pixel(88),
+                renderCell: (row) => (
+                  row.prior_open
+                    ? <Token color="gray" label="prior" size="sm" />
+                    : <Token color="green" label="period" size="sm" />
+                ),
+              },
+              {
+                key: 'description',
+                header: 'Description',
+                width: proportional(1.4),
+                renderCell: (row) => (
+                  <Text type="supporting">{row.description ?? '—'}</Text>
+                ),
+              },
+            ]}
+          />
+        </VStack>
+      ) : null}
+
+      {!loading && distRows.length > 0 ? (
+        <VStack gap={2} className="portfolio-pnl-breakdown">
+          <Text weight="semibold">Dividends & interest</Text>
+          <Text type="supporting">
+            Distributions credited in this window. Not included in the realized
+            trading chart above.
+          </Text>
+          <Table
+            className="portfolio-table"
+            data={distRows}
+            idKey="id"
+            density="compact"
+            dividers="rows"
+            hasHover
+            textOverflow="truncate"
+            columns={[
+              {
+                key: 'date',
+                header: 'Date',
+                width: pixel(110),
+                renderCell: (row) => (
+                  <Timestamp value={row.date} format="date" type="body" />
+                ),
+              },
+              {
+                key: 'symbol',
+                header: 'Symbol',
+                width: proportional(1),
+                renderCell: (row) => (
+                  <Text weight="semibold" hasTabularNumbers>{row.symbol ?? '—'}</Text>
+                ),
+              },
+              {
+                key: 'amount',
+                header: 'Amount',
+                width: pixel(100),
+                renderCell: (row) => (
+                  <Text
+                    hasTabularNumbers
+                    weight="semibold"
+                    className={`portfolio-pnl-${pnlTone(row.amount)}`}
+                  >
+                    {row.amount == null ? '—' : moneySigned(row.amount)}
+                  </Text>
+                ),
+              },
+              {
+                key: 'type',
+                header: 'Type',
+                width: pixel(140),
+                renderCell: (row) => (
+                  <Text type="supporting">{row.type ?? '—'}</Text>
+                ),
+              },
+              {
+                key: 'description',
+                header: 'Description',
+                width: proportional(2),
+                renderCell: (row) => (
+                  <Text type="supporting">{row.description ?? '—'}</Text>
+                ),
+              },
+            ]}
+          />
+        </VStack>
       ) : null}
     </VStack>
   );

@@ -14,6 +14,7 @@ import {
   listSchwabTransactions,
   normalizeTrade,
   toTradeAccounts,
+  type SchwabRawTransaction,
   type SchwabTrade,
   SCHWAB_TRADES_MAX_RANGE_DAYS,
 } from "./schwab-trader";
@@ -36,6 +37,33 @@ export interface SchwabPnlPoint {
   cumulative_pnl: number;
 }
 
+export interface SchwabPnlFill {
+  id: string;
+  date: string;
+  symbol: string | null;
+  description: string | null;
+  side: SchwabTrade["side"];
+  quantity: number | null;
+  price: number | null;
+  net_amount: number | null;
+  fees: number | null;
+  realized_pnl: number;
+  opened: string;
+  /** True when every closed lot was opened before the chart window. */
+  prior_open: boolean;
+  asset_type: string | null;
+}
+
+export interface SchwabDistribution {
+  id: string;
+  date: string;
+  symbol: string | null;
+  description: string | null;
+  amount: number | null;
+  type: string | null;
+  status: string | null;
+}
+
 export interface SchwabPnlSummary {
   /** Realized PnL for lots opened on/after the chart start and closed in-window. */
   period_pnl: number;
@@ -44,6 +72,8 @@ export interface SchwabPnlSummary {
    * Excluded from period_pnl / the chart so pre-period losses are not carried in.
    */
   prior_open_pnl: number;
+  /** Net dividends / interest credited in the chart window. */
+  distributions_total: number;
   trade_count: number;
   closing_trade_count: number;
   unmatched_close_count: number;
@@ -58,6 +88,10 @@ export interface SchwabPnlView {
   end: string;
   points: SchwabPnlPoint[];
   summary: SchwabPnlSummary;
+  /** Closing fills that realized P&L in the chart window (newest first). */
+  fills: SchwabPnlFill[];
+  /** Dividends / interest in the chart window (newest first). */
+  distributions: SchwabDistribution[];
   may_be_truncated: boolean;
 }
 
@@ -161,6 +195,8 @@ export interface RealizedEvent {
   /** Lot open day (FIFO tranche). */
   opened: string;
   amount: number;
+  trade: SchwabTrade;
+  closed_qty: number;
 }
 
 export interface RealizedPnlLedger {
@@ -197,10 +233,6 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
   let closingTradeCount = 0;
   let unmatchedCloseCount = 0;
   let skippedTradeCount = 0;
-
-  const bump = (day: string, opened: string, amount: number) => {
-    events.push({ day, opened, amount });
-  };
 
   for (const trade of chron) {
     const day = tradeDay(trade);
@@ -240,7 +272,13 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
         head.direction === "long"
           ? closeCash - closeBasis
           : closeBasis + closeCash;
-      bump(day, head.opened, realized);
+      events.push({
+        day,
+        opened: head.opened,
+        amount: realized,
+        trade,
+        closed_qty: closeQty,
+      });
       closedQtyTotal += closeQty;
 
       head.qty -= closeQty;
@@ -258,7 +296,15 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
 
     const rem = Math.abs(remaining);
     if (rem <= 1e-12) {
-      if (Math.abs(cashLeft) > 1e-6) bump(day, day, cashLeft);
+      if (Math.abs(cashLeft) > 1e-6) {
+        events.push({
+          day,
+          opened: day,
+          amount: cashLeft,
+          trade,
+          closed_qty: 0,
+        });
+      }
       continue;
     }
 
@@ -292,7 +338,7 @@ export function seriesFromLedger(
   ledger: RealizedPnlLedger,
   start: string,
   end: string,
-): { points: SchwabPnlPoint[]; summary: SchwabPnlSummary } {
+): { points: SchwabPnlPoint[]; summary: Omit<SchwabPnlSummary, "distributions_total"> } {
   const daily = new Map<string, number>();
   let period = 0;
   let priorOpen = 0;
@@ -339,8 +385,145 @@ export function seriesFromLedger(
   };
 }
 
+/** Aggregate FIFO events into one row per closing trade in the chart window. */
+export function buildPnlFills(
+  ledger: RealizedPnlLedger,
+  start: string,
+  end: string,
+): SchwabPnlFill[] {
+  type Agg = {
+    trade: SchwabTrade;
+    date: string;
+    realized: number;
+    closedQty: number;
+    anyPrior: boolean;
+    anyPeriod: boolean;
+    earliestOpened: string;
+  };
+  const byTrade = new Map<string, Agg>();
+
+  for (const e of ledger.events) {
+    if (e.day < start || e.day > end) continue;
+    const t = e.trade;
+    const id = t.id || `${e.day}:${t.symbol ?? "?"}:${t.side}`;
+    let agg = byTrade.get(id);
+    if (!agg) {
+      agg = {
+        trade: t,
+        date: e.day,
+        realized: 0,
+        closedQty: 0,
+        anyPrior: false,
+        anyPeriod: false,
+        earliestOpened: e.opened,
+      };
+      byTrade.set(id, agg);
+    }
+    agg.realized += e.amount;
+    agg.closedQty += e.closed_qty;
+    if (e.opened < start) agg.anyPrior = true;
+    else agg.anyPeriod = true;
+    if (e.opened < agg.earliestOpened) agg.earliestOpened = e.opened;
+  }
+
+  const fills: SchwabPnlFill[] = [...byTrade.values()].map((agg) => {
+    const t = agg.trade;
+    // Prefer period attribution when a fill closes both prior and new lots.
+    const priorOpen = agg.anyPrior && !agg.anyPeriod;
+    return {
+      id: t.id,
+      date: agg.date,
+      symbol: t.symbol,
+      description: t.description,
+      side: t.side,
+      quantity: agg.closedQty > 0 ? round4(agg.closedQty) : t.quantity != null ? Math.abs(t.quantity) : null,
+      price: t.price,
+      net_amount: t.net_amount,
+      fees: t.fees,
+      realized_pnl: round2(agg.realized),
+      opened: agg.earliestOpened,
+      prior_open: priorOpen,
+      asset_type: t.asset_type,
+    };
+  });
+
+  fills.sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    return b.id.localeCompare(a.id);
+  });
+  return fills;
+}
+
+export function normalizeSchwabDistribution(tx: SchwabRawTransaction): SchwabDistribution | null {
+  const time =
+    (typeof tx.time === "string" && tx.time) ||
+    (typeof tx.tradeDate === "string" && tx.tradeDate) ||
+    (typeof tx.settlementDate === "string" && tx.settlementDate) ||
+    null;
+  const date = time && /^\d{4}-\d{2}-\d{2}/.test(time) ? time.slice(0, 10) : "";
+  if (!date) return null;
+
+  const items = Array.isArray(tx.transferItems) ? tx.transferItems : [];
+  let amount: number | null = null;
+  let symbol: string | null = null;
+  let description: string | null =
+    typeof tx.description === "string" ? tx.description : null;
+
+  for (const item of items) {
+    const inst = item.instrument;
+    const asset = (inst?.assetType ?? inst?.type ?? "").toUpperCase();
+    const sym = (inst?.symbol ?? "").toUpperCase();
+    const isCurrency =
+      Boolean(item.feeType) ||
+      asset === "CURRENCY" ||
+      sym === "USD" ||
+      sym.startsWith("CURRENCY_");
+    const amt = typeof item.amount === "number" && Number.isFinite(item.amount) ? item.amount : null;
+
+    if (isCurrency) {
+      if (amt != null) amount = (amount ?? 0) + amt;
+      continue;
+    }
+    if (inst?.symbol?.trim()) symbol = inst.symbol.trim().toUpperCase();
+    if (!description && typeof inst?.description === "string") {
+      description = inst.description;
+    }
+  }
+
+  if (amount == null && typeof tx.netAmount === "number" && Number.isFinite(tx.netAmount)) {
+    amount = tx.netAmount;
+  }
+
+  const activityId = typeof tx.activityId === "number" ? tx.activityId : null;
+  return {
+    id: activityId != null ? `dist-${activityId}` : `dist-${date}-${symbol ?? "x"}-${amount ?? 0}`,
+    date,
+    symbol,
+    description,
+    amount: amount != null ? round2(amount) : null,
+    type: typeof tx.type === "string" ? tx.type : null,
+    status: typeof tx.status === "string" ? tx.status : null,
+  };
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
+function emptySummary(): SchwabPnlSummary {
+  return {
+    period_pnl: 0,
+    prior_open_pnl: 0,
+    distributions_total: 0,
+    trade_count: 0,
+    closing_trade_count: 0,
+    unmatched_close_count: 0,
+    skipped_trade_count: 0,
+  };
 }
 
 /**
@@ -390,14 +573,9 @@ export async function loadSchwabPnl(
             { date: opts.start, daily_pnl: 0, cumulative_pnl: 0 },
             { date: opts.end, daily_pnl: 0, cumulative_pnl: 0 },
           ],
-          summary: {
-            period_pnl: 0,
-            prior_open_pnl: 0,
-            trade_count: 0,
-            closing_trade_count: 0,
-            unmatched_close_count: 0,
-            skipped_trade_count: 0,
-          },
+          summary: emptySummary(),
+          fills: [],
+          distributions: [],
           may_be_truncated: false,
         },
       };
@@ -452,6 +630,38 @@ export async function loadSchwabPnl(
     const trades = raw.map(normalizeTrade);
     const ledger = buildRealizedPnlLedger(trades);
     const { points, summary } = seriesFromLedger(ledger, opts.start, opts.end);
+    const fills = buildPnlFills(ledger, opts.start, opts.end);
+
+    let distRaw: SchwabRawTransaction[] = [];
+    try {
+      distRaw = await listSchwabTransactions(
+        token.accessToken,
+        selected.hash,
+        {
+          start: opts.start,
+          end: opts.end,
+          types: "DIVIDEND_OR_INTEREST",
+        },
+        token.tokenType,
+      );
+    } catch (e) {
+      console.error("schwab pnl: dividend fetch failed", {
+        status: e instanceof SchwabApiError ? e.status : null,
+        detail: e instanceof Error ? e.message.slice(0, 300) : String(e),
+        range: opts.range,
+        start: opts.start,
+        end: opts.end,
+      });
+    }
+
+    const distributions = distRaw
+      .map(normalizeSchwabDistribution)
+      .filter((d): d is SchwabDistribution => d != null)
+      .filter((d) => d.date >= opts.start && d.date <= opts.end)
+      .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
+    const distributionsTotal = round2(
+      distributions.reduce((s, d) => s + (d.amount ?? 0), 0),
+    );
 
     return {
       ok: true,
@@ -462,7 +672,12 @@ export async function loadSchwabPnl(
         start: opts.start,
         end: opts.end,
         points,
-        summary,
+        summary: {
+          ...summary,
+          distributions_total: distributionsTotal,
+        },
+        fills,
+        distributions,
         may_be_truncated: trades.length >= 3000,
       },
     };

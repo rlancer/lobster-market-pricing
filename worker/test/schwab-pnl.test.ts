@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildPnlFills,
   buildRealizedPnlLedger,
   fetchWindowForPnl,
+  normalizeSchwabDistribution,
   resolvePnlRange,
   seriesFromLedger,
   SCHWAB_PNL_RANGES,
@@ -267,4 +269,72 @@ test("closes of lots opened before the period are excluded from period_pnl", () 
   assert.equal(summary.period_pnl, 50);
   assert.equal(summary.prior_open_pnl, -300);
   assert.equal(points[points.length - 1]!.cumulative_pnl, 50);
+
+  const fills = buildPnlFills(ledger, "2026-08-01", "2026-08-31");
+  assert.equal(fills.length, 2);
+  const lofd = fills.find((f) => f.symbol === "LOFD");
+  const svix = fills.find((f) => f.symbol === "SVIX");
+  assert.ok(lofd);
+  assert.ok(svix);
+  assert.equal(lofd!.realized_pnl, 50);
+  assert.equal(lofd!.prior_open, false);
+  assert.equal(svix!.realized_pnl, -300);
+  assert.equal(svix!.prior_open, true);
+});
+
+test("normalizeSchwabDistribution sums currency legs", () => {
+  const d = normalizeSchwabDistribution({
+    activityId: 99,
+    time: "2026-03-15T12:00:00.000Z",
+    description: "Ordinary Dividend",
+    type: "DIVIDEND_OR_INTEREST",
+    status: "VALID",
+    netAmount: 12.5,
+    transferItems: [
+      {
+        instrument: { assetType: "EQUITY", symbol: "VTI", description: "VANGUARD TOTAL STOCK" },
+        amount: 0,
+      },
+      {
+        instrument: { assetType: "CURRENCY", symbol: "CURRENCY_USD" },
+        amount: 12.5,
+      },
+    ],
+  });
+  assert.ok(d);
+  assert.equal(d!.date, "2026-03-15");
+  assert.equal(d!.symbol, "VTI");
+  assert.equal(d!.amount, 12.5);
+  assert.equal(d!.id, "dist-99");
+});
+
+test("buildPnlFills includes fees from the closing trade", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "1",
+      activity_id: 1,
+      trade_date: "2026-01-10",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1000,
+      fees: 1,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "2",
+      activity_id: 2,
+      trade_date: "2026-02-10",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1145,
+      fees: 5,
+      price: 115,
+      position_effect: "CLOSING",
+    }),
+  ]);
+  const fills = buildPnlFills(ledger, "2026-01-01", "2026-03-01");
+  assert.equal(fills.length, 1);
+  assert.equal(fills[0]!.fees, 5);
+  assert.equal(fills[0]!.realized_pnl, 145);
+  assert.equal(fills[0]!.quantity, 10);
 });
