@@ -1,76 +1,69 @@
-# Ephemeral: live-tail screener-api-dev while hitting schwab endpoints is impossible
-# without a user session — instead dump wrangler tails of recent buffered events
-# and list Workers Logs via the dashboard-compatible API.
+# Ephemeral debug: HTTP status codes for api-dev.lobster.mp + schwab paths.
 # Trigger: push to cursor/run-debug-worker-logs-913d
 name: Debug worker logs
 on:
   push:
     branches:
       - cursor/run-debug-worker-logs-913d
-  workflow_dispatch:
 jobs:
   logs:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Install wrangler
-        working-directory: worker
-        run: npm ci
-      - name: Probe token scopes + workers logs APIs
+      - name: Query HTTP status analytics for api-dev
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        working-directory: worker
         run: |
           set -euo pipefail
-          echo "== Token verify =="
+          START=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          END=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Window $START → $END"
+
+          # Zone id for lobster.mp if custom hostname lives there
+          echo "== Zones =="
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/user/tokens/verify" | tee /tmp/token-verify.json
+            "https://api.cloudflare.com/client/v4/zones?name=lobster.mp" | tee zones.json | head -c 2000
           echo
-          echo "== Account workers scripts =="
-          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
-            | tee /tmp/scripts.json | head -c 3000
-          echo
-          # Try several log endpoints used by the dashboard
-          END_MS=$(($(date -u +%s)*1000))
-          START_MS=$((END_MS - 6*60*60*1000))
-          for path in \
-            "workers/observability/telemetry/query" \
-            "workers/observability/telemetry/keys" \
-            "workers/observability/events" \
-            "logs/retrieve"
-            do
-            echo "== POST/GET $path =="
+          ZONE=$(jq -r '.result[0].id // empty' zones.json)
+          echo "ZONE=$ZONE"
+
+          if [ -n "$ZONE" ]; then
+            GQL=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
+              '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 50\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\"}\n        orderBy:[sum_requests_DESC]\n      ) {\n        dimensions { clientRequestPath clientRequestHTTPMethodName edgeResponseStatus }\n        sum { requests }\n      }\n    }\n  }\n}")}')
+            echo "== HTTP adaptive groups (api-dev paths) =="
             curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/$path" \
-              -d "{\"queryId\":\"workers-logs-events\",\"timeframe\":{\"from\":$START_MS,\"to\":$END_MS},\"view\":\"events\",\"limit\":50,\"parameters\":{\"datasets\":[\"cloudflare-workers\"],\"filters\":[{\"key\":\"\$metadata.service\",\"operation\":\"eq\",\"type\":\"string\",\"value\":\"screener-api-dev\"}],\"filterCombination\":\"and\",\"needle\":{\"value\":\"schwab\",\"isRegex\":false,\"matchCase\":false}}}" \
-              | head -c 4000
+              "https://api.cloudflare.com/client/v4/graphql" \
+              -d "$GQL" | tee http.json | head -c 100000
             echo
-          done
-          echo "== Keys endpoint =="
+
+            GQL2=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
+              '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 50\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", clientRequestPath_like:\"/api/schwab%\"}\n        orderBy:[sum_requests_DESC]\n      ) {\n        dimensions { datetimeMinute clientRequestPath edgeResponseStatus }\n        sum { requests bytes }\n      }\n    }\n  }\n}")}')
+            echo "== Schwab paths only =="
+            curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/graphql" \
+              -d "$GQL2" | tee schwab-http.json | head -c 100000
+            echo
+          fi
+
+          # Also Workers exception/exceededCpu statuses
+          GQL3=$(jq -n --arg account "$CLOUDFLARE_ACCOUNT_ID" --arg start "$START" --arg end "$END" \
+            '{query:("query {\n  viewer {\n    accounts(filter:{accountTag:\""+$account+"\"}) {\n      workersInvocationsAdaptive(limit:100, filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", scriptName:\"screener-api-dev\"}) {\n        dimensions { datetimeMinute status }\n        sum { requests errors }\n        quantiles { wallTimeP99 cpuTimeP99 }\n      }\n    }\n  }\n}")}')
+          echo "== Worker invocation statuses =="
           curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/keys" \
-            -d "{\"timeframe\":{\"from\":$START_MS,\"to\":$END_MS},\"datasets\":[\"cloudflare-workers\"],\"filters\":[],\"limit\":100,\"key\":\"\$metadata\"}" \
-            | tee /tmp/keys.json | head -c 8000
+            "https://api.cloudflare.com/client/v4/graphql" \
+            -d "$GQL3" | tee worker-status.json | head -c 50000
           echo
-          echo "== wrangler tail (15s, json) =="
-          # Capture any live traffic; also useful to confirm auth for tails
-          timeout 15 npx wrangler tail screener-api-dev --format json --status error 2>&1 | tee /tmp/tail.json || true
-          echo "(tail ended)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: worker-logs-dump2
+          name: http-status-dump
           path: |
-            /tmp/token-verify.json
-            /tmp/scripts.json
-            /tmp/keys.json
-            /tmp/tail.json
+            zones.json
+            http.json
+            schwab-http.json
+            worker-status.json
           if-no-files-found: warn
