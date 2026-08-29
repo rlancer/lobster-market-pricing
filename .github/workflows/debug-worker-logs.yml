@@ -1,5 +1,11 @@
-name: Debug worker logs (ephemeral)
+# Ephemeral: dump recent screener-api-dev Workers observability events.
+# Trigger: push to cursor/run-debug-worker-logs-913d
+# (gh workflow_dispatch is 403 for the Cursor integration token).
+name: Debug worker logs
 on:
+  push:
+    branches:
+      - cursor/run-debug-worker-logs-913d
   workflow_dispatch:
     inputs:
       script:
@@ -7,37 +13,63 @@ on:
         default: screener-api-dev
       minutes:
         description: Lookback minutes
-        default: "180"
+        default: "240"
 jobs:
   logs:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Query Cloudflare Workers observability / analytics
+      - name: Query Cloudflare Workers observability
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SCRIPT: ${{ inputs.script }}
-          MINUTES: ${{ inputs.minutes }}
+          SCRIPT: ${{ github.event.inputs.script || 'screener-api-dev' }}
+          MINUTES: ${{ github.event.inputs.minutes || '240' }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "Missing CF secrets"; exit 1
           fi
-          END=$(date -u +%s)
-          START=$((END - MINUTES * 60))
-          START_MS=$((START * 1000))
-          END_MS=$((END * 1000))
-          echo "== Workers script details =="
+          END_MS=$(($(date -u +%s) * 1000))
+          START_MS=$((END_MS - MINUTES * 60 * 1000))
+          echo "Script=$SCRIPT window=${MINUTES}m start_ms=$START_MS end_ms=$END_MS"
+
+          echo "== Script metadata =="
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$SCRIPT" \
-            | head -c 2000; echo
-          echo "== Observability telemetry query (schwab/pnl) =="
-          # Workers Observability query API
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/services/$SCRIPT" \
+            | tee script.json | head -c 4000 || true
+          echo
+
+          echo "== Observability events (workers) =="
+          # Cloudflare Workers Observability telemetry query
           BODY=$(jq -n \
+            --argjson start "$START_MS" \
+            --argjson end "$END_MS" \
+            --arg script "$SCRIPT" \
+            '{
+              queryId: "workers-logs-events",
+              limit: 100,
+              dry: false,
+              parameters: {
+                datasets: ["cloudflare-workers"],
+                filters: [
+                  { key: "$metadata.service", operation: "eq", type: "string", value: $script }
+                ],
+                filterCombination: "and"
+              },
+              timeframe: { from: $start, to: $end },
+              view: "events"
+            }')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/query" \
+            -d "$BODY" | tee obs.json | head -c 120000
+          echo
+
+          echo "== Alternate query shape (nested query) =="
+          BODY2=$(jq -n \
             --argjson start "$START_MS" \
             --argjson end "$END_MS" \
             --arg script "$SCRIPT" \
@@ -55,27 +87,43 @@ jobs:
                   filterCombination: "and",
                   limit: 100
                 }
-              },
-              timeOptions: { timezone: "UTC", bucketCount: 1 }
+              }
             }')
           curl -sS -X POST \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/query" \
-            -d "$BODY" | tee /tmp/obs.json | head -c 50000
+            -d "$BODY2" | tee obs2.json | head -c 120000
           echo
-          echo "== GraphQL WorkersRequestsAdaptive (errors) =="
+
+          echo "== GraphQL invocations adaptive =="
+          START_ISO=$(date -u -d "@$((START_MS/1000))" +%Y-%m-%dT%H:%M:%SZ)
+          END_ISO=$(date -u -d "@$((END_MS/1000))" +%Y-%m-%dT%H:%M:%SZ)
           GQL=$(jq -n \
             --arg account "$CLOUDFLARE_ACCOUNT_ID" \
             --arg script "$SCRIPT" \
-            --arg start "$(date -u -d @$START +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg end "$(date -u -d @$END +%Y-%m-%dT%H:%M:%SZ)" \
-            '{query: ("query {\n  viewer {\n    accounts(filter: {accountTag: \"" + $account + "\"}) {\n      workersInvocationsAdaptive(limit: 50, filter: {datetime_geq: \"" + $start + "\", datetime_leq: \"" + $end + "\", scriptName: \"" + $script + "\"}) {\n        dimensions { datetime datetimeHour status scriptName }\n        sum { requests errors subrequests }\n        avg { cpuTime sampleInterval }\n      }\n    }\n  }\n}")}')
+            --arg start "$START_ISO" \
+            --arg end "$END_ISO" \
+            '{query: ("query {\n  viewer {\n    accounts(filter: {accountTag: \"" + $account + "\"}) {\n      workersInvocationsAdaptive(limit: 100, filter: {datetime_geq: \"" + $start + "\", datetime_leq: \"" + $end + "\", scriptName: \"" + $script + "\"}) {\n        dimensions { datetimeMinute status scriptName }\n        sum { requests errors subrequests responseBodySize }\n        quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 }\n      }\n    }\n  }\n}")}')
           curl -sS -X POST \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/graphql" \
-            -d "$GQL" | tee /tmp/gql.json | head -c 30000
+            -d "$GQL" | tee gql.json | head -c 80000
           echo
-          echo "== Filter local for schwab =="
-          rg -i "schwab|pnl|error|exception|overflow|cpu" /tmp/obs.json /tmp/gql.json || true
+
+          echo "== Matches for schwab / pnl / exception =="
+          rg -i "schwab|/api/schwab|pnl|exception|Error|overflow|CPU|502|401|429" obs.json obs2.json gql.json || true
+
+          echo "== Upload artifacts paths =="
+          ls -la *.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: worker-logs-dump
+          path: |
+            obs.json
+            obs2.json
+            gql.json
+            script.json
+          if-no-files-found: warn
