@@ -16,46 +16,32 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          START=$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          START=$(date -u -d '8 hours ago' +%Y-%m-%dT%H:%M:%SZ)
           END=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "Window $START → $END"
 
-          # Zone id for lobster.mp if custom hostname lives there
-          echo "== Zones =="
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones?name=lobster.mp" | tee zones.json | head -c 2000
-          echo
+            "https://api.cloudflare.com/client/v4/zones?name=lobster.mp" | tee zones.json > /dev/null
           ZONE=$(jq -r '.result[0].id // empty' zones.json)
           echo "ZONE=$ZONE"
 
-          if [ -n "$ZONE" ]; then
-            GQL=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
-              '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 50\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\"}\n        orderBy:[sum_requests_DESC]\n      ) {\n        dimensions { clientRequestPath clientRequestHTTPMethodName edgeResponseStatus }\n        sum { requests }\n      }\n    }\n  }\n}")}')
-            echo "== HTTP adaptive groups (api-dev paths) =="
-            curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/graphql" \
-              -d "$GQL" | tee http.json | head -c 100000
-            echo
-
-            GQL2=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
-              '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 50\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", clientRequestPath_like:\"/api/schwab%\"}\n        orderBy:[sum_requests_DESC]\n      ) {\n        dimensions { datetimeMinute clientRequestPath edgeResponseStatus }\n        sum { requests bytes }\n      }\n    }\n  }\n}")}')
-            echo "== Schwab paths only =="
-            curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/graphql" \
-              -d "$GQL2" | tee schwab-http.json | head -c 100000
-            echo
-          fi
-
-          # Also Workers exception/exceededCpu statuses
-          GQL3=$(jq -n --arg account "$CLOUDFLARE_ACCOUNT_ID" --arg start "$START" --arg end "$END" \
-            '{query:("query {\n  viewer {\n    accounts(filter:{accountTag:\""+$account+"\"}) {\n      workersInvocationsAdaptive(limit:100, filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", scriptName:\"screener-api-dev\"}) {\n        dimensions { datetimeMinute status }\n        sum { requests errors }\n        quantiles { wallTimeP99 cpuTimeP99 }\n      }\n    }\n  }\n}")}')
-          echo "== Worker invocation statuses =="
+          # No orderBy — enum differs by schema version.
+          GQL=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
+            '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 100\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", clientRequestPath_like:\"/api/schwab%\"}\n      ) {\n        dimensions { datetimeFifteenMinutes clientRequestPath edgeResponseStatus }\n        sum { requests bytes }\n      }\n    }\n  }\n}")}')
+          echo "== Schwab paths =="
           curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.cloudflare.com/client/v4/graphql" \
-            -d "$GQL3" | tee worker-status.json | head -c 50000
+            -d "$GQL" | tee schwab-http.json | head -c 150000
+          echo
+
+          GQL2=$(jq -n --arg zone "$ZONE" --arg start "$START" --arg end "$END" \
+            '{query:("query {\n  viewer {\n    zones(filter:{zoneTag:\""+$zone+"\"}) {\n      httpRequestsAdaptiveGroups(\n        limit: 50\n        filter:{datetime_geq:\""+$start+"\", datetime_leq:\""+$end+"\", clientRequestHTTPHost:\"api-dev.lobster.mp\", edgeResponseStatus_geq:400}\n      ) {\n        dimensions { clientRequestPath edgeResponseStatus clientRequestHTTPMethodName }\n        sum { requests }\n      }\n    }\n  }\n}")}')
+          echo "== api-dev 4xx/5xx =="
+          curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/graphql" \
+            -d "$GQL2" | tee errors-http.json | head -c 100000
           echo
       - uses: actions/upload-artifact@v4
         if: always()
@@ -63,7 +49,6 @@ jobs:
           name: http-status-dump
           path: |
             zones.json
-            http.json
             schwab-http.json
-            worker-status.json
+            errors-http.json
           if-no-files-found: warn
