@@ -205,21 +205,21 @@ export function SchwabTradesSection() {
           presets={[
             {
               label: 'Last 30 days',
-              value: {
+              getRange: () => ({
                 start: isoDaysAgo(30) as ISODateString,
                 end: isoToday() as ISODateString,
-              },
+              }),
             },
             {
               label: 'Last 90 days',
-              value: defaultRange(),
+              getRange: () => defaultRange(),
             },
             {
               label: 'Last 365 days',
-              value: {
+              getRange: () => ({
                 start: isoDaysAgo(365) as ISODateString,
                 end: isoToday() as ISODateString,
-              },
+              }),
             },
           ]}
         />
