@@ -1,11 +1,12 @@
 /**
- * HTTP handlers for Charles Schwab OAuth connect + portfolio read.
+ * HTTP handlers for Charles Schwab OAuth connect + portfolio / trades reads.
  *
  * GET  /api/schwab/status     — configured + connected (no tokens)
  * GET  /api/schwab/connect    — start OAuth (session required) → Schwab
  * GET  /api/schwab/callback   — code exchange → redirect to /account|/portfolio
  * POST /api/schwab/disconnect — drop stored tokens
  * GET  /api/schwab/portfolio  — linked accounts, balances, positions (no tokens)
+ * GET  /api/schwab/trades     — historical TRADE transactions (≤366 days)
  */
 
 import {
@@ -23,6 +24,7 @@ import {
   type SchwabEnv,
 } from "./schwab";
 import { loadSchwabPortfolio } from "./schwab-portfolio";
+import { loadSchwabTrades, parseTradeDateRange } from "./schwab-trader";
 import { getSessionUser } from "./auth";
 
 function json(data: unknown, status = 200): Response {
@@ -55,6 +57,33 @@ function frontendOriginHint(req: Request): string {
 
 function unauthorized(): Response {
   return json({ error: "unauthorized" }, 401);
+}
+
+function schwabLoadError(
+  result:
+    | { ok: false; reason: "not_connected" }
+    | { ok: false; reason: "refresh_failed" | "upstream"; status: number; message: string },
+): Response {
+  if (result.reason === "not_connected") {
+    return json({ error: "schwab_not_connected", connected: false }, 409);
+  }
+  if (result.reason === "refresh_failed") {
+    return json(
+      { error: "schwab_reauth_required", connected: true, detail: result.message.slice(0, 200) },
+      401,
+    );
+  }
+  const status = result.status >= 400 && result.status < 600 ? result.status : 502;
+  if (status === 401 || status === 403) {
+    return json(
+      { error: "schwab_reauth_required", connected: true, detail: result.message.slice(0, 200) },
+      401,
+    );
+  }
+  return json(
+    { error: "schwab_upstream", detail: result.message.slice(0, 200) },
+    status === 429 ? 429 : 502,
+  );
 }
 
 export async function handleSchwab(
@@ -151,28 +180,30 @@ export async function handleSchwab(
     if (!user) return unauthorized();
 
     const result = await loadSchwabPortfolio(env, user.id);
+    if (!result.ok) return schwabLoadError(result);
+    return json({ ok: true, ...result.view });
+  }
+
+  if (path === "/api/schwab/trades" && req.method === "GET") {
+    if (!schwabConfigured(env)) {
+      return json({ error: "Schwab is not configured on this deployment" }, 503);
+    }
+    const user = await getSessionUser(env, req);
+    if (!user) return unauthorized();
+
+    const url = new URL(req.url);
+    const range = parseTradeDateRange(url.searchParams.get("start"), url.searchParams.get("end"));
+    if ("error" in range) return json({ error: range.error }, 400);
+
+    const result = await loadSchwabTrades(env, user.id, {
+      start: range.start,
+      end: range.end,
+      accountId: url.searchParams.get("account"),
+      symbol: url.searchParams.get("symbol"),
+    });
     if (!result.ok) {
-      if (result.reason === "not_connected") {
-        return json({ error: "schwab_not_connected", connected: false }, 409);
-      }
-      if (result.reason === "refresh_failed") {
-        return json(
-          { error: "schwab_reauth_required", connected: true, detail: result.message.slice(0, 200) },
-          401,
-        );
-      }
-      const status = result.status >= 400 && result.status < 600 ? result.status : 502;
-      // Upstream 401 → ask the user to reconnect; do not leak Schwab bodies wholesale.
-      if (status === 401 || status === 403) {
-        return json(
-          { error: "schwab_reauth_required", connected: true, detail: result.message.slice(0, 200) },
-          401,
-        );
-      }
-      return json(
-        { error: "schwab_upstream", detail: result.message.slice(0, 200) },
-        status === 429 ? 429 : 502,
-      );
+      if (result.reason === "bad_request") return json({ error: result.message }, 400);
+      return schwabLoadError(result);
     }
     return json({ ok: true, ...result.view });
   }

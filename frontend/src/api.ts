@@ -913,6 +913,39 @@ export interface SchwabPortfolio {
   };
 }
 
+export interface SchwabTrade {
+  id: string;
+  activity_id: number | null;
+  trade_date: string | null;
+  settlement_date: string | null;
+  description: string | null;
+  status: string | null;
+  activity_type: string | null;
+  net_amount: number | null;
+  symbol: string | null;
+  underlying: string | null;
+  asset_type: string | null;
+  quantity: number | null;
+  price: number | null;
+  cost: number | null;
+  fees: number | null;
+  side: 'buy' | 'sell' | 'unknown';
+  position_effect: string | null;
+  order_id: number | null;
+  position_id: number | null;
+}
+
+export interface SchwabTradesResponse {
+  ok: true;
+  accounts: Array<{ id: string; label: string }>;
+  account: string | null;
+  start: string;
+  end: string;
+  symbol: string | null;
+  trades: SchwabTrade[];
+  may_be_truncated?: boolean;
+}
+
 export interface ProfileMe {
   ok: true;
   id: string;
@@ -1635,6 +1668,20 @@ export const api = {
     ),
   schwabStatus: () => get<SchwabStatus>('/api/schwab/status'),
   schwabPortfolio: () => get<SchwabPortfolio>('/api/schwab/portfolio'),
+  schwabTrades: (opts?: {
+    start?: string;
+    end?: string;
+    account?: string;
+    symbol?: string;
+  }) =>
+    get<SchwabTradesResponse>(
+      `/api/schwab/trades${qs({
+        start: opts?.start,
+        end: opts?.end,
+        account: opts?.account,
+        symbol: opts?.symbol,
+      })}`,
+    ),
   disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),
   /** Full-page OAuth start URL (do not fetch — navigate so cookies + redirects work). */
   schwabConnectUrl: (returnTo?: string) => {

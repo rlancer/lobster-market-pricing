@@ -22,12 +22,14 @@ import {
 } from './api';
 import { authClient } from './auth';
 import { BotTradesSection } from './BotTradesSection';
+import { SchwabTradesSection } from './SchwabTradesSection';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
 type PositionRow = PaperPosition & Record<string, unknown>;
 type SchwabPositionRow = SchwabPortfolioPosition & Record<string, unknown>;
 type BookMode = 'paper' | 'suggested' | 'schwab';
+type SchwabPane = 'positions' | 'trades';
 type StatusFilter = 'all' | 'open' | 'closed';
 type ConvictionFilter = 'all' | 'high' | 'medium' | 'low';
 
@@ -87,6 +89,7 @@ export default function PortfolioPage() {
   const [schwabAccountId, setSchwabAccountId] = useState<string | null>(null);
   const [schwabNeedsConnect, setSchwabNeedsConnect] = useState(false);
   const [schwabNeedsReauth, setSchwabNeedsReauth] = useState(false);
+  const [schwabPane, setSchwabPane] = useState<SchwabPane>('positions');
 
   const loadPaper = useCallback(async (status: StatusFilter, conviction: ConvictionFilter) => {
     setLoading(true);
@@ -400,16 +403,36 @@ export default function PortfolioPage() {
               </HStack>
             ) : null}
 
-            <HStack gap={2} wrap="wrap" justify="end">
-              <Button
-                size="sm"
-                variant="secondary"
-                label="Refresh"
-                isDisabled={loading}
-                onClick={() => void loadSchwab()}
-              />
+            <HStack gap={2} wrap="wrap" justify="between">
+              <HStack gap={2} wrap="wrap" role="tablist" aria-label="Schwab view">
+                <Button
+                  size="sm"
+                  variant={schwabPane === 'positions' ? 'primary' : 'ghost'}
+                  label="Positions"
+                  onClick={() => setSchwabPane('positions')}
+                />
+                <Button
+                  size="sm"
+                  variant={schwabPane === 'trades' ? 'primary' : 'ghost'}
+                  label="Trade history"
+                  onClick={() => setSchwabPane('trades')}
+                />
+              </HStack>
+              {schwabPane === 'positions' ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  label="Refresh"
+                  isDisabled={loading}
+                  onClick={() => void loadSchwab()}
+                />
+              ) : null}
             </HStack>
 
+            {schwabPane === 'trades' ? (
+              <SchwabTradesSection accountId={schwabAccount?.id ?? null} />
+            ) : (
+              <>
             {schwabSummary ? (
               <HStack gap={6} wrap="wrap" className="portfolio-summary">
                 <VStack gap={0}>
@@ -558,6 +581,8 @@ export default function PortfolioPage() {
                   },
                 ]}
               />
+            )}
+              </>
             )}
           </VStack>
         )
