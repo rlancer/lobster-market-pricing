@@ -228,6 +228,14 @@ function WorkspaceNavItems({
         isSelected={isChat && !historySelected}
         onClick={closeMobileNav}
       />
+      <SideNavItem
+        as={RouterLink}
+        href="/portfolio"
+        label="Portfolio"
+        icon={Briefcase}
+        isSelected={activeTo === '/portfolio'}
+        onClick={closeMobileNav}
+      />
       {history.length > 0 ? (
         <SideNavSection
           title="Chat history"

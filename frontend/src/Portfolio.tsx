@@ -209,13 +209,8 @@ export default function PortfolioPage() {
     );
   };
 
-  if (isPending) {
-    return (
-      <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5}>
-        <Spinner size="md" label="Loading session" />
-      </VStack>
-    );
-  }
+  // Suggested trades are public — do not gate the page on session resolve.
+  // Paper / Schwab wait on isPending inside their branches below.
 
   const account = portfolio?.account;
   const allRows = (portfolio?.positions ?? []) as PositionRow[];
@@ -284,8 +279,8 @@ export default function PortfolioPage() {
         <VStack gap={2}>
           <Heading level={1}>Portfolio</Heading>
           <Text type="supporting">
-            Public lobster suggested-trade performance, your paper book, and
-            linked Schwab brokerage accounts — side by side.
+            Public lobster suggested-trade performance — no sign-in required.
+            Signed-in books: paper tracking and linked Schwab accounts.
           </Text>
         </VStack>
         <HStack gap={2} wrap="wrap" role="tablist" aria-label="Portfolio book">
@@ -351,7 +346,11 @@ export default function PortfolioPage() {
           )}
         </VStack>
       ) : bookMode === 'schwab' ? (
-        !signedIn ? (
+        isPending ? (
+          <HStack gap={3} align="center" paddingBlock={8}>
+            <Spinner size="md" label="Loading session" />
+          </HStack>
+        ) : !signedIn ? (
           <Text type="supporting">
             Sign in with Google, then connect Schwab from{' '}
             <Link to="/account" className="portfolio-link">Account</Link>
@@ -562,10 +561,14 @@ export default function PortfolioPage() {
             )}
           </VStack>
         )
+      ) : isPending ? (
+        <HStack gap={3} align="center" paddingBlock={8}>
+          <Spinner size="md" label="Loading session" />
+        </HStack>
       ) : !signedIn ? (
         <Text type="supporting">
           Sign in with Google to open a personal paper book from your Copilot chats.
-          Suggested trades above stay public — no account needed.
+          Suggested trades stay public — switch back above, no account needed.
         </Text>
       ) : (
         <>
