@@ -304,13 +304,14 @@ function round2(n: number): number {
 }
 
 /**
- * Fetch trades for the range, extending lookback to the Schwab 366-day cap
+ * Fetch trades for the range, extending lookback toward the Schwab ~1y cap
  * so FIFO can recover cost basis for positions opened before the chart window.
- * `chartStart` is unused for the fetch bound (series still slices to it).
+ * Uses 365 inclusive days (not 366) — Schwab rejects the longer bound on some accounts.
  */
 export function fetchWindowForPnl(_chartStart: string, chartEnd: string): { start: string; end: string } {
   const endMs = Date.parse(`${chartEnd}T00:00:00.000Z`);
-  const maxStartMs = endMs - (SCHWAB_TRADES_MAX_RANGE_DAYS - 1) * 24 * 60 * 60 * 1000;
+  const lookbackDays = Math.min(SCHWAB_TRADES_MAX_RANGE_DAYS, 365);
+  const maxStartMs = endMs - (lookbackDays - 1) * 24 * 60 * 60 * 1000;
   return { start: new Date(maxStartMs).toISOString().slice(0, 10), end: chartEnd };
 }
 
@@ -369,16 +370,46 @@ export async function loadSchwabPnl(
     }
 
     const fetchBounds = fetchWindowForPnl(opts.start, opts.end);
-    const raw = await listSchwabTransactions(
-      token.accessToken,
-      selected.hash,
-      {
-        start: fetchBounds.start,
-        end: fetchBounds.end,
-        types: "TRADE",
-      },
-      token.tokenType,
-    );
+    let raw: Awaited<ReturnType<typeof listSchwabTransactions>>;
+    try {
+      raw = await listSchwabTransactions(
+        token.accessToken,
+        selected.hash,
+        {
+          start: fetchBounds.start,
+          end: fetchBounds.end,
+          types: "TRADE",
+        },
+        token.tokenType,
+      );
+    } catch (e) {
+      // Schwab is strict about the 1y window on some accounts — fall back to the
+      // chart window alone (still enough for MTD/YTD early in the year).
+      if (
+        e instanceof SchwabApiError &&
+        (e.status === 400 || e.status === 404) &&
+        (fetchBounds.start < opts.start || fetchBounds.end !== opts.end)
+      ) {
+        console.error("schwab pnl: lookback fetch failed, retrying chart window", {
+          status: e.status,
+          detail: e.message.slice(0, 300),
+          lookback: fetchBounds,
+          chart: { start: opts.start, end: opts.end },
+        });
+        raw = await listSchwabTransactions(
+          token.accessToken,
+          selected.hash,
+          {
+            start: opts.start,
+            end: opts.end,
+            types: "TRADE",
+          },
+          token.tokenType,
+        );
+      } else {
+        throw e;
+      }
+    }
     const trades = raw.map(normalizeTrade);
     const ledger = buildRealizedPnlLedger(trades);
     const { points, summary } = seriesFromLedger(ledger, opts.start, opts.end);
@@ -398,8 +429,17 @@ export async function loadSchwabPnl(
     };
   } catch (e) {
     if (e instanceof SchwabApiError) {
+      console.error("schwab pnl upstream", {
+        status: e.status,
+        detail: e.message.slice(0, 500),
+        range: opts.range,
+        start: opts.start,
+        end: opts.end,
+        accountId: opts.accountId ?? null,
+      });
       return { ok: false, reason: "upstream", status: e.status, message: e.message };
     }
+    console.error("schwab pnl failed", e);
     return {
       ok: false,
       reason: "upstream",

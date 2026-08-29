@@ -229,6 +229,12 @@ export async function handleSchwab(
     });
     if (!result.ok) {
       if (result.reason === "bad_request") return json({ error: result.message }, 400);
+      console.error("schwab pnl request failed", {
+        reason: result.reason,
+        status: "status" in result ? result.status : undefined,
+        message: "message" in result ? result.message.slice(0, 300) : undefined,
+        range: range.range,
+      });
       return schwabLoadError(result);
     }
     return json({ ok: true, ...result.view });

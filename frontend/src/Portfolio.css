@@ -42,5 +42,9 @@
 
 .portfolio-pnl-chart {
   width: 100%;
+}
+
+.portfolio-pnl-plot {
+  width: 100%;
   height: 17.5rem;
 }

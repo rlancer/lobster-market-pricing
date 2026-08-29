@@ -49,6 +49,22 @@ function pnlTone(n: number | null | undefined): 'green' | 'red' | 'gray' {
   return n > 0 ? 'green' : 'red';
 }
 
+function formatApiError(err: unknown): string {
+  const raw = String((err as Error)?.message ?? err);
+  const m = /^API (\d+): (.+)$/s.exec(raw);
+  if (!m) return raw;
+  const status = m[1]!;
+  const body = m[2]!;
+  try {
+    const j = JSON.parse(body) as { error?: string; detail?: string };
+    if (j.detail) return `${j.error ?? `HTTP ${status}`}: ${j.detail}`;
+    if (j.error) return j.error;
+  } catch {
+    /* keep raw */
+  }
+  return raw.length > 280 ? `${raw.slice(0, 280)}…` : raw;
+}
+
 /**
  * Realized trading PnL curve for a linked Schwab account.
  * Period presets mirror research chart ranges (MTD / YTD / trailing).
@@ -79,7 +95,7 @@ export function SchwabPnlSection({
       setWindowLabel(`${res.start} → ${res.end}`);
       setMayBeTruncated(Boolean(res.may_be_truncated));
     } catch (err) {
-      setError(String((err as Error)?.message ?? err));
+      setError(formatApiError(err));
       setPoints([]);
       setSummary(null);
       setWindowLabel(null);
@@ -161,61 +177,63 @@ export function SchwabPnlSection({
         </Text>
       ) : (
         <VStack gap={2} className="portfolio-pnl-chart">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-              <CartesianGrid
-                stroke="var(--color-border)"
-                strokeDasharray="3 3"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="date"
-                axisLine={false}
-                tickLine={false}
-                minTickGap={48}
-                tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                tickFormatter={formatChartTick}
-              />
-              <YAxis
-                domain={['auto', 'auto']}
-                axisLine={false}
-                tickLine={false}
-                width={56}
-                tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                tickFormatter={(v: number) =>
-                  v.toLocaleString(undefined, {
-                    style: 'currency',
-                    currency: 'USD',
-                    maximumFractionDigits: 0,
-                  })
-                }
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--panel)',
-                  border: 'var(--border-width) solid var(--color-border)',
-                  borderRadius: 'var(--radius-element)',
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text-primary)',
-                }}
-                labelFormatter={(d) => String(d)}
-                formatter={(v, name) => [
-                  money(v as number),
-                  name === 'cumulative_pnl' ? 'Cumulative' : 'Day',
-                ]}
-              />
-              <ReferenceLine y={0} stroke="var(--color-border)" />
-              <Area
-                type="stepAfter"
-                dataKey="cumulative_pnl"
-                stroke="var(--accent)"
-                fill="var(--accent)"
-                fillOpacity={0.12}
-                strokeWidth={1.5}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <div className="portfolio-pnl-plot">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                <CartesianGrid
+                  stroke="var(--color-border)"
+                  strokeDasharray="3 3"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={48}
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  tickFormatter={formatChartTick}
+                />
+                <YAxis
+                  domain={['auto', 'auto']}
+                  axisLine={false}
+                  tickLine={false}
+                  width={56}
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  tickFormatter={(v: number) =>
+                    v.toLocaleString(undefined, {
+                      style: 'currency',
+                      currency: 'USD',
+                      maximumFractionDigits: 0,
+                    })
+                  }
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--panel)',
+                    border: 'var(--border-width) solid var(--color-border)',
+                    borderRadius: 'var(--radius-element)',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-primary)',
+                  }}
+                  labelFormatter={(d) => String(d)}
+                  formatter={(v, name) => [
+                    money(v as number),
+                    name === 'cumulative_pnl' ? 'Cumulative' : 'Day',
+                  ]}
+                />
+                <ReferenceLine y={0} stroke="var(--color-border)" />
+                <Area
+                  type="stepAfter"
+                  dataKey="cumulative_pnl"
+                  stroke="var(--accent)"
+                  fill="var(--accent)"
+                  fillOpacity={0.12}
+                  strokeWidth={1.5}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </VStack>
       )}
 

@@ -61,11 +61,15 @@ test("resolvePnlRange accepts presets and defaults to YTD", () => {
 test("fetchWindowForPnl extends to Schwab max lookback for basis", () => {
   const w = fetchWindowForPnl("2026-08-01", "2026-08-28");
   assert.equal(w.end, "2026-08-28");
+  // 365 inclusive days (Schwab-safe), not the full 366 constant.
   const endMs = Date.parse("2026-08-28T00:00:00.000Z");
   const expectedStart = new Date(
-    endMs - (SCHWAB_TRADES_MAX_RANGE_DAYS - 1) * 24 * 60 * 60 * 1000,
+    endMs - (365 - 1) * 24 * 60 * 60 * 1000,
   ).toISOString().slice(0, 10);
   assert.equal(w.start, expectedStart);
+  assert.ok(expectedStart >= new Date(
+    endMs - (SCHWAB_TRADES_MAX_RANGE_DAYS - 1) * 24 * 60 * 60 * 1000,
+  ).toISOString().slice(0, 10));
 });
 
 test("FIFO long round-trip realizes proceeds − basis", () => {
