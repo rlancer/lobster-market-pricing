@@ -277,6 +277,7 @@ export async function handleSchwab(
       ? Math.min(400, Math.max(1, Math.floor(limitRaw)))
       : 80;
 
+    const tradeTypes = url.searchParams.get("trade_types")?.trim() || "TRADE";
     const tradesResult = await loadSchwabTrades(env, userId, {
       start: tradeStart,
       end: tradeEnd,
@@ -284,6 +285,7 @@ export async function handleSchwab(
       // Always fetch the window unfiltered — Schwab's symbol= param misses
       // option OCC symbols; we substring-filter client-side below.
       symbol: null,
+      types: tradeTypes,
     });
     const sampleTrades =
       tradesResult.ok

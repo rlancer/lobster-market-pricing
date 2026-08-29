@@ -334,7 +334,14 @@ export type SchwabTradesResult =
 export async function loadSchwabTrades(
   env: SchwabEnv,
   userId: string,
-  opts: { start: string; end: string; accountId?: string | null; symbol?: string | null },
+  opts: {
+    start: string;
+    end: string;
+    accountId?: string | null;
+    symbol?: string | null;
+    /** Schwab transactions `types` query (default TRADE). */
+    types?: string | null;
+  },
   now = Date.now(),
 ): Promise<SchwabTradesResult> {
   let token: { accessToken: string; tokenType: string } | null;
@@ -381,7 +388,7 @@ export async function loadSchwabTrades(
       {
         start: opts.start,
         end: opts.end,
-        types: "TRADE",
+        types: opts.types?.trim() || "TRADE",
         symbol: opts.symbol ?? undefined,
       },
       token.tokenType,
