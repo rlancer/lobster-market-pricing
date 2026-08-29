@@ -266,25 +266,48 @@ export async function handleSchwab(
       return schwabLoadError(result);
     }
 
-    // Companion trades in the chart window for spot-checking FIFO inputs.
+    // Companion trades for spot-checking FIFO / assignment. Optional
+    // trade_start/trade_end (YYYY-MM-DD) narrow the window; default = chart range.
+    // symbol= filters (substring, case-insensitive). limit caps rows (default 80, max 400).
+    const tradeStart = url.searchParams.get("trade_start")?.trim() || range.start;
+    const tradeEnd = url.searchParams.get("trade_end")?.trim() || range.end;
+    const symbolFilter = url.searchParams.get("symbol")?.trim().toUpperCase() || null;
+    const limitRaw = Number(url.searchParams.get("limit") ?? "80");
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(400, Math.max(1, Math.floor(limitRaw)))
+      : 80;
+
     const tradesResult = await loadSchwabTrades(env, userId, {
-      start: range.start,
-      end: range.end,
+      start: tradeStart,
+      end: tradeEnd,
       accountId: result.view.account,
+      symbol: symbolFilter && !symbolFilter.includes(" ") ? symbolFilter : null,
     });
     const sampleTrades =
       tradesResult.ok
-        ? tradesResult.view.trades.slice(0, 40).map((t) => ({
-            id: t.id,
-            trade_date: t.trade_date,
-            side: t.side,
-            symbol: t.symbol,
-            quantity: t.quantity,
-            net_amount: t.net_amount,
-            fees: t.fees,
-            position_effect: t.position_effect,
-            asset_type: t.asset_type,
-          }))
+        ? tradesResult.view.trades
+            .filter((t) => {
+              if (!symbolFilter) return true;
+              const sym = (t.symbol ?? "").toUpperCase();
+              const und = (t.underlying ?? "").toUpperCase();
+              return sym.includes(symbolFilter) || und.includes(symbolFilter);
+            })
+            .slice(0, limit)
+            .map((t) => ({
+              id: t.id,
+              trade_date: t.trade_date,
+              side: t.side,
+              symbol: t.symbol,
+              underlying: t.underlying,
+              quantity: t.quantity,
+              price: t.price,
+              net_amount: t.net_amount,
+              fees: t.fees,
+              position_effect: t.position_effect,
+              asset_type: t.asset_type,
+              activity_type: t.activity_type,
+              description: t.description,
+            }))
         : [];
 
     return json({
