@@ -53,10 +53,14 @@ test("buildAuthorizeUrl includes response_type and state", () => {
   assert.equal(url.searchParams.get("state"), "abc.def");
 });
 
-test("sanitizeReturnTo only allows trusted origins and forces /account", () => {
+test("sanitizeReturnTo only allows trusted origins and /account|/portfolio", () => {
   assert.equal(
     sanitizeReturnTo("https://lobster.mp/chat/xyz?x=1", "https://dev.lobster.mp"),
     "https://lobster.mp/account",
+  );
+  assert.equal(
+    sanitizeReturnTo("https://lobster.mp/portfolio", "https://dev.lobster.mp"),
+    "https://lobster.mp/portfolio",
   );
   assert.equal(
     sanitizeReturnTo("https://evil.example/account", "https://dev.lobster.mp"),

@@ -108,14 +108,17 @@ export interface SchwabOAuthState {
   nonce: string;
 }
 
+/** Post-OAuth landing paths we allow (Connect from Account or Portfolio). */
+const SCHWAB_RETURN_PATHS = new Set(["/account", "/portfolio"]);
+
 export function sanitizeReturnTo(raw: string | null | undefined, fallbackOrigin: string): string {
   const fallback = `${fallbackOrigin.replace(/\/$/, "")}/account`;
   if (!raw?.trim()) return fallback;
   try {
     const url = new URL(raw.trim());
     if (!isTrustedOrigin(url.origin)) return fallback;
-    // Stay on the account surface; ignore arbitrary deep links.
-    url.pathname = "/account";
+    // Only Account / Portfolio — ignore arbitrary deep links.
+    url.pathname = SCHWAB_RETURN_PATHS.has(url.pathname) ? url.pathname : "/account";
     url.search = "";
     url.hash = "";
     return url.toString();
@@ -182,20 +185,12 @@ export interface SchwabTokenResponse {
   scope?: string;
 }
 
-export async function exchangeAuthorizationCode(
+async function postTokenRequest(
   env: SchwabEnv,
-  code: string,
-  redirectUri: string,
+  body: URLSearchParams,
 ): Promise<SchwabTokenResponse> {
   const clientId = env.SCHWAB_CLIENT_ID!.trim();
   const clientSecret = env.SCHWAB_CLIENT_SECRET!.trim();
-  // Schwab returns code with a trailing @ often percent-encoded as %40.
-  const decoded = decodeURIComponent(code.trim());
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code: decoded,
-    redirect_uri: redirectUri,
-  });
   const resp = await fetch(SCHWAB_TOKEN_URL, {
     method: "POST",
     headers: {
@@ -210,10 +205,83 @@ export async function exchangeAuthorizationCode(
     throw new Error(`Schwab token exchange failed (${resp.status}): ${text.slice(0, 300)}`);
   }
   const json = (await resp.json()) as SchwabTokenResponse;
-  if (!json.access_token || !json.refresh_token) {
-    throw new Error("Schwab token response missing access_token or refresh_token");
+  if (!json.access_token) {
+    throw new Error("Schwab token response missing access_token");
   }
   return json;
+}
+
+export async function exchangeAuthorizationCode(
+  env: SchwabEnv,
+  code: string,
+  redirectUri: string,
+): Promise<SchwabTokenResponse> {
+  // Schwab returns code with a trailing @ often percent-encoded as %40.
+  const decoded = decodeURIComponent(code.trim());
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: decoded,
+    redirect_uri: redirectUri,
+  });
+  const json = await postTokenRequest(env, body);
+  if (!json.refresh_token) {
+    throw new Error("Schwab token response missing refresh_token");
+  }
+  return json;
+}
+
+/** Refresh grant — Schwab may omit a new refresh_token; caller keeps the prior one. */
+export async function refreshAccessToken(
+  env: SchwabEnv,
+  refreshToken: string,
+): Promise<SchwabTokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  return postTokenRequest(env, body);
+}
+
+const ACCESS_TOKEN_SKEW_MS = 60_000;
+
+export async function getSchwabConnectionRow(
+  db: D1Database,
+  userId: string,
+): Promise<SchwabTokenRow | null> {
+  return db
+    .prepare(
+      `SELECT user_id, access_token, refresh_token, token_type, scope,
+              expires_at, connected_at, updated_at
+       FROM schwab_connections WHERE user_id = ?`,
+    )
+    .bind(userId)
+    .first<SchwabTokenRow>();
+}
+
+/**
+ * Return a usable access token, refreshing + upserting when near expiry.
+ * Throws on refresh failure (caller may treat as reconnect needed).
+ */
+export async function getValidAccessToken(
+  env: SchwabEnv,
+  userId: string,
+  now = Date.now(),
+): Promise<{ accessToken: string; tokenType: string } | null> {
+  const row = await getSchwabConnectionRow(env.SCHEMA_DB, userId);
+  if (!row) return null;
+  if (row.expires_at > now + ACCESS_TOKEN_SKEW_MS) {
+    return { accessToken: row.access_token, tokenType: row.token_type || "Bearer" };
+  }
+  const refreshed = await refreshAccessToken(env, row.refresh_token);
+  const tokens: SchwabTokenResponse = {
+    ...refreshed,
+    refresh_token: refreshed.refresh_token || row.refresh_token,
+  };
+  await upsertSchwabConnection(env.SCHEMA_DB, userId, tokens, now);
+  return {
+    accessToken: tokens.access_token,
+    tokenType: tokens.token_type ?? "Bearer",
+  };
 }
 
 export async function upsertSchwabConnection(
