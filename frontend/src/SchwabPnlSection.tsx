@@ -151,13 +151,11 @@ export function SchwabPnlSection({
   return (
     <VStack gap={4} className="portfolio-pnl-section">
       <Text type="supporting">
-        Realized trading PnL for positions opened in this period (FIFO). Closes of
-        older lots are listed separately so losses from before the window are not
-        carried into the chart. Option assignment that delivers stock without an
-        option close in Schwab’s TRADE feed is booked as a zero-cash cover so
-        short premium is realized. Open mark-to-market, deposits, and withdrawals
-        are not included.{' '}
-        <Link to="/docs/schwab-pnl" className="portfolio-link">Full matching rules</Link>.
+        Realized trading PnL for positions you opened in this period. Closes
+        of older lots are listed separately so they are not carried into the
+        chart. Assigned short options include the premium you collected.
+        Open mark-to-market, deposits, and withdrawals are not included.{' '}
+        <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
       </Text>
 
       <HStack gap={3} wrap="wrap" justify="between" align="end">

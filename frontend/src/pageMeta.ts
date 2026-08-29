@@ -61,9 +61,9 @@ const DOCS: Record<string, { title: string; description: string }> = {
       'Cloudflare Pages for the UI, a Worker for the API, and the loader Worker for CBOE ingestion.',
   },
   'schwab-pnl': {
-    title: 'Schwab realized PnL',
+    title: 'Schwab Performance',
     description:
-      'FIFO lot matching, ET calendar windows, option-assignment synthesis, and period vs prior-lot attribution for the Portfolio Performance pane.',
+      'How the Portfolio Performance chart and tables work: period vs prior-lot, assignment, dividends, and the warnings you may see.',
   },
 };
 

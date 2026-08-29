@@ -63,8 +63,8 @@ test('docs pages name the topic', () => {
   const meta = pageMetaForUrl('/docs/pipeline');
   assert.equal(meta.title, `Data pipeline – Docs · ${SITE_NAME}`);
   const pnl = pageMetaForUrl('/docs/schwab-pnl');
-  assert.equal(pnl.title, `Schwab realized PnL – Docs · ${SITE_NAME}`);
-  assert.match(pnl.description ?? '', /FIFO lot matching/);
+  assert.equal(pnl.title, `Schwab Performance – Docs · ${SITE_NAME}`);
+  assert.match(pnl.description ?? '', /Performance chart/);
 });
 
 test('chat, monitor, admin, brand, bots, users, chats, account, and share have route titles', () => {
