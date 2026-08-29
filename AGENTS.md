@@ -43,6 +43,52 @@ Do not amend or force-push after the PR is opened.
 - If you're working on top of pre-existing uncommitted changes, commit only
   your own files; never sweep unrelated modifications into a PR.
 
+## Remote computer / My Machines sessions (branch isolation)
+
+Cursor-hosted Cloud Agents let you pick a base ref (`startingRef: main`).
+**My Machines / remote-computer workers do not** — the session attaches to
+whatever branch the worker's checkout currently has checked out. That is why
+a new session can wake up on last run's `cursor/…` branch instead of `main`.
+
+**Preferred: one worktree per session, always from `origin/main`.**
+
+```bash
+# From the home clone (keep that clone on main; do not leave it on cursor/*)
+./.cursor/new-remote-session.sh <slug>
+# → prints worktree path + `agent worker start --worker-dir … --name …`
+```
+
+Or manually:
+
+```bash
+git fetch origin main
+SESSION="cursor/<slug>-$(openssl rand -hex 2)"
+git worktree add "../lobster-$SESSION" -b "$SESSION" origin/main
+agent worker start --worker-dir "../lobster-$SESSION" --name "$SESSION"
+```
+
+Agents Window / IDE `/worktree` / CLI `--worktree` use `.cursor/worktrees.json`
+for install + secret copy into the new checkout.
+
+**Minimum (single shared checkout, sequential sessions only):** before any
+feature branch, force the base to current `main`:
+
+```bash
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git checkout -b cursor/<slug>-xxxx   # or feat/<slug>
+```
+
+Do **not** create the session branch off a previous `cursor/…` tip unless you
+are deliberately continuing that unmerged work. After a PR merges, delete the
+remote agent branch and leave the home clone on `main`.
+
+**Cursor-hosted cloud (when you do get a ref picker):** always set
+`startingRef: "main"` and keep `workOnCurrentBranch: false` so each session
+gets a fresh `cursor/…` output branch. Only pass `prUrl` / work-on-current when
+continuing that PR.
+
 ## Report back: PR link + preview link
 
 Every completed task reports back **both** links:
@@ -123,6 +169,12 @@ site and SameSite=Lax will not send it.
   not enough — wrap with `BEGIN RSA PRIVATE KEY` / `END` before upload.
 - **Worker redeploys preserve secrets** (R2_SQL_TOKEN, PIPELINE_*_URL, …);
   CI needs only `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`.
+- **My Machines inherits the worker checkout branch.** Remote-computer
+  sessions have no `startingRef` picker — they attach to whatever branch the
+  worker dir currently has checked out. Always start a fresh worktree from
+  `origin/main` (`.cursor/new-remote-session.sh`) or reset that checkout to
+  `main` before branching. Details: “Remote computer / My Machines sessions”
+  above.
 - **Edit-tool hazard:** `read`/`grep` elide long bodies as `{ … }` — never
   anchor a text edit on that literal ellipsis text; it will corrupt the real
   body (happened in `frontend/src/api.ts`). Use `:raw` reads for unknown text.

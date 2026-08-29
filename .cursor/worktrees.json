@@ -1,0 +1,20 @@
+{
+  "setup-worktree-unix": [
+    "test -f \"$ROOT_WORKTREE_PATH/.env\" && cp \"$ROOT_WORKTREE_PATH/.env\" .env || true",
+    "test -f \"$ROOT_WORKTREE_PATH/frontend/.env\" && cp \"$ROOT_WORKTREE_PATH/frontend/.env\" frontend/.env || true",
+    "test -f \"$ROOT_WORKTREE_PATH/worker/.dev.vars\" && cp \"$ROOT_WORKTREE_PATH/worker/.dev.vars\" worker/.dev.vars || true",
+    "test -f \"$ROOT_WORKTREE_PATH/loader/.env\" && cp \"$ROOT_WORKTREE_PATH/loader/.env\" loader/.env || true",
+    "cd frontend && npm install",
+    "cd worker && npm install",
+    "cd loader && npm ci"
+  ],
+  "setup-worktree-windows": [
+    "if exist \"%ROOT_WORKTREE_PATH%\\.env\" copy /Y \"%ROOT_WORKTREE_PATH%\\.env\" .env",
+    "if exist \"%ROOT_WORKTREE_PATH%\\frontend\\.env\" copy /Y \"%ROOT_WORKTREE_PATH%\\frontend\\.env\" frontend\\.env",
+    "if exist \"%ROOT_WORKTREE_PATH%\\worker\\.dev.vars\" copy /Y \"%ROOT_WORKTREE_PATH%\\worker\\.dev.vars\" worker\\.dev.vars",
+    "if exist \"%ROOT_WORKTREE_PATH%\\loader\\.env\" copy /Y \"%ROOT_WORKTREE_PATH%\\loader\\.env\" loader\\.env",
+    "cd frontend && npm install",
+    "cd worker && npm install",
+    "cd loader && npm ci"
+  ]
+}
