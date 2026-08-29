@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Area,
-  AreaChart,
   CartesianGrid,
+  ComposedChart,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import {
+  Button,
   HStack,
   Spinner,
   Text,
@@ -19,6 +21,7 @@ import {
   ToggleButtonGroup,
   VStack,
 } from '@astryxdesign/core';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import {
@@ -28,14 +31,24 @@ import {
   type SchwabPnlPoint,
   type SchwabPnlRange,
   type SchwabPnlResponse,
+  type SchwabPortfolioPosition,
+  type SchwabTrade,
 } from './api';
 import { formatChartTick } from './tickerChartRange';
+import {
+  buildActivityRows,
+  composeSeries,
+  composeTotals,
+  DEFAULT_PNL_INCLUDE,
+  filterActivity,
+  type ActivityRow,
+  type PnlInclude,
+} from './schwabPnlView';
 import './Portfolio.css';
 
 const PNL_RANGES: SchwabPnlRange[] = ['MTD', 'YTD', '1M', '3M', '6M', '1Y'];
 
-type FillRow = SchwabPnlFill & Record<string, unknown>;
-type DistRow = SchwabDistribution & Record<string, unknown>;
+type ActivityTableRow = ActivityRow & Record<string, unknown>;
 
 function money(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -63,10 +76,22 @@ function pnlTone(n: number | null | undefined): 'green' | 'red' | 'gray' {
   return n > 0 ? 'green' : 'red';
 }
 
-function sideTone(side: SchwabPnlFill['side']): 'green' | 'red' | 'gray' {
+function sideTone(side: ActivityRow['side']): 'green' | 'red' | 'gray' {
   if (side === 'buy') return 'green';
   if (side === 'sell') return 'red';
   return 'gray';
+}
+
+function kindTone(kind: ActivityRow['kind']): 'green' | 'orange' | 'gray' {
+  if (kind === 'stock') return 'gray';
+  if (kind === 'option') return 'orange';
+  return 'green';
+}
+
+function kindLabel(kind: ActivityRow['kind']): string {
+  if (kind === 'stock') return 'Stock';
+  if (kind === 'option') return 'Option';
+  return 'Div';
 }
 
 function formatApiError(err: unknown): string {
@@ -85,38 +110,69 @@ function formatApiError(err: unknown): string {
   return raw.length > 280 ? `${raw.slice(0, 280)}…` : raw;
 }
 
+function markerColor(kind: ActivityRow['kind']): string {
+  if (kind === 'option') return 'var(--color-warning, var(--accent))';
+  if (kind === 'dividend') return 'var(--color-success)';
+  return 'var(--accent)';
+}
+
 /**
  * Realized trading PnL curve for a linked Schwab account.
- * Period presets mirror research chart ranges (MTD / YTD / trailing).
+ * Ticker scopes equity + options on the same root (CAR stock and CAR puts).
  */
 export function SchwabPnlSection({
   accountId,
+  initialSymbol = '',
+  positions = [],
 }: {
   accountId: string | null;
+  /** Root ticker from a position click (`CAR`, not the OCC symbol). */
+  initialSymbol?: string;
+  positions?: SchwabPortfolioPosition[];
 }) {
   const [range, setRange] = useState<SchwabPnlRange>('YTD');
+  const [symbolDraft, setSymbolDraft] = useState(initialSymbol);
+  const [symbol, setSymbol] = useState(initialSymbol.trim().toUpperCase());
+  const [include, setInclude] = useState<PnlInclude>(DEFAULT_PNL_INCLUDE);
   const [points, setPoints] = useState<SchwabPnlPoint[]>([]);
   const [summary, setSummary] = useState<SchwabPnlResponse['summary'] | null>(null);
   const [fills, setFills] = useState<SchwabPnlFill[]>([]);
   const [distributions, setDistributions] = useState<SchwabDistribution[]>([]);
+  const [trades, setTrades] = useState<SchwabTrade[]>([]);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
   const [mayBeTruncated, setMayBeTruncated] = useState(false);
   const [lookbackTruncated, setLookbackTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (nextRange: SchwabPnlRange, nextAccount: string | null) => {
+  useEffect(() => {
+    const next = initialSymbol.trim().toUpperCase();
+    setSymbolDraft(next);
+    setSymbol(next);
+  }, [initialSymbol]);
+
+  const applySymbol = useCallback((raw: string) => {
+    setSymbol(raw.trim().toUpperCase());
+  }, []);
+
+  const load = useCallback(async (
+    nextRange: SchwabPnlRange,
+    nextAccount: string | null,
+    nextSymbol: string,
+  ) => {
     setLoading(true);
     setError(null);
     try {
       const res = await api.schwabPnl({
         range: nextRange,
         account: nextAccount ?? undefined,
+        symbol: nextSymbol.trim() || undefined,
       });
       setPoints(res.points);
       setSummary(res.summary);
       setFills(Array.isArray(res.fills) ? res.fills : []);
       setDistributions(Array.isArray(res.distributions) ? res.distributions : []);
+      setTrades(Array.isArray(res.trades) ? res.trades : []);
       setWindowLabel(`${res.start} → ${res.end}`);
       setLookbackTruncated(Boolean(res.lookback_truncated));
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
@@ -126,6 +182,7 @@ export function SchwabPnlSection({
       setSummary(null);
       setFills([]);
       setDistributions([]);
+      setTrades([]);
       setWindowLabel(null);
       setLookbackTruncated(false);
       setMayBeTruncated(false);
@@ -135,43 +192,94 @@ export function SchwabPnlSection({
   }, []);
 
   useEffect(() => {
-    void load(range, accountId);
-  }, [accountId, range, load]);
+    void load(range, accountId, symbol);
+  }, [accountId, range, symbol, load]);
 
-  const periodPnl = summary?.period_pnl ?? 0;
-  const hasActivity =
-    (summary?.closing_trade_count ?? 0) > 0 ||
-    points.some((p) => p.daily_pnl !== 0) ||
-    fills.length > 0 ||
-    distributions.length > 0;
-  const fillRows = fills as FillRow[];
-  const distRows = distributions as DistRow[];
+  const series = useMemo(() => composeSeries(points, include), [points, include]);
+  const totals = useMemo(() => composeTotals(points, include), [points, include]);
+  const activity = useMemo(
+    () => filterActivity(buildActivityRows({ trades, fills, distributions }), include),
+    [trades, fills, distributions, include],
+  );
+  const markers = useMemo(
+    () => activity.map((row) => {
+      const point = series.find((p) => p.date === row.date);
+      return {
+        date: row.date,
+        cumulative: point?.cumulative ?? 0,
+        kind: row.kind,
+        label: row.symbol ?? row.description ?? row.kind,
+      };
+    }),
+    [activity, series],
+  );
+
+  const openMark = useMemo(() => {
+    if (!symbol) return null;
+    const want = symbol.toUpperCase();
+    const matched = positions.filter((p) => {
+      const und = (p.underlying ?? '').toUpperCase();
+      if (und === want) return true;
+      return (p.symbol ?? '').toUpperCase() === want;
+    });
+    if (matched.length === 0) return null;
+    return {
+      count: matched.length,
+      open_pnl: matched.reduce((s, p) => s + (p.open_pnl ?? 0), 0),
+    };
+  }, [positions, symbol]);
+
+  const periodPnl = totals.period;
+  const hasActivity = activity.length > 0 || series.some((p) => p.daily !== 0);
+  const activityRows = activity as ActivityTableRow[];
   const periodStart = windowLabel?.split(' → ')[0] ?? 'this period';
+  const tickerLabel = symbol || 'this account';
+
+  const toggleInclude = (key: keyof PnlInclude) => {
+    setInclude((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (!next.stocks && !next.options && !next.dividends && !next.fees) return prev;
+      return next;
+    });
+  };
 
   return (
     <VStack gap={4} className="portfolio-pnl-section">
       <Text type="supporting">
-        Realized trading PnL for positions you opened in this period. Closes
-        of older lots are listed separately so they are not carried into the
-        chart. Assigned short options include the premium you collected.
-        Open mark-to-market, deposits, and withdrawals are not included.{' '}
+        Realized P&amp;L for {symbol ? `${symbol} stock and options on that root` : 'the whole account'}
+        . Type a ticker to unify equity and option fills (for example CAR).
+        Include chips choose what lands on the chart — stocks, options,
+        dividends, and/or fees. Open mark-to-market, deposits, and withdrawals
+        stay off the curve.{' '}
         <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
       </Text>
 
-      <HStack gap={3} wrap="wrap" justify="between" align="end">
-        <VStack gap={0}>
-          <Text type="supporting" size="sm">{range} realized</Text>
-          <Text
-            weight="semibold"
-            hasTabularNumbers
-            className={`portfolio-stat portfolio-pnl-${pnlTone(periodPnl)}`}
-          >
-            {moneySigned(periodPnl)}
-          </Text>
-          {windowLabel ? (
-            <Text type="supporting" size="sm">{windowLabel}</Text>
-          ) : null}
-        </VStack>
+      <HStack gap={3} wrap="wrap" align="end" justify="between">
+        <HStack gap={3} wrap="wrap" align="end">
+          <TextInput
+            label="Ticker"
+            size="sm"
+            width={140}
+            value={symbolDraft}
+            onChange={(v: string) => setSymbolDraft(v.toUpperCase())}
+            placeholder="CAR"
+            isOptional
+            hasClear
+            onKeyDown={(e: { key: string; preventDefault: () => void }) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                applySymbol(symbolDraft);
+              }
+            }}
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            label={loading ? 'Loading…' : 'Apply'}
+            isDisabled={loading}
+            onClick={() => applySymbol(symbolDraft)}
+          />
+        </HStack>
         <ToggleButtonGroup
           label="PnL range"
           type="single"
@@ -185,6 +293,41 @@ export function SchwabPnlSection({
             <ToggleButton key={key} value={key} label={key} />
           ))}
         </ToggleButtonGroup>
+      </HStack>
+
+      <HStack gap={2} wrap="wrap" role="group" aria-label="Include in performance">
+        {([
+          ['stocks', 'Stocks'],
+          ['options', 'Options'],
+          ['dividends', 'Dividends'],
+          ['fees', 'Fees'],
+        ] as const).map(([key, label]) => (
+          <Button
+            key={key}
+            size="sm"
+            variant={include[key] ? 'primary' : 'ghost'}
+            label={label}
+            onClick={() => toggleInclude(key)}
+          />
+        ))}
+      </HStack>
+
+      <HStack gap={3} wrap="wrap" justify="between" align="end">
+        <VStack gap={0}>
+          <Text type="supporting" size="sm">
+            {range} · {tickerLabel}
+          </Text>
+          <Text
+            weight="semibold"
+            hasTabularNumbers
+            className={`portfolio-stat portfolio-pnl-${pnlTone(periodPnl)}`}
+          >
+            {moneySigned(periodPnl)}
+          </Text>
+          {windowLabel ? (
+            <Text type="supporting" size="sm">{windowLabel}</Text>
+          ) : null}
+        </VStack>
       </HStack>
 
       {error ? (
@@ -214,19 +357,20 @@ export function SchwabPnlSection({
         </Text>
       ) : null}
 
-      {loading && points.length === 0 && fills.length === 0 ? (
+      {loading && points.length === 0 && activity.length === 0 ? (
         <HStack gap={3} align="center" paddingBlock={8}>
           <Spinner size="md" label="Loading Schwab PnL" />
         </HStack>
       ) : !hasActivity ? (
         <Text type="supporting">
-          No closed trades with recoverable cost basis in this period.
+          No {symbol ? `${symbol} ` : ''}activity in this period for the
+          selected sleeves.
         </Text>
       ) : (
         <VStack gap={2} className="portfolio-pnl-chart">
           <div className="portfolio-pnl-plot">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+              <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                 <CartesianGrid
                   stroke="var(--color-border)"
                   strokeDasharray="3 3"
@@ -265,49 +409,102 @@ export function SchwabPnlSection({
                   labelFormatter={(d) => String(d)}
                   formatter={(v, name) => [
                     money(v as number),
-                    name === 'cumulative_pnl' ? 'Cumulative' : 'Day',
+                    name === 'cumulative' ? 'Cumulative' : 'Day',
                   ]}
                 />
                 <ReferenceLine y={0} stroke="var(--color-border)" />
                 <Area
                   type="stepAfter"
-                  dataKey="cumulative_pnl"
+                  dataKey="cumulative"
                   stroke="var(--accent)"
                   fill="var(--accent)"
                   fillOpacity={0.12}
                   strokeWidth={1.5}
                   isAnimationActive={false}
                 />
-              </AreaChart>
+                <Scatter
+                  data={markers}
+                  dataKey="cumulative"
+                  fill="var(--accent)"
+                  shape={(props: { cx?: number; cy?: number; payload?: { kind?: ActivityRow['kind'] } }) => {
+                    const kind = props.payload?.kind ?? 'stock';
+                    return (
+                      <circle
+                        cx={props.cx}
+                        cy={props.cy}
+                        r={3.5}
+                        fill={markerColor(kind)}
+                      />
+                    );
+                  }}
+                  isAnimationActive={false}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
+          <Text type="supporting">
+            Dots are the included fills and dividends on that day. Hover the
+            curve for the running total.
+          </Text>
         </VStack>
       )}
 
       {summary && !loading ? (
         <HStack gap={6} wrap="wrap" className="portfolio-summary">
           <VStack gap={0}>
-            <Text type="supporting" size="sm">Trades in period</Text>
+            <Text type="supporting" size="sm">Activity</Text>
             <Text hasTabularNumbers weight="semibold">
-              {summary.trade_count.toLocaleString()}
+              {activity.length.toLocaleString()}
             </Text>
           </VStack>
-          <VStack gap={0}>
-            <Text type="supporting" size="sm">Closing fills</Text>
-            <Text hasTabularNumbers weight="semibold">
-              {summary.closing_trade_count.toLocaleString()}
-            </Text>
-          </VStack>
-          <VStack gap={0}>
-            <Text type="supporting" size="sm">Period PnL</Text>
-            <Text
-              hasTabularNumbers
-              weight="semibold"
-              className={`portfolio-pnl-${pnlTone(summary.period_pnl)}`}
-            >
-              {moneySigned(summary.period_pnl)}
-            </Text>
-          </VStack>
+          {include.stocks ? (
+            <VStack gap={0}>
+              <Text type="supporting" size="sm">Stocks</Text>
+              <Text
+                hasTabularNumbers
+                weight="semibold"
+                className={`portfolio-pnl-${pnlTone(totals.stocks)}`}
+              >
+                {moneySigned(totals.stocks)}
+              </Text>
+            </VStack>
+          ) : null}
+          {include.options ? (
+            <VStack gap={0}>
+              <Text type="supporting" size="sm">Options</Text>
+              <Text
+                hasTabularNumbers
+                weight="semibold"
+                className={`portfolio-pnl-${pnlTone(totals.options)}`}
+              >
+                {moneySigned(totals.options)}
+              </Text>
+            </VStack>
+          ) : null}
+          {include.dividends ? (
+            <VStack gap={0}>
+              <Text type="supporting" size="sm">Dividends</Text>
+              <Text
+                hasTabularNumbers
+                weight="semibold"
+                className={`portfolio-pnl-${pnlTone(totals.dividends)}`}
+              >
+                {moneySigned(totals.dividends)}
+              </Text>
+            </VStack>
+          ) : null}
+          {include.fees ? (
+            <VStack gap={0}>
+              <Text type="supporting" size="sm">Fees</Text>
+              <Text
+                hasTabularNumbers
+                weight="semibold"
+                className={`portfolio-pnl-${pnlTone(totals.fees)}`}
+              >
+                {moneySigned(totals.fees)}
+              </Text>
+            </VStack>
+          ) : null}
           {summary.prior_open_pnl !== 0 ? (
             <VStack gap={0}>
               <Text type="supporting" size="sm">Prior-lot closes</Text>
@@ -320,15 +517,15 @@ export function SchwabPnlSection({
               </Text>
             </VStack>
           ) : null}
-          {(summary.distributions_total !== 0 || distributions.length > 0) ? (
+          {openMark ? (
             <VStack gap={0}>
-              <Text type="supporting" size="sm">Dividends / interest</Text>
+              <Text type="supporting" size="sm">Open mark ({openMark.count})</Text>
               <Text
                 hasTabularNumbers
                 weight="semibold"
-                className={`portfolio-pnl-${pnlTone(summary.distributions_total)}`}
+                className={`portfolio-pnl-${pnlTone(openMark.open_pnl)}`}
               >
-                {moneySigned(summary.distributions_total)}
+                {moneySigned(openMark.open_pnl)}
               </Text>
             </VStack>
           ) : null}
@@ -337,22 +534,26 @@ export function SchwabPnlSection({
 
       {summary && summary.prior_open_pnl !== 0 && !loading ? (
         <Text type="supporting">
-          Prior-lot closes are realized P&L on positions opened before{' '}
+          Prior-lot closes are realized P&amp;L on positions opened before{' '}
           {periodStart} and closed inside it — excluded from the chart so
           pre-period losses are not carried forward.
         </Text>
       ) : null}
 
-      {!loading && fillRows.length > 0 ? (
+      {!loading && activityRows.length > 0 ? (
         <VStack gap={2} className="portfolio-pnl-breakdown">
-          <Text weight="semibold">Closing fills</Text>
+          <Text weight="semibold">
+            {symbol ? `${symbol} activity` : 'Activity'}
+          </Text>
           <Text type="supporting">
-            Trades that realized P&L in this window. Fees are from the closing
-            fill. Rows tagged prior-lot are excluded from the chart total.
+            Every included fill and dividend in this window. Realized is set
+            when a close matched an open lot. Fees stay on the trade row —
+            turn off Stocks/Options/Dividends and leave Fees on to see only
+            commission drag.
           </Text>
           <Table
             className="portfolio-table"
-            data={fillRows}
+            data={activityRows}
             idKey="id"
             density="compact"
             dividers="rows"
@@ -368,17 +569,27 @@ export function SchwabPnlSection({
                 ),
               },
               {
+                key: 'kind',
+                header: 'Kind',
+                width: pixel(80),
+                renderCell: (row) => (
+                  <Token color={kindTone(row.kind)} label={kindLabel(row.kind)} size="sm" />
+                ),
+              },
+              {
                 key: 'side',
                 header: 'Side',
                 width: pixel(72),
                 renderCell: (row) => (
-                  <Token color={sideTone(row.side)} label={row.side} size="sm" />
+                  row.side
+                    ? <Token color={sideTone(row.side)} label={row.side} size="sm" />
+                    : <Text type="supporting">—</Text>
                 ),
               },
               {
                 key: 'symbol',
                 header: 'Symbol',
-                width: proportional(1.1),
+                width: proportional(1.2),
                 renderCell: (row) => (
                   <Text weight="semibold" hasTabularNumbers>{row.symbol ?? '—'}</Text>
                 ),
@@ -400,6 +611,14 @@ export function SchwabPnlSection({
                 ),
               },
               {
+                key: 'net_amount',
+                header: 'Net',
+                width: pixel(100),
+                renderCell: (row) => (
+                  <Text hasTabularNumbers>{money(row.net_amount)}</Text>
+                ),
+              },
+              {
                 key: 'fees',
                 header: 'Fees',
                 width: pixel(72),
@@ -412,104 +631,39 @@ export function SchwabPnlSection({
                 header: 'Realized',
                 width: pixel(100),
                 renderCell: (row) => (
-                  <Text
-                    hasTabularNumbers
-                    weight="semibold"
-                    className={`portfolio-pnl-${pnlTone(row.realized_pnl)}`}
-                  >
-                    {moneySigned(row.realized_pnl)}
-                  </Text>
-                ),
-              },
-              {
-                key: 'opened',
-                header: 'Opened',
-                width: pixel(110),
-                renderCell: (row) => (
-                  <Timestamp value={row.opened} format="date" type="body" />
+                  row.realized_pnl == null ? (
+                    <Text type="supporting">—</Text>
+                  ) : (
+                    <Text
+                      hasTabularNumbers
+                      weight="semibold"
+                      className={`portfolio-pnl-${pnlTone(row.realized_pnl)}`}
+                    >
+                      {moneySigned(row.realized_pnl)}
+                    </Text>
+                  )
                 ),
               },
               {
                 key: 'prior_open',
                 header: 'Lot',
-                width: pixel(88),
+                width: pixel(72),
                 renderCell: (row) => (
-                  row.prior_open
-                    ? <Token color="gray" label="prior" size="sm" />
-                    : <Token color="green" label="period" size="sm" />
+                  row.kind === 'dividend' ? (
+                    <Text type="supporting">—</Text>
+                  ) : row.realized_pnl == null ? (
+                    <Token color="gray" label="open" size="sm" />
+                  ) : row.prior_open ? (
+                    <Token color="gray" label="prior" size="sm" />
+                  ) : (
+                    <Token color="green" label="period" size="sm" />
+                  )
                 ),
               },
               {
                 key: 'description',
                 header: 'Description',
                 width: proportional(1.4),
-                renderCell: (row) => (
-                  <Text type="supporting">{row.description ?? '—'}</Text>
-                ),
-              },
-            ]}
-          />
-        </VStack>
-      ) : null}
-
-      {!loading && distRows.length > 0 ? (
-        <VStack gap={2} className="portfolio-pnl-breakdown">
-          <Text weight="semibold">Dividends & interest</Text>
-          <Text type="supporting">
-            Distributions credited in this window. Not included in the realized
-            trading chart above.
-          </Text>
-          <Table
-            className="portfolio-table"
-            data={distRows}
-            idKey="id"
-            density="compact"
-            dividers="rows"
-            hasHover
-            textOverflow="truncate"
-            columns={[
-              {
-                key: 'date',
-                header: 'Date',
-                width: pixel(110),
-                renderCell: (row) => (
-                  <Timestamp value={row.date} format="date" type="body" />
-                ),
-              },
-              {
-                key: 'symbol',
-                header: 'Symbol',
-                width: proportional(1),
-                renderCell: (row) => (
-                  <Text weight="semibold" hasTabularNumbers>{row.symbol ?? '—'}</Text>
-                ),
-              },
-              {
-                key: 'amount',
-                header: 'Amount',
-                width: pixel(100),
-                renderCell: (row) => (
-                  <Text
-                    hasTabularNumbers
-                    weight="semibold"
-                    className={`portfolio-pnl-${pnlTone(row.amount)}`}
-                  >
-                    {row.amount == null ? '—' : moneySigned(row.amount)}
-                  </Text>
-                ),
-              },
-              {
-                key: 'type',
-                header: 'Type',
-                width: pixel(140),
-                renderCell: (row) => (
-                  <Text type="supporting">{row.type ?? '—'}</Text>
-                ),
-              },
-              {
-                key: 'description',
-                header: 'Description',
-                width: proportional(2),
                 renderCell: (row) => (
                   <Text type="supporting">{row.description ?? '—'}</Text>
                 ),

@@ -24,6 +24,7 @@ import { authClient } from './auth';
 import { BotTradesSection } from './BotTradesSection';
 import { SchwabPnlSection } from './SchwabPnlSection';
 import { SchwabTradesSection } from './SchwabTradesSection';
+import { positionTicker } from './schwabPnlView';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
@@ -91,6 +92,7 @@ export default function PortfolioPage() {
   const [schwabNeedsConnect, setSchwabNeedsConnect] = useState(false);
   const [schwabNeedsReauth, setSchwabNeedsReauth] = useState(false);
   const [schwabPane, setSchwabPane] = useState<SchwabPane>('positions');
+  const [schwabTicker, setSchwabTicker] = useState('');
 
   const loadPaper = useCallback(async (status: StatusFilter, conviction: ConvictionFilter) => {
     setLoading(true);
@@ -439,7 +441,11 @@ export default function PortfolioPage() {
             {schwabPane === 'trades' ? (
               <SchwabTradesSection accountId={schwabAccount?.id ?? null} />
             ) : schwabPane === 'performance' ? (
-              <SchwabPnlSection accountId={schwabAccount?.id ?? null} />
+              <SchwabPnlSection
+                accountId={schwabAccount?.id ?? null}
+                initialSymbol={schwabTicker}
+                positions={schwabAccount?.positions ?? []}
+              />
             ) : (
               <>
             {schwabSummary ? (
@@ -515,7 +521,15 @@ export default function PortfolioPage() {
                     width: pixel(120),
                     renderCell: (row) => (
                       <VStack gap={1}>
-                        <Text weight="semibold" hasTabularNumbers>{row.symbol}</Text>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          label={row.symbol}
+                          onClick={() => {
+                            setSchwabTicker(positionTicker(row));
+                            setSchwabPane('performance');
+                          }}
+                        />
                         {row.description ? (
                           <Text type="supporting" size="sm" className="portfolio-legs">
                             {row.description}

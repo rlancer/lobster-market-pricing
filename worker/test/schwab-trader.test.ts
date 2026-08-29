@@ -6,6 +6,7 @@ import {
   etTradeDay,
   formatOccOptionSymbol,
   inferTradeSide,
+  matchesTicker,
   normalizeTrade,
   opaqueAccountId,
   parseTradeDateRange,
@@ -206,4 +207,14 @@ test("formatOccOptionSymbol pads root and strike millis", () => {
     }),
     null,
   );
+});
+
+test("matchesTicker unifies equity and options on the same root", () => {
+  assert.equal(matchesTicker({ symbol: "CAR", underlying: null }, "car"), true);
+  assert.equal(matchesTicker({ symbol: "CAR   260618P00390000", underlying: "CAR" }, "CAR"), true);
+  assert.equal(matchesTicker({ symbol: "CAR 2026-06-18 P 390", underlying: null }, "CAR"), true);
+  assert.equal(matchesTicker({ symbol: "CAR260618C00020000", underlying: null }, "CAR"), true);
+  assert.equal(matchesTicker({ symbol: "CARD", underlying: null }, "CAR"), false);
+  assert.equal(matchesTicker({ symbol: "AAPL", underlying: null }, "CAR"), false);
+  assert.equal(matchesTicker({ symbol: "CAR", underlying: null }, null), true);
 });

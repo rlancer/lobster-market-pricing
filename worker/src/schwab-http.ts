@@ -7,7 +7,7 @@
  * POST /api/schwab/disconnect — drop stored tokens
  * GET  /api/schwab/portfolio  — linked accounts, balances, positions (no tokens)
  * GET  /api/schwab/trades     — historical TRADE transactions (≤366 days)
- * GET  /api/schwab/pnl        — realized trading PnL time series (MTD/YTD/…)
+ * GET  /api/schwab/pnl        — realized trading PnL time series (MTD/YTD/…; optional symbol)
  */
 
 import {
@@ -26,7 +26,7 @@ import {
 } from "./schwab";
 import { loadSchwabPortfolio } from "./schwab-portfolio";
 import { loadSchwabPnl, resolvePnlRange } from "./schwab-pnl";
-import { loadSchwabTrades, parseTradeDateRange } from "./schwab-trader";
+import { loadSchwabTrades, matchesTicker, parseTradeDateRange } from "./schwab-trader";
 import { getSessionUser } from "./auth";
 import { adminTokenAuthorized } from "./bots";
 
@@ -227,6 +227,7 @@ export async function handleSchwab(
       start: range.start,
       end: range.end,
       accountId: url.searchParams.get("account"),
+      symbol: url.searchParams.get("symbol"),
     });
     if (!result.ok) {
       if (result.reason === "bad_request") return json({ error: result.message }, 400);
@@ -260,6 +261,7 @@ export async function handleSchwab(
       start: range.start,
       end: range.end,
       accountId: url.searchParams.get("account"),
+      symbol: url.searchParams.get("symbol"),
     });
     if (!result.ok) {
       if (result.reason === "bad_request") return json({ error: result.message }, 400);
@@ -268,7 +270,7 @@ export async function handleSchwab(
 
     // Companion trades for spot-checking FIFO / assignment. Optional
     // trade_start/trade_end (YYYY-MM-DD) narrow the window; default = chart range.
-    // symbol= filters (substring, case-insensitive). limit caps rows (default 80, max 400).
+    // symbol= matches equity + options on that root. limit caps rows (default 80, max 400).
     const tradeStart = url.searchParams.get("trade_start")?.trim() || range.start;
     const tradeEnd = url.searchParams.get("trade_end")?.trim() || range.end;
     const symbolFilter = url.searchParams.get("symbol")?.trim().toUpperCase() || null;
@@ -290,12 +292,7 @@ export async function handleSchwab(
     const sampleTrades =
       tradesResult.ok
         ? tradesResult.view.trades
-            .filter((t) => {
-              if (!symbolFilter) return true;
-              const sym = (t.symbol ?? "").toUpperCase();
-              const und = (t.underlying ?? "").toUpperCase();
-              return sym.includes(symbolFilter) || und.includes(symbolFilter);
-            })
+            .filter((t) => matchesTicker(t, symbolFilter))
             .slice(0, limit)
             .map((t) => ({
               id: t.id,

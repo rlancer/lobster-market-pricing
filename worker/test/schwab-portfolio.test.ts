@@ -72,6 +72,8 @@ test("normalizeSchwabAccounts maps securitiesAccount envelope", () => {
   assert.equal(acct.buying_power, 10_000);
   assert.equal(acct.positions.length, 2);
   assert.equal(acct.positions[0]!.symbol, "AAPL");
+  assert.equal(acct.positions[0]!.underlying, null);
+  assert.equal(acct.positions[1]!.underlying, "AAPL");
   assert.equal(acct.positions[0]!.quantity, 10);
   assert.equal(acct.positions[0]!.open_pnl, 50);
   assert.equal(acct.positions[1]!.quantity, -2);

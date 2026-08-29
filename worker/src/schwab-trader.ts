@@ -238,6 +238,32 @@ export function formatOccOptionSymbol(opts: {
   return `${root.padEnd(6, " ")}${exp}${right}${strikePart}`;
 }
 
+/**
+ * True when an activity belongs to `ticker` as equity or as an option on that
+ * root. Exact match only — `CAR` does not include `CARD`. Schwab's
+ * transactions `symbol=` query misses OCC option symbols, so callers fetch
+ * unfiltered and apply this locally.
+ */
+export function matchesTicker(
+  activity: { symbol?: string | null; underlying?: string | null },
+  ticker: string | null | undefined,
+): boolean {
+  const want = ticker?.trim().toUpperCase();
+  if (!want) return true;
+  const underlying = activity.underlying?.trim().toUpperCase();
+  if (underlying === want) return true;
+  const symbol = activity.symbol?.trim().toUpperCase();
+  if (!symbol) return false;
+  if (symbol === want) return true;
+
+  const compact = symbol.replace(/\s+/g, "");
+  const occ = /^([A-Z0-9.\-]{1,6})\d{6}[CP]\d{8}$/.exec(compact);
+  if (occ) return occ[1] === want;
+  const readable =
+    /^([A-Z0-9.\-]{1,6})\s+(\d{4}-\d{2}-\d{2})\s+(C|P|CALL|PUT)\b/.exec(symbol);
+  return readable?.[1] === want;
+}
+
 function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem | null {
   // Prefer real securities — cash/CURRENCY legs also carry a symbol (CURRENCY_USD)
   // and must not win over the equity/option transfer item on the same TRADE.
@@ -456,6 +482,7 @@ export async function loadSchwabTrades(
       selected = match;
     }
 
+    const ticker = opts.symbol?.trim().toUpperCase() || null;
     const raw = await listSchwabTransactions(
       token.accessToken,
       selected.hash,
@@ -463,15 +490,18 @@ export async function loadSchwabTrades(
         start: opts.start,
         end: opts.end,
         types: opts.types?.trim() || "TRADE",
-        symbol: opts.symbol ?? undefined,
+        // Never forward symbol= — Schwab misses OCC option rows for the root.
       },
       token.tokenType,
     );
-    const trades = raw.map(normalizeTrade).sort((a, b) => {
-      const ta = a.trade_date ?? "";
-      const tb = b.trade_date ?? "";
-      return tb.localeCompare(ta);
-    });
+    const trades = raw
+      .map(normalizeTrade)
+      .filter((t) => matchesTicker(t, ticker))
+      .sort((a, b) => {
+        const ta = a.trade_date ?? "";
+        const tb = b.trade_date ?? "";
+        return tb.localeCompare(ta);
+      });
 
     return {
       ok: true,

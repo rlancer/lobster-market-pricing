@@ -13,6 +13,8 @@ export const SCHWAB_TRADER_BASE = "https://api.schwabapi.com/trader/v1";
 export interface SchwabPortfolioPosition {
   id: string;
   symbol: string;
+  /** Option root / underlying when Schwab sends it (equity is null). */
+  underlying: string | null;
   description: string | null;
   asset_type: string | null;
   quantity: number;
@@ -116,6 +118,7 @@ function normalizePosition(
   return {
     id: `${accountId}:${symbol}:${index}`,
     symbol,
+    underlying: str(instrument.underlyingSymbol),
     description: str(instrument.description),
     asset_type: str(instrument.assetType),
     quantity,

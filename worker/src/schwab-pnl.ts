@@ -14,6 +14,7 @@ import {
   etTradeDay,
   listSchwabAccountNumbers,
   listSchwabTransactions,
+  matchesTicker,
   normalizeTrade,
   toTradeAccounts,
   type SchwabRawTransaction,
@@ -39,12 +40,23 @@ export interface SchwabPnlPoint {
   date: string;
   daily_pnl: number;
   cumulative_pnl: number;
+  /** Realized equity closes (fees included in FIFO cash). */
+  daily_equity_pnl: number;
+  /** Realized option closes, including assignment covers. */
+  daily_option_pnl: number;
+  /** Commissions / fees on trades dated this day (typically ≤ 0). */
+  daily_fees: number;
+  daily_equity_fees: number;
+  daily_option_fees: number;
+  /** Dividends / interest / distributions credited this day. */
+  daily_dividends: number;
 }
 
 export interface SchwabPnlFill {
   id: string;
   date: string;
   symbol: string | null;
+  underlying: string | null;
   description: string | null;
   side: SchwabTrade["side"];
   quantity: number | null;
@@ -90,12 +102,16 @@ export interface SchwabPnlView {
   range: SchwabPnlRange;
   start: string;
   end: string;
+  /** Root ticker when the book is scoped (equity + options on that root). */
+  symbol: string | null;
   points: SchwabPnlPoint[];
   summary: SchwabPnlSummary;
   /** Closing fills that realized P&L in the chart window (newest first). */
   fills: SchwabPnlFill[];
   /** Dividends / interest in the chart window (newest first). */
   distributions: SchwabDistribution[];
+  /** All TRADE rows in the chart window (opens + closes, newest first). */
+  trades: SchwabTrade[];
   /** True when Schwab may have capped the trade page (~3000 rows). */
   may_be_truncated: boolean;
   /**
@@ -218,6 +234,11 @@ function expirationDistanceMs(occ: OccOption, deliveryDay: string): number {
   const b = Date.parse(`${deliveryDay}T12:00:00.000Z`);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.POSITIVE_INFINITY;
   return Math.abs(a - b);
+}
+
+export function isOptionTrade(trade: SchwabTrade): boolean {
+  if ((trade.asset_type ?? "").toUpperCase() === "OPTION") return true;
+  return parseOccOptionSymbol(trade.symbol) != null;
 }
 
 function isEquityLike(trade: SchwabTrade): boolean {
@@ -590,12 +611,28 @@ export function buildRealizedPnlLedger(trades: SchwabTrade[]): RealizedPnlLedger
  * Sparse daily points + cumulative series between start/end (inclusive).
  * Only lots opened on/after `start` contribute to the chart / period_pnl.
  */
+function emptyPoint(date: string): SchwabPnlPoint {
+  return {
+    date,
+    daily_pnl: 0,
+    cumulative_pnl: 0,
+    daily_equity_pnl: 0,
+    daily_option_pnl: 0,
+    daily_fees: 0,
+    daily_equity_fees: 0,
+    daily_option_fees: 0,
+    daily_dividends: 0,
+  };
+}
+
 export function seriesFromLedger(
   ledger: RealizedPnlLedger,
   start: string,
   end: string,
 ): { points: SchwabPnlPoint[]; summary: Omit<SchwabPnlSummary, "distributions_total"> } {
   const daily = new Map<string, number>();
+  const dailyEquity = new Map<string, number>();
+  const dailyOption = new Map<string, number>();
   let period = 0;
   let priorOpen = 0;
 
@@ -604,6 +641,11 @@ export function seriesFromLedger(
     if (e.opened >= start) {
       period += e.amount;
       daily.set(e.day, (daily.get(e.day) ?? 0) + e.amount);
+      if (isOptionTrade(e.trade)) {
+        dailyOption.set(e.day, (dailyOption.get(e.day) ?? 0) + e.amount);
+      } else {
+        dailyEquity.set(e.day, (dailyEquity.get(e.day) ?? 0) + e.amount);
+      }
     } else {
       priorOpen += e.amount;
     }
@@ -619,9 +661,11 @@ export function seriesFromLedger(
     const dayPnl = daily.get(date) ?? 0;
     cumulative += dayPnl;
     points.push({
-      date,
+      ...emptyPoint(date),
       daily_pnl: round2(dayPnl),
       cumulative_pnl: round2(cumulative),
+      daily_equity_pnl: round2(dailyEquity.get(date) ?? 0),
+      daily_option_pnl: round2(dailyOption.get(date) ?? 0),
     });
   }
 
@@ -694,6 +738,7 @@ export function buildPnlFills(
       id: t.id,
       date: agg.date,
       symbol: t.symbol,
+      underlying: t.underlying,
       description: t.description,
       side: t.side,
       quantity: agg.closedQty > 0 ? round4(agg.closedQty) : t.quantity != null ? Math.abs(t.quantity) : null,
@@ -786,6 +831,59 @@ function emptySummary(): SchwabPnlSummary {
   };
 }
 
+/** Stamp fee / dividend sleeves onto trading points; insert days that only have cash. */
+export function attachCashSleeves(
+  points: SchwabPnlPoint[],
+  trades: SchwabTrade[],
+  distributions: SchwabDistribution[],
+  start: string,
+  end: string,
+): SchwabPnlPoint[] {
+  const byDate = new Map<string, SchwabPnlPoint>();
+  for (const p of points) {
+    byDate.set(p.date, { ...p });
+  }
+
+  const touch = (date: string): SchwabPnlPoint => {
+    let row = byDate.get(date);
+    if (!row) {
+      row = emptyPoint(date);
+      byDate.set(date, row);
+    }
+    return row;
+  };
+
+  for (const trade of trades) {
+    const day = tradeDay(trade);
+    if (!day || day < start || day > end) continue;
+    const fees = trade.fees != null && Number.isFinite(trade.fees) ? trade.fees : 0;
+    if (fees === 0) continue;
+    const row = touch(day);
+    row.daily_fees = round2(row.daily_fees + fees);
+    if (isOptionTrade(trade)) {
+      row.daily_option_fees = round2(row.daily_option_fees + fees);
+    } else {
+      row.daily_equity_fees = round2(row.daily_equity_fees + fees);
+    }
+  }
+
+  for (const dist of distributions) {
+    if (dist.date < start || dist.date > end) continue;
+    const amt = dist.amount != null && Number.isFinite(dist.amount) ? dist.amount : 0;
+    if (amt === 0) continue;
+    const row = touch(dist.date);
+    row.daily_dividends = round2(row.daily_dividends + amt);
+  }
+
+  const ordered = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  let cumulative = 0;
+  for (const row of ordered) {
+    cumulative += row.daily_pnl;
+    row.cumulative_pnl = round2(cumulative);
+  }
+  return ordered;
+}
+
 /**
  * Fetch trades for the range, extending lookback toward the Schwab ~1y cap
  * so FIFO can recover cost basis for positions opened before the chart window.
@@ -801,7 +899,13 @@ export function fetchWindowForPnl(_chartStart: string, chartEnd: string): { star
 export async function loadSchwabPnl(
   env: SchwabEnv,
   userId: string,
-  opts: { range: SchwabPnlRange; start: string; end: string; accountId?: string | null },
+  opts: {
+    range: SchwabPnlRange;
+    start: string;
+    end: string;
+    accountId?: string | null;
+    symbol?: string | null;
+  },
   now = Date.now(),
 ): Promise<SchwabPnlResult> {
   let token: { accessToken: string; tokenType: string } | null;
@@ -817,6 +921,8 @@ export async function loadSchwabPnl(
   }
   if (!token) return { ok: false, reason: "not_connected" };
 
+  const ticker = opts.symbol?.trim().toUpperCase() || null;
+
   try {
     const accounts = toTradeAccounts(await listSchwabAccountNumbers(token.accessToken, token.tokenType));
     const publicAccounts = accounts.map((a) => ({ id: a.id, label: a.label }));
@@ -829,13 +935,15 @@ export async function loadSchwabPnl(
           range: opts.range,
           start: opts.start,
           end: opts.end,
+          symbol: ticker,
           points: [
-            { date: opts.start, daily_pnl: 0, cumulative_pnl: 0 },
-            { date: opts.end, daily_pnl: 0, cumulative_pnl: 0 },
+            emptyPoint(opts.start),
+            emptyPoint(opts.end),
           ],
           summary: emptySummary(),
           fills: [],
           distributions: [],
+          trades: [],
           may_be_truncated: false,
           lookback_truncated: false,
         },
@@ -890,9 +998,9 @@ export async function loadSchwabPnl(
         throw e;
       }
     }
-    const trades = raw.map(normalizeTrade);
+    const trades = raw.map(normalizeTrade).filter((t) => matchesTicker(t, ticker));
     const ledger = buildRealizedPnlLedger(trades);
-    const { points, summary } = seriesFromLedger(ledger, opts.start, opts.end);
+    const { points: tradingPoints, summary } = seriesFromLedger(ledger, opts.start, opts.end);
     const fills = buildPnlFills(ledger, opts.start, opts.end);
 
     let distRaw: SchwabRawTransaction[] = [];
@@ -921,12 +1029,32 @@ export async function loadSchwabPnl(
       .map(normalizeSchwabDistribution)
       .filter((d): d is SchwabDistribution => d != null)
       .filter((d) => d.date >= opts.start && d.date <= opts.end)
+      .filter((d) => matchesTicker({ symbol: d.symbol, underlying: null }, ticker))
       .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
     const distributionsTotal = round2(
       distributions.reduce((s, d) => s + (d.amount ?? 0), 0),
     );
 
-    const rowTruncated = trades.length >= 3000;
+    const windowTrades = trades
+      .filter((t) => {
+        const day = tradeDay(t);
+        return Boolean(day && day >= opts.start && day <= opts.end);
+      })
+      .sort((a, b) => {
+        const da = a.trade_date ?? "";
+        const db = b.trade_date ?? "";
+        return db.localeCompare(da);
+      });
+
+    const points = attachCashSleeves(
+      tradingPoints,
+      windowTrades,
+      distributions,
+      opts.start,
+      opts.end,
+    );
+
+    const rowTruncated = raw.length >= 3000;
     return {
       ok: true,
       view: {
@@ -935,6 +1063,7 @@ export async function loadSchwabPnl(
         range: opts.range,
         start: opts.start,
         end: opts.end,
+        symbol: ticker,
         points,
         summary: {
           ...summary,
@@ -942,6 +1071,7 @@ export async function loadSchwabPnl(
         },
         fills,
         distributions,
+        trades: windowTrades,
         may_be_truncated: rowTruncated || lookbackTruncated,
         lookback_truncated: lookbackTruncated,
       },

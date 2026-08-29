@@ -876,6 +876,7 @@ export interface SchwabStatus {
 export interface SchwabPortfolioPosition {
   id: string;
   symbol: string;
+  underlying: string | null;
   description: string | null;
   asset_type: string | null;
   quantity: number;
@@ -952,12 +953,19 @@ export interface SchwabPnlPoint {
   date: string;
   daily_pnl: number;
   cumulative_pnl: number;
+  daily_equity_pnl?: number;
+  daily_option_pnl?: number;
+  daily_fees?: number;
+  daily_equity_fees?: number;
+  daily_option_fees?: number;
+  daily_dividends?: number;
 }
 
 export interface SchwabPnlFill {
   id: string;
   date: string;
   symbol: string | null;
+  underlying?: string | null;
   description: string | null;
   side: 'buy' | 'sell' | 'unknown';
   quantity: number | null;
@@ -987,6 +995,7 @@ export interface SchwabPnlResponse {
   range: SchwabPnlRange;
   start: string;
   end: string;
+  symbol?: string | null;
   points: SchwabPnlPoint[];
   summary: {
     period_pnl: number;
@@ -1001,6 +1010,7 @@ export interface SchwabPnlResponse {
   };
   fills: SchwabPnlFill[];
   distributions: SchwabDistribution[];
+  trades?: SchwabTrade[];
   may_be_truncated?: boolean;
   /** True when cost-basis lookback failed and only the chart window was fetched. */
   lookback_truncated?: boolean;
@@ -1742,11 +1752,12 @@ export const api = {
         symbol: opts?.symbol,
       })}`,
     ),
-  schwabPnl: (opts?: { range?: SchwabPnlRange; account?: string }) =>
+  schwabPnl: (opts?: { range?: SchwabPnlRange; account?: string; symbol?: string }) =>
     get<SchwabPnlResponse>(
       `/api/schwab/pnl${qs({
         range: opts?.range,
         account: opts?.account,
+        symbol: opts?.symbol,
       })}`,
     ),
   disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),

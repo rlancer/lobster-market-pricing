@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  attachCashSleeves,
   buildPnlFills,
   buildRealizedPnlLedger,
   fetchWindowForPnl,
@@ -11,6 +12,7 @@ import {
   synthesizeOptionAssignmentCloses,
   SCHWAB_PNL_RANGES,
 } from "../src/schwab-pnl.ts";
+import { matchesTicker } from "../src/schwab-trader.ts";
 import type { SchwabTrade } from "../src/schwab-trader.ts";
 import { SCHWAB_TRADES_MAX_RANGE_DAYS } from "../src/schwab-trader.ts";
 
@@ -760,4 +762,140 @@ test("seriesFromLedger scopes unmatched_close_count to the chart window", () => 
   assert.equal(summary.unmatched_close_count, 1);
   const outside = seriesFromLedger(ledger, "2026-03-01", "2026-03-31");
   assert.equal(outside.summary.unmatched_close_count, 0);
+});
+
+test("seriesFromLedger splits equity vs option realized sleeves", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "eq-open",
+      trade_date: "2026-01-10",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1000,
+      position_effect: "OPENING",
+      symbol: "CAR",
+    }),
+    trade({
+      id: "eq-close",
+      trade_date: "2026-02-10",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1150,
+      position_effect: "CLOSING",
+      symbol: "CAR",
+    }),
+    trade({
+      id: "opt-open",
+      trade_date: "2026-01-12",
+      side: "sell",
+      quantity: 1,
+      net_amount: 250,
+      position_effect: "OPENING",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+    }),
+    trade({
+      id: "opt-close",
+      trade_date: "2026-02-12",
+      side: "buy",
+      quantity: 1,
+      net_amount: -100,
+      position_effect: "CLOSING",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+    }),
+  ]);
+  const { points, summary } = seriesFromLedger(ledger, "2026-01-01", "2026-03-01");
+  assert.equal(summary.period_pnl, 300);
+  const eqClose = points.find((p) => p.date === "2026-02-10");
+  const optClose = points.find((p) => p.date === "2026-02-12");
+  assert.equal(eqClose?.daily_equity_pnl, 150);
+  assert.equal(eqClose?.daily_option_pnl, 0);
+  assert.equal(optClose?.daily_option_pnl, 150);
+  assert.equal(optClose?.daily_equity_pnl, 0);
+});
+
+test("attachCashSleeves stamps fees and dividends without changing trading PnL", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "1",
+      trade_date: "2026-01-10",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1001,
+      fees: -1,
+      position_effect: "OPENING",
+      symbol: "CAR",
+    }),
+    trade({
+      id: "2",
+      trade_date: "2026-02-10",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1149,
+      fees: -1,
+      position_effect: "CLOSING",
+      symbol: "CAR",
+    }),
+  ]);
+  const { points } = seriesFromLedger(ledger, "2026-01-01", "2026-03-01");
+  const stamped = attachCashSleeves(
+    points,
+    [
+      trade({
+        id: "1",
+        trade_date: "2026-01-10",
+        side: "buy",
+        quantity: 10,
+        net_amount: -1001,
+        fees: -1,
+        symbol: "CAR",
+      }),
+      trade({
+        id: "2",
+        trade_date: "2026-02-10",
+        side: "sell",
+        quantity: 10,
+        net_amount: 1149,
+        fees: -1,
+        symbol: "CAR",
+      }),
+    ],
+    [{
+      id: "d1",
+      date: "2026-02-05",
+      symbol: "CAR",
+      description: "Qualified dividend",
+      amount: 12.5,
+      type: "DIVIDEND_OR_INTEREST",
+      status: "VALID",
+    }],
+    "2026-01-01",
+    "2026-03-01",
+  );
+  assert.equal(stamped.find((p) => p.date === "2026-01-10")?.daily_equity_fees, -1);
+  assert.equal(stamped.find((p) => p.date === "2026-02-10")?.daily_fees, -1);
+  assert.equal(stamped.find((p) => p.date === "2026-02-05")?.daily_dividends, 12.5);
+  assert.equal(stamped.at(-1)?.cumulative_pnl, 148);
+});
+
+test("ticker filter keeps CAR stock and CAR options, drops CARD", () => {
+  const rows = [
+    trade({ id: "1", trade_date: "2026-01-01", side: "buy", symbol: "CAR", quantity: 1, net_amount: -10 }),
+    trade({
+      id: "2",
+      trade_date: "2026-01-02",
+      side: "sell",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 20,
+    }),
+    trade({ id: "3", trade_date: "2026-01-03", side: "buy", symbol: "CARD", quantity: 1, net_amount: -5 }),
+  ].filter((t) => matchesTicker(t, "CAR"));
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((t) => t.id), ["1", "2"]);
 });

@@ -139,8 +139,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/schwab/connect', desc: <>Start Schwab OAuth (302 → Schwab; session required)</> },
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
-  { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; ≤366 days)</> },
-  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account)</> },
+  { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; symbol matches equity and options on that root; ≤366 days)</> },
+  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; symbol matches equity and options on that root)</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
@@ -571,10 +571,11 @@ export function DocsSchwabPnl() {
       </p>
       <p className="docs-callout">
         <b>This is not your account balance over time.</b> The big number and the
-        chart are realized trading P&amp;L for positions you <em>opened in the
-        selected range</em>. They do not include deposits, withdrawals, or the
-        open mark-to-market on positions you still hold. Dividends and interest
-        show in their own table under the chart, not in the curve.
+        chart are realized P&amp;L for positions you <em>opened in the
+        selected range</em>, using the include chips you have on. They do not
+        include deposits or withdrawals. Open mark-to-market on positions you
+        still hold is listed as a stat when you have scoped a ticker, not as
+        part of the curve.
       </p>
 
       <h3>Where to find it</h3>
@@ -583,12 +584,31 @@ export function DocsSchwabPnl() {
         Performance. Connect Schwab from Account if you have not already.
       </p>
 
+      <h3>Ticker — stocks and options together</h3>
+      <p className="docs-lede">
+        Leave Ticker blank for the whole account. Enter a root such as
+        <b> CAR</b> to see that equity plus every option on CAR in one book —
+        the same FIFO matching and assignment rules, just scoped. Clicking a
+        symbol on Positions opens Performance with that root filled in
+        (an OCC option row uses the underlying, not the long option code).
+      </p>
+
+      <h3>Include chips</h3>
+      <p className="docs-lede">
+        Stocks, Options, Dividends, and Fees are on by default. Turn sleeves
+        off to hide those rows and drop them from the chart. Fees-only shows
+        commission drag. Dividends-only shows cash distributions. Trading
+        P&amp;L already includes commissions; turning Fees off adds that drag
+        back so you can see the fill without the ticket.
+      </p>
+
       <h3>The headline number and chart</h3>
       <p className="docs-lede">
         The range buttons (MTD, YTD, 1M, 3M, 6M, 1Y) pick a window in US Eastern
-        time, ending today. The headline is realized P&amp;L for trades that both
-        opened and closed inside that window. The step chart is that same total,
-        accumulated day by day.
+        time, ending today. The headline is the composed total for the sleeves
+        you have on, for lots that both opened and closed inside that window.
+        The step chart is that same total, accumulated day by day. Dots on the
+        curve are the included fills and dividends.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">
@@ -617,19 +637,19 @@ export function DocsSchwabPnl() {
         into this month.
       </p>
 
-      <h3>Closing fills</h3>
+      <h3>Activity</h3>
       <p className="docs-lede">
-        The table under the chart lists each trade that realized P&amp;L in the
-        window: side, symbol, quantity, price, fees on the close, realized
-        amount, when the lot was opened, and whether it is period or prior-lot.
-        Use it to trace a spike or drop on a given day.
+        The table under the chart lists every included fill and dividend in the
+        window — opens and closes — with kind (stock / option / div), side,
+        fees, and realized P&amp;L when a close matched an open lot. Rows tagged
+        prior-lot are excluded from the chart total.
       </p>
 
       <h3>Dividends and interest</h3>
       <p className="docs-lede">
-        Cash credits in the same window (ordinary dividends, interest) are listed
-        separately and totaled as “Dividends / interest.” They are not added
-        into the trading chart.
+        Cash credits in the same window (ordinary dividends, interest) show as
+        Div rows and in the Dividends stat. Turn the Dividends chip on to add
+        them to the curve; turn it off to keep the chart as trading P&amp;L only.
       </p>
 
       <h3>Option assignment</h3>
