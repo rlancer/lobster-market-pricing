@@ -873,6 +873,46 @@ export interface SchwabStatus {
   expires_at: string | null;
 }
 
+export interface SchwabPortfolioPosition {
+  id: string;
+  symbol: string;
+  description: string | null;
+  asset_type: string | null;
+  quantity: number;
+  average_price: number | null;
+  market_value: number | null;
+  day_pnl: number | null;
+  open_pnl: number | null;
+}
+
+export interface SchwabPortfolioAccount {
+  id: string;
+  account_number_masked: string;
+  type: string | null;
+  cash: number | null;
+  equity: number | null;
+  buying_power: number | null;
+  day_pnl: number | null;
+  open_pnl: number | null;
+  positions: SchwabPortfolioPosition[];
+}
+
+export interface SchwabPortfolio {
+  ok: true;
+  connected: true;
+  fetched_at: string;
+  accounts: SchwabPortfolioAccount[];
+  totals: {
+    cash: number;
+    equity: number;
+    buying_power: number;
+    day_pnl: number;
+    open_pnl: number;
+    position_count: number;
+    account_count: number;
+  };
+}
+
 export interface ProfileMe {
   ok: true;
   id: string;
@@ -1594,6 +1634,7 @@ export const api = {
       {},
     ),
   schwabStatus: () => get<SchwabStatus>('/api/schwab/status'),
+  schwabPortfolio: () => get<SchwabPortfolio>('/api/schwab/portfolio'),
   disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),
   /** Full-page OAuth start URL (do not fetch — navigate so cookies + redirects work). */
   schwabConnectUrl: (returnTo?: string) => {

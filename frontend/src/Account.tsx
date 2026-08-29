@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   Button,
   FileInput,
@@ -59,6 +59,7 @@ const DISPLAY_NAME_MAX = 80;
  * Reached from the left-nav profile control (formerly an account popover).
  */
 export default function AccountPage() {
+  const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
   const [googleEnabled, setGoogleEnabled] = useState(false);
@@ -516,14 +517,22 @@ export default function AccountPage() {
             <VStack gap={1}>
               <Heading level={2}>Schwab</Heading>
               <Text type="supporting">
-                Connect your Charles Schwab account so Lobster can use your brokerage
-                authorization. Tokens stay on the server.
+                Connect Charles Schwab to view linked brokerage accounts,
+                balances, and positions on{' '}
+                <Link to="/portfolio">Portfolio</Link>
+                . Tokens stay on the server.
               </Text>
             </VStack>
             <HStack gap={2} vAlign="center" wrap="wrap">
               {schwab?.connected ? (
                 <>
                   <Text type="body">Connected{schwab.connected_at ? ` · ${new Date(schwab.connected_at).toLocaleDateString()}` : ''}</Text>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    label="View portfolio"
+                    onClick={() => { void navigate({ to: '/portfolio' }); }}
+                  />
                   <Button
                     variant="secondary"
                     size="sm"

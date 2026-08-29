@@ -244,8 +244,10 @@ non-HTTPS. Prefer testing Connect on `https://dev.lobster.mp` → `api-dev`.
 | LMS host | Browser login/MFA runs on `https://sws-gateway.schwab.com/ui/host/#/…` (not our domain) |
 
 **API surface:** `GET /api/schwab/status`, `GET /api/schwab/connect` (302 →
-Schwab), `GET /api/schwab/callback`, `POST /api/schwab/disconnect`. Health
-reports `auth.schwab` when both secrets are present.
+Schwab), `GET /api/schwab/callback`, `POST /api/schwab/disconnect`,
+`GET /api/schwab/portfolio` (accounts + positions). Health reports
+`auth.schwab` when both secrets are present. Portfolio UI shows a **Schwab**
+book tab beside suggested trades and the paper book when configured.
 
 **Portal / ops gotchas (learned the hard way):**
 
@@ -340,8 +342,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
 | `GET /api/schwab/status` | Schwab connect flag for the session (`configured` / `connected` / timestamps). No tokens. |
 | `GET /api/schwab/connect` | Start Schwab OAuth (302 → Schwab LMS). Session required. |
-| `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account`. |
+| `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account` or `/portfolio`. |
 | `POST /api/schwab/disconnect` | Delete stored Schwab tokens for the signed-in user. |
+| `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. |
 | `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
 | `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
@@ -409,12 +412,14 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News, filings, related
 Kalshi event markets (`related_symbol` join), and related chats settle on
 idle. Chat ticker chips (from `research_ticker`) link there.
-**Portfolio** (`/portfolio`) has two books: the signed-in **paper book**
-(when Copilot `suggest_trades` lands concrete legs in a signed-in chat,
+**Portfolio** (`/portfolio`) has three books: **Suggested trades** for public
+bot idea PnL (same book as `/u/{handle}` — no cash), the signed-in **paper
+book** (when Copilot `suggest_trades` lands concrete legs in a signed-in chat,
 those ideas auto-open paper positions at lake mid; Close realizes against
-$100k starting cash) and **Suggested trades** for public bot idea PnL
-(same book as `/u/{handle}` — no cash). Both filter by status and
-conviction (high / medium / low). Share/timeline viewers can still
+$100k starting cash), and **Schwab** when OAuth is configured — live linked
+brokerage accounts, balances, and positions via `GET /api/schwab/portfolio`
+(connect from Account or the Schwab tab). Paper + suggested filter by status
+and conviction (high / medium / low). Share/timeline viewers can still
 **Add to portfolio**. Suggestions alone are not a book —
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
