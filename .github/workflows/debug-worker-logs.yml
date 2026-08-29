@@ -1,129 +1,76 @@
-# Ephemeral: dump recent screener-api-dev Workers observability events.
+# Ephemeral: live-tail screener-api-dev while hitting schwab endpoints is impossible
+# without a user session — instead dump wrangler tails of recent buffered events
+# and list Workers Logs via the dashboard-compatible API.
 # Trigger: push to cursor/run-debug-worker-logs-913d
-# (gh workflow_dispatch is 403 for the Cursor integration token).
 name: Debug worker logs
 on:
   push:
     branches:
       - cursor/run-debug-worker-logs-913d
   workflow_dispatch:
-    inputs:
-      script:
-        description: Worker script name
-        default: screener-api-dev
-      minutes:
-        description: Lookback minutes
-        default: "240"
 jobs:
   logs:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - name: Query Cloudflare Workers observability
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install wrangler
+        working-directory: worker
+        run: npm ci
+      - name: Probe token scopes + workers logs APIs
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SCRIPT: ${{ github.event.inputs.script || 'screener-api-dev' }}
-          MINUTES: ${{ github.event.inputs.minutes || '240' }}
+        working-directory: worker
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-            echo "Missing CF secrets"; exit 1
-          fi
-          END_MS=$(($(date -u +%s) * 1000))
-          START_MS=$((END_MS - MINUTES * 60 * 1000))
-          echo "Script=$SCRIPT window=${MINUTES}m start_ms=$START_MS end_ms=$END_MS"
-
-          echo "== Script metadata =="
+          echo "== Token verify =="
           curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/services/$SCRIPT" \
-            | tee script.json | head -c 4000 || true
+            "https://api.cloudflare.com/client/v4/user/tokens/verify" | tee /tmp/token-verify.json
           echo
-
-          echo "== Observability events (workers) =="
-          # Cloudflare Workers Observability telemetry query
-          BODY=$(jq -n \
-            --argjson start "$START_MS" \
-            --argjson end "$END_MS" \
-            --arg script "$SCRIPT" \
-            '{
-              queryId: "workers-logs-events",
-              limit: 100,
-              dry: false,
-              parameters: {
-                datasets: ["cloudflare-workers"],
-                filters: [
-                  { key: "$metadata.service", operation: "eq", type: "string", value: $script }
-                ],
-                filterCombination: "and"
-              },
-              timeframe: { from: $start, to: $end },
-              view: "events"
-            }')
-          curl -sS -X POST \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+          echo "== Account workers scripts =="
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
+            | tee /tmp/scripts.json | head -c 3000
+          echo
+          # Try several log endpoints used by the dashboard
+          END_MS=$(($(date -u +%s)*1000))
+          START_MS=$((END_MS - 6*60*60*1000))
+          for path in \
+            "workers/observability/telemetry/query" \
+            "workers/observability/telemetry/keys" \
+            "workers/observability/events" \
+            "logs/retrieve"
+            do
+            echo "== POST/GET $path =="
+            curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/$path" \
+              -d "{\"queryId\":\"workers-logs-events\",\"timeframe\":{\"from\":$START_MS,\"to\":$END_MS},\"view\":\"events\",\"limit\":50,\"parameters\":{\"datasets\":[\"cloudflare-workers\"],\"filters\":[{\"key\":\"\$metadata.service\",\"operation\":\"eq\",\"type\":\"string\",\"value\":\"screener-api-dev\"}],\"filterCombination\":\"and\",\"needle\":{\"value\":\"schwab\",\"isRegex\":false,\"matchCase\":false}}}" \
+              | head -c 4000
+            echo
+          done
+          echo "== Keys endpoint =="
+          curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/query" \
-            -d "$BODY" | tee obs.json | head -c 120000
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/keys" \
+            -d "{\"timeframe\":{\"from\":$START_MS,\"to\":$END_MS},\"datasets\":[\"cloudflare-workers\"],\"filters\":[],\"limit\":100,\"key\":\"\$metadata\"}" \
+            | tee /tmp/keys.json | head -c 8000
           echo
-
-          echo "== Alternate query shape (nested query) =="
-          BODY2=$(jq -n \
-            --argjson start "$START_MS" \
-            --argjson end "$END_MS" \
-            --arg script "$SCRIPT" \
-            '{
-              query: {
-                queryId: "workers-logs-events",
-                timeframe: { from: $start, to: $end },
-                view: "events",
-                dry: false,
-                parameters: {
-                  datasets: ["cloudflare-workers"],
-                  filters: [
-                    { key: "$metadata.service", operation: "eq", type: "string", value: $script }
-                  ],
-                  filterCombination: "and",
-                  limit: 100
-                }
-              }
-            }')
-          curl -sS -X POST \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/observability/telemetry/query" \
-            -d "$BODY2" | tee obs2.json | head -c 120000
-          echo
-
-          echo "== GraphQL invocations adaptive =="
-          START_ISO=$(date -u -d "@$((START_MS/1000))" +%Y-%m-%dT%H:%M:%SZ)
-          END_ISO=$(date -u -d "@$((END_MS/1000))" +%Y-%m-%dT%H:%M:%SZ)
-          GQL=$(jq -n \
-            --arg account "$CLOUDFLARE_ACCOUNT_ID" \
-            --arg script "$SCRIPT" \
-            --arg start "$START_ISO" \
-            --arg end "$END_ISO" \
-            '{query: ("query {\n  viewer {\n    accounts(filter: {accountTag: \"" + $account + "\"}) {\n      workersInvocationsAdaptive(limit: 100, filter: {datetime_geq: \"" + $start + "\", datetime_leq: \"" + $end + "\", scriptName: \"" + $script + "\"}) {\n        dimensions { datetimeMinute status scriptName }\n        sum { requests errors subrequests responseBodySize }\n        quantiles { cpuTimeP50 cpuTimeP99 wallTimeP50 wallTimeP99 }\n      }\n    }\n  }\n}")}')
-          curl -sS -X POST \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/graphql" \
-            -d "$GQL" | tee gql.json | head -c 80000
-          echo
-
-          echo "== Matches for schwab / pnl / exception =="
-          rg -i "schwab|/api/schwab|pnl|exception|Error|overflow|CPU|502|401|429" obs.json obs2.json gql.json || true
-
-          echo "== Upload artifacts paths =="
-          ls -la *.json
+          echo "== wrangler tail (15s, json) =="
+          # Capture any live traffic; also useful to confirm auth for tails
+          timeout 15 npx wrangler tail screener-api-dev --format json --status error 2>&1 | tee /tmp/tail.json || true
+          echo "(tail ended)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: worker-logs-dump
+          name: worker-logs-dump2
           path: |
-            obs.json
-            obs2.json
-            gql.json
-            script.json
+            /tmp/token-verify.json
+            /tmp/scripts.json
+            /tmp/keys.json
+            /tmp/tail.json
           if-no-files-found: warn
