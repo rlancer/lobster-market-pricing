@@ -50,6 +50,8 @@ Cursor-hosted Cloud Agents let you pick a base ref (`startingRef: main`).
 whatever branch the worker's checkout currently has checked out. That is why
 a new session can wake up on last run's `cursor/…` branch instead of `main`.
 
+<!-- session isolation smoke tested -->
+
 **Preferred: one worktree per session, always from `origin/main`.**
 
 ```bash
