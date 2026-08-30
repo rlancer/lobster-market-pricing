@@ -327,8 +327,8 @@ test("listSchwabTransactionsComplete partitions a capped date window", async () 
   const fetchImpl: typeof fetch = async (input) => {
     calls += 1;
     const url = new URL(String(input));
-    const start = Number(url.searchParams.get("startDate"));
-    const end = Number(url.searchParams.get("endDate"));
+    const start = Date.parse(url.searchParams.get("startDate") ?? "");
+    const end = Date.parse(url.searchParams.get("endDate") ?? "");
     const rows = end - start > 24 * 60 * 60 * 1000
       ? Array.from({ length: SCHWAB_TRANSACTIONS_PAGE_CAP }, (_, index) => ({
           activityId: index,
