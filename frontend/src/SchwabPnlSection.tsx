@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Area,
@@ -51,7 +51,7 @@ import {
   composeTotals,
   DEFAULT_PNL_INCLUDE,
   densifyWithOhlc,
-  equityOpenLot,
+  equityLotsFromFills,
   filterActivity,
   includedOpenMark,
   optionLegDailyPath,
@@ -230,6 +230,7 @@ export function SchwabPnlSection({
   >(null);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
   const [optionOhlc, setOptionOhlc] = useState<Record<string, OhlcBar[]>>({});
+  const [dividendYield, setDividendYield] = useState(0);
   const [windowStart, setWindowStart] = useState<string | null>(null);
   const [windowEnd, setWindowEnd] = useState<string | null>(null);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
@@ -240,6 +241,7 @@ export function SchwabPnlSection({
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
   const [chartMetric, setChartMetric] = useState<ChartMetric>('daily');
   const [chartWindow, setChartWindow] = useState<ChartWindow>('focus');
+  const requestSequence = useRef(0);
   const isMobile = useMediaQuery('(max-width: 47.99rem)');
 
   useEffect(() => {
@@ -257,16 +259,30 @@ export function SchwabPnlSection({
     nextAccount: string | null,
     nextSymbol: string,
   ) => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError(null);
+    setPoints([]);
+    setSummary(null);
+    setFills([]);
+    setDistributions([]);
+    setTrades([]);
+    setOpenMarkFromApi(null);
     setOhlc([]);
     setOptionOhlc({});
+    setDividendYield(0);
+    setWindowStart(null);
+    setWindowEnd(null);
+    setWindowLabel(null);
+    setLookbackTruncated(false);
+    setMayBeTruncated(false);
     try {
       const res = await api.schwabPnl({
         range: nextRange,
         account: nextAccount ?? undefined,
         symbol: nextSymbol.trim() || undefined,
       });
+      if (requestId !== requestSequence.current) return;
       setPoints(res.points);
       setSummary(res.summary);
       setFills(Array.isArray(res.fills) ? res.fills : []);
@@ -280,10 +296,16 @@ export function SchwabPnlSection({
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
       const schwabBars = Array.isArray(res.ohlc) ? res.ohlc : [];
       setOptionOhlc(res.option_ohlc && typeof res.option_ohlc === 'object' ? res.option_ohlc : {});
+      setDividendYield(
+        res.dividend_yield != null && Number.isFinite(res.dividend_yield)
+          ? Math.max(0, res.dividend_yield)
+          : 0,
+      );
       // Portfolio marks are Schwab-only (see AGENTS.md). Do not fall back to
       // lake/Yahoo — it often has no bars for the hold (CAR Apr 2026).
       setOhlc(schwabBars);
     } catch (err) {
+      if (requestId !== requestSequence.current) return;
       setError(formatApiError(err));
       setPoints([]);
       setSummary(null);
@@ -293,33 +315,49 @@ export function SchwabPnlSection({
       setOpenMarkFromApi(null);
       setOhlc([]);
       setOptionOhlc({});
+      setDividendYield(0);
       setWindowStart(null);
       setWindowEnd(null);
       setWindowLabel(null);
       setLookbackTruncated(false);
       setMayBeTruncated(false);
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load(range, accountId, symbol);
+    return () => {
+      requestSequence.current += 1;
+    };
   }, [accountId, range, symbol, load]);
 
   const openMark = useMemo(() => {
     if (!symbol) return null;
-    if (openMarkFromApi && openMarkFromApi.count > 0) return openMarkFromApi;
+    if (openMarkFromApi) return openMarkFromApi;
     return tickerOpenMark(positions, symbol);
   }, [openMarkFromApi, positions, symbol]);
 
-  const lot = useMemo(
-    () => equityOpenLot(positions, trades, symbol),
-    [positions, trades, symbol],
-  );
   const optionLots = useMemo(
-    () => optionLotsFromFills(fills, positions),
-    [fills, positions],
+    () => (symbol ? optionLotsFromFills(fills, positions) : []),
+    [fills, positions, symbol],
+  );
+  const assignmentEquityFillIds = useMemo(
+    () => new Set(optionLots
+      .map((lot) => lot.assignment_equity_fill_id)
+      .filter((id): id is string => Boolean(id))),
+    [optionLots],
+  );
+  const equityLots = useMemo(
+    () => equityLotsFromFills(
+      positions,
+      trades,
+      fills,
+      symbol,
+      assignmentEquityFillIds,
+    ),
+    [positions, trades, fills, symbol, assignmentEquityFillIds],
   );
 
   const legDailyById = useMemo(() => {
@@ -328,11 +366,18 @@ export function SchwabPnlSection({
     const map = new Map<string, LegDailyPoint[]>();
     if (!start || !end) return map;
     for (const lot of optionLots) {
-      const path = optionLegDailyPath(lot, optionOhlc, start, end, ohlc);
+      const path = optionLegDailyPath(
+        lot,
+        optionOhlc,
+        start,
+        end,
+        ohlc,
+        dividendYield,
+      );
       if (path.length > 0) map.set(lot.id, path);
     }
     return map;
-  }, [optionLots, optionOhlc, ohlc, windowStart, windowEnd]);
+  }, [optionLots, optionOhlc, ohlc, dividendYield, windowStart, windowEnd]);
 
   useEffect(() => {
     setSelectedLegId(null);
@@ -343,7 +388,7 @@ export function SchwabPnlSection({
     const start = windowStart ?? '';
     const end = windowEnd ?? '';
     const dense = densifyWithOhlc(points, ohlc, start, end);
-    const equity = applyEquityMarkPath(dense, ohlc, lot, start, end);
+    const equity = applyEquityMarkPath(dense, ohlc, equityLots, start, end);
     const option = applyOptionMarkPath(
       equity.points,
       optionOhlc,
@@ -351,22 +396,33 @@ export function SchwabPnlSection({
       start,
       end,
       ohlc,
+      dividendYield,
     );
     return {
       points: option.points,
       equityPainted: equity.painted,
       optionPainted: option.painted,
       equityInWindow: equity.inWindowMtm,
+      equityClosedPnl: equity.closedPnl,
       optionInWindow: option.inWindowMtm,
       optionClosedPnl: option.closedPnl,
     };
-  }, [points, ohlc, optionOhlc, lot, optionLots, windowStart, windowEnd]);
+  }, [
+    points,
+    ohlc,
+    optionOhlc,
+    equityLots,
+    optionLots,
+    dividendYield,
+    windowStart,
+    windowEnd,
+  ]);
 
   const markForTotals = useMemo(() => {
     if (!openMark) return null;
     return {
       equity_pnl: marked.equityPainted
-        ? openMark.equity_pnl - marked.equityInWindow
+        ? openMark.equity_pnl - (marked.equityInWindow - marked.equityClosedPnl)
         : openMark.equity_pnl,
       option_pnl: marked.optionPainted
         ? openMark.option_pnl - (marked.optionInWindow - marked.optionClosedPnl)
@@ -377,7 +433,8 @@ export function SchwabPnlSection({
   const startCumulative = useMemo(() => {
     let start = 0;
     if (marked.equityPainted && include.stocks) {
-      start += (openMark?.equity_pnl ?? 0) - marked.equityInWindow;
+      start += (openMark?.equity_pnl ?? 0)
+        - (marked.equityInWindow - marked.equityClosedPnl);
     }
     if (marked.optionPainted && include.options) {
       start += (openMark?.option_pnl ?? 0) - (marked.optionInWindow - marked.optionClosedPnl);

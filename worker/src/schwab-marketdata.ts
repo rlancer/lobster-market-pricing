@@ -151,3 +151,59 @@ export async function fetchSchwabPriceHistory(
   if (resp.status === 204) return [];
   return normalizeSchwabPriceHistory(await resp.json());
 }
+
+/** Normalize Schwab quote fundamentals into a decimal continuous yield. */
+export function normalizeSchwabDividendYield(
+  payload: unknown,
+  symbol: string,
+  fallbackSpot?: number | null,
+): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const rows = payload as Record<string, unknown>;
+  const raw = rows[symbol.toUpperCase()] ?? rows[symbol] ?? payload;
+  if (!raw || typeof raw !== "object") return null;
+  const quote = raw as {
+    fundamental?: { divYield?: unknown; divAmount?: unknown };
+    quote?: { lastPrice?: unknown; mark?: unknown; closePrice?: unknown };
+  };
+  const reportedYield = num(quote.fundamental?.divYield);
+  if (reportedYield != null && reportedYield >= 0) {
+    return reportedYield > 1 ? reportedYield / 100 : reportedYield;
+  }
+  const annualAmount = num(quote.fundamental?.divAmount);
+  const spot =
+    num(quote.quote?.lastPrice)
+    ?? num(quote.quote?.mark)
+    ?? num(quote.quote?.closePrice)
+    ?? fallbackSpot
+    ?? null;
+  if (annualAmount == null || annualAmount < 0 || spot == null || spot <= 0) return null;
+  return annualAmount / spot;
+}
+
+/** Current dividend yield used by the option mark model. */
+export async function fetchSchwabDividendYield(
+  accessToken: string,
+  symbol: string,
+  tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
+): Promise<number | null> {
+  const normalized = symbol.trim().toUpperCase();
+  if (!/^[A-Z0-9./\-]{1,10}$/.test(normalized)) return null;
+  const url = new URL(`${SCHWAB_MARKETDATA_BASE}/quotes`);
+  url.searchParams.set("symbols", normalized);
+  url.searchParams.set("fields", "fundamental");
+  const resp = await fetchImpl(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `${tokenType} ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new SchwabApiError(resp.status, text);
+  }
+  if (resp.status === 204) return null;
+  return normalizeSchwabDividendYield(await resp.json(), normalized);
+}

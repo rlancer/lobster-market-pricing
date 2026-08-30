@@ -976,6 +976,13 @@ export interface SchwabPnlFill {
   opened: string;
   prior_open: boolean;
   asset_type: string | null;
+  lots?: Array<{
+    id: string;
+    opened: string;
+    quantity: number;
+    realized_pnl: number;
+    prior_open: boolean;
+  }>;
 }
 
 export interface SchwabDistribution {
@@ -1024,6 +1031,8 @@ export interface SchwabPnlResponse {
   /** Daily closes from Schwab Market Data (connected user token) for a scoped ticker. */
   ohlc?: OhlcBar[];
   ohlc_source?: 'schwab' | null;
+  /** Decimal annual dividend yield used by the option mark model. */
+  dividend_yield?: number | null;
   /** Daily option closes keyed by compact OCC symbol. */
   option_ohlc?: Record<string, OhlcBar[]>;
   may_be_truncated?: boolean;

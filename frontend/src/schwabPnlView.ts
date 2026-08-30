@@ -95,7 +95,7 @@ export function composeDaily(point: SchwabPnlPoint, include: PnlInclude): number
 
   const tradingOn = include.stocks || include.options;
   if (!tradingOn && !include.dividends && include.fees) return allFees;
-  if (!tradingOn) return dividends;
+  if (!tradingOn) return dividends + (include.fees ? allFees : 0);
 
   const traded = include.fees ? trading : trading - sleeveFees;
   return traded + dividends;
@@ -226,9 +226,11 @@ export function buildActivityRows(opts: {
 
 export function filterActivity(rows: ActivityRow[], include: PnlInclude): ActivityRow[] {
   const tradingOn = include.stocks || include.options;
-  const feesOnly = include.fees && !tradingOn && !include.dividends;
-  if (feesOnly) {
-    return rows.filter((row) => row.fees != null && row.fees !== 0);
+  if (!tradingOn) {
+    return rows.filter((row) => (
+      (include.dividends && row.kind === 'dividend')
+      || (include.fees && row.kind !== 'dividend' && row.fees != null && row.fees !== 0)
+    ));
   }
   return rows.filter((row) => {
     if (row.kind === 'stock') return include.stocks;
@@ -312,6 +314,17 @@ export type EquityOpenLot = {
   live_pnl: number;
 };
 
+export type EquityMarkLot = {
+  id: string;
+  opened: string | null;
+  closed: string | null;
+  /** Signed shares: long +, short −. */
+  quantity: number;
+  average_price: number;
+  exit_price: number | null;
+  realized_pnl: number;
+};
+
 /** Still-open equity/ETF lot for a scoped ticker (options excluded). */
 export function equityOpenLot(
   positions: SchwabPortfolioPosition[],
@@ -358,6 +371,144 @@ export function equityOpenLot(
   };
 }
 
+function equityTradeDelta(trade: SchwabTrade): number {
+  const quantity = Math.abs(n(trade.quantity));
+  if (quantity === 0) return 0;
+  if (trade.side === 'buy') return quantity;
+  if (trade.side === 'sell') return -quantity;
+  return 0;
+}
+
+/**
+ * Reconstruct closed FIFO tranches plus the currently open equity inventory.
+ * The current snapshot is used only to seed unknown pre-window inventory;
+ * in-window buys/sells determine the actual holding intervals.
+ */
+export function equityLotsFromFills(
+  positions: SchwabPortfolioPosition[],
+  trades: SchwabTrade[],
+  fills: SchwabPnlFill[],
+  ticker: string | null | undefined,
+  excludedFillIds: Set<string> = new Set(),
+): EquityMarkLot[] {
+  const want = ticker?.trim().toUpperCase();
+  if (!want) return [];
+  const lots: EquityMarkLot[] = [];
+
+  for (const fill of fills) {
+    if (excludedFillIds.has(fill.id) || isOptionLike(fill) || fill.prior_open) continue;
+    const root = (fill.underlying ?? fill.symbol ?? '').trim().toUpperCase();
+    if (root !== want) continue;
+    const closures = fill.lots?.length
+      ? fill.lots.filter((lot) => !lot.prior_open)
+      : [{
+          id: fill.id,
+          opened: fill.opened,
+          quantity: Math.abs(fill.quantity ?? 0),
+          realized_pnl: n(fill.realized_pnl),
+          prior_open: false,
+        }];
+    const exitPrice = fill.price != null && Number.isFinite(fill.price)
+      ? fill.price
+      : fill.net_amount != null && fill.quantity
+        ? Math.abs(fill.net_amount / fill.quantity)
+        : null;
+    if (exitPrice == null) continue;
+    for (const [index, closure] of closures.entries()) {
+      const absQty = Math.abs(closure.quantity);
+      const quantity = fill.side === 'sell' ? absQty : fill.side === 'buy' ? -absQty : 0;
+      if (quantity === 0) continue;
+      const realized = n(closure.realized_pnl);
+      lots.push({
+        id: index === 0 ? fill.id : closure.id || `${fill.id}:lot:${index}`,
+        opened: closure.opened || null,
+        closed: fill.date,
+        quantity,
+        average_price: exitPrice - realized / quantity,
+        exit_price: exitPrice,
+        realized_pnl: realized,
+      });
+    }
+  }
+
+  const matchedPositions = positions.filter((position) => (
+    positionTicker(position) === want && !isOptionLike(position)
+  ));
+  const currentQuantity = matchedPositions.reduce((sum, position) => sum + position.quantity, 0);
+  if (Math.abs(currentQuantity) <= 1e-12) return lots;
+  const weightedCost = matchedPositions.reduce((sum, position) => (
+    position.average_price != null && Number.isFinite(position.average_price)
+      ? sum + position.average_price * position.quantity
+      : sum
+  ), 0);
+  const currentAverage = currentQuantity !== 0 ? weightedCost / currentQuantity : 0;
+  const relevantTrades = trades
+    .filter((trade) => {
+      if (isOptionLike(trade)) return false;
+      const root = (trade.underlying ?? trade.symbol ?? '').trim().toUpperCase();
+      return root === want && tradeDay(trade) != null;
+    })
+    .slice()
+    .sort((a, b) => (
+      (a.trade_date ?? '').localeCompare(b.trade_date ?? '')
+      || (a.activity_id ?? 0) - (b.activity_id ?? 0)
+    ));
+  const netWindowDelta = relevantTrades.reduce((sum, trade) => sum + equityTradeDelta(trade), 0);
+  const inventory: Array<{ id: string; opened: string | null; quantity: number; average_price: number }> = [];
+  const initialQuantity = currentQuantity - netWindowDelta;
+  if (Math.abs(initialQuantity) > 1e-12) {
+    inventory.push({
+      id: `${want}:pre-window`,
+      opened: null,
+      quantity: initialQuantity,
+      average_price: currentAverage,
+    });
+  }
+
+  for (const trade of relevantTrades) {
+    let remaining = equityTradeDelta(trade);
+    while (Math.abs(remaining) > 1e-12 && inventory.length > 0) {
+      const head = inventory[0]!;
+      if (Math.sign(head.quantity) === Math.sign(remaining)) break;
+      const take = Math.min(Math.abs(head.quantity), Math.abs(remaining));
+      head.quantity += Math.sign(remaining) * take;
+      remaining -= Math.sign(remaining) * take;
+      if (Math.abs(head.quantity) <= 1e-12) inventory.shift();
+    }
+    if (Math.abs(remaining) > 1e-12) {
+      inventory.push({
+        id: `${trade.id}:open`,
+        opened: tradeDay(trade),
+        quantity: remaining,
+        average_price:
+          trade.price != null && Number.isFinite(trade.price)
+            ? Math.abs(trade.price)
+            : currentAverage,
+      });
+    }
+  }
+
+  const reconstructed = inventory.reduce((sum, lot) => sum + lot.quantity, 0);
+  const reconciliation = currentQuantity - reconstructed;
+  if (Math.abs(reconciliation) > 1e-8) {
+    inventory.unshift({
+      id: `${want}:unresolved`,
+      opened: null,
+      quantity: reconciliation,
+      average_price: currentAverage,
+    });
+  }
+  for (const open of inventory) {
+    lots.push({
+      ...open,
+      closed: null,
+      exit_price: null,
+      realized_pnl: 0,
+    });
+  }
+  return lots;
+}
+
 /**
  * Paint daily equity mark-to-market from Schwab OHLC so the chart follows
  * the holding. Portfolio pricing never uses lake/Yahoo (AGENTS.md). In-window
@@ -369,27 +520,30 @@ export function equityOpenLot(
 export function applyEquityMarkPath(
   points: SchwabPnlPoint[],
   ohlc: Array<{ date: string; close: number | null | undefined }>,
-  lot: EquityOpenLot | null,
+  input: EquityOpenLot | EquityMarkLot[] | null,
   rangeStart: string,
   rangeEnd: string,
-): { points: SchwabPnlPoint[]; painted: boolean; inWindowMtm: number } {
-  const none = { points, painted: false, inWindowMtm: 0 };
-  if (!lot || lot.quantity === 0 || !rangeStart || !rangeEnd) return none;
+): { points: SchwabPnlPoint[]; painted: boolean; inWindowMtm: number; closedPnl: number } {
+  const none = { points, painted: false, inWindowMtm: 0, closedPnl: 0 };
+  const lots: EquityMarkLot[] = Array.isArray(input)
+    ? input
+    : input
+      ? [{
+          id: 'legacy-open',
+          opened: input.opened,
+          closed: null,
+          quantity: input.quantity,
+          average_price: input.average_price,
+          exit_price: null,
+          realized_pnl: 0,
+        }]
+      : [];
+  if (lots.length === 0 || !rangeStart || !rangeEnd) return none;
 
   const allBars = ohlc
     .filter((b) => b.close != null && Number.isFinite(b.close))
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
-  const inBars = allBars.filter((b) => b.date >= rangeStart && b.date <= rangeEnd);
-  if (inBars.length === 0) return none;
-
-  const opened = lot.opened;
-  const openedInRange = Boolean(opened && opened >= rangeStart && opened <= rangeEnd);
-  const pathStart = opened && opened > rangeStart ? opened : rangeStart;
-  const prior = [...allBars].reverse().find((b) => b.date < pathStart);
-  let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
-  if (prev == null) return none;
-
   const byDate = new Map<string, SchwabPnlPoint>();
   for (const p of points) byDate.set(p.date, { ...p });
   const touch = (date: string): SchwabPnlPoint => {
@@ -400,26 +554,63 @@ export function applyEquityMarkPath(
     }
     return row;
   };
-  for (const bar of inBars) touch(bar.date);
-
   let mtmSum = 0;
-  let lastMtmDate: string | null = null;
-  for (const bar of inBars) {
-    if (opened && bar.date < opened) continue;
-    const close = bar.close as number;
-    const change = round2(lot.quantity * (close - prev));
-    const row = touch(bar.date);
-    row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + change);
-    row.daily_pnl = round2(n(row.daily_pnl) + change);
-    mtmSum = round2(mtmSum + change);
-    prev = close;
-    lastMtmDate = bar.date;
+  let closedPnl = 0;
+  let painted = false;
+  for (const lot of lots) {
+    if (lot.quantity === 0) continue;
+    const pathStart = lot.opened && lot.opened > rangeStart ? lot.opened : rangeStart;
+    const pathEnd = lot.closed && lot.closed < rangeEnd ? lot.closed : rangeEnd;
+    const bars = allBars
+      .filter((bar) => bar.date >= pathStart && bar.date <= pathEnd)
+      .map((bar) => ({ date: bar.date, close: bar.close as number }));
+    if (lot.closed && lot.exit_price != null) {
+      const index = bars.findIndex((bar) => bar.date === lot.closed);
+      if (index >= 0) bars[index] = { date: lot.closed, close: lot.exit_price };
+      else bars.push({ date: lot.closed, close: lot.exit_price });
+      bars.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    if (bars.length === 0) continue;
+    const openedInRange = Boolean(
+      lot.opened && lot.opened >= rangeStart && lot.opened <= rangeEnd,
+    );
+    const prior = [...allBars].reverse().find((bar) => bar.date < pathStart);
+    let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
+    if (prev == null) continue;
+
+    if (lot.closed && lot.realized_pnl !== 0) {
+      const row = touch(lot.closed);
+      row.daily_equity_pnl = round2(n(row.daily_equity_pnl) - lot.realized_pnl);
+      row.daily_pnl = round2(n(row.daily_pnl) - lot.realized_pnl);
+    }
+    let lotSum = 0;
+    for (const bar of bars) {
+      const change = round2(lot.quantity * (bar.close - prev));
+      const row = touch(bar.date);
+      row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + change);
+      row.daily_pnl = round2(n(row.daily_pnl) + change);
+      lotSum = round2(lotSum + change);
+      prev = bar.close;
+    }
+    if (lot.closed) {
+      const drift = round2(lot.realized_pnl - lotSum);
+      if (drift !== 0) {
+        const row = touch(lot.closed);
+        row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + drift);
+        row.daily_pnl = round2(n(row.daily_pnl) + drift);
+        lotSum = round2(lotSum + drift);
+      }
+      closedPnl = round2(closedPnl + lot.realized_pnl);
+    }
+    mtmSum = round2(mtmSum + lotSum);
+    painted = true;
   }
-  if (lastMtmDate == null) return none;
+  if (!painted) return none;
   return {
     points: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
     painted: true,
     inWindowMtm: mtmSum,
+    closedPnl,
   };
 }
 
@@ -460,6 +651,8 @@ function activityOptionFields(symbol: string | null | undefined): {
 
 export type OptionLot = {
   id: string;
+  /** Aggregate activity fill that closed this FIFO tranche. */
+  fill_id?: string;
   symbol: string;
   opened: string | null;
   closed: string | null;
@@ -471,6 +664,7 @@ export type OptionLot = {
   realized_pnl: number;
   /** Assigned-stock realization reclassified onto the short option. */
   assignment_equity_pnl: number;
+  assignment_equity_fill_id?: string;
   target_pnl: number;
   prior_open: boolean;
 };
@@ -493,20 +687,24 @@ export function optionLotsFromFills(
   positions: SchwabPortfolioPosition[] = [],
 ): OptionLot[] {
   const lots: OptionLot[] = [];
-  const closed = new Set<string>();
   const usedEquityFills = new Set<string>();
   for (const fill of fills) {
-    if (!isOptionLike(fill) || fill.prior_open) continue;
+    if (!isOptionLike(fill)) continue;
     const symbol = compactOccSymbol(fill.symbol);
     if (!symbol) continue;
-    const absQty = Math.abs(fill.quantity ?? 0);
-    if (absQty === 0) continue;
-    const signed = fill.side === 'buy' ? -absQty : fill.side === 'sell' ? absQty : 0;
-    if (signed === 0) continue;
     const reportedExit = fill.price != null && Number.isFinite(fill.price) ? fill.price : 0;
-    const realized = n(fill.realized_pnl);
-    const denom = signed * OPTION_MULTIPLIER;
-    const average_price = denom !== 0 ? reportedExit - realized / denom : reportedExit;
+    const closures = fill.lots?.length
+      ? fill.lots.filter((lot) => !lot.prior_open)
+      : fill.prior_open
+        ? []
+        : [{
+            id: fill.id,
+            opened: fill.opened,
+            quantity: Math.abs(fill.quantity ?? 0),
+            realized_pnl: n(fill.realized_pnl),
+            prior_open: false,
+          }];
+    if (closures.length === 0) continue;
 
     // Schwab omits the short-option close on assignment. FIFO therefore books
     // the premium as a zero-price option win and the intrinsic loss on the
@@ -516,43 +714,61 @@ export function optionLotsFromFills(
     let assignmentEquityPnl = 0;
     if (isAssignmentFill(fill)) {
       const root = optionRoot(fill.symbol);
-      const assignedShares = absQty * OPTION_MULTIPLIER;
-      const equity = fills.find((candidate) => {
-        if (usedEquityFills.has(candidate.id) || isOptionLike(candidate)) return false;
-        if (candidate.date !== fill.date || candidate.prior_open) return false;
-        const candidateRoot = (candidate.underlying ?? candidate.symbol ?? '').trim().toUpperCase();
-        if (!root || candidateRoot !== root) return false;
-        return Math.abs(Math.abs(candidate.quantity ?? 0) - assignedShares) < 1e-8;
-      });
+      const assignedShares = closures.reduce((sum, lot) => sum + Math.abs(lot.quantity), 0)
+        * OPTION_MULTIPLIER;
+      const equity = fills
+        .filter((candidate) => {
+          if (usedEquityFills.has(candidate.id) || isOptionLike(candidate)) return false;
+          if (candidate.date < fill.date || candidate.prior_open) return false;
+          const candidateRoot = (candidate.underlying ?? candidate.symbol ?? '').trim().toUpperCase();
+          if (!root || candidateRoot !== root) return false;
+          return Math.abs(Math.abs(candidate.quantity ?? 0) - assignedShares) < 1e-8;
+        })
+        .sort((a, b) => a.date.localeCompare(b.date))[0];
       if (equity) {
         assignmentEquityPnl = n(equity.realized_pnl);
         usedEquityFills.add(equity.id);
       }
     }
-    const target = round2(realized + assignmentEquityPnl);
-    const exit = denom !== 0 ? average_price + target / denom : reportedExit;
-    lots.push({
-      id: fill.id,
-      symbol,
-      opened: fill.opened || null,
-      closed: fill.date,
-      quantity: signed,
-      average_price,
-      exit_price: exit,
-      realized_pnl: realized,
-      assignment_equity_pnl: assignmentEquityPnl,
-      target_pnl: target,
-      prior_open: false,
-    });
-    closed.add(symbol);
+    const eligibleQty = closures.reduce((sum, lot) => sum + Math.abs(lot.quantity), 0);
+    for (const [index, closure] of closures.entries()) {
+      const absQty = Math.abs(closure.quantity);
+      if (absQty === 0) continue;
+      const signed = fill.side === 'buy' ? -absQty : fill.side === 'sell' ? absQty : 0;
+      if (signed === 0) continue;
+      const realized = n(closure.realized_pnl);
+      const assignedPnl = eligibleQty > 0
+        ? assignmentEquityPnl * (absQty / eligibleQty)
+        : 0;
+      const denom = signed * OPTION_MULTIPLIER;
+      const average_price = reportedExit - realized / denom;
+      const target = round2(realized + assignedPnl);
+      const exit = average_price + target / denom;
+      lots.push({
+        id: index === 0 ? fill.id : closure.id || `${fill.id}:lot:${index}`,
+        fill_id: fill.id,
+        symbol,
+        opened: closure.opened || null,
+        closed: fill.date,
+        quantity: signed,
+        average_price,
+        exit_price: exit,
+        realized_pnl: realized,
+        assignment_equity_pnl: assignedPnl,
+        assignment_equity_fill_id: equity?.id,
+        target_pnl: target,
+        prior_open: false,
+      });
+    }
   }
   for (const position of positions) {
     if (!isOptionLike(position) || position.quantity === 0) continue;
     const symbol = compactOccSymbol(position.symbol);
-    if (!symbol || closed.has(symbol)) continue;
+    if (!symbol) continue;
     if (position.average_price == null || !Number.isFinite(position.average_price)) continue;
     lots.push({
       id: position.id,
+      fill_id: position.id,
       symbol,
       opened: null,
       closed: null,
@@ -561,6 +777,7 @@ export function optionLotsFromFills(
       exit_price: null,
       realized_pnl: 0,
       assignment_equity_pnl: 0,
+      assignment_equity_fill_id: undefined,
       target_pnl: n(position.open_pnl),
       prior_open: false,
     });
@@ -625,6 +842,7 @@ export function optionProxyBars(
   pathStart: string,
   pathEnd: string,
   _rangeStart: string,
+  dividendYield = 0,
 ): { bars: Array<{ date: string; close: number }>; source: LegMarkSource } {
   const occ = parseOccContract(lot.symbol);
   const expiry = occ ? occExpirationIso(occ.expiration) : null;
@@ -647,6 +865,7 @@ export function optionProxyBars(
       strike: occ.strike,
       years: yearFraction(openBar.date, expiry),
       price: lot.average_price,
+      dividend: dividendYield,
     });
     if (iv != null) {
       return {
@@ -658,6 +877,7 @@ export function optionProxyBars(
             strike: occ.strike,
             years: yearFraction(b.date, expiry),
             vol: iv,
+            dividend: dividendYield,
           }),
         })),
         source: 'black_scholes',
@@ -718,6 +938,7 @@ export function optionLegDailyPath(
   rangeStart: string,
   rangeEnd: string,
   underlyingOhlc: Array<{ date: string; close: number | null | undefined }> = [],
+  dividendYield = 0,
 ): LegDailyPoint[] {
   if (lot.prior_open || lot.quantity === 0 || !rangeStart || !rangeEnd) return [];
   if (lot.closed && lot.closed < rangeStart) return [];
@@ -742,7 +963,14 @@ export function optionLegDailyPath(
   // Do not use Schwab option last-trades (`ohlcBySymbol`). Those prints are
   // often stale last sales and recreate cliffs. Mark from the underlying.
   void ohlcBySymbol;
-  const proxy = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
+  const proxy = optionProxyBars(
+    lot,
+    underlyingOhlc,
+    pathStart,
+    pathEnd,
+    rangeStart,
+    dividendYield,
+  );
   raw = proxy.bars;
   bars = inWindow(raw);
   source = proxy.source;
@@ -803,6 +1031,7 @@ export function applyOptionMarkPath(
   rangeStart: string,
   rangeEnd: string,
   underlyingOhlc: Array<{ date: string; close: number | null | undefined }> = [],
+  dividendYield = 0,
 ): { points: SchwabPnlPoint[]; painted: boolean; inWindowMtm: number; closedPnl: number } {
   const none = { points, painted: false, inWindowMtm: 0, closedPnl: 0 };
   if (!rangeStart || !rangeEnd || lots.length === 0) return none;
@@ -829,6 +1058,7 @@ export function applyOptionMarkPath(
       rangeStart,
       rangeEnd,
       underlyingOhlc,
+      dividendYield,
     );
     if (path.length === 0) continue;
 
@@ -876,7 +1106,10 @@ export function positionTicker(row: Pick<SchwabPortfolioPosition, 'symbol' | 'un
   return symbol;
 }
 
-function positionMarkPnl(row: Pick<SchwabPortfolioPosition, 'open_pnl' | 'market_value' | 'average_price' | 'quantity'>): number {
+function positionMarkPnl(row: Pick<
+  SchwabPortfolioPosition,
+  'open_pnl' | 'market_value' | 'average_price' | 'quantity' | 'asset_type' | 'symbol'
+>): number {
   if (row.open_pnl != null && Number.isFinite(row.open_pnl)) return row.open_pnl;
   if (
     row.average_price != null &&
@@ -884,7 +1117,8 @@ function positionMarkPnl(row: Pick<SchwabPortfolioPosition, 'open_pnl' | 'market
     Number.isFinite(row.average_price) &&
     Number.isFinite(row.market_value)
   ) {
-    return row.market_value - row.average_price * row.quantity;
+    const multiplier = isOptionLike(row) ? OPTION_MULTIPLIER : 1;
+    return row.market_value - row.average_price * row.quantity * multiplier;
   }
   return 0;
 }

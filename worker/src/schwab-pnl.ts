@@ -12,6 +12,7 @@
 
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
 import {
+  fetchSchwabDividendYield,
   fetchSchwabPriceHistory,
   type SchwabPriceBar,
 } from "./schwab-marketdata";
@@ -152,6 +153,8 @@ export interface SchwabPnlView {
    */
   ohlc: SchwabPriceBar[];
   ohlc_source: "schwab" | null;
+  /** Decimal annual dividend yield used by the option mark model. */
+  dividend_yield: number | null;
   /** Daily option closes keyed by compact OCC (`CAR260618P00390000`). */
   option_ohlc: Record<string, SchwabPriceBar[]>;
   /** True when Schwab may have capped the trade page (~3000 rows). */
@@ -306,6 +309,11 @@ function looksLikeRegularEquityExecution(trade: SchwabTrade): boolean {
 
 /** Equity delivery from assignment opens a stock position; skip CLOSING stock legs. */
 function equityDeliveryCanBeAssignment(trade: SchwabTrade): boolean {
+  const effect = (trade.position_effect ?? "").toUpperCase();
+  const assignmentSignal = `${trade.activity_type ?? ""} ${trade.description ?? ""}`.toUpperCase();
+  if (effect === "CLOSING" && !/\b(ASSIGN|ASGN|ASSIGNMENT)\b/.test(assignmentSignal)) {
+    return false;
+  }
   if (looksLikeRegularEquityExecution(trade)) return false;
   return true;
 }
@@ -1156,12 +1164,29 @@ export async function loadSchwabPnl(
         return [] as SchwabPriceBar[];
       })
     : Promise.resolve([] as SchwabPriceBar[]);
+  const dividendYieldPromise = ticker
+    ? fetchSchwabDividendYield(
+        token.accessToken,
+        ticker,
+        token.tokenType,
+      ).catch((e) => {
+        console.error("schwab pnl: dividend yield failed", {
+          status: e instanceof SchwabApiError ? e.status : null,
+          detail: e instanceof Error ? e.message.slice(0, 300) : String(e),
+          symbol: ticker,
+        });
+        return null;
+      })
+    : Promise.resolve(null);
 
   try {
     const accounts = toTradeAccounts(await listSchwabAccountNumbers(token.accessToken, token.tokenType));
     const publicAccounts = accounts.map((a) => ({ id: a.id, label: a.label }));
     if (accounts.length === 0) {
-      const ohlc = await priceHistoryPromise;
+      const [ohlc, dividendYield] = await Promise.all([
+        priceHistoryPromise,
+        dividendYieldPromise,
+      ]);
       return {
         ok: true,
         view: {
@@ -1182,6 +1207,7 @@ export async function loadSchwabPnl(
           trades: [],
           ohlc,
           ohlc_source: ohlc.length > 0 ? "schwab" : null,
+          dividend_yield: dividendYield,
           option_ohlc: {},
           may_be_truncated: false,
           lookback_truncated: false,
@@ -1344,7 +1370,10 @@ export async function loadSchwabPnl(
       opts.end,
     );
 
-    const ohlc = await priceHistoryPromise;
+    const [ohlc, dividendYield] = await Promise.all([
+      priceHistoryPromise,
+      dividendYieldPromise,
+    ]);
     return {
       ok: true,
       view: {
@@ -1365,6 +1394,7 @@ export async function loadSchwabPnl(
         trades: windowTrades,
         ohlc,
         ohlc_source: ohlc.length > 0 ? "schwab" : null,
+        dividend_yield: dividendYield,
         // Option last-sale history is intentionally not used for marks, so do
         // not spend up to eight rate-limited requests returning dead data.
         option_ohlc: {},
