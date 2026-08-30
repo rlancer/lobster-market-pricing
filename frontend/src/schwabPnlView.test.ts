@@ -5,6 +5,7 @@ import {
   applyEquityMarkPath,
   applyOptionMarkPath,
   buildActivityRows,
+  parseOccContract,
   composeDaily,
   composeSeries,
   composeTotals,
@@ -332,7 +333,15 @@ test('buildActivityRows unifies trades, realized fills, and dividends', () => {
   });
   assert.equal(rows.length, 3);
   assert.equal(rows[0]?.kind, 'option');
+  assert.equal(rows[0]?.option_right, 'put');
+  assert.equal(rows[0]?.strike, 390);
+  assert.equal(rows[0]?.price, 2.5);
   assert.equal(rows[1]?.kind, 'dividend');
+  assert.equal(rows[1]?.option_right, null);
+  assert.equal(rows[1]?.strike, null);
+  assert.equal(rows[2]?.kind, 'stock');
+  assert.equal(rows[2]?.option_right, null);
+  assert.equal(rows[2]?.strike, null);
   assert.equal(rows[2]?.realized_pnl, 40);
   assert.equal(rows[2]?.prior_open, true);
 
@@ -368,8 +377,22 @@ test('buildActivityRows includes assignment synth fills that are not in trades',
   });
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.kind, 'option');
+  assert.equal(rows[0]?.option_right, 'put');
+  assert.equal(rows[0]?.strike, 390);
+  assert.equal(rows[0]?.price, 0);
   assert.equal(rows[0]?.realized_pnl, 5020.8);
   assert.equal(rows[0]?.id, 'fill-synth-assign-stock-opt-1');
+});
+
+test('parseOccContract reads strike and put/call from padded OCC', () => {
+  const put = parseOccContract('CAR   260618P00390000');
+  assert.equal(put?.root, 'CAR');
+  assert.equal(put?.right, 'P');
+  assert.equal(put?.strike, 390);
+  const call = parseOccContract('AAPL260918C00150500');
+  assert.equal(call?.right, 'C');
+  assert.equal(call?.strike, 150.5);
+  assert.equal(parseOccContract('CAR'), null);
 });
 
 test('applyOptionMarkPath spreads the CAR assignment instead of a one-day rocket', () => {

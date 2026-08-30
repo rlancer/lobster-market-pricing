@@ -96,10 +96,22 @@ function kindTone(kind: ActivityRow['kind']): 'green' | 'orange' | 'gray' {
   return 'green';
 }
 
-function kindLabel(kind: ActivityRow['kind']): string {
-  if (kind === 'stock') return 'Stock';
-  if (kind === 'option') return 'Option';
+function kindLabel(row: ActivityRow): string {
+  if (row.kind === 'stock') return 'Stock';
+  if (row.kind === 'option') {
+    if (row.option_right === 'put') return 'Put';
+    if (row.option_right === 'call') return 'Call';
+    return 'Option';
+  }
   return 'Div';
+}
+
+function strikeLabel(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n.toLocaleString(undefined, {
+    maximumFractionDigits: 3,
+    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+  });
 }
 
 function formatApiError(err: unknown): string {
@@ -662,10 +674,11 @@ export function SchwabPnlSection({
             {symbol ? `${symbol} activity` : 'Activity'}
           </Text>
           <Text type="supporting">
-            Every included fill and dividend in this window. Realized is set
-            when a close matched an open lot. Fees stay on the trade row —
-            turn off Stocks/Options/Dividends and leave Fees on to see only
-            commission drag.
+            Every included fill and dividend in this window. Options show put
+            or call, strike, and fill price so assignment vs premium is easy
+            to check. Realized is set when a close matched an open lot. Fees
+            stay on the trade row — turn off Stocks/Options/Dividends and
+            leave Fees on to see only commission drag.
           </Text>
           <Table
             className="portfolio-table"
@@ -689,7 +702,7 @@ export function SchwabPnlSection({
                 header: 'Kind',
                 width: pixel(80),
                 renderCell: (row) => (
-                  <Token color={kindTone(row.kind)} label={kindLabel(row.kind)} size="sm" />
+                  <Token color={kindTone(row.kind)} label={kindLabel(row)} size="sm" />
                 ),
               },
               {
@@ -711,6 +724,16 @@ export function SchwabPnlSection({
                 ),
               },
               {
+                key: 'strike',
+                header: 'Strike',
+                width: pixel(80),
+                renderCell: (row) => (
+                  <Text hasTabularNumbers>
+                    {row.kind === 'option' ? strikeLabel(row.strike) : '—'}
+                  </Text>
+                ),
+              },
+              {
                 key: 'quantity',
                 header: 'Qty',
                 width: pixel(72),
@@ -720,7 +743,7 @@ export function SchwabPnlSection({
               },
               {
                 key: 'price',
-                header: 'Price',
+                header: 'Fill',
                 width: pixel(88),
                 renderCell: (row) => (
                   <Text hasTabularNumbers>{money(row.price)}</Text>

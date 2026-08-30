@@ -22,6 +22,14 @@ export const DEFAULT_PNL_INCLUDE: PnlInclude = {
 };
 
 export type ActivityKind = 'stock' | 'option' | 'dividend';
+export type OptionRight = 'put' | 'call';
+
+export type OccContract = {
+  root: string;
+  expiration: string;
+  right: 'C' | 'P';
+  strike: number;
+};
 
 export type ActivityRow = {
   id: string;
@@ -29,6 +37,8 @@ export type ActivityRow = {
   kind: ActivityKind;
   side: SchwabTrade['side'] | null;
   symbol: string | null;
+  option_right: OptionRight | null;
+  strike: number | null;
   quantity: number | null;
   price: number | null;
   net_amount: number | null;
@@ -151,6 +161,7 @@ export function buildActivityRows(opts: {
       kind: isOptionLike(trade) ? 'option' : 'stock',
       side: trade.side,
       symbol: trade.symbol,
+      ...activityOptionFields(trade.symbol),
       quantity: trade.quantity != null ? Math.abs(trade.quantity) : null,
       price: trade.price,
       net_amount: trade.net_amount,
@@ -170,6 +181,7 @@ export function buildActivityRows(opts: {
       kind: isOptionLike(fill) ? 'option' : 'stock',
       side: fill.side,
       symbol: fill.symbol,
+      ...activityOptionFields(fill.symbol),
       quantity: fill.quantity != null ? Math.abs(fill.quantity) : null,
       price: fill.price,
       net_amount: fill.net_amount,
@@ -187,6 +199,8 @@ export function buildActivityRows(opts: {
       kind: 'dividend',
       side: null,
       symbol: dist.symbol,
+      option_right: null,
+      strike: null,
       quantity: null,
       price: null,
       net_amount: dist.amount,
@@ -362,6 +376,34 @@ const OPTION_MULTIPLIER = 100;
 export function compactOccSymbol(symbol: string | null | undefined): string | null {
   const compact = (symbol ?? '').toUpperCase().replace(/\s+/g, '');
   return /^[A-Z0-9.-]{1,6}\d{6}[CP]\d{8}$/.test(compact) ? compact : null;
+}
+
+/** Parse a Schwab/OCC option symbol (`CAR   260618P00390000` or compact). */
+export function parseOccContract(symbol: string | null | undefined): OccContract | null {
+  const compact = compactOccSymbol(symbol);
+  if (!compact) return null;
+  const m = /^([A-Z0-9.-]{1,6})(\d{6})([CP])(\d{8})$/.exec(compact);
+  if (!m) return null;
+  const strike = Number(m[4]) / 1000;
+  if (!Number.isFinite(strike)) return null;
+  return {
+    root: m[1]!,
+    expiration: m[2]!,
+    right: m[3] as 'C' | 'P',
+    strike,
+  };
+}
+
+function activityOptionFields(symbol: string | null | undefined): {
+  option_right: OptionRight | null;
+  strike: number | null;
+} {
+  const occ = parseOccContract(symbol);
+  if (!occ) return { option_right: null, strike: null };
+  return {
+    option_right: occ.right === 'P' ? 'put' : 'call',
+    strike: occ.strike,
+  };
 }
 
 export type OptionLot = {
