@@ -621,8 +621,9 @@ export function DocsSchwabPnl() {
         Schwab Market Data (the connected user&apos;s token) for the still-open
         lot; lake OHLC is only a fallback if that fetch is empty. Closed
         options (including assignment) prefer Schwab option closes from the
-        open to the fill. If Schwab does not return option history, a
-        deep-in-the-money contract uses intrinsic value from Schwab&apos;s
+        open to the fill when those marks actually track the fill→exit move.
+        Missing history — or stale flat last-trade prints common on deep-ITM
+        assigned puts — falls through to intrinsic value from Schwab&apos;s
         underlying closes. On assignment, intrinsic loss belongs to the short
         put rather than the delivered shares, so settlement does not create a
         one-day rocket. In-window days are close-to-close; a buy from

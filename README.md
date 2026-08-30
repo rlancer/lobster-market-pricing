@@ -289,8 +289,9 @@ with Positions, Performance, and Trade history panes. User-facing copy is
 - Ticker-scoped `ohlc[]` is daily candles from Schwab Market Data
   (`/pricehistory`, connected user token). `option_ohlc` is the same
   fetch per OCC symbol so assignment/spread P&L follows the option
-  closes instead of one close-day rocket. If Schwab omits option history,
-  deep-ITM contracts use intrinsic value from the Schwab underlying
+  closes instead of one close-day rocket. If Schwab omits option history
+  — or returns stale flat last-trade prints that never leave the entry
+  — deep-ITM contracts use intrinsic value from the Schwab underlying
   closes. Assignment reclassifies delivered-stock intrinsic loss onto
   the short option; final book P&L is unchanged. Lake OHLC is only a
   fallback if the underlying Schwab fetch is empty.
