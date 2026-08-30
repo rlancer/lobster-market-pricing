@@ -30,7 +30,6 @@ import {
   VStack,
 } from '@astryxdesign/core';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import {
   api,
@@ -126,6 +125,21 @@ function strikeLabel(n: number | null | undefined): string {
   return n.toLocaleString(undefined, {
     maximumFractionDigits: 3,
     minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+  });
+}
+
+function sessionDateLabel(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return date;
+  return new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    12,
+  ).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
@@ -911,7 +925,7 @@ export function SchwabPnlSection({
                     header: 'Session',
                     width: pixel(120),
                     renderCell: (row) => (
-                      <Timestamp value={row.date} format="date" type="body" />
+                      <Text>{sessionDateLabel(row.date)}</Text>
                     ),
                   },
                   {
@@ -1028,7 +1042,7 @@ export function SchwabPnlSection({
                   header: 'Date',
                   width: pixel(110),
                   renderCell: (row) => (
-                    <Timestamp value={row.date} format="date" type="body" />
+                    <Text>{sessionDateLabel(row.date)}</Text>
                   ),
                 },
                 {
