@@ -181,19 +181,23 @@ function legLabel(lot: OptionLot): string {
 }
 
 function markSourceLabel(source: LegDailyPoint['source']): string {
+  if (source === 'black_scholes') return 'Black–Scholes on Schwab stock';
   if (source === 'schwab') return 'Schwab option prints';
   if (source === 'intrinsic') return 'Intrinsic from Schwab stock closes';
   return 'Linear timing estimate';
 }
 
 function markSourceExplanation(source: LegDailyPoint['source']): string {
+  if (source === 'black_scholes') {
+    return 'Each session mark is Black–Scholes on that day’s Schwab stock close, using implied vol from the fill (held constant) and never below intrinsic. Last-trade option prints are ignored — they are often stale. A crash still moves the book with delta; once both spread legs are deep in the money they move together so net daily P&L is small.';
+  }
   if (source === 'schwab') {
     return 'Marks are Schwab option price-history closes — actual option prints from Schwab.';
   }
   if (source === 'intrinsic') {
     return 'Schwab option prints were missing or too stale to explain the exit, so each mark is intrinsic value from the Schwab underlying close. Once both spread legs are deep in the money they move together, so the net book can jump on the crash and then go nearly flat.';
   }
-  return 'Schwab had neither usable option prints nor enough underlying closes. Marks are spaced from fill to exit only to estimate timing; the final FIFO realized total is unchanged.';
+  return 'Schwab had neither a usable fill IV nor enough underlying closes. Marks are spaced from fill to exit only to estimate timing; the final FIFO realized total is unchanged.';
 }
 
 type LegDailyTableRow = LegDailyPoint & Record<string, unknown>;
@@ -868,9 +872,11 @@ export function SchwabPnlSection({
               <VStack gap={0}>
                 <Text type="supporting" size="sm">Mark source</Text>
                 <Token
-                  color={activeLegSource === 'schwab'
-                    ? 'green'
-                    : activeLegSource === 'intrinsic' ? 'orange' : 'gray'}
+                  color={activeLegSource === 'black_scholes'
+                    ? 'blue'
+                    : activeLegSource === 'schwab'
+                      ? 'green'
+                      : activeLegSource === 'intrinsic' ? 'orange' : 'gray'}
                   label={markSourceLabel(activeLegSource)}
                   size="sm"
                 />

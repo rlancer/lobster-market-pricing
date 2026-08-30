@@ -188,9 +188,10 @@ site and SameSite=Lax will not send it.
   Schwab portfolio marks) on the connected user token — not lake/Yahoo OHLC
   as a fallback. The lake often lacks the ticker or the hold window entirely
   (live CAR April 2026 crash: Schwab had daily bars; lake had none), which
-  flattens the chart until realization and recreates one-day cliffs. If
-  Schwab option history is missing or flat, proxy from **Schwab underlying**
-  closes (intrinsic), or linear fill→exit — never `symbolDetail` / lake OHLC.
+  flattens the chart until realization and recreates one-day cliffs. Option
+  legs are Black–Scholes on **Schwab underlying** closes (IV from the fill),
+  never last-trade option prints and never `symbolDetail` / lake OHLC. Linear
+  fill→exit only when there is no underlying history.
 
 ## Documentation policy — no `PLAN-*.md` rollups
 

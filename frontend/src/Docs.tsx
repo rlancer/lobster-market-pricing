@@ -577,7 +577,9 @@ export function DocsSchwabPnl() {
         live open mark is included in the Stocks / Options stats and the
         headline so an open ETF like TLT is the current mark plus dividends,
         not dividends alone. The stock curve follows Schwab daily closes for the
-        still-open lot (lake OHLC only if that fetch is empty). Days inside the
+        still-open lot. Option legs use Black–Scholes on those same stock
+        closes (implied vol from the fill), not last-trade option prints.
+        Days inside the
         selected range are incremental (prior
         close to close); a lot opened before the range does not dump all prior
         mark onto the first session. The headline is still full-name P&amp;L
@@ -620,11 +622,10 @@ export function DocsSchwabPnl() {
         Options stat and the headline. Portfolio marks use Schwab Market
         Data only (the connected user&apos;s token) — never lake/Yahoo OHLC,
         which may lack the ticker or hold window entirely. Closed
-        options (including assignment) prefer Schwab option closes from the
-        open to the fill when those marks actually track the fill→exit move.
-        Missing history — or stale flat last-trade prints common on deep-ITM
-        assigned puts — falls through to intrinsic value from Schwab&apos;s
-        underlying closes. On assignment, intrinsic loss belongs to the short
+        options (including assignment) are marked with Black–Scholes on
+        Schwab stock closes, using implied vol from the fill (held constant)
+        and never below intrinsic. Last-trade option prints are ignored —
+        they are often stale. On assignment, intrinsic loss belongs to the short
         put rather than the delivered shares, so settlement does not create a
         one-day rocket. In-window days are close-to-close; a buy from
         before the range does not dump all prior mark onto the first session.

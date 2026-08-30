@@ -5,6 +5,12 @@ import type {
   SchwabPortfolioPosition,
   SchwabTrade,
 } from './api';
+import {
+  americanOptionMark,
+  impliedVol,
+  occExpirationIso,
+  yearFraction,
+} from './schwabBlackScholes.ts';
 import { etTradeDay } from './tickerChartRange.ts';
 
 export type PnlInclude = {
@@ -607,27 +613,11 @@ function interpolateCloses(
   }));
 }
 
-function occContract(symbol: string): { right: 'C' | 'P'; strike: number } | null {
-  const occ = /^[A-Z0-9.-]{1,6}(\d{6})([CP])(\d{8})$/.exec(symbol);
-  if (!occ) return null;
-  const strike = Number(occ[3]) / 1000;
-  if (!Number.isFinite(strike)) return null;
-  return { right: occ[2] as 'C' | 'P', strike };
-}
-
-function intrinsicClose(right: 'C' | 'P', strike: number, spot: number): number {
-  return right === 'P' ? Math.max(strike - spot, 0) : Math.max(spot - strike, 0);
-}
-
 /**
- * Daily proxy marks when Schwab has no option history. Prefer Schwab
- * underlying closes → intrinsic on the holding window (a pre-open OTM day
- * must not reject the path). Do not fade fill→intrinsic across the hold —
- * that flattens crash MTM into a synthetic bleed and leaves a realization
- * cliff after exit override. `applyOptionMarkPath` seeds `prev` from the
- * fill so open-day MTM is fill→first intrinsic. If underlying history is
- * empty, linearly walk fill → exit across weekdays so assignment cannot
- * collapse onto one session. Never use lake/Yahoo here (AGENTS.md).
+ * Daily proxy marks. Last-trade option prints are not used — they are often
+ * stale. Prefer Black–Scholes on Schwab underlying closes with IV inverted
+ * from the fill (held constant). American floor = intrinsic. If we cannot
+ * invert or have no spots, linearly walk fill → exit. Never lake/Yahoo.
  */
 export function optionProxyBars(
   lot: Pick<OptionLot, 'symbol' | 'opened' | 'closed' | 'average_price' | 'exit_price'>,
@@ -635,24 +625,43 @@ export function optionProxyBars(
   pathStart: string,
   pathEnd: string,
   _rangeStart: string,
-): { bars: Array<{ date: string; close: number }>; source: 'intrinsic' | 'linear' } {
-  const occ = occContract(lot.symbol);
-  if (occ) {
-    const hold = underlyingOhlc
-      .filter((b) => (
-        b.date >= pathStart
-        && b.date <= pathEnd
-        && b.close != null
-        && Number.isFinite(b.close)
-      ))
-      .map((b) => ({
-        date: b.date,
-        close: intrinsicClose(occ.right, occ.strike, b.close as number),
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    // All-zero means the contract stayed OTM — don't invent time value.
-    if (hold.length >= 2 && hold.some((b) => b.close > 0)) {
-      return { bars: hold, source: 'intrinsic' };
+): { bars: Array<{ date: string; close: number }>; source: LegMarkSource } {
+  const occ = parseOccContract(lot.symbol);
+  const expiry = occ ? occExpirationIso(occ.expiration) : null;
+  const spots = underlyingOhlc
+    .filter((b) => (
+      b.date >= pathStart
+      && b.date <= pathEnd
+      && b.close != null
+      && Number.isFinite(b.close)
+    ))
+    .map((b) => ({ date: b.date, close: b.close as number }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (occ && expiry && spots.length > 0 && Number.isFinite(lot.average_price)) {
+    const openBar = lot.opened
+      ? spots.find((b) => b.date >= lot.opened!) ?? spots[0]!
+      : spots[0]!;
+    const iv = impliedVol({
+      right: occ.right,
+      spot: openBar.close,
+      strike: occ.strike,
+      years: yearFraction(openBar.date, expiry),
+      price: lot.average_price,
+    });
+    if (iv != null) {
+      return {
+        bars: spots.map((b) => ({
+          date: b.date,
+          close: americanOptionMark({
+            right: occ.right,
+            spot: b.close,
+            strike: occ.strike,
+            years: yearFraction(b.date, expiry),
+            vol: iv,
+          }),
+        })),
+        source: 'black_scholes',
+      };
     }
   }
   if (lot.exit_price == null || !Number.isFinite(lot.exit_price)) {
@@ -688,7 +697,7 @@ export function optionSchwabBarsTrackExit(
   return (last - entryPrice) / totalMove >= 0.5;
 }
 
-export type LegMarkSource = 'schwab' | 'intrinsic' | 'linear';
+export type LegMarkSource = 'black_scholes' | 'intrinsic' | 'linear' | 'schwab';
 
 export type LegDailyPoint = {
   date: string;
@@ -727,23 +736,16 @@ export function optionLegDailyPath(
       .map((b) => ({ date: b.date, close: b.close as number }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-  let raw = ohlcBySymbol[lot.symbol] ?? [];
-  let bars = inWindow(raw);
-  let source: LegMarkSource = 'schwab';
-  const schwabForGate = lot.closed
-    ? bars.filter((b) => b.date < lot.closed!)
-    : bars;
-  const trustSchwab = optionSchwabBarsTrackExit(
-    schwabForGate.length >= 2 ? schwabForGate : bars,
-    lot.average_price,
-    lot.exit_price,
-  );
-  if (!trustSchwab) {
-    const proxy = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
-    raw = proxy.bars;
-    bars = inWindow(raw);
-    source = proxy.source;
-  }
+  let raw: Array<{ date: string; close: number }> = [];
+  let bars: Array<{ date: string; close: number }> = [];
+  let source: LegMarkSource = 'linear';
+  // Do not use Schwab option last-trades (`ohlcBySymbol`). Those prints are
+  // often stale last sales and recreate cliffs. Mark from the underlying.
+  void ohlcBySymbol;
+  const proxy = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
+  raw = proxy.bars;
+  bars = inWindow(raw);
+  source = proxy.source;
 
   if (lot.closed && lot.closed >= rangeStart && lot.closed <= rangeEnd && lot.exit_price != null) {
     const i = bars.findIndex((b) => b.date === lot.closed);
@@ -789,11 +791,10 @@ export function optionLegDailyPath(
 }
 
 /**
- * Replace the one-day FIFO option lump with daily mark-to-market. Schwab
- * option closes are preferred when they actually track the fill→exit move.
- * Stale/flat Schwab prints (common on deep-ITM assigned puts) fall through
- * to the underlying-intrinsic proxy, same as missing history. Assignment
- * moves the delivered-stock intrinsic loss onto the short option.
+ * Replace the one-day FIFO option lump with daily mark-to-market.
+ * Marks are Black–Scholes on Schwab underlying closes (IV from the fill),
+ * not last-trade option prints. Assignment moves the delivered-stock
+ * intrinsic loss onto the short option so settlement is not a rocket.
  */
 export function applyOptionMarkPath(
   points: SchwabPnlPoint[],

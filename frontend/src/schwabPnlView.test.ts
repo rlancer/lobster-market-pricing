@@ -562,7 +562,7 @@ test('optionSchwabBarsTrackExit rejects flat stale prints before the exit', () =
   assert.equal(optionSchwabBarsTrackExit([{ date: '2026-04-01', close: 83 }], 83, 244), false);
 });
 
-test('applyOptionMarkPath ignores flat Schwab option prints and uses intrinsic', () => {
+test('applyOptionMarkPath ignores flat Schwab option prints and uses Black–Scholes', () => {
   const sparse = [
     point({ date: '2026-01-01' }),
     point({ date: '2026-05-08', daily_option_pnl: 29507.12, daily_equity_pnl: -24486.32, daily_pnl: 5020.8 }),
@@ -658,7 +658,7 @@ test('applyOptionMarkPath ignores flat Schwab option prints and uses intrinsic',
   const holdingDays = path.filter((p) => p.date >= '2026-04-01' && p.date < '2026-05-08');
   assert.ok(
     holdingDays.some((p) => Math.abs(p.daily_option_pnl ?? 0) > 0),
-    'flat Schwab option prints must not block the intrinsic hold path',
+    'flat Schwab option prints must not block the Black–Scholes hold path',
   );
   assert.ok(
     Math.abs(may8!.daily_option_pnl ?? 0) < 500,
@@ -755,8 +755,9 @@ test('applyOptionMarkPath linear-spreads assignment when no OHLC is available', 
 
 test('applyOptionMarkPath follows the live CAR crash on Schwab underlying', () => {
   // Live book: opened 2026-04-22, stock crashed 444→229 on 04-23, assigned 05-08.
-  // Schwab option history is empty; marks must come from Schwab underlying
-  // intrinsic — most of the +$5020.80 accrues on the crash, not May 8.
+  // Schwab option history is empty/ignored; marks are Black–Scholes on
+  // Schwab stock closes (IV from the fill). Most of the +$5020.80 still
+  // accrues on the crash via delta, not May 8.
   const sparse = [
     point({ date: '2026-01-01' }),
     point({ date: '2026-05-08', daily_option_pnl: 29507.12, daily_equity_pnl: -24486.32, daily_pnl: 5020.8 }),
@@ -903,10 +904,10 @@ test('optionLegDailyPath exposes per-session marks for a CAR put leg', () => {
     carOhlc,
   );
   assert.ok(path.length >= 3);
-  assert.equal(path[0]?.source, 'intrinsic');
+  assert.equal(path[0]?.source, 'black_scholes');
   assert.equal(path[0]?.date, '2026-04-22');
-  // Open day: fill → first intrinsic (OTM short put → mark 0) books the premium.
-  assert.ok(Math.abs((path[0]?.daily_pnl ?? 0) - 8309.17) < 1);
+  // Open day: fill IV marks near the fill, so the premium is not dumped.
+  assert.ok(Math.abs(path[0]?.daily_pnl ?? 0) < 500, 'open day must not book the whole premium');
   const crash = path.find((p) => p.date === '2026-04-23');
   assert.ok(crash && crash.daily_pnl < -1000, 'crash day must mark the short put up');
   assert.equal(Math.round((path.at(-1)?.cumulative_pnl ?? 0) * 100) / 100, lot!.target_pnl);
