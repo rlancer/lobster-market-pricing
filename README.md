@@ -293,9 +293,10 @@ with Positions, Performance, and Trade history panes. User-facing copy is
   — or returns stale flat last-trade prints that never leave the entry
   — deep-ITM contracts use intrinsic value from the Schwab underlying
   closes. Assignment reclassifies delivered-stock intrinsic loss onto
-  the short option; final book P&L is unchanged. Lake OHLC only
-  gap-fills sessions Schwab omitted — Schwab closes always win on
-  collisions (CAR's April crash is on Schwab; lake has no hold bars).
+  the short option; final book P&L is unchanged. Do **not** fall back to
+  lake/Yahoo OHLC for portfolio marks — the lake often lacks the ticker
+  or hold window (CAR Apr 2026). Missing option history proxies from
+  Schwab underlying intrinsic instead.
 - `DIVIDEND_OR_INTEREST` is a second fetch over the chart window only;
   `distributions[]` / `distributions_total` can be added to the curve
   when the Dividends chip is on.

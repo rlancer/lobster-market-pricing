@@ -47,7 +47,6 @@ import {
   equityOpenLot,
   filterActivity,
   includedOpenMark,
-  mergeOhlcPreferSchwab,
   optionLotsFromFills,
   tickerOpenMark,
   type ActivityRow,
@@ -211,24 +210,9 @@ export function SchwabPnlSection({
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
       const schwabBars = Array.isArray(res.ohlc) ? res.ohlc : [];
       setOptionOhlc(res.option_ohlc && typeof res.option_ohlc === 'object' ? res.option_ohlc : {});
-      // Prefer Schwab Market Data closes for portfolio marks. Lake/Yahoo only
-      // gap-fills sessions Schwab omitted — never replaces a Schwab print.
-      // (CAR's April crash lives on Schwab; lake has no bars for that hold.)
-      const holdStart = (Array.isArray(res.fills) ? res.fills : [])
-        .map((fill) => fill.opened || fill.date)
-        .filter((day): day is string => Boolean(day))
-        .sort()[0] ?? res.start;
-      const schwabCoversHold = schwabBars.some((bar) => bar.date && bar.date <= holdStart);
-      let lakeBars: OhlcBar[] = [];
-      if (nextSymbol.trim() && !schwabCoversHold) {
-        try {
-          const detail = await api.symbolDetail(nextSymbol.trim(), { parts: 'ohlc' });
-          lakeBars = detail.ohlc ?? [];
-        } catch {
-          lakeBars = [];
-        }
-      }
-      setOhlc(mergeOhlcPreferSchwab(schwabBars, lakeBars));
+      // Portfolio marks are Schwab-only (see AGENTS.md). Do not fall back to
+      // lake/Yahoo — it often has no bars for the hold (CAR Apr 2026).
+      setOhlc(schwabBars);
     } catch (err) {
       setError(formatApiError(err));
       setPoints([]);

@@ -308,11 +308,12 @@ export function equityOpenLot(
 }
 
 /**
- * Paint daily equity mark-to-market from Schwab (or lake-fallback) OHLC so
- * the chart follows the holding. In-window days are incremental (prior
- * close → close). Lots opened inside the window use fill price on the first
- * session. Last-session drift to Schwab's full open_pnl is applied via
- * series carry-in, not a one-day dump on the first or last bar.
+ * Paint daily equity mark-to-market from Schwab OHLC so the chart follows
+ * the holding. Portfolio pricing never uses lake/Yahoo (AGENTS.md). In-window
+ * days are incremental (prior close → close). Lots opened inside the window
+ * use fill price on the first session. Last-session drift to Schwab's full
+ * open_pnl is applied via series carry-in, not a one-day dump on the first
+ * or last bar.
  */
 export function applyEquityMarkPath(
   points: SchwabPnlPoint[],
@@ -581,7 +582,7 @@ function intrinsicClose(right: 'C' | 'P', strike: number, spot: number): number 
  * cliff after exit override. `applyOptionMarkPath` seeds `prev` from the
  * fill so open-day MTM is fill→first intrinsic. If underlying history is
  * empty, linearly walk fill → exit across weekdays so assignment cannot
- * collapse onto one session.
+ * collapse onto one session. Never use lake/Yahoo here (AGENTS.md).
  */
 export function optionProxyBars(
   lot: Pick<OptionLot, 'symbol' | 'opened' | 'closed' | 'average_price' | 'exit_price'>,
@@ -613,26 +614,6 @@ export function optionProxyBars(
     lot.average_price,
     lot.exit_price,
   );
-}
-
-/**
- * Merge daily bars with Schwab winning on date collisions. Lake/Yahoo only
- * gap-fills sessions Schwab did not return — never replaces a Schwab close.
- */
-export function mergeOhlcPreferSchwab<T extends { date: string }>(
-  schwab: T[],
-  lake: T[],
-): T[] {
-  if (schwab.length === 0) return lake.slice().sort((a, b) => a.date.localeCompare(b.date));
-  if (lake.length === 0) return schwab.slice().sort((a, b) => a.date.localeCompare(b.date));
-  const byDate = new Map<string, T>();
-  for (const bar of lake) {
-    if (bar.date) byDate.set(bar.date, bar);
-  }
-  for (const bar of schwab) {
-    if (bar.date) byDate.set(bar.date, bar);
-  }
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**

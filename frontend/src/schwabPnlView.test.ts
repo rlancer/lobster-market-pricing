@@ -15,7 +15,6 @@ import {
   includedOpenMark,
   optionLotsFromFills,
   optionSchwabBarsTrackExit,
-  mergeOhlcPreferSchwab,
   positionTicker,
   tickerOpenMark,
   weekdayDates,
@@ -716,27 +715,6 @@ test('applyOptionMarkPath linear-spreads assignment when no OHLC is available', 
   assert.equal(may8!.daily_equity_pnl, 0);
   const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
   assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
-});
-
-test('mergeOhlcPreferSchwab lets Schwab win on date collisions', () => {
-  const merged = mergeOhlcPreferSchwab(
-    [
-      { date: '2026-04-22', close: 443.94 },
-      { date: '2026-04-23', close: 229.14 },
-    ],
-    [
-      { date: '2026-04-22', close: 999 },
-      { date: '2026-04-21', close: 700 },
-    ],
-  );
-  assert.deepEqual(
-    merged.map((b) => ({ d: b.date, c: b.close })),
-    [
-      { d: '2026-04-21', c: 700 },
-      { d: '2026-04-22', c: 443.94 },
-      { d: '2026-04-23', c: 229.14 },
-    ],
-  );
 });
 
 test('applyOptionMarkPath follows the live CAR crash on Schwab underlying', () => {
