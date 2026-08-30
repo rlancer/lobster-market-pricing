@@ -173,6 +173,7 @@ export function SchwabPnlSection({
   ) => {
     setLoading(true);
     setError(null);
+    setOhlc([]);
     try {
       const res = await api.schwabPnl({
         range: nextRange,
@@ -190,6 +191,19 @@ export function SchwabPnlSection({
       setWindowLabel(`${res.start} → ${res.end}`);
       setLookbackTruncated(Boolean(res.lookback_truncated));
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
+      const schwabBars = Array.isArray(res.ohlc) ? res.ohlc : [];
+      if (schwabBars.length > 0) {
+        setOhlc(schwabBars);
+      } else if (nextSymbol.trim()) {
+        try {
+          const detail = await api.symbolDetail(nextSymbol.trim(), { parts: 'ohlc' });
+          setOhlc(detail.ohlc ?? []);
+        } catch {
+          setOhlc([]);
+        }
+      } else {
+        setOhlc([]);
+      }
     } catch (err) {
       setError(formatApiError(err));
       setPoints([]);
@@ -198,6 +212,7 @@ export function SchwabPnlSection({
       setDistributions([]);
       setTrades([]);
       setOpenMarkFromApi(null);
+      setOhlc([]);
       setWindowStart(null);
       setWindowEnd(null);
       setWindowLabel(null);
@@ -211,24 +226,6 @@ export function SchwabPnlSection({
   useEffect(() => {
     void load(range, accountId, symbol);
   }, [accountId, range, symbol, load]);
-
-  useEffect(() => {
-    if (!symbol) {
-      setOhlc([]);
-      return;
-    }
-    let cancelled = false;
-    api.symbolDetail(symbol, { parts: 'ohlc' })
-      .then((detail) => {
-        if (!cancelled) setOhlc(detail.ohlc ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setOhlc([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol]);
 
   const openMark = useMemo(() => {
     if (!symbol) return null;
@@ -519,7 +516,7 @@ export function SchwabPnlSection({
             Dots are the included fills and dividends on that day. Hover the
             curve for the running total
             {symbol
-              ? '. The stock line follows daily closes for the open lot, reconciled to Schwab’s live mark — not a one-day drop.'
+              ? '. The stock line follows Schwab daily closes for the open lot, reconciled to the live mark — not a one-day drop.'
               : ''}
           </Text>
         </VStack>

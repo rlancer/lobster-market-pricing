@@ -1021,6 +1021,9 @@ export interface SchwabPnlResponse {
   fills: SchwabPnlFill[];
   distributions: SchwabDistribution[];
   trades?: SchwabTrade[];
+  /** Daily closes from Schwab Market Data (connected user token) for a scoped ticker. */
+  ohlc?: OhlcBar[];
+  ohlc_source?: 'schwab' | null;
   may_be_truncated?: boolean;
   /** True when cost-basis lookback failed and only the chart window was fetched. */
   lookback_truncated?: boolean;

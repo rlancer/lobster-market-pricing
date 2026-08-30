@@ -294,11 +294,11 @@ export function equityOpenLot(
 }
 
 /**
- * Paint daily equity mark-to-market from lake OHLC so the chart follows the
- * holding. In-window days are incremental (prior close → close). Lots opened
- * inside the window use fill price on the first session. Last-session drift
- * to Schwab's full open_pnl is applied via series carry-in, not a one-day
- * dump on the first or last bar.
+ * Paint daily equity mark-to-market from Schwab (or lake-fallback) OHLC so
+ * the chart follows the holding. In-window days are incremental (prior
+ * close → close). Lots opened inside the window use fill price on the first
+ * session. Last-session drift to Schwab's full open_pnl is applied via
+ * series carry-in, not a one-day dump on the first or last bar.
  */
 export function applyEquityMarkPath(
   points: SchwabPnlPoint[],

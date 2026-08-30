@@ -7,7 +7,7 @@
  * POST /api/schwab/disconnect — drop stored tokens
  * GET  /api/schwab/portfolio  — linked accounts, balances, positions (no tokens)
  * GET  /api/schwab/trades     — historical TRADE transactions (≤366 days)
- * GET  /api/schwab/pnl        — realized trading PnL time series (MTD/YTD/…; optional symbol)
+ * GET  /api/schwab/pnl        — realized trading PnL time series (MTD/YTD/…; optional symbol + Schwab OHLC)
  */
 
 import {

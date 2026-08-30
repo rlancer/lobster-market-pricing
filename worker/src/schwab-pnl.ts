@@ -6,10 +6,15 @@
  * were opened on or after the chart start — closes of older lots are reported
  * separately as prior_open_pnl so pre-period drawdowns are not dumped into the
  * selected window. Not an account equity curve (no deposits). Ticker-scoped
- * views also return live open mark so the UI can show full name P&L.
+ * views also return live open mark and Schwab daily OHLC (user token) so the
+ * UI can show full-name P&L without a lake price fetch.
  */
 
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
+import {
+  fetchSchwabPriceHistory,
+  type SchwabPriceBar,
+} from "./schwab-marketdata";
 import {
   etDateString,
   etTradeDay,
@@ -132,6 +137,12 @@ export interface SchwabPnlView {
   distributions: SchwabDistribution[];
   /** All TRADE rows in the chart window (opens + closes, newest first). */
   trades: SchwabTrade[];
+  /**
+   * Daily closes from Schwab Market Data for a scoped ticker (user token).
+   * Empty on the whole-account book or when the price-history call fails.
+   */
+  ohlc: SchwabPriceBar[];
+  ohlc_source: "schwab" | null;
   /** True when Schwab may have capped the trade page (~3000 rows). */
   may_be_truncated: boolean;
   /**
@@ -1039,11 +1050,28 @@ export async function loadSchwabPnl(
   if (!token) return { ok: false, reason: "not_connected" };
 
   const ticker = opts.symbol?.trim().toUpperCase() || null;
+  const priceHistoryPromise = ticker
+    ? fetchSchwabPriceHistory(
+        token.accessToken,
+        { symbol: ticker, start: opts.start, end: opts.end },
+        token.tokenType,
+      ).catch((e) => {
+        console.error("schwab pnl: price history failed", {
+          status: e instanceof SchwabApiError ? e.status : null,
+          detail: e instanceof Error ? e.message.slice(0, 300) : String(e),
+          symbol: ticker,
+          start: opts.start,
+          end: opts.end,
+        });
+        return [] as SchwabPriceBar[];
+      })
+    : Promise.resolve([] as SchwabPriceBar[]);
 
   try {
     const accounts = toTradeAccounts(await listSchwabAccountNumbers(token.accessToken, token.tokenType));
     const publicAccounts = accounts.map((a) => ({ id: a.id, label: a.label }));
     if (accounts.length === 0) {
+      const ohlc = await priceHistoryPromise;
       return {
         ok: true,
         view: {
@@ -1062,6 +1090,8 @@ export async function loadSchwabPnl(
           fills: [],
           distributions: [],
           trades: [],
+          ohlc,
+          ohlc_source: ohlc.length > 0 ? "schwab" : null,
           may_be_truncated: false,
           lookback_truncated: false,
         },
@@ -1207,6 +1237,7 @@ export async function loadSchwabPnl(
       opts.end,
     );
 
+    const ohlc = await priceHistoryPromise;
     const rowTruncated = raw.length >= 3000;
     return {
       ok: true,
@@ -1226,6 +1257,8 @@ export async function loadSchwabPnl(
         fills,
         distributions,
         trades: windowTrades,
+        ohlc,
+        ohlc_source: ohlc.length > 0 ? "schwab" : null,
         may_be_truncated: rowTruncated || lookbackTruncated,
         lookback_truncated: lookbackTruncated,
       },

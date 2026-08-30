@@ -140,7 +140,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
   { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; symbol matches equity and options on that root; ≤366 days)</> },
-  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; symbol matches equity and options on that root)</> },
+  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; ticker-scoped ohlc[] from Schwab Market Data on the connected token)</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
@@ -576,8 +576,9 @@ export function DocsSchwabPnl() {
         for lots you opened in the selected range. When you scope a ticker, the
         live open mark is included in the Stocks / Options stats and the
         headline so an open ETF like TLT is the current mark plus dividends,
-        not dividends alone. The stock curve follows daily lake closes for the
-        still-open lot. Days inside the selected range are incremental (prior
+        not dividends alone. The stock curve follows Schwab daily closes for the
+        still-open lot (lake OHLC only if that fetch is empty). Days inside the
+        selected range are incremental (prior
         close to close); a lot opened before the range does not dump all prior
         mark onto the first session. The headline is still full-name P&amp;L
         (carry-in plus in-window moves). Option open mark, when present, is
@@ -616,8 +617,10 @@ export function DocsSchwabPnl() {
         you have on, for lots that both opened and closed inside that window.
         When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
         or mark minus cost if that field is missing) is added to the Stocks or
-        Options stat and the headline. The stock chart uses daily lake closes
-        for the still-open lot. In-window days are close-to-close; a buy from
+        Options stat and the headline. The stock chart uses daily closes from
+        Schwab Market Data (the connected user&apos;s token) for the still-open
+        lot; lake OHLC is only a fallback if that fetch is empty. In-window
+        days are close-to-close; a buy from
         before the range does not dump all prior mark onto the first session.
         The curve is carried in so the last point still matches full-name P&amp;L.
         Option open mark, when present, lands on the last point. Dots on the
