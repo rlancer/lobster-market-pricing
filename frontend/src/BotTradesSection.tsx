@@ -5,6 +5,8 @@ import {
   Heading,
   HStack,
   Spinner,
+  Tab,
+  TabList,
   Text,
   Token,
   VStack,
@@ -139,16 +141,17 @@ export function BotTradesSection({
             Expired or unquoted legs still list here without PnL. Not a cash paper book.
           </Text>
         </VStack>
-        <HStack gap={2} wrap="wrap">
-          {(['open', 'closed', 'all'] as const).map((s) => (
-            <Button
-              key={s}
-              size="sm"
-              variant={statusFilter === s ? 'primary' : 'ghost'}
-              label={s === 'all' ? 'All' : s === 'open' ? 'Open' : 'Closed'}
-              onClick={() => setStatusFilter(s)}
-            />
-          ))}
+        <HStack gap={2} wrap="wrap" vAlign="center">
+          <TabList
+            size="sm"
+            aria-label="Status filter"
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(value as StatusFilter)}
+          >
+            <Tab value="open" label="Open" />
+            <Tab value="closed" label="Closed" />
+            <Tab value="all" label="All" />
+          </TabList>
           <Button
             size="sm"
             variant="secondary"
@@ -159,17 +162,17 @@ export function BotTradesSection({
         </HStack>
       </HStack>
 
-      <HStack gap={2} wrap="wrap" aria-label="Conviction filter">
-        {(['all', 'high', 'medium', 'low'] as const).map((c) => (
-          <Button
-            key={c}
-            size="sm"
-            variant={convictionFilter === c ? 'primary' : 'ghost'}
-            label={c === 'all' ? 'All conviction' : c}
-            onClick={() => setConvictionFilter(c)}
-          />
-        ))}
-      </HStack>
+      <TabList
+        size="sm"
+        aria-label="Conviction filter"
+        value={convictionFilter}
+        onChange={(value) => setConvictionFilter(value as ConvictionFilter)}
+      >
+        <Tab value="all" label="All conviction" />
+        <Tab value="high" label="High" />
+        <Tab value="medium" label="Medium" />
+        <Tab value="low" label="Low" />
+      </TabList>
 
       {summary ? (
         <HStack gap={6} wrap="wrap" className="portfolio-summary">

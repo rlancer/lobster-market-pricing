@@ -9,12 +9,12 @@ import {
   YAxis,
 } from 'recharts';
 import {
-  DropdownMenu,
   HStack,
   Spinner,
+  Tab,
+  TabList,
+  TabMenu,
   Text,
-  ToggleButton,
-  ToggleButtonGroup,
   VStack,
 } from '@astryxdesign/core';
 import { api, type OhlcBar } from './api';
@@ -92,11 +92,12 @@ export function TickerChart({
   const move = useMemo(() => rangeMove(data), [data]);
   const rangeLabel = chartRangeLabel(range);
   const isIntraday = range === '1D';
-  const overflowRangeSelected = OVERFLOW_CHART_RANGES.includes(range);
 
-  const rangeButtons = (ranges: ChartRange[]) => ranges.map((key) => (
-    <ToggleButton key={key} value={key} label={chartRangeLabel(key)} />
+  const rangeTabs = (ranges: ChartRange[]) => ranges.map((key) => (
+    <Tab key={key} value={key} label={chartRangeLabel(key)} />
   ));
+
+  const onRangeChange = (value: string) => setRange(value as ChartRange);
 
   if (bars.length === 0) {
     return (
@@ -125,42 +126,31 @@ export function TickerChart({
           )}
         </VStack>
         <HStack className="research-chart-ranges-full">
-          <ToggleButtonGroup
-            label="Chart range"
-            type="single"
+          <TabList
             size="sm"
+            aria-label="Chart range"
             value={range}
-            onChange={(value) => {
-              if (typeof value === 'string') setRange(value as ChartRange);
-            }}
+            onChange={onRangeChange}
           >
-            {rangeButtons(CHART_RANGES)}
-          </ToggleButtonGroup>
+            {rangeTabs(CHART_RANGES)}
+          </TabList>
         </HStack>
         <HStack gap={1} className="research-chart-ranges-compact">
-          <ToggleButtonGroup
-            label="Primary chart ranges"
-            type="single"
+          <TabList
             size="sm"
+            aria-label="Primary chart ranges"
             value={range}
-            onChange={(value) => {
-              if (typeof value === 'string') setRange(value as ChartRange);
-            }}
+            onChange={onRangeChange}
           >
-            {rangeButtons(PRIMARY_CHART_RANGES)}
-          </ToggleButtonGroup>
-          <DropdownMenu
-            button={{
-              label: overflowRangeSelected ? chartRangeLabel(range) : 'More',
-              variant: overflowRangeSelected ? 'secondary' : 'ghost',
-              size: 'sm',
-            }}
-            menuWidth="8rem"
-            items={OVERFLOW_CHART_RANGES.map((key) => ({
-              label: chartRangeLabel(key),
-              onClick: () => setRange(key),
-            }))}
-          />
+            {rangeTabs(PRIMARY_CHART_RANGES)}
+            <TabMenu
+              label="More"
+              options={OVERFLOW_CHART_RANGES.map((key) => ({
+                value: key,
+                label: chartRangeLabel(key),
+              }))}
+            />
+          </TabList>
         </HStack>
       </HStack>
       {isIntraday && intradayLoading && data.length === 0 ? (
