@@ -712,6 +712,7 @@ export function optionLotsFromFills(
     // synthetic cover with the same-day, same-size stock realization and move
     // that amount onto the option, yielding an intrinsic assignment close.
     let assignmentEquityPnl = 0;
+    let assignmentEquityFillId: string | undefined;
     if (isAssignmentFill(fill)) {
       const root = optionRoot(fill.symbol);
       const assignedShares = closures.reduce((sum, lot) => sum + Math.abs(lot.quantity), 0)
@@ -727,6 +728,7 @@ export function optionLotsFromFills(
         .sort((a, b) => a.date.localeCompare(b.date))[0];
       if (equity) {
         assignmentEquityPnl = n(equity.realized_pnl);
+        assignmentEquityFillId = equity.id;
         usedEquityFills.add(equity.id);
       }
     }
@@ -755,7 +757,7 @@ export function optionLotsFromFills(
         exit_price: exit,
         realized_pnl: realized,
         assignment_equity_pnl: assignedPnl,
-        assignment_equity_fill_id: equity?.id,
+        assignment_equity_fill_id: assignmentEquityFillId,
         target_pnl: target,
         prior_open: false,
       });

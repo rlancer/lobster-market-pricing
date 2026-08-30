@@ -1317,7 +1317,9 @@ export async function loadSchwabPnl(
       try {
         const rawAccounts = await fetchSchwabAccountsRaw(token.accessToken, token.tokenType);
         const view = normalizeSchwabAccounts(rawAccounts);
-        const acct = view.accounts.find((a) => a.id === selected.id) ?? view.accounts[0];
+        // The two Schwab account endpoints do not guarantee identical array
+        // ordering, so match the selected account by its masked account label.
+        const acct = view.accounts.find((a) => a.account_number_masked === selected.label);
         tickerPositions = acct?.positions ?? [];
         for (const p of tickerPositions) {
           aliasRows.push({

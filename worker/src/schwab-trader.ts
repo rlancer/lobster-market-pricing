@@ -531,10 +531,10 @@ export async function listSchwabTransactionsComplete(
 
     const midpoint = dateMidpoint(start, end);
     const rightStart = addCalendarDay(midpoint);
-    const [left, right] = await Promise.all([
-      load(start, midpoint),
-      load(rightStart, end),
-    ]);
+    // Keep partition requests sequential so a busy account does not fan out
+    // into a burst that trips Schwab's per-application rate limit.
+    const left = await load(start, midpoint);
+    const right = await load(rightStart, end);
     return {
       rows: [...left.rows, ...right.rows],
       truncated: left.truncated || right.truncated,

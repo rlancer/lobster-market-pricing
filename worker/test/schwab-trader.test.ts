@@ -6,8 +6,10 @@ import {
   etTradeDay,
   formatOccOptionSymbol,
   inferTradeSide,
+  isIncludedSchwabTransaction,
   matchesTicker,
   normalizeTrade,
+  normalizeTrades,
   opaqueAccountId,
   parseTradeDateRange,
   commissionPnl,
@@ -278,4 +280,42 @@ test("normalizeTrade copies instrument description and CUSIP when tx description
   assert.equal(trade.symbol, "TLT");
   assert.equal(trade.description, "ISHARES 20+ YEAR TREASURY BOND ETF");
   assert.equal(trade.cusip, "464287432");
+});
+
+test("normalizeTrades preserves every leg and allocates transaction fees", () => {
+  const trades = normalizeTrades({
+    activityId: 99,
+    description: "VERTICAL SPREAD",
+    status: "VALID",
+    tradeDate: "2026-08-28T15:00:00.000Z",
+    netAmount: 298,
+    transferItems: [
+      {
+        instrument: { assetType: "OPTION", symbol: "CAR   260918P00390000" },
+        amount: -1,
+        cost: 500,
+        price: 5,
+        positionEffect: "OPENING",
+      },
+      {
+        instrument: { assetType: "OPTION", symbol: "CAR   260918P00350000" },
+        amount: 1,
+        cost: -200,
+        price: 2,
+        positionEffect: "OPENING",
+      },
+      { amount: -2, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trades.length, 2);
+  assert.deepEqual(trades.map((trade) => trade.side), ["sell", "buy"]);
+  assert.deepEqual(trades.map((trade) => trade.net_amount), [499, -201]);
+  assert.deepEqual(trades.map((trade) => trade.fees), [-1, -1]);
+  assert.notEqual(trades[0]!.id, trades[1]!.id);
+});
+
+test("invalid and reversed Schwab transactions are excluded", () => {
+  assert.equal(isIncludedSchwabTransaction({ status: "VALID" }), true);
+  assert.equal(isIncludedSchwabTransaction({ status: "INVALID" }), false);
+  assert.equal(isIncludedSchwabTransaction({ status: "REVERSED" }), false);
 });

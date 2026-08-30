@@ -168,6 +168,56 @@ test("partial FIFO close realizes pro-rata", () => {
   assert.equal(daySum(ledger, "2026-01-20"), 800);
 });
 
+test("buildPnlFills preserves FIFO tranches closed by one order", () => {
+  const symbol = "CAR   260918P00390000";
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "open-jan",
+      trade_date: "2026-01-05",
+      side: "sell",
+      symbol,
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 500,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "open-feb",
+      trade_date: "2026-02-05",
+      side: "sell",
+      symbol,
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 300,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "close-both",
+      trade_date: "2026-03-05",
+      side: "buy",
+      symbol,
+      asset_type: "OPTION",
+      quantity: 2,
+      net_amount: -400,
+      price: 2,
+      position_effect: "CLOSING",
+    }),
+  ]);
+  const fills = buildPnlFills(ledger, "2026-01-01", "2026-03-31");
+  assert.equal(fills.length, 1);
+  assert.deepEqual(
+    fills[0]!.lots.map((lot) => ({
+      opened: lot.opened,
+      quantity: lot.quantity,
+      realized_pnl: lot.realized_pnl,
+    })),
+    [
+      { opened: "2026-01-05", quantity: 1, realized_pnl: 300 },
+      { opened: "2026-02-05", quantity: 1, realized_pnl: 100 },
+    ],
+  );
+});
+
 test("CLOSING without in-window open is unmatched (no phantom PnL)", () => {
   const ledger = buildRealizedPnlLedger([
     trade({
@@ -346,6 +396,16 @@ test("normalizeSchwabDistribution keeps CUSIP when ETF dividend omits symbol", (
   assert.equal(d!.symbol, null);
   assert.equal(d!.cusip, "464287432");
   assert.equal(d!.amount, 33.05);
+});
+
+test("normalizeSchwabDistribution uses the ET posting date", () => {
+  const d = normalizeSchwabDistribution({
+    activityId: 8,
+    time: "2026-08-29T01:30:00.000Z",
+    status: "VALID",
+    netAmount: 10,
+  });
+  assert.equal(d!.date, "2026-08-28");
 });
 
 test("buildPnlFills includes fees from the closing trade", () => {
@@ -653,6 +713,42 @@ test("CLOSING equity at strike does not synthesize assignment cover", () => {
     synthesizeOptionAssignmentCloses(trades).filter((t) => t.id.startsWith("synth-assign-"))
       .length,
     0,
+  );
+});
+
+test("explicit covered-call assignment can close existing shares", () => {
+  const trades = [
+    trade({
+      id: "short-call",
+      activity_id: 1,
+      trade_date: "2026-03-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL  260417C00150000",
+      underlying: "AAPL",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 350,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "assigned-stock",
+      activity_id: 2,
+      trade_date: "2026-04-17T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 150,
+      net_amount: 15000,
+      position_effect: "CLOSING",
+      activity_type: "ASSIGNMENT",
+      description: "CALL ASSIGNMENT",
+    }),
+  ];
+  assert.equal(
+    synthesizeOptionAssignmentCloses(trades)
+      .filter((row) => row.id.startsWith("synth-assign-")).length,
+    1,
   );
 });
 

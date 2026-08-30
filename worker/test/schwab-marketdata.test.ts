@@ -3,8 +3,10 @@ import test from "node:test";
 import {
   SCHWAB_MARKETDATA_BASE,
   candleSessionDate,
+  fetchSchwabDividendYield,
   fetchSchwabPriceHistory,
   isPriceHistorySymbol,
+  normalizeSchwabDividendYield,
   normalizeSchwabPriceHistory,
   priceHistoryLookbackStart,
 } from "../src/schwab-marketdata.ts";
@@ -124,4 +126,37 @@ test("fetchSchwabPriceHistory throws SchwabApiError on failure", async () => {
     () => fetchSchwabPriceHistory("bad", { symbol: "TLT", start: "2026-08-01", end: "2026-08-29" }, "Bearer", fetchImpl),
     (err: unknown) => err instanceof SchwabApiError && err.status === 401,
   );
+});
+
+test("normalizeSchwabDividendYield accepts percent or annual dividend amount", () => {
+  assert.equal(
+    normalizeSchwabDividendYield(
+      { TLT: { fundamental: { divYield: 4.25 } } },
+      "TLT",
+    ),
+    0.0425,
+  );
+  assert.equal(
+    normalizeSchwabDividendYield(
+      { TLT: { fundamental: { divAmount: 4 }, quote: { lastPrice: 100 } } },
+      "TLT",
+    ),
+    0.04,
+  );
+});
+
+test("fetchSchwabDividendYield requests quote fundamentals", async () => {
+  const calls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    calls.push(String(input));
+    return new Response(
+      JSON.stringify({ TLT: { fundamental: { divYield: 4.5 } } }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  assert.equal(await fetchSchwabDividendYield("tok", "tlt", "Bearer", fetchImpl), 0.045);
+  const url = new URL(calls[0]!);
+  assert.equal(url.pathname, "/marketdata/v1/quotes");
+  assert.equal(url.searchParams.get("symbols"), "TLT");
+  assert.equal(url.searchParams.get("fields"), "fundamental");
 });
