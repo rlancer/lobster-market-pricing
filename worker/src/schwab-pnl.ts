@@ -5,7 +5,8 @@
  * chart presets (MTD / YTD / 1M / … / 1Y). Period P&L only includes lots that
  * were opened on or after the chart start — closes of older lots are reported
  * separately as prior_open_pnl so pre-period drawdowns are not dumped into the
- * selected window. Not an account equity curve (no deposits / open MTM).
+ * selected window. Not an account equity curve (no deposits). Ticker-scoped
+ * views also return live open mark so the UI can show full name P&L.
  */
 
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
@@ -28,6 +29,7 @@ import {
   fetchSchwabAccountsRaw,
   normalizeSchwabAccounts,
   SchwabApiError,
+  type SchwabPortfolioPosition,
 } from "./schwab-portfolio";
 
 export type SchwabPnlRange = "MTD" | "YTD" | "1M" | "3M" | "6M" | "1Y";
@@ -86,6 +88,13 @@ export interface SchwabDistribution {
   cusip: string | null;
 }
 
+/** Live mark-to-market on open lots matching a scoped ticker. */
+export interface SchwabPnlOpenMark {
+  count: number;
+  equity_pnl: number;
+  option_pnl: number;
+}
+
 export interface SchwabPnlSummary {
   /** Realized PnL for lots opened on/after the chart start and closed in-window. */
   period_pnl: number;
@@ -110,6 +119,11 @@ export interface SchwabPnlView {
   end: string;
   /** Root ticker when the book is scoped (equity + options on that root). */
   symbol: string | null;
+  /**
+   * Live open mark for the scoped ticker (null on the whole-account book).
+   * Not mixed into `points` — the UI adds it to the headline / last chart point.
+   */
+  open_mark: SchwabPnlOpenMark | null;
   points: SchwabPnlPoint[];
   summary: SchwabPnlSummary;
   /** Closing fills that realized P&L in the chart window (newest first). */
@@ -867,6 +881,53 @@ export function distributionMatchesTicker(
   return Boolean(name && aliases.names.has(name));
 }
 
+function isOptionInstrument(row: { asset_type?: string | null; symbol?: string | null }): boolean {
+  if ((row.asset_type ?? "").toUpperCase() === "OPTION") return true;
+  return parseOccOptionSymbol(row.symbol) != null;
+}
+
+function markPnlOf(position: SchwabPortfolioPosition): number {
+  if (position.open_pnl != null && Number.isFinite(position.open_pnl)) return position.open_pnl;
+  if (
+    position.average_price != null &&
+    position.market_value != null &&
+    Number.isFinite(position.average_price) &&
+    Number.isFinite(position.market_value)
+  ) {
+    return position.market_value - position.average_price * position.quantity;
+  }
+  return 0;
+}
+
+/**
+ * Live open mark for a ticker: matching positions via symbol/underlying/OCC,
+ * or the same CUSIP / fund-name join used for ETF dividends.
+ */
+export function openMarkForTicker(
+  positions: SchwabPortfolioPosition[],
+  ticker: string,
+  aliases: { cusips: Set<string>; names: Set<string> },
+): SchwabPnlOpenMark {
+  let count = 0;
+  let equity = 0;
+  let option = 0;
+  for (const position of positions) {
+    const hit =
+      matchesTicker(position, ticker) ||
+      distributionMatchesTicker(position, ticker, aliases);
+    if (!hit) continue;
+    count += 1;
+    const pnl = markPnlOf(position);
+    if (isOptionInstrument(position)) option += pnl;
+    else equity += pnl;
+  }
+  return {
+    count,
+    equity_pnl: round2(equity),
+    option_pnl: round2(option),
+  };
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -992,6 +1053,7 @@ export async function loadSchwabPnl(
           start: opts.start,
           end: opts.end,
           symbol: ticker,
+          open_mark: null,
           points: [
             emptyPoint(opts.start),
             emptyPoint(opts.end),
@@ -1088,12 +1150,14 @@ export async function loadSchwabPnl(
       description?: string | null;
       cusip?: string | null;
     }> = [...allTrades];
+    let tickerPositions: SchwabPortfolioPosition[] = [];
     if (ticker) {
       try {
         const rawAccounts = await fetchSchwabAccountsRaw(token.accessToken, token.tokenType);
         const view = normalizeSchwabAccounts(rawAccounts);
         const acct = view.accounts.find((a) => a.id === selected.id) ?? view.accounts[0];
-        for (const p of acct?.positions ?? []) {
+        tickerPositions = acct?.positions ?? [];
+        for (const p of tickerPositions) {
           aliasRows.push({
             symbol: p.symbol,
             underlying: p.underlying,
@@ -1111,6 +1175,7 @@ export async function loadSchwabPnl(
     const aliases = ticker
       ? aliasesForTicker(ticker, aliasRows)
       : { cusips: new Set<string>(), names: new Set<string>() };
+    const openMark = ticker ? openMarkForTicker(tickerPositions, ticker, aliases) : null;
 
     const distributions = distRaw
       .map(normalizeSchwabDistribution)
@@ -1152,6 +1217,7 @@ export async function loadSchwabPnl(
         start: opts.start,
         end: opts.end,
         symbol: ticker,
+        open_mark: openMark,
         points,
         summary: {
           ...summary,

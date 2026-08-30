@@ -8,6 +8,7 @@ import {
   distributionMatchesTicker,
   fetchWindowForPnl,
   normalizeSchwabDistribution,
+  openMarkForTicker,
   parseOccOptionSymbol,
   resolvePnlRange,
   seriesFromLedger,
@@ -1037,3 +1038,110 @@ test("ETF dividends without a ticker join TLT via CUSIP or fund name", () => {
     false,
   );
 });
+
+test("openMarkForTicker joins TLT via symbol or CUSIP and splits option MTM", () => {
+  const tltBuy = trade({
+    id: "tlt-buy",
+    trade_date: "2026-03-18",
+    side: "buy",
+    symbol: "TLT",
+    asset_type: "COLLECTIVE_INVESTMENT",
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: "464287432",
+  });
+  const aliases = aliasesForTicker("TLT", [tltBuy]);
+  const tlt = openMarkForTicker(
+    [
+      {
+        id: "1",
+        symbol: "TLT",
+        underlying: null,
+        description: "iShares 20+ Year Treasury Bond ETF",
+        asset_type: "COLLECTIVE_INVESTMENT",
+        quantity: 100,
+        average_price: 87.26,
+        market_value: 8900,
+        day_pnl: null,
+        open_pnl: 174,
+        cusip: "464287432",
+      },
+    ],
+    "TLT",
+    aliases,
+  );
+  assert.equal(tlt.count, 1);
+  assert.equal(tlt.equity_pnl, 174);
+  assert.equal(tlt.option_pnl, 0);
+
+  const unnamedFund = openMarkForTicker(
+    [
+      {
+        id: "2",
+        symbol: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        underlying: null,
+        description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        asset_type: "COLLECTIVE_INVESTMENT",
+        quantity: 100,
+        average_price: 87.26,
+        market_value: 8900,
+        day_pnl: null,
+        open_pnl: null,
+        cusip: "464287432",
+      },
+    ],
+    "TLT",
+    aliases,
+  );
+  assert.equal(unnamedFund.count, 1);
+  assert.equal(unnamedFund.equity_pnl, 8900 - 87.26 * 100);
+
+  const mixed = openMarkForTicker(
+    [
+      {
+        id: "eq",
+        symbol: "CAR",
+        underlying: null,
+        description: null,
+        asset_type: "EQUITY",
+        quantity: 10,
+        average_price: 10,
+        market_value: 120,
+        day_pnl: null,
+        open_pnl: 20,
+        cusip: null,
+      },
+      {
+        id: "opt",
+        symbol: "CAR   260618P00390000",
+        underlying: "CAR",
+        description: null,
+        asset_type: "OPTION",
+        quantity: -1,
+        average_price: 2.5,
+        market_value: -200,
+        day_pnl: null,
+        open_pnl: 50,
+        cusip: null,
+      },
+      {
+        id: "other",
+        symbol: "CARD",
+        underlying: null,
+        description: null,
+        asset_type: "EQUITY",
+        quantity: 1,
+        average_price: 5,
+        market_value: 6,
+        day_pnl: null,
+        open_pnl: 1,
+        cusip: null,
+      },
+    ],
+    "CAR",
+    { cusips: new Set(), names: new Set() },
+  );
+  assert.equal(mixed.count, 2);
+  assert.equal(mixed.equity_pnl, 20);
+  assert.equal(mixed.option_pnl, 50);
+});
+

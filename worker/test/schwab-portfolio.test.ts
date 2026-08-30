@@ -85,6 +85,38 @@ test("normalizeSchwabAccounts maps securitiesAccount envelope", () => {
   assert.ok(!JSON.stringify(view).includes("9876543210"));
 });
 
+test("normalizeSchwabAccounts derives ETF open P&L from mark minus cost", () => {
+  const view = normalizeSchwabAccounts(
+    [
+      {
+        securitiesAccount: {
+          type: "MARGIN",
+          accountNumber: "1111",
+          currentBalances: { cashBalance: 0, liquidationValue: 8900, buyingPower: 0 },
+          positions: [
+            {
+              longQuantity: 100,
+              shortQuantity: 0,
+              averagePrice: 87.26,
+              marketValue: 8900,
+              instrument: {
+                symbol: "TLT",
+                assetType: "COLLECTIVE_INVESTMENT",
+                description: "iShares 20+ Year Treasury Bond ETF",
+                cusip: "464287432",
+              },
+            },
+          ],
+        },
+      },
+    ],
+    1_700_000_000_000,
+  );
+  const tlt = view.accounts[0]!.positions[0]!;
+  assert.equal(tlt.symbol, "TLT");
+  assert.equal(tlt.open_pnl, 8900 - 87.26 * 100);
+});
+
 test("fetchSchwabAccountsRaw requests positions and auth header", async () => {
   const calls: { url: string; auth: string | null }[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {

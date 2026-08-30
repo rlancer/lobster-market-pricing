@@ -996,6 +996,15 @@ export interface SchwabPnlResponse {
   start: string;
   end: string;
   symbol?: string | null;
+  /**
+   * Live open mark for a scoped ticker. Null on the whole-account book.
+   * The UI adds this to the headline and the last chart point.
+   */
+  open_mark?: {
+    count: number;
+    equity_pnl: number;
+    option_pnl: number;
+  } | null;
   points: SchwabPnlPoint[];
   summary: {
     period_pnl: number;

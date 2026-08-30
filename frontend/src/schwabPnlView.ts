@@ -56,6 +56,15 @@ function feeDrag(v: number | null | undefined): number {
   return x > 0 ? -x : x;
 }
 
+/** Live open-mark sleeves that the include chips currently allow. */
+export function includedOpenMark(
+  mark: { equity_pnl: number; option_pnl: number } | null | undefined,
+  include: PnlInclude,
+): number {
+  if (!mark) return 0;
+  return (include.stocks ? n(mark.equity_pnl) : 0) + (include.options ? n(mark.option_pnl) : 0);
+}
+
 /** Daily composed P&L for the selected sleeves. */
 export function composeDaily(point: SchwabPnlPoint, include: PnlInclude): number {
   const stocks = include.stocks ? n(point.daily_equity_pnl) : 0;
@@ -78,18 +87,25 @@ export function composeDaily(point: SchwabPnlPoint, include: PnlInclude): number
 export function composeSeries(
   points: SchwabPnlPoint[],
   include: PnlInclude,
+  openMarkPnl = 0,
 ): Array<SchwabPnlPoint & { daily: number; cumulative: number }> {
   let cumulative = 0;
-  return points.map((point) => {
+  const rows = points.map((point) => {
     const daily = composeDaily(point, include);
     cumulative += daily;
     return { ...point, daily, cumulative };
   });
+  if (openMarkPnl === 0 || rows.length === 0) return rows;
+  const last = rows[rows.length - 1]!;
+  last.daily += openMarkPnl;
+  last.cumulative += openMarkPnl;
+  return rows;
 }
 
 export function composeTotals(
   points: SchwabPnlPoint[],
   include: PnlInclude,
+  openMarkPnl = 0,
 ): { period: number; stocks: number; options: number; dividends: number; fees: number } {
   let stocks = 0;
   let options = 0;
@@ -102,7 +118,7 @@ export function composeTotals(
     fees += feeDrag(p.daily_fees);
   }
   return {
-    period: composeSeries(points, include).at(-1)?.cumulative ?? 0,
+    period: composeSeries(points, include, openMarkPnl).at(-1)?.cumulative ?? openMarkPnl,
     stocks,
     options,
     dividends,
@@ -189,4 +205,41 @@ export function positionTicker(row: Pick<SchwabPortfolioPosition, 'symbol' | 'un
   const occ = /^([A-Z0-9.-]{1,6})\d{6}[CP]\d{8}$/.exec(compact);
   if (occ) return occ[1]!;
   return symbol;
+}
+
+function positionMarkPnl(row: Pick<SchwabPortfolioPosition, 'open_pnl' | 'market_value' | 'average_price' | 'quantity'>): number {
+  if (row.open_pnl != null && Number.isFinite(row.open_pnl)) return row.open_pnl;
+  if (
+    row.average_price != null &&
+    row.market_value != null &&
+    Number.isFinite(row.average_price) &&
+    Number.isFinite(row.market_value)
+  ) {
+    return row.market_value - row.average_price * row.quantity;
+  }
+  return 0;
+}
+
+/**
+ * Live open mark for a scoped ticker. Whole-account (no ticker) returns null
+ * so the curve stays realized-only.
+ */
+export function tickerOpenMark(
+  positions: SchwabPortfolioPosition[],
+  ticker: string | null | undefined,
+): { count: number; equity_pnl: number; option_pnl: number } | null {
+  const want = ticker?.trim().toUpperCase();
+  if (!want) return null;
+  let count = 0;
+  let equity_pnl = 0;
+  let option_pnl = 0;
+  for (const row of positions) {
+    if (positionTicker(row) !== want) continue;
+    count += 1;
+    const pnl = positionMarkPnl(row);
+    if (isOptionLike(row)) option_pnl += pnl;
+    else equity_pnl += pnl;
+  }
+  if (count === 0) return null;
+  return { count, equity_pnl, option_pnl };
 }

@@ -7,7 +7,9 @@ import {
   composeSeries,
   composeTotals,
   filterActivity,
+  includedOpenMark,
   positionTicker,
+  tickerOpenMark,
   type PnlInclude,
 } from './schwabPnlView.ts';
 
@@ -66,6 +68,66 @@ test('composeSeries accumulates the composed daily', () => {
   assert.equal(series[0]?.cumulative, 10);
   assert.equal(series[1]?.cumulative, 8);
   assert.equal(composeTotals(series, ALL).period, 8);
+});
+
+test('ticker open mark joins the last point so headline is dividends plus MTM', () => {
+  const series = [
+    point({ date: '2026-04-07', daily_dividends: 34.48 }),
+    point({ date: '2026-08-06', daily_dividends: 33.05 }),
+    point({ date: '2026-08-29' }),
+  ];
+  const mark = 174;
+  const composed = composeSeries(series, ALL, mark);
+  assert.equal(composed[1]?.cumulative, 67.53);
+  assert.equal(composed[2]?.daily, 174);
+  assert.equal(composed[2]?.cumulative, 241.53);
+  assert.equal(composeTotals(series, ALL, mark).period, 241.53);
+  assert.equal(composeTotals(series, { ...ALL, stocks: false, options: false }).period, 67.53);
+  assert.equal(
+    includedOpenMark({ equity_pnl: 174, option_pnl: 50 }, ALL),
+    224,
+  );
+  assert.equal(
+    includedOpenMark({ equity_pnl: 174, option_pnl: 50 }, { ...ALL, stocks: false }),
+    50,
+  );
+});
+
+test('tickerOpenMark matches ETF and OCC option rows and derives missing open_pnl', () => {
+  const mark = tickerOpenMark(
+    [
+      {
+        id: 'tlt',
+        symbol: 'TLT',
+        underlying: null,
+        description: 'iShares 20+ Year Treasury Bond ETF',
+        asset_type: 'COLLECTIVE_INVESTMENT',
+        quantity: 100,
+        average_price: 87.26,
+        market_value: 8900,
+        day_pnl: null,
+        open_pnl: null,
+      },
+      {
+        id: 'car-put',
+        symbol: 'CAR   260618P00390000',
+        underlying: 'CAR',
+        asset_type: 'OPTION',
+        description: null,
+        quantity: -1,
+        average_price: 2.5,
+        market_value: -200,
+        day_pnl: null,
+        open_pnl: 50,
+      },
+    ],
+    'TLT',
+  );
+  assert.equal(mark?.count, 1);
+  assert.equal(mark?.equity_pnl, 8900 - 87.26 * 100);
+  assert.equal(mark?.option_pnl, 0);
+  assert.equal(tickerOpenMark([], 'TLT'), null);
+  assert.equal(tickerOpenMark([], null), null);
 });
 
 test('buildActivityRows unifies trades, realized fills, and dividends', () => {

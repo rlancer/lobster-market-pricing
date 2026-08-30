@@ -97,6 +97,19 @@ function positionOpenPnl(pos: Record<string, unknown>): number | null {
   return (long ?? 0) + (short ?? 0);
 }
 
+/** Schwab's open P&L, or mark − cost when that field is omitted (common on ETFs). */
+export function resolvePositionOpenPnl(
+  pos: Record<string, unknown>,
+  quantity: number,
+  averagePrice: number | null,
+  marketValue: number | null,
+): number | null {
+  const reported = positionOpenPnl(pos);
+  if (reported != null) return reported;
+  if (averagePrice == null || marketValue == null) return null;
+  return marketValue - averagePrice * quantity;
+}
+
 function normalizePosition(
   pos: Record<string, unknown>,
   accountId: string,
@@ -126,7 +139,7 @@ function normalizePosition(
     average_price: avg,
     market_value: num(pos.marketValue),
     day_pnl: num(pos.currentDayProfitLoss),
-    open_pnl: positionOpenPnl(pos),
+    open_pnl: resolvePositionOpenPnl(pos, quantity, avg, num(pos.marketValue)),
     cusip: str(instrument.cusip),
   };
 }

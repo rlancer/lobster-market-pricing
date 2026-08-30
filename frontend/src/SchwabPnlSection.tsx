@@ -41,6 +41,8 @@ import {
   composeTotals,
   DEFAULT_PNL_INCLUDE,
   filterActivity,
+  includedOpenMark,
+  tickerOpenMark,
   type ActivityRow,
   type PnlInclude,
 } from './schwabPnlView';
@@ -139,6 +141,9 @@ export function SchwabPnlSection({
   const [fills, setFills] = useState<SchwabPnlFill[]>([]);
   const [distributions, setDistributions] = useState<SchwabDistribution[]>([]);
   const [trades, setTrades] = useState<SchwabTrade[]>([]);
+  const [openMarkFromApi, setOpenMarkFromApi] = useState<
+    SchwabPnlResponse['open_mark']
+  >(null);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
   const [mayBeTruncated, setMayBeTruncated] = useState(false);
   const [lookbackTruncated, setLookbackTruncated] = useState(false);
@@ -173,6 +178,7 @@ export function SchwabPnlSection({
       setFills(Array.isArray(res.fills) ? res.fills : []);
       setDistributions(Array.isArray(res.distributions) ? res.distributions : []);
       setTrades(Array.isArray(res.trades) ? res.trades : []);
+      setOpenMarkFromApi(res.open_mark ?? null);
       setWindowLabel(`${res.start} → ${res.end}`);
       setLookbackTruncated(Boolean(res.lookback_truncated));
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
@@ -183,6 +189,7 @@ export function SchwabPnlSection({
       setFills([]);
       setDistributions([]);
       setTrades([]);
+      setOpenMarkFromApi(null);
       setWindowLabel(null);
       setLookbackTruncated(false);
       setMayBeTruncated(false);
@@ -195,8 +202,24 @@ export function SchwabPnlSection({
     void load(range, accountId, symbol);
   }, [accountId, range, symbol, load]);
 
-  const series = useMemo(() => composeSeries(points, include), [points, include]);
-  const totals = useMemo(() => composeTotals(points, include), [points, include]);
+  const openMark = useMemo(() => {
+    if (!symbol) return null;
+    if (openMarkFromApi && openMarkFromApi.count > 0) return openMarkFromApi;
+    return tickerOpenMark(positions, symbol);
+  }, [openMarkFromApi, positions, symbol]);
+
+  const markPnl = useMemo(
+    () => includedOpenMark(openMark, include),
+    [openMark, include],
+  );
+  const series = useMemo(
+    () => composeSeries(points, include, markPnl),
+    [points, include, markPnl],
+  );
+  const totals = useMemo(
+    () => composeTotals(points, include, markPnl),
+    [points, include, markPnl],
+  );
   const activity = useMemo(
     () => filterActivity(buildActivityRows({ trades, fills, distributions }), include),
     [trades, fills, distributions, include],
@@ -214,23 +237,8 @@ export function SchwabPnlSection({
     [activity, series],
   );
 
-  const openMark = useMemo(() => {
-    if (!symbol) return null;
-    const want = symbol.toUpperCase();
-    const matched = positions.filter((p) => {
-      const und = (p.underlying ?? '').toUpperCase();
-      if (und === want) return true;
-      return (p.symbol ?? '').toUpperCase() === want;
-    });
-    if (matched.length === 0) return null;
-    return {
-      count: matched.length,
-      open_pnl: matched.reduce((s, p) => s + (p.open_pnl ?? 0), 0),
-    };
-  }, [positions, symbol]);
-
   const periodPnl = totals.period;
-  const hasActivity = activity.length > 0 || series.some((p) => p.daily !== 0);
+  const hasActivity = activity.length > 0 || series.some((p) => p.daily !== 0) || markPnl !== 0;
   const activityRows = activity as ActivityTableRow[];
   const periodStart = windowLabel?.split(' → ')[0] ?? 'this period';
   const tickerLabel = symbol || 'this account';
@@ -246,11 +254,14 @@ export function SchwabPnlSection({
   return (
     <VStack gap={4} className="portfolio-pnl-section">
       <Text type="supporting">
-        Realized P&amp;L for {symbol ? `${symbol} stock and options on that root` : 'the whole account'}
-        . Type a ticker to unify equity and option fills (for example CAR).
+        {symbol
+          ? `Full ${symbol} P&L — realized stock and options on that root, plus the live open mark.`
+          : 'Realized P&L for the whole account.'}
+        {' '}
+        Type a ticker to unify equity and option fills (for example CAR).
         Include chips choose what lands on the chart — stocks, options,
-        dividends, and/or fees. Open mark-to-market, deposits, and withdrawals
-        stay off the curve.{' '}
+        dividends, and/or fees. Deposits and withdrawals stay off the curve.
+        {' '}
         <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
       </Text>
 
@@ -444,7 +455,8 @@ export function SchwabPnlSection({
           </div>
           <Text type="supporting">
             Dots are the included fills and dividends on that day. Hover the
-            curve for the running total.
+            curve for the running total
+            {symbol ? '; the last point includes the live open mark' : ''}.
           </Text>
         </VStack>
       )}
@@ -517,15 +529,15 @@ export function SchwabPnlSection({
               </Text>
             </VStack>
           ) : null}
-          {openMark ? (
+          {openMark && openMark.count > 0 && (include.stocks || include.options) ? (
             <VStack gap={0}>
               <Text type="supporting" size="sm">Open mark ({openMark.count})</Text>
               <Text
                 hasTabularNumbers
                 weight="semibold"
-                className={`portfolio-pnl-${pnlTone(openMark.open_pnl)}`}
+                className={`portfolio-pnl-${pnlTone(markPnl)}`}
               >
-                {moneySigned(openMark.open_pnl)}
+                {moneySigned(markPnl)}
               </Text>
             </VStack>
           ) : null}
