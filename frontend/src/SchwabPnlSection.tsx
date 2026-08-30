@@ -26,6 +26,7 @@ import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import {
   api,
+  type OhlcBar,
   type SchwabDistribution,
   type SchwabPnlFill,
   type SchwabPnlPoint,
@@ -36,10 +37,12 @@ import {
 } from './api';
 import { formatChartTick } from './tickerChartRange';
 import {
+  applyEquityMarkPath,
   buildActivityRows,
   composeSeries,
   composeTotals,
   DEFAULT_PNL_INCLUDE,
+  equityOpenLot,
   filterActivity,
   includedOpenMark,
   tickerOpenMark,
@@ -144,6 +147,9 @@ export function SchwabPnlSection({
   const [openMarkFromApi, setOpenMarkFromApi] = useState<
     SchwabPnlResponse['open_mark']
   >(null);
+  const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
+  const [windowStart, setWindowStart] = useState<string | null>(null);
+  const [windowEnd, setWindowEnd] = useState<string | null>(null);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
   const [mayBeTruncated, setMayBeTruncated] = useState(false);
   const [lookbackTruncated, setLookbackTruncated] = useState(false);
@@ -179,6 +185,8 @@ export function SchwabPnlSection({
       setDistributions(Array.isArray(res.distributions) ? res.distributions : []);
       setTrades(Array.isArray(res.trades) ? res.trades : []);
       setOpenMarkFromApi(res.open_mark ?? null);
+      setWindowStart(res.start);
+      setWindowEnd(res.end);
       setWindowLabel(`${res.start} → ${res.end}`);
       setLookbackTruncated(Boolean(res.lookback_truncated));
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
@@ -190,6 +198,8 @@ export function SchwabPnlSection({
       setDistributions([]);
       setTrades([]);
       setOpenMarkFromApi(null);
+      setWindowStart(null);
+      setWindowEnd(null);
       setWindowLabel(null);
       setLookbackTruncated(false);
       setMayBeTruncated(false);
@@ -202,23 +212,63 @@ export function SchwabPnlSection({
     void load(range, accountId, symbol);
   }, [accountId, range, symbol, load]);
 
+  useEffect(() => {
+    if (!symbol) {
+      setOhlc([]);
+      return;
+    }
+    let cancelled = false;
+    api.symbolDetail(symbol, { parts: 'ohlc' })
+      .then((detail) => {
+        if (!cancelled) setOhlc(detail.ohlc ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setOhlc([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
   const openMark = useMemo(() => {
     if (!symbol) return null;
     if (openMarkFromApi && openMarkFromApi.count > 0) return openMarkFromApi;
     return tickerOpenMark(positions, symbol);
   }, [openMarkFromApi, positions, symbol]);
 
+  const lot = useMemo(
+    () => equityOpenLot(positions, trades, symbol),
+    [positions, trades, symbol],
+  );
+
+  const marked = useMemo(
+    () => applyEquityMarkPath(
+      points,
+      ohlc,
+      lot,
+      windowStart ?? '',
+      windowEnd ?? '',
+    ),
+    [points, ohlc, lot, windowStart, windowEnd],
+  );
+
+  const markForCompose = useMemo(() => {
+    if (!openMark) return null;
+    if (!marked.painted) return openMark;
+    return { ...openMark, equity_pnl: 0 };
+  }, [openMark, marked.painted]);
+
   const markPnl = useMemo(
-    () => includedOpenMark(openMark, include),
-    [openMark, include],
+    () => includedOpenMark(markForCompose, include),
+    [markForCompose, include],
   );
   const series = useMemo(
-    () => composeSeries(points, include, markPnl),
-    [points, include, markPnl],
+    () => composeSeries(marked.points, include, markPnl),
+    [marked.points, include, markPnl],
   );
   const totals = useMemo(
-    () => composeTotals(points, include, openMark),
-    [points, include, openMark],
+    () => composeTotals(marked.points, include, markForCompose),
+    [marked.points, include, markForCompose],
   );
   const activity = useMemo(
     () => filterActivity(buildActivityRows({ trades, fills, distributions }), include),
@@ -456,7 +506,9 @@ export function SchwabPnlSection({
           <Text type="supporting">
             Dots are the included fills and dividends on that day. Hover the
             curve for the running total
-            {symbol ? '; the last point includes the live open mark' : ''}.
+            {symbol
+              ? '. The stock line follows daily closes for the open lot, reconciled to Schwab’s live mark — not a one-day drop.'
+              : ''}
           </Text>
         </VStack>
       )}

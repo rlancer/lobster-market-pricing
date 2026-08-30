@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SchwabPnlPoint, SchwabTrade } from './api.ts';
 import {
+  applyEquityMarkPath,
   buildActivityRows,
   composeDaily,
   composeSeries,
   composeTotals,
+  equityOpenLot,
   filterActivity,
   includedOpenMark,
   positionTicker,
@@ -105,6 +107,86 @@ test('ticker open mark joins the last point so headline is dividends plus MTM', 
     includedOpenMark({ equity_pnl: 174, option_pnl: 50 }, { ...ALL, stocks: false }),
     50,
   );
+});
+
+test('applyEquityMarkPath follows daily closes instead of a one-day cliff', () => {
+  const sparse = [
+    point({ date: '2026-01-01' }),
+    point({ date: '2026-04-07', daily_dividends: 34.48 }),
+    point({ date: '2026-07-07', daily_dividends: 31.8 }),
+    point({ date: '2026-08-29' }),
+  ];
+  const ohlc = [
+    { date: '2026-03-18', close: 87.26 },
+    { date: '2026-07-06', close: 85.45 },
+    { date: '2026-07-07', close: 84.55 },
+    { date: '2026-08-28', close: 83.22 },
+  ];
+  const lot = {
+    opened: '2026-03-18',
+    quantity: 100,
+    average_price: 87.26,
+    live_pnl: -438,
+  };
+  const { points: path, painted } = applyEquityMarkPath(
+    sparse,
+    ohlc,
+    lot,
+    '2026-01-01',
+    '2026-08-29',
+  );
+  assert.equal(painted, true);
+  const jul6 = path.find((p) => p.date === '2026-07-06');
+  const last = path.at(-1);
+  assert.ok(jul6);
+  assert.notEqual(last?.date, '2026-07-06');
+  assert.equal(last?.date, '2026-08-29');
+  const jul6Equity = jul6!.daily_equity_pnl ?? 0;
+  assert.ok(Math.abs(jul6Equity) < 200, '7/6 must not carry the whole open mark');
+  const totals = composeTotals(path, ALL, { equity_pnl: 0, option_pnl: 0 });
+  assert.equal(totals.stocks, -438);
+  assert.equal(totals.period, Math.round((34.48 + 31.8 - 438) * 100) / 100);
+
+  assert.equal(applyEquityMarkPath(sparse, [], lot, '2026-01-01', '2026-08-29').painted, false);
+
+  const fromPos = equityOpenLot(
+    [{
+      id: 'tlt',
+      symbol: 'TLT',
+      underlying: null,
+      description: 'iShares 20+ Year Treasury Bond ETF',
+      asset_type: 'COLLECTIVE_INVESTMENT',
+      quantity: 100,
+      average_price: 87.26,
+      market_value: 8288,
+      day_pnl: null,
+      open_pnl: -438,
+    }],
+    [{
+      id: '1',
+      activity_id: 1,
+      trade_date: '2026-03-18T15:00:00.000Z',
+      settlement_date: null,
+      description: 'BOUGHT TLT',
+      status: 'VALID',
+      activity_type: 'EXECUTION',
+      net_amount: -8726,
+      symbol: 'TLT',
+      underlying: null,
+      asset_type: 'COLLECTIVE_INVESTMENT',
+      quantity: 100,
+      price: 87.26,
+      cost: -8726,
+      fees: 0,
+      side: 'buy',
+      position_effect: 'OPENING',
+      order_id: null,
+      position_id: null,
+    }],
+    'TLT',
+  );
+  assert.equal(fromPos?.opened, '2026-03-18');
+  assert.equal(fromPos?.live_pnl, -438);
 });
 
 test('tickerOpenMark matches ETF and OCC option rows and derives missing open_pnl', () => {

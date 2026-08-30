@@ -574,9 +574,11 @@ export function DocsSchwabPnl() {
         chart are P&amp;L for the include chips you have on. They do not include
         deposits or withdrawals. On the whole-account book that is realized P&amp;L
         for lots you opened in the selected range. When you scope a ticker, the
-        live open mark is included in the Stocks / Options stats, the headline,
-        and the last chart point so an open ETF like TLT is the current mark
-        plus dividends, not dividends alone.
+        live open mark is included in the Stocks / Options stats and the
+        headline so an open ETF like TLT is the current mark plus dividends,
+        not dividends alone. The stock curve follows daily lake closes from the
+        open lot (last session reconciled to Schwab), not a one-day drop of the
+        whole open P&amp;L.
       </p>
 
       <h3>Where to find it</h3>
@@ -610,10 +612,11 @@ export function DocsSchwabPnl() {
         you have on, for lots that both opened and closed inside that window.
         When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
         or mark minus cost if that field is missing) is added to the Stocks or
-        Options stat, the headline, and the last chart point — we do not
-        reconstruct a daily mark history. The step chart is that same total,
-        accumulated day by day. Dots on the curve are the included fills and
-        dividends.
+        Options stat and the headline. The stock chart is daily lake closes for
+        the still-open lot, reconciled to that live mark on the last session —
+        we do not dump the whole open P&amp;L onto one day. The step chart is
+        that same total, accumulated day by day. Dots on the curve are the
+        included fills and dividends.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">

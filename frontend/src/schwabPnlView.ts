@@ -199,6 +199,149 @@ export function filterActivity(rows: ActivityRow[], include: PnlInclude): Activi
   });
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function emptyPoint(date: string): SchwabPnlPoint {
+  return {
+    date,
+    daily_pnl: 0,
+    cumulative_pnl: 0,
+    daily_equity_pnl: 0,
+    daily_option_pnl: 0,
+    daily_fees: 0,
+    daily_equity_fees: 0,
+    daily_option_fees: 0,
+    daily_dividends: 0,
+  };
+}
+
+function tradeDay(trade: Pick<SchwabTrade, 'trade_date'>): string | null {
+  const raw = trade.trade_date;
+  if (raw && /^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return null;
+}
+
+export type EquityOpenLot = {
+  opened: string;
+  quantity: number;
+  average_price: number;
+  live_pnl: number;
+};
+
+/** Still-open equity/ETF lot for a scoped ticker (options excluded). */
+export function equityOpenLot(
+  positions: SchwabPortfolioPosition[],
+  trades: SchwabTrade[],
+  ticker: string | null | undefined,
+): EquityOpenLot | null {
+  const want = ticker?.trim().toUpperCase();
+  if (!want) return null;
+  const matched = positions.filter((p) => positionTicker(p) === want && !isOptionLike(p));
+  if (matched.length === 0) return null;
+  let quantity = 0;
+  let live = 0;
+  let cost = 0;
+  let costQty = 0;
+  for (const p of matched) {
+    quantity += p.quantity;
+    live += positionMarkPnl(p);
+    if (p.average_price != null && Number.isFinite(p.average_price)) {
+      cost += p.average_price * p.quantity;
+      costQty += p.quantity;
+    }
+  }
+  if (quantity === 0) return null;
+  let average_price = costQty !== 0 ? cost / costQty : null;
+  let opened: string | null = null;
+  for (const trade of trades) {
+    if (isOptionLike(trade)) continue;
+    const day = tradeDay(trade);
+    if (!day) continue;
+    const sym = (trade.symbol ?? '').trim().toUpperCase();
+    const und = (trade.underlying ?? '').trim().toUpperCase();
+    if (sym !== want && und !== want) continue;
+    if (!opened || day < opened) opened = day;
+    if (average_price == null && trade.price != null && Number.isFinite(trade.price)) {
+      average_price = trade.price;
+    }
+  }
+  if (average_price == null || !Number.isFinite(average_price)) return null;
+  return {
+    opened: opened ?? '0000-01-01',
+    quantity,
+    average_price,
+    live_pnl: live,
+  };
+}
+
+/**
+ * Paint daily equity mark-to-market from lake OHLC so the chart follows the
+ * holding instead of dumping the live open P&L on the last sparse point.
+ * Last session is reconciled to Schwab's live open_pnl.
+ */
+export function applyEquityMarkPath(
+  points: SchwabPnlPoint[],
+  ohlc: Array<{ date: string; close: number | null | undefined }>,
+  lot: EquityOpenLot | null,
+  rangeStart: string,
+  rangeEnd: string,
+): { points: SchwabPnlPoint[]; painted: boolean } {
+  if (!lot || lot.quantity === 0 || !rangeStart || !rangeEnd) {
+    return { points, painted: false };
+  }
+  const bars = ohlc
+    .filter((b) => (
+      b.date >= rangeStart
+      && b.date <= rangeEnd
+      && b.close != null
+      && Number.isFinite(b.close)
+    ))
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (bars.length === 0) return { points, painted: false };
+
+  const byDate = new Map<string, SchwabPnlPoint>();
+  for (const p of points) byDate.set(p.date, { ...p });
+  const touch = (date: string): SchwabPnlPoint => {
+    let row = byDate.get(date);
+    if (!row) {
+      row = emptyPoint(date);
+      byDate.set(date, row);
+    }
+    return row;
+  };
+  for (const bar of bars) touch(bar.date);
+
+  let prev: number | null = null;
+  let mtmSum = 0;
+  let lastMtmDate: string | null = null;
+  for (const bar of bars) {
+    if (bar.date < lot.opened) continue;
+    const close = bar.close as number;
+    const basis = prev == null ? lot.average_price : prev;
+    const change = round2(lot.quantity * (close - basis));
+    const row = touch(bar.date);
+    row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + change);
+    row.daily_pnl = round2(n(row.daily_pnl) + change);
+    mtmSum = round2(mtmSum + change);
+    prev = close;
+    lastMtmDate = bar.date;
+  }
+  if (lastMtmDate == null) return { points, painted: false };
+  const drift = round2(lot.live_pnl - mtmSum);
+  if (drift !== 0) {
+    const row = touch(lastMtmDate);
+    row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + drift);
+    row.daily_pnl = round2(n(row.daily_pnl) + drift);
+  }
+  return {
+    points: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    painted: true,
+  };
+}
+
 /** Root ticker for a Schwab position (option → underlying / OCC root). */
 export function positionTicker(row: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type'>): string {
   const und = row.underlying?.trim().toUpperCase();
