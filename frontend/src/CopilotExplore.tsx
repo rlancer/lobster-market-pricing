@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Button, Heading, HStack, Text, Token, VStack } from '@astryxdesign/core';
+import { Button, Heading, HStack, Tab, TabList, Text, Token, ToggleButton, VStack } from '@astryxdesign/core';
 import { useIsAdmin } from './useAdmin';
 import {
   api,
@@ -153,24 +153,21 @@ export default function CopilotExplorePage() {
       </VStack>
 
       <HStack className="copilot-explore-controls" gap={2} wrap="wrap" align="center">
-        <Button
+        <TabList
           size="sm"
-          variant={schemaMode === 'live' ? 'primary' : 'secondary'}
-          label="Live schema"
-          onClick={() => setSchemaMode('live')}
-        />
-        <Button
+          aria-label="Schema mode"
+          value={schemaMode}
+          onChange={(value) => setSchemaMode(value as 'live' | 'placeholder')}
+        >
+          <Tab value="live" label="Live schema" />
+          <Tab value="placeholder" label="Placeholder schema" />
+        </TabList>
+        <ToggleButton
           size="sm"
-          variant={schemaMode === 'placeholder' ? 'primary' : 'secondary'}
-          label="Placeholder schema"
-          onClick={() => setSchemaMode('placeholder')}
-        />
-        <Button
-          size="sm"
-          variant={includeSamples ? 'primary' : 'secondary'}
-          label={includeSamples ? 'Samples on' : 'Samples off'}
-          onClick={() => setIncludeSamples((v) => !v)}
+          label="Samples"
+          isPressed={includeSamples}
           isDisabled={schemaMode !== 'live'}
+          onPressedChange={setIncludeSamples}
         />
         <Button
           size="sm"

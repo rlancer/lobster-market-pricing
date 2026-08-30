@@ -5,6 +5,8 @@ import {
   Heading,
   HStack,
   Spinner,
+  Tab,
+  TabList,
   Text,
   Token,
   VStack,
@@ -287,53 +289,34 @@ export default function PortfolioPage() {
             Signed-in books: paper tracking and linked Schwab accounts.
           </Text>
         </VStack>
-        <HStack gap={2} wrap="wrap" role="tablist" aria-label="Portfolio book">
-          <Button
-            size="sm"
-            variant={bookMode === 'suggested' ? 'primary' : 'ghost'}
-            label="Suggested trades"
-            onClick={() => {
-              setError(null);
-              setBookMode('suggested');
-            }}
-          />
-          <Button
-            size="sm"
-            variant={bookMode === 'paper' ? 'primary' : 'ghost'}
-            label="My paper book"
-            onClick={() => {
-              setError(null);
-              setBookMode('paper');
-            }}
-          />
-          {schwabConfigured ? (
-            <Button
-              size="sm"
-              variant={bookMode === 'schwab' ? 'primary' : 'ghost'}
-              label="Schwab"
-              onClick={() => {
-                setError(null);
-                setBookMode('schwab');
-              }}
-            />
-          ) : null}
-        </HStack>
+        <TabList
+          size="sm"
+          aria-label="Portfolio book"
+          value={bookMode}
+          onChange={(value) => {
+            setError(null);
+            setBookMode(value as BookMode);
+          }}
+        >
+          <Tab value="suggested" label="Suggested trades" />
+          <Tab value="paper" label="My paper book" />
+          {schwabConfigured ? <Tab value="schwab" label="Schwab" /> : null}
+        </TabList>
       </HStack>
 
       {bookMode === 'suggested' ? (
         <VStack gap={4}>
-          {bots.length > 0 ? (
-            <HStack gap={2} wrap="wrap" aria-label="Bot book">
+          {bots.length > 0 && botHandle ? (
+            <TabList
+              size="sm"
+              aria-label="Bot book"
+              value={botHandle}
+              onChange={setBotHandle}
+            >
               {bots.map((bot) => (
-                <Button
-                  key={bot.handle}
-                  size="sm"
-                  variant={botHandle === bot.handle ? 'primary' : 'ghost'}
-                  label={`@${bot.handle}`}
-                  onClick={() => setBotHandle(bot.handle)}
-                />
+                <Tab key={bot.handle} value={bot.handle} label={`@${bot.handle}`} />
               ))}
-            </HStack>
+            </TabList>
           ) : null}
           {error && bookMode === 'suggested' ? (
             <Text className="portfolio-error" role="alert">{error}</Text>
@@ -390,41 +373,34 @@ export default function PortfolioPage() {
           </VStack>
         ) : (
           <VStack gap={4}>
-            {(schwabBook?.accounts.length ?? 0) > 1 ? (
-              <HStack gap={2} wrap="wrap" aria-label="Schwab account">
+            {(schwabBook?.accounts.length ?? 0) > 1 && schwabAccount ? (
+              <TabList
+                size="sm"
+                aria-label="Schwab account"
+                value={schwabAccount.id}
+                onChange={setSchwabAccountId}
+              >
                 {schwabBook!.accounts.map((acct) => (
-                  <Button
+                  <Tab
                     key={acct.id}
-                    size="sm"
-                    variant={schwabAccount?.id === acct.id ? 'primary' : 'ghost'}
+                    value={acct.id}
                     label={`${acct.account_number_masked}${acct.type ? ` · ${acct.type}` : ''}`}
-                    onClick={() => setSchwabAccountId(acct.id)}
                   />
                 ))}
-              </HStack>
+              </TabList>
             ) : null}
 
-            <HStack gap={2} wrap="wrap" justify="between">
-              <HStack gap={2} wrap="wrap" role="tablist" aria-label="Schwab view">
-                <Button
-                  size="sm"
-                  variant={schwabPane === 'positions' ? 'primary' : 'ghost'}
-                  label="Positions"
-                  onClick={() => setSchwabPane('positions')}
-                />
-                <Button
-                  size="sm"
-                  variant={schwabPane === 'performance' ? 'primary' : 'ghost'}
-                  label="Performance"
-                  onClick={() => setSchwabPane('performance')}
-                />
-                <Button
-                  size="sm"
-                  variant={schwabPane === 'trades' ? 'primary' : 'ghost'}
-                  label="Trade history"
-                  onClick={() => setSchwabPane('trades')}
-                />
-              </HStack>
+            <HStack gap={2} wrap="wrap" justify="between" vAlign="center">
+              <TabList
+                size="sm"
+                aria-label="Schwab view"
+                value={schwabPane}
+                onChange={(value) => setSchwabPane(value as SchwabPane)}
+              >
+                <Tab value="positions" label="Positions" />
+                <Tab value="performance" label="Performance" />
+                <Tab value="trades" label="Trade history" />
+              </TabList>
               {schwabPane === 'positions' ? (
                 <Button
                   size="sm"
@@ -606,28 +582,29 @@ export default function PortfolioPage() {
         </Text>
       ) : (
         <>
-          <HStack gap={2} wrap="wrap" justify="between">
-            <HStack gap={2} wrap="wrap" aria-label="Status filter">
-              {(['open', 'closed', 'all'] as const).map((s) => (
-                <Button
-                  key={s}
-                  size="sm"
-                  variant={statusFilter === s ? 'primary' : 'ghost'}
-                  label={s === 'all' ? 'All' : s === 'open' ? 'Open' : 'Closed'}
-                  onClick={() => setStatusFilter(s)}
-                />
-              ))}
-            </HStack>
-            <HStack gap={2} wrap="wrap" aria-label="Conviction filter">
-              {(['all', 'high', 'medium', 'low'] as const).map((c) => (
-                <Button
-                  key={c}
-                  size="sm"
-                  variant={convictionFilter === c ? 'primary' : 'ghost'}
-                  label={c === 'all' ? 'All conviction' : c}
-                  onClick={() => setConvictionFilter(c)}
-                />
-              ))}
+          <HStack gap={2} wrap="wrap" justify="between" vAlign="center">
+            <TabList
+              size="sm"
+              aria-label="Status filter"
+              value={statusFilter}
+              onChange={(value) => setStatusFilter(value as StatusFilter)}
+            >
+              <Tab value="open" label="Open" />
+              <Tab value="closed" label="Closed" />
+              <Tab value="all" label="All" />
+            </TabList>
+            <HStack gap={2} wrap="wrap" vAlign="center">
+              <TabList
+                size="sm"
+                aria-label="Conviction filter"
+                value={convictionFilter}
+                onChange={(value) => setConvictionFilter(value as ConvictionFilter)}
+              >
+                <Tab value="all" label="All conviction" />
+                <Tab value="high" label="High" />
+                <Tab value="medium" label="Medium" />
+                <Tab value="low" label="Low" />
+              </TabList>
               <Button
                 size="sm"
                 variant="secondary"
