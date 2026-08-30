@@ -620,13 +620,16 @@ export function DocsSchwabPnl() {
         Options stat and the headline. The stock chart uses daily closes from
         Schwab Market Data (the connected user&apos;s token) for the still-open
         lot; lake OHLC is only a fallback if that fetch is empty. Closed
-        options (including assignment) follow Schwab option closes from the
-        open to the fill, so a May assignment is not a one-day rocket.
-        In-window days are close-to-close; a buy from
+        options (including assignment) prefer Schwab option closes from the
+        open to the fill. If Schwab does not return option history, a
+        deep-in-the-money contract uses intrinsic value from Schwab&apos;s
+        underlying closes. On assignment, intrinsic loss belongs to the short
+        put rather than the delivered shares, so settlement does not create a
+        one-day rocket. In-window days are close-to-close; a buy from
         before the range does not dump all prior mark onto the first session.
         The curve is carried in so the last point still matches full-name P&amp;L.
-        Option open mark, when present, lands on the last point. Dots on the
-        curve are the included fills and dividends.
+        Open marks are reconciled to Schwab&apos;s current P&amp;L. Dots on
+        the curve are the included fills and dividends.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">

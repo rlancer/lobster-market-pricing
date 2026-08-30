@@ -410,47 +410,64 @@ test('applyOptionMarkPath spreads the CAR assignment instead of a one-day rocket
       prior_open: false,
       asset_type: 'OPTION',
     },
+    {
+      id: 'stock-sale',
+      date: '2026-05-08',
+      symbol: 'CAR',
+      underlying: null,
+      description: '',
+      side: 'sell' as const,
+      quantity: 100,
+      price: 145.14,
+      net_amount: 14513.68,
+      fees: -0.32,
+      realized_pnl: -24486.32,
+      opened: '2026-05-08',
+      prior_open: false,
+      asset_type: 'EQUITY',
+    },
   ];
   const lots = optionLotsFromFills(fills);
   assert.equal(lots.length, 2);
-  assert.ok(lots.some((l) => l.quantity < 0 && Math.abs(l.average_price - 83.0917) < 0.01));
+  const assigned = lots.find((l) => l.quantity < 0);
+  assert.ok(assigned && Math.abs(assigned.average_price - 83.0917) < 0.01);
+  assert.equal(assigned?.target_pnl, -16177.15);
+  assert.ok(Math.abs((assigned?.exit_price ?? 0) - 244.8632) < 0.01);
+  assert.equal(assigned?.assignment_equity_pnl, -24486.32);
   assert.ok(lots.some((l) => l.quantity > 0 && Math.abs(l.average_price - 142.6205) < 0.01));
 
+  const first = Date.parse('2026-04-01T12:00:00Z');
+  const penultimate = Date.parse('2026-05-07T12:00:00Z');
+  const carOhlc = Array.from({ length: 20 }, (_, index) => ({
+    date: new Date(first + ((penultimate - first) * index) / 19).toISOString().slice(0, 10),
+    close: 300 - (150 * index) / 19,
+  }));
+  carOhlc.push({ date: '2026-05-08', close: 145.14 });
+
   const { points: path, painted, closedPnl } = applyOptionMarkPath(
-    densifyWithOhlc(sparse, [
-      { date: '2026-04-01', close: 1 },
-      { date: '2026-04-15', close: 1 },
-      { date: '2026-05-08', close: 1 },
-    ], '2026-01-01', '2026-08-29'),
-    {
-      CAR260618P00390000: [
-        { date: '2026-04-01', close: 83.09 },
-        { date: '2026-04-15', close: 90 },
-        { date: '2026-05-07', close: 40 },
-      ],
-      CAR260618P00500000: [
-        { date: '2026-04-01', close: 142.62 },
-        { date: '2026-04-15', close: 200 },
-        { date: '2026-05-07', close: 300 },
-      ],
-    },
+    densifyWithOhlc(sparse, carOhlc, '2026-01-01', '2026-08-29'),
+    {},
     lots,
     '2026-01-01',
     '2026-08-29',
+    carOhlc,
   );
   assert.equal(painted, true);
-  assert.equal(closedPnl, 29507.12);
-  const apr15 = path.find((p) => p.date === '2026-04-15');
+  assert.equal(closedPnl, 5020.8);
   const may8 = path.find((p) => p.date === '2026-05-08');
-  assert.ok(apr15);
-  assert.ok(Math.abs(apr15!.daily_option_pnl ?? 0) > 1000, 'mid-hold day must show option MTM');
+  const holdingDays = path.filter((p) => p.date >= '2026-04-01' && p.date < '2026-05-08');
   assert.ok(
-    Math.abs(may8!.daily_option_pnl ?? 0) < 20000,
-    'May 8 must not still carry the whole +29k option close',
+    holdingDays.some((p) => Math.abs(p.daily_option_pnl ?? 0) > 0),
+    'spread gain must accrue during the hold',
+  );
+  assert.ok(
+    Math.abs(may8!.daily_option_pnl ?? 0) < 500,
+    'May 8 must be the small spread/fill difference, not the whole close',
   );
   const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
-  assert.equal(Math.round(optionSum * 100) / 100, 29507.12);
-  assert.equal(may8!.daily_equity_pnl, -24486.32);
+  assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
+  assert.equal(may8!.daily_equity_pnl, 0);
+  assert.ok(Math.abs(may8!.daily_pnl ?? 0) < 500);
 });
 
 test('positionTicker prefers underlying then OCC root', () => {

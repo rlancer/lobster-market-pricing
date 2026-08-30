@@ -373,9 +373,25 @@ export type OptionLot = {
   quantity: number;
   average_price: number;
   exit_price: number | null;
+  /** FIFO amount currently stamped onto the close day. */
+  realized_pnl: number;
+  /** Assigned-stock realization reclassified onto the short option. */
+  assignment_equity_pnl: number;
   target_pnl: number;
   prior_open: boolean;
 };
+
+function optionRoot(symbol: string | null | undefined): string | null {
+  const compact = compactOccSymbol(symbol);
+  return compact
+    ? /^([A-Z0-9.-]{1,6})\d{6}[CP]\d{8}$/.exec(compact)?.[1] ?? null
+    : null;
+}
+
+function isAssignmentFill(fill: SchwabPnlFill): boolean {
+  return fill.id.startsWith('synth-assign-')
+    || /^Option assignment close\b/i.test(fill.description ?? '');
+}
 
 /** Closed period option lots (and still-open option positions) for the mark path. */
 export function optionLotsFromFills(
@@ -384,6 +400,7 @@ export function optionLotsFromFills(
 ): OptionLot[] {
   const lots: OptionLot[] = [];
   const closed = new Set<string>();
+  const usedEquityFills = new Set<string>();
   for (const fill of fills) {
     if (!isOptionLike(fill) || fill.prior_open) continue;
     const symbol = compactOccSymbol(fill.symbol);
@@ -392,10 +409,34 @@ export function optionLotsFromFills(
     if (absQty === 0) continue;
     const signed = fill.side === 'buy' ? -absQty : fill.side === 'sell' ? absQty : 0;
     if (signed === 0) continue;
-    const exit = fill.price != null && Number.isFinite(fill.price) ? fill.price : 0;
-    const target = n(fill.realized_pnl);
+    const reportedExit = fill.price != null && Number.isFinite(fill.price) ? fill.price : 0;
+    const realized = n(fill.realized_pnl);
     const denom = signed * OPTION_MULTIPLIER;
-    const average_price = denom !== 0 ? exit - target / denom : exit;
+    const average_price = denom !== 0 ? reportedExit - realized / denom : reportedExit;
+
+    // Schwab omits the short-option close on assignment. FIFO therefore books
+    // the premium as a zero-price option win and the intrinsic loss on the
+    // delivered stock. That is cash-correct but mark-path-wrong. Pair the
+    // synthetic cover with the same-day, same-size stock realization and move
+    // that amount onto the option, yielding an intrinsic assignment close.
+    let assignmentEquityPnl = 0;
+    if (isAssignmentFill(fill)) {
+      const root = optionRoot(fill.symbol);
+      const assignedShares = absQty * OPTION_MULTIPLIER;
+      const equity = fills.find((candidate) => {
+        if (usedEquityFills.has(candidate.id) || isOptionLike(candidate)) return false;
+        if (candidate.date !== fill.date || candidate.prior_open) return false;
+        const candidateRoot = (candidate.underlying ?? candidate.symbol ?? '').trim().toUpperCase();
+        if (!root || candidateRoot !== root) return false;
+        return Math.abs(Math.abs(candidate.quantity ?? 0) - assignedShares) < 1e-8;
+      });
+      if (equity) {
+        assignmentEquityPnl = n(equity.realized_pnl);
+        usedEquityFills.add(equity.id);
+      }
+    }
+    const target = round2(realized + assignmentEquityPnl);
+    const exit = denom !== 0 ? average_price + target / denom : reportedExit;
     lots.push({
       id: fill.id,
       symbol,
@@ -404,6 +445,8 @@ export function optionLotsFromFills(
       quantity: signed,
       average_price,
       exit_price: exit,
+      realized_pnl: realized,
+      assignment_equity_pnl: assignmentEquityPnl,
       target_pnl: target,
       prior_open: false,
     });
@@ -422,6 +465,8 @@ export function optionLotsFromFills(
       quantity: position.quantity,
       average_price: position.average_price,
       exit_price: null,
+      realized_pnl: 0,
+      assignment_equity_pnl: 0,
       target_pnl: n(position.open_pnl),
       prior_open: false,
     });
@@ -446,9 +491,10 @@ export function densifyWithOhlc(
 }
 
 /**
- * Replace the one-day FIFO option lump with daily mark-to-market from Schwab
- * option closes. Close-day fill price (0 on assignment) is the last mark.
- * In-window increments for a period lot drift to that lot's realized P&L.
+ * Replace the one-day FIFO option lump with daily mark-to-market. Schwab
+ * option closes are preferred. If Schwab has no option history, deep-ITM
+ * contracts use intrinsic value from Schwab underlying closes. Assignment
+ * moves the delivered-stock intrinsic loss onto the short option.
  */
 export function applyOptionMarkPath(
   points: SchwabPnlPoint[],
@@ -456,6 +502,7 @@ export function applyOptionMarkPath(
   lots: OptionLot[],
   rangeStart: string,
   rangeEnd: string,
+  underlyingOhlc: Array<{ date: string; close: number | null | undefined }> = [],
 ): { points: SchwabPnlPoint[]; painted: boolean; inWindowMtm: number; closedPnl: number } {
   const none = { points, painted: false, inWindowMtm: 0, closedPnl: 0 };
   if (!rangeStart || !rangeEnd || lots.length === 0) return none;
@@ -480,9 +527,54 @@ export function applyOptionMarkPath(
     if (lot.closed && lot.closed < rangeStart) continue;
     if (lot.opened && lot.opened > rangeEnd) continue;
 
-    const raw = ohlcBySymbol[lot.symbol] ?? [];
     const pathStart = lot.opened && lot.opened > rangeStart ? lot.opened : rangeStart;
     const pathEnd = lot.closed && lot.closed < rangeEnd ? lot.closed : rangeEnd;
+    let raw = ohlcBySymbol[lot.symbol] ?? [];
+    if (raw.length < 2) {
+      const occ = /^([A-Z0-9.-]{1,6})(\d{6})([CP])(\d{8})$/.exec(lot.symbol);
+      const strike = occ ? Number(occ[4]) / 1000 : Number.NaN;
+      let intrinsic = occ && Number.isFinite(strike)
+        ? underlyingOhlc
+            .filter((b) => (
+              b.date <= pathEnd
+              && b.close != null
+              && Number.isFinite(b.close)
+            ))
+            .map((b) => ({
+              date: b.date,
+              close: occ[3] === 'P'
+                ? Math.max(strike - (b.close as number), 0)
+                : Math.max((b.close as number) - strike, 0),
+            }))
+        : [];
+      // Intrinsic is a defensible proxy only while the contract stays ITM.
+      // This covers CAR's deep-ITM 390/500 put spread without pretending that
+      // a zero intrinsic value captures time value for an OTM option.
+      if (intrinsic.length >= 2 && intrinsic.every((b) => b.close > 0)) {
+        const opened = lot.opened;
+        if (opened && opened >= rangeStart) {
+          const active = intrinsic.filter((b) => b.date >= opened);
+          if (active.length >= 2) {
+            // Anchor the proxy at the actual fill, then let entry time value
+            // decay smoothly into intrinsic by the close. This avoids merely
+            // moving the vertical jump from assignment day to opening day.
+            const entryOffset = lot.average_price - active[0]!.close;
+            const last = active.length - 1;
+            const modeled = new Map(
+              active.map((bar, index) => [
+                bar.date,
+                {
+                  ...bar,
+                  close: bar.close + entryOffset * (1 - index / last),
+                },
+              ]),
+            );
+            intrinsic = intrinsic.map((bar) => modeled.get(bar.date) ?? bar);
+          }
+        }
+        raw = intrinsic;
+      }
+    }
     const bars = raw
       .filter((b) => (
         b.date >= pathStart
@@ -509,10 +601,17 @@ export function applyOptionMarkPath(
     let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
     if (prev == null) prev = bars[0]!.close;
 
-    if (lot.closed && lot.target_pnl !== 0) {
+    if (lot.closed && lot.realized_pnl !== 0) {
       const row = touch(lot.closed);
-      row.daily_option_pnl = round2(n(row.daily_option_pnl) - lot.target_pnl);
-      row.daily_pnl = round2(n(row.daily_pnl) - lot.target_pnl);
+      row.daily_option_pnl = round2(n(row.daily_option_pnl) - lot.realized_pnl);
+      row.daily_pnl = round2(n(row.daily_pnl) - lot.realized_pnl);
+    }
+    if (lot.closed && lot.assignment_equity_pnl !== 0) {
+      const row = touch(lot.closed);
+      row.daily_equity_pnl = round2(
+        n(row.daily_equity_pnl) - lot.assignment_equity_pnl,
+      );
+      row.daily_pnl = round2(n(row.daily_pnl) - lot.assignment_equity_pnl);
     }
 
     let lotSum = 0;

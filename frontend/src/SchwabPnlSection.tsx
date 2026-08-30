@@ -254,7 +254,14 @@ export function SchwabPnlSection({
     const end = windowEnd ?? '';
     const dense = densifyWithOhlc(points, ohlc, start, end);
     const equity = applyEquityMarkPath(dense, ohlc, lot, start, end);
-    const option = applyOptionMarkPath(equity.points, optionOhlc, optionLots, start, end);
+    const option = applyOptionMarkPath(
+      equity.points,
+      optionOhlc,
+      optionLots,
+      start,
+      end,
+      ohlc,
+    );
     return {
       points: option.points,
       equityPainted: equity.painted,
@@ -548,7 +555,7 @@ export function SchwabPnlSection({
             Dots are the included fills and dividends on that day. Hover the
             curve for the running total
             {symbol
-              ? '. Stock and option lines follow Schwab daily closes (assignment uses the fill price, often $0) — not a one-day jump on the close.'
+              ? '. Stock and option lines follow Schwab daily closes. Assignment marks the short option at intrinsic value, so receiving shares does not create a one-day P&L jump.'
               : ''}
           </Text>
         </VStack>
