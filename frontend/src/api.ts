@@ -1024,6 +1024,8 @@ export interface SchwabPnlResponse {
   /** Daily closes from Schwab Market Data (connected user token) for a scoped ticker. */
   ohlc?: OhlcBar[];
   ohlc_source?: 'schwab' | null;
+  /** Daily option closes keyed by compact OCC symbol. */
+  option_ohlc?: Record<string, OhlcBar[]>;
   may_be_truncated?: boolean;
   /** True when cost-basis lookback failed and only the chart window was fetched. */
   lookback_truncated?: boolean;

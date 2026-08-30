@@ -357,6 +357,198 @@ export function applyEquityMarkPath(
   };
 }
 
+const OPTION_MULTIPLIER = 100;
+
+export function compactOccSymbol(symbol: string | null | undefined): string | null {
+  const compact = (symbol ?? '').toUpperCase().replace(/\s+/g, '');
+  return /^[A-Z0-9.-]{1,6}\d{6}[CP]\d{8}$/.test(compact) ? compact : null;
+}
+
+export type OptionLot = {
+  id: string;
+  symbol: string;
+  opened: string | null;
+  closed: string | null;
+  /** Signed contracts: long +, short −. */
+  quantity: number;
+  average_price: number;
+  exit_price: number | null;
+  target_pnl: number;
+  prior_open: boolean;
+};
+
+/** Closed period option lots (and still-open option positions) for the mark path. */
+export function optionLotsFromFills(
+  fills: SchwabPnlFill[],
+  positions: SchwabPortfolioPosition[] = [],
+): OptionLot[] {
+  const lots: OptionLot[] = [];
+  const closed = new Set<string>();
+  for (const fill of fills) {
+    if (!isOptionLike(fill) || fill.prior_open) continue;
+    const symbol = compactOccSymbol(fill.symbol);
+    if (!symbol) continue;
+    const absQty = Math.abs(fill.quantity ?? 0);
+    if (absQty === 0) continue;
+    const signed = fill.side === 'buy' ? -absQty : fill.side === 'sell' ? absQty : 0;
+    if (signed === 0) continue;
+    const exit = fill.price != null && Number.isFinite(fill.price) ? fill.price : 0;
+    const target = n(fill.realized_pnl);
+    const denom = signed * OPTION_MULTIPLIER;
+    const average_price = denom !== 0 ? exit - target / denom : exit;
+    lots.push({
+      id: fill.id,
+      symbol,
+      opened: fill.opened || null,
+      closed: fill.date,
+      quantity: signed,
+      average_price,
+      exit_price: exit,
+      target_pnl: target,
+      prior_open: false,
+    });
+    closed.add(symbol);
+  }
+  for (const position of positions) {
+    if (!isOptionLike(position) || position.quantity === 0) continue;
+    const symbol = compactOccSymbol(position.symbol);
+    if (!symbol || closed.has(symbol)) continue;
+    if (position.average_price == null || !Number.isFinite(position.average_price)) continue;
+    lots.push({
+      id: position.id,
+      symbol,
+      opened: null,
+      closed: null,
+      quantity: position.quantity,
+      average_price: position.average_price,
+      exit_price: null,
+      target_pnl: n(position.open_pnl),
+      prior_open: false,
+    });
+  }
+  return lots;
+}
+
+export function densifyWithOhlc(
+  points: SchwabPnlPoint[],
+  ohlc: Array<{ date: string; close?: number | null }>,
+  rangeStart: string,
+  rangeEnd: string,
+): SchwabPnlPoint[] {
+  if (!rangeStart || !rangeEnd || ohlc.length === 0) return points;
+  const byDate = new Map<string, SchwabPnlPoint>();
+  for (const p of points) byDate.set(p.date, { ...p });
+  for (const bar of ohlc) {
+    if (!bar.date || bar.date < rangeStart || bar.date > rangeEnd) continue;
+    if (!byDate.has(bar.date)) byDate.set(bar.date, emptyPoint(bar.date));
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Replace the one-day FIFO option lump with daily mark-to-market from Schwab
+ * option closes. Close-day fill price (0 on assignment) is the last mark.
+ * In-window increments for a period lot drift to that lot's realized P&L.
+ */
+export function applyOptionMarkPath(
+  points: SchwabPnlPoint[],
+  ohlcBySymbol: Record<string, Array<{ date: string; close: number | null | undefined }>>,
+  lots: OptionLot[],
+  rangeStart: string,
+  rangeEnd: string,
+): { points: SchwabPnlPoint[]; painted: boolean; inWindowMtm: number; closedPnl: number } {
+  const none = { points, painted: false, inWindowMtm: 0, closedPnl: 0 };
+  if (!rangeStart || !rangeEnd || lots.length === 0) return none;
+
+  const byDate = new Map<string, SchwabPnlPoint>();
+  for (const p of points) byDate.set(p.date, { ...p });
+  const touch = (date: string): SchwabPnlPoint => {
+    let row = byDate.get(date);
+    if (!row) {
+      row = emptyPoint(date);
+      byDate.set(date, row);
+    }
+    return row;
+  };
+
+  let painted = false;
+  let inWindowMtm = 0;
+  let closedPnl = 0;
+
+  for (const lot of lots) {
+    if (lot.prior_open || lot.quantity === 0) continue;
+    if (lot.closed && lot.closed < rangeStart) continue;
+    if (lot.opened && lot.opened > rangeEnd) continue;
+
+    const raw = ohlcBySymbol[lot.symbol] ?? [];
+    const pathStart = lot.opened && lot.opened > rangeStart ? lot.opened : rangeStart;
+    const pathEnd = lot.closed && lot.closed < rangeEnd ? lot.closed : rangeEnd;
+    const bars = raw
+      .filter((b) => (
+        b.date >= pathStart
+        && b.date <= pathEnd
+        && b.close != null
+        && Number.isFinite(b.close)
+      ))
+      .map((b) => ({ date: b.date, close: b.close as number }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (lot.closed && lot.closed >= rangeStart && lot.closed <= rangeEnd && lot.exit_price != null) {
+      const i = bars.findIndex((b) => b.date === lot.closed);
+      if (i >= 0) bars[i] = { date: lot.closed, close: lot.exit_price };
+      else bars.push({ date: lot.closed, close: lot.exit_price });
+      bars.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    if (bars.length === 0) continue;
+
+    const openedInRange = !lot.opened || lot.opened >= rangeStart;
+    const prior = [...raw]
+      .filter((b) => b.date < pathStart && b.close != null && Number.isFinite(b.close))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .at(-1);
+    let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
+    if (prev == null) prev = bars[0]!.close;
+
+    if (lot.closed && lot.target_pnl !== 0) {
+      const row = touch(lot.closed);
+      row.daily_option_pnl = round2(n(row.daily_option_pnl) - lot.target_pnl);
+      row.daily_pnl = round2(n(row.daily_pnl) - lot.target_pnl);
+    }
+
+    let lotSum = 0;
+    let lastDate: string | null = null;
+    for (const bar of bars) {
+      const change = round2(lot.quantity * OPTION_MULTIPLIER * (bar.close - prev));
+      const row = touch(bar.date);
+      row.daily_option_pnl = round2(n(row.daily_option_pnl) + change);
+      row.daily_pnl = round2(n(row.daily_pnl) + change);
+      lotSum = round2(lotSum + change);
+      prev = bar.close;
+      lastDate = bar.date;
+    }
+    if (lastDate && lot.closed) {
+      const drift = round2(lot.target_pnl - lotSum);
+      if (drift !== 0) {
+        const row = touch(lastDate);
+        row.daily_option_pnl = round2(n(row.daily_option_pnl) + drift);
+        row.daily_pnl = round2(n(row.daily_pnl) + drift);
+        lotSum = round2(lotSum + drift);
+      }
+      closedPnl = round2(closedPnl + lot.target_pnl);
+    }
+    inWindowMtm = round2(inWindowMtm + lotSum);
+    painted = true;
+  }
+
+  if (!painted) return none;
+  return {
+    points: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    painted: true,
+    inWindowMtm,
+    closedPnl,
+  };
+}
+
 /** Root ticker for a Schwab position (option → underlying / OCC root). */
 export function positionTicker(row: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type'>): string {
   const und = row.underlying?.trim().toUpperCase();

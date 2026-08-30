@@ -7,6 +7,7 @@ import {
   aliasesForTicker,
   distributionMatchesTicker,
   fetchWindowForPnl,
+  optionSymbolsForPriceHistory,
   normalizeSchwabDistribution,
   openMarkForTicker,
   parseOccOptionSymbol,
@@ -966,6 +967,18 @@ function emptyish(date: string) {
     daily_dividends: 0,
   };
 }
+
+test("optionSymbolsForPriceHistory keeps unique OCC roots and ignores equity", () => {
+  const symbols = optionSymbolsForPriceHistory([
+    trade({ id: "1", trade_date: "2026-04-01", side: "sell", symbol: "CAR   260618P00390000", asset_type: "OPTION" }),
+    trade({ id: "2", trade_date: "2026-04-01", side: "buy", symbol: "CAR   260618P00500000", asset_type: "OPTION" }),
+    trade({ id: "3", trade_date: "2026-05-08", side: "sell", symbol: "CAR", asset_type: "EQUITY" }),
+    trade({ id: "4", trade_date: "2026-05-08", side: "buy", symbol: "CAR   260618P00390000", asset_type: "OPTION" }),
+  ]);
+  assert.equal(symbols.size, 2);
+  assert.ok(symbols.has("CAR260618P00390000"));
+  assert.ok(symbols.has("CAR260618P00500000"));
+});
 
 test("ticker filter keeps CAR stock and CAR options, drops CARD", () => {
   const rows = [

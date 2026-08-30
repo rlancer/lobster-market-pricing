@@ -43,7 +43,10 @@ export function priceHistoryLookbackStart(
 }
 
 export function isPriceHistorySymbol(symbol: string): boolean {
-  return /^[A-Z0-9./\-]{1,10}$/.test(symbol);
+  const s = symbol.trim().toUpperCase();
+  if (/^[A-Z0-9./\-]{1,10}$/.test(s)) return true;
+  const compact = s.replace(/\s+/g, "");
+  return /^[A-Z0-9.\-]{1,6}\d{6}[CP]\d{8}$/.test(compact);
 }
 
 /**

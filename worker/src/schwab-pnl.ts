@@ -143,6 +143,8 @@ export interface SchwabPnlView {
    */
   ohlc: SchwabPriceBar[];
   ohlc_source: "schwab" | null;
+  /** Daily option closes keyed by compact OCC (`CAR260618P00390000`). */
+  option_ohlc: Record<string, SchwabPriceBar[]>;
   /** True when Schwab may have capped the trade page (~3000 rows). */
   may_be_truncated: boolean;
   /**
@@ -943,6 +945,60 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+const OPTION_OHLC_CAP = 8;
+
+function compactOccKey(symbol: string | null | undefined): string | null {
+  const compact = (symbol ?? "").toUpperCase().replace(/\s+/g, "");
+  return /^[A-Z0-9.\-]{1,6}\d{6}[CP]\d{8}$/.test(compact) ? compact : null;
+}
+
+/** Unique OCC roots from ticker trades, compact key → Schwab-padded symbol. */
+export function optionSymbolsForPriceHistory(
+  trades: Array<{ symbol?: string | null; asset_type?: string | null }>,
+  cap = OPTION_OHLC_CAP,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const trade of trades) {
+    if (!isOptionTrade(trade as SchwabTrade) || !trade.symbol) continue;
+    const key = compactOccKey(trade.symbol);
+    if (!key || out.has(key)) continue;
+    out.set(key, trade.symbol);
+    if (out.size >= cap) break;
+  }
+  return out;
+}
+
+async function fetchOptionPriceHistories(
+  accessToken: string,
+  tokenType: string,
+  trades: SchwabTrade[],
+  start: string,
+  end: string,
+): Promise<Record<string, SchwabPriceBar[]>> {
+  const symbols = optionSymbolsForPriceHistory(trades);
+  if (symbols.size === 0) return {};
+  const entries = await Promise.all(
+    [...symbols].map(async ([key, symbol]) => {
+      try {
+        const bars = await fetchSchwabPriceHistory(
+          accessToken,
+          { symbol, start, end },
+          tokenType,
+        );
+        return [key, bars] as const;
+      } catch (e) {
+        console.error("schwab pnl: option price history failed", {
+          symbol: key,
+          status: e instanceof SchwabApiError ? e.status : null,
+          detail: e instanceof Error ? e.message.slice(0, 300) : String(e),
+        });
+        return [key, [] as SchwabPriceBar[]] as const;
+      }
+    }),
+  );
+  return Object.fromEntries(entries);
+}
+
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
@@ -1092,6 +1148,7 @@ export async function loadSchwabPnl(
           trades: [],
           ohlc,
           ohlc_source: ohlc.length > 0 ? "schwab" : null,
+          option_ohlc: {},
           may_be_truncated: false,
           lookback_truncated: false,
         },
@@ -1148,6 +1205,15 @@ export async function loadSchwabPnl(
     }
     const allTrades = raw.map(normalizeTrade);
     const trades = allTrades.filter((t) => matchesTicker(t, ticker));
+    const optionOhlcPromise = ticker
+      ? fetchOptionPriceHistories(
+          token.accessToken,
+          token.tokenType,
+          trades,
+          opts.start,
+          opts.end,
+        )
+      : Promise.resolve({} as Record<string, SchwabPriceBar[]>);
     const ledger = buildRealizedPnlLedger(trades);
     const { points: tradingPoints, summary } = seriesFromLedger(ledger, opts.start, opts.end);
     const fills = buildPnlFills(ledger, opts.start, opts.end);
@@ -1237,7 +1303,7 @@ export async function loadSchwabPnl(
       opts.end,
     );
 
-    const ohlc = await priceHistoryPromise;
+    const [ohlc, option_ohlc] = await Promise.all([priceHistoryPromise, optionOhlcPromise]);
     const rowTruncated = raw.length >= 3000;
     return {
       ok: true,
@@ -1259,6 +1325,7 @@ export async function loadSchwabPnl(
         trades: windowTrades,
         ohlc,
         ohlc_source: ohlc.length > 0 ? "schwab" : null,
+        option_ohlc,
         may_be_truncated: rowTruncated || lookbackTruncated,
         lookback_truncated: lookbackTruncated,
       },

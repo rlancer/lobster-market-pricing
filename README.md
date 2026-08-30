@@ -287,9 +287,10 @@ with Positions, Performance, and Trade history panes. User-facing copy is
   `trades[]` are opens + closes. The UI composes the curve from include
   chips (stocks / options / dividends / fees).
 - Ticker-scoped `ohlc[]` is daily candles from Schwab Market Data
-  (`/pricehistory`, connected user token). The UI paints the stock path
-  from those closes; lake OHLC is only a fallback if the Schwab fetch
-  is empty.
+  (`/pricehistory`, connected user token). `option_ohlc` is the same
+  fetch per OCC symbol so assignment/spread P&L follows the option
+  closes instead of one close-day rocket. Lake OHLC is only a fallback
+  if the underlying Schwab fetch is empty.
 - `DIVIDEND_OR_INTEREST` is a second fetch over the chart window only;
   `distributions[]` / `distributions_total` can be added to the curve
   when the Dividends chip is on.

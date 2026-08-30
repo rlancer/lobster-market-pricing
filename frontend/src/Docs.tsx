@@ -619,8 +619,10 @@ export function DocsSchwabPnl() {
         or mark minus cost if that field is missing) is added to the Stocks or
         Options stat and the headline. The stock chart uses daily closes from
         Schwab Market Data (the connected user&apos;s token) for the still-open
-        lot; lake OHLC is only a fallback if that fetch is empty. In-window
-        days are close-to-close; a buy from
+        lot; lake OHLC is only a fallback if that fetch is empty. Closed
+        options (including assignment) follow Schwab option closes from the
+        open to the fill, so a May assignment is not a one-day rocket.
+        In-window days are close-to-close; a buy from
         before the range does not dump all prior mark onto the first session.
         The curve is carried in so the last point still matches full-name P&amp;L.
         Option open mark, when present, lands on the last point. Dots on the

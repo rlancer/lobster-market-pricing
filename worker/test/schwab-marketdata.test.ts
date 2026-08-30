@@ -14,11 +14,13 @@ test("priceHistoryLookbackStart pads 21 calendar days before the chart", () => {
   assert.equal(priceHistoryLookbackStart("2026-08-01"), "2026-07-11");
 });
 
-test("isPriceHistorySymbol allows equity roots and rejects OCC / junk", () => {
+test("isPriceHistorySymbol allows equity roots and OCC option symbols", () => {
   assert.equal(isPriceHistorySymbol("TLT"), true);
   assert.equal(isPriceHistorySymbol("BRK/B"), true);
   assert.equal(isPriceHistorySymbol("BRK.B"), true);
-  assert.equal(isPriceHistorySymbol("CAR   260618P00390000"), false);
+  assert.equal(isPriceHistorySymbol("CAR   260618P00390000"), true);
+  assert.equal(isPriceHistorySymbol("CAR260618P00390000"), true);
+  assert.equal(isPriceHistorySymbol("NOT AN OPTION"), false);
   assert.equal(isPriceHistorySymbol(""), false);
   assert.equal(isPriceHistorySymbol("NOPE!"), false);
 });
@@ -108,7 +110,7 @@ test("fetchSchwabPriceHistory uses the connected token and daily candles", async
 
   const skipped = await fetchSchwabPriceHistory(
     "tok-1",
-    { symbol: "CAR   260618P00390000", start: "2026-08-01", end: "2026-08-29" },
+    { symbol: "NOPE!", start: "2026-08-01", end: "2026-08-29" },
     "Bearer",
     fetchImpl,
   );

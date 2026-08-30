@@ -38,13 +38,16 @@ import {
 import { formatChartTick } from './tickerChartRange';
 import {
   applyEquityMarkPath,
+  applyOptionMarkPath,
   buildActivityRows,
   composeSeries,
   composeTotals,
   DEFAULT_PNL_INCLUDE,
+  densifyWithOhlc,
   equityOpenLot,
   filterActivity,
   includedOpenMark,
+  optionLotsFromFills,
   tickerOpenMark,
   type ActivityRow,
   type PnlInclude,
@@ -148,6 +151,7 @@ export function SchwabPnlSection({
     SchwabPnlResponse['open_mark']
   >(null);
   const [ohlc, setOhlc] = useState<OhlcBar[]>([]);
+  const [optionOhlc, setOptionOhlc] = useState<Record<string, OhlcBar[]>>({});
   const [windowStart, setWindowStart] = useState<string | null>(null);
   const [windowEnd, setWindowEnd] = useState<string | null>(null);
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
@@ -174,6 +178,7 @@ export function SchwabPnlSection({
     setLoading(true);
     setError(null);
     setOhlc([]);
+    setOptionOhlc({});
     try {
       const res = await api.schwabPnl({
         range: nextRange,
@@ -192,6 +197,7 @@ export function SchwabPnlSection({
       setLookbackTruncated(Boolean(res.lookback_truncated));
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
       const schwabBars = Array.isArray(res.ohlc) ? res.ohlc : [];
+      setOptionOhlc(res.option_ohlc && typeof res.option_ohlc === 'object' ? res.option_ohlc : {});
       if (schwabBars.length > 0) {
         setOhlc(schwabBars);
       } else if (nextSymbol.trim()) {
@@ -213,6 +219,7 @@ export function SchwabPnlSection({
       setTrades([]);
       setOpenMarkFromApi(null);
       setOhlc([]);
+      setOptionOhlc({});
       setWindowStart(null);
       setWindowEnd(null);
       setWindowLabel(null);
@@ -237,33 +244,58 @@ export function SchwabPnlSection({
     () => equityOpenLot(positions, trades, symbol),
     [positions, trades, symbol],
   );
-
-  const marked = useMemo(
-    () => applyEquityMarkPath(
-      points,
-      ohlc,
-      lot,
-      windowStart ?? '',
-      windowEnd ?? '',
-    ),
-    [points, ohlc, lot, windowStart, windowEnd],
+  const optionLots = useMemo(
+    () => optionLotsFromFills(fills, positions),
+    [fills, positions],
   );
+
+  const marked = useMemo(() => {
+    const start = windowStart ?? '';
+    const end = windowEnd ?? '';
+    const dense = densifyWithOhlc(points, ohlc, start, end);
+    const equity = applyEquityMarkPath(dense, ohlc, lot, start, end);
+    const option = applyOptionMarkPath(equity.points, optionOhlc, optionLots, start, end);
+    return {
+      points: option.points,
+      equityPainted: equity.painted,
+      optionPainted: option.painted,
+      equityInWindow: equity.inWindowMtm,
+      optionInWindow: option.inWindowMtm,
+      optionClosedPnl: option.closedPnl,
+    };
+  }, [points, ohlc, optionOhlc, lot, optionLots, windowStart, windowEnd]);
 
   const markForTotals = useMemo(() => {
     if (!openMark) return null;
-    if (!marked.painted) return openMark;
-    return { ...openMark, equity_pnl: openMark.equity_pnl - marked.inWindowMtm };
-  }, [openMark, marked.painted, marked.inWindowMtm]);
+    return {
+      equity_pnl: marked.equityPainted
+        ? openMark.equity_pnl - marked.equityInWindow
+        : openMark.equity_pnl,
+      option_pnl: marked.optionPainted
+        ? openMark.option_pnl - (marked.optionInWindow - marked.optionClosedPnl)
+        : openMark.option_pnl,
+    };
+  }, [openMark, marked]);
 
   const startCumulative = useMemo(() => {
-    if (!marked.painted || !include.stocks) return 0;
-    return (openMark?.equity_pnl ?? 0) - marked.inWindowMtm;
-  }, [marked.painted, marked.inWindowMtm, include.stocks, openMark]);
+    let start = 0;
+    if (marked.equityPainted && include.stocks) {
+      start += (openMark?.equity_pnl ?? 0) - marked.equityInWindow;
+    }
+    if (marked.optionPainted && include.options) {
+      start += (openMark?.option_pnl ?? 0) - (marked.optionInWindow - marked.optionClosedPnl);
+    }
+    return start;
+  }, [marked, include.stocks, include.options, openMark]);
 
   const lastPointPnl = useMemo(() => {
-    if (marked.painted) return include.options ? (openMark?.option_pnl ?? 0) : 0;
+    if (marked.equityPainted || marked.optionPainted) {
+      const equity = marked.equityPainted || !include.stocks ? 0 : (openMark?.equity_pnl ?? 0);
+      const option = marked.optionPainted || !include.options ? 0 : (openMark?.option_pnl ?? 0);
+      return equity + option;
+    }
     return includedOpenMark(openMark, include);
-  }, [marked.painted, include, openMark]);
+  }, [marked.equityPainted, marked.optionPainted, include, openMark]);
 
   const series = useMemo(
     () => composeSeries(marked.points, include, lastPointPnl, startCumulative),
@@ -516,7 +548,7 @@ export function SchwabPnlSection({
             Dots are the included fills and dividends on that day. Hover the
             curve for the running total
             {symbol
-              ? '. The stock line follows Schwab daily closes for the open lot, reconciled to the live mark — not a one-day drop.'
+              ? '. Stock and option lines follow Schwab daily closes (assignment uses the fill price, often $0) — not a one-day jump on the close.'
               : ''}
           </Text>
         </VStack>
