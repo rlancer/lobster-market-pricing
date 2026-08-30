@@ -15,6 +15,7 @@ import {
   optionLotsFromFills,
   positionTicker,
   tickerOpenMark,
+  weekdayDates,
   type PnlInclude,
 } from './schwabPnlView.ts';
 
@@ -443,6 +444,9 @@ test('applyOptionMarkPath spreads the CAR assignment instead of a one-day rocket
     close: 300 - (150 * index) / 19,
   }));
   carOhlc.push({ date: '2026-05-08', close: 145.14 });
+  // A pre-open OTM print used to reject the whole intrinsic path and leave
+  // the May 8 rocket in place.
+  carOhlc.unshift({ date: '2026-01-15', close: 420 });
 
   const { points: path, painted, closedPnl } = applyOptionMarkPath(
     densifyWithOhlc(sparse, carOhlc, '2026-01-01', '2026-08-29'),
@@ -468,6 +472,90 @@ test('applyOptionMarkPath spreads the CAR assignment instead of a one-day rocket
   assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
   assert.equal(may8!.daily_equity_pnl, 0);
   assert.ok(Math.abs(may8!.daily_pnl ?? 0) < 500);
+});
+
+test('applyOptionMarkPath linear-spreads assignment when no OHLC is available', () => {
+  const sparse = [
+    point({ date: '2026-01-01' }),
+    point({ date: '2026-05-08', daily_option_pnl: 29507.12, daily_equity_pnl: -24486.32, daily_pnl: 5020.8 }),
+    point({ date: '2026-08-29' }),
+  ];
+  const fills = [
+    {
+      id: 'synth-390',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00390000',
+      underlying: 'CAR',
+      description: 'Option assignment close',
+      side: 'buy' as const,
+      quantity: 1,
+      price: 0,
+      net_amount: 0,
+      fees: 0,
+      realized_pnl: 8309.17,
+      opened: '2026-04-01',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'close-500',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00500000',
+      underlying: 'CAR',
+      description: '',
+      side: 'sell' as const,
+      quantity: 1,
+      price: 354.6,
+      net_amount: 35458.61,
+      fees: -1.39,
+      realized_pnl: 21197.95,
+      opened: '2026-04-01',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'stock-sale',
+      date: '2026-05-08',
+      symbol: 'CAR',
+      underlying: null,
+      description: '',
+      side: 'sell' as const,
+      quantity: 100,
+      price: 145.14,
+      net_amount: 14513.68,
+      fees: -0.32,
+      realized_pnl: -24486.32,
+      opened: '2026-05-08',
+      prior_open: false,
+      asset_type: 'EQUITY',
+    },
+  ];
+  const { points: path, painted, closedPnl } = applyOptionMarkPath(
+    sparse,
+    {},
+    optionLotsFromFills(fills),
+    '2026-01-01',
+    '2026-08-29',
+    [],
+  );
+  assert.equal(painted, true);
+  assert.equal(closedPnl, 5020.8);
+  const holdWeekdays = weekdayDates('2026-04-01', '2026-05-07');
+  assert.ok(holdWeekdays.length >= 20);
+  const holdingDays = path.filter((p) => p.date >= '2026-04-01' && p.date < '2026-05-08');
+  assert.ok(holdingDays.length >= holdWeekdays.length);
+  assert.ok(
+    holdingDays.some((p) => Math.abs(p.daily_option_pnl ?? 0) > 0),
+    'linear fallback must accrue during the hold',
+  );
+  const may8 = path.find((p) => p.date === '2026-05-08');
+  assert.ok(
+    Math.abs(may8!.daily_option_pnl ?? 0) < 1500,
+    'May 8 must not keep the whole FIFO close',
+  );
+  assert.equal(may8!.daily_equity_pnl, 0);
+  const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
+  assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
 });
 
 test('positionTicker prefers underlying then OCC root', () => {

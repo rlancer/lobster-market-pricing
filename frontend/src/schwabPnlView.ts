@@ -490,6 +490,105 @@ export function densifyWithOhlc(
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** Monday–Friday session dates from `start` through `end` (UTC noon, YYYY-MM-DD). */
+export function weekdayDates(start: string, end: string): string[] {
+  const first = Date.parse(`${start}T12:00:00.000Z`);
+  const last = Date.parse(`${end}T12:00:00.000Z`);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first > last) return [];
+  const out: string[] = [];
+  for (let ms = first; ms <= last; ms += 86_400_000) {
+    const day = new Date(ms);
+    const dow = day.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    out.push(day.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function interpolateCloses(
+  dates: string[],
+  from: number,
+  to: number,
+): Array<{ date: string; close: number }> {
+  if (dates.length === 0) return [];
+  if (dates.length === 1) return [{ date: dates[0]!, close: to }];
+  const last = dates.length - 1;
+  return dates.map((date, index) => ({
+    date,
+    close: from + (to - from) * (index / last),
+  }));
+}
+
+function occContract(symbol: string): { right: 'C' | 'P'; strike: number } | null {
+  const occ = /^[A-Z0-9.-]{1,6}(\d{6})([CP])(\d{8})$/.exec(symbol);
+  if (!occ) return null;
+  const strike = Number(occ[3]) / 1000;
+  if (!Number.isFinite(strike)) return null;
+  return { right: occ[2] as 'C' | 'P', strike };
+}
+
+function intrinsicClose(right: 'C' | 'P', strike: number, spot: number): number {
+  return right === 'P' ? Math.max(strike - spot, 0) : Math.max(spot - strike, 0);
+}
+
+/**
+ * Daily proxy marks when Schwab has no option history. Uses underlying
+ * intrinsic on the holding window (a pre-open OTM day must not reject the
+ * path). If that series is empty, linearly walk fill → exit across weekdays
+ * so assignment cannot collapse onto one session.
+ */
+export function optionProxyBars(
+  lot: Pick<OptionLot, 'symbol' | 'opened' | 'closed' | 'average_price' | 'exit_price'>,
+  underlyingOhlc: Array<{ date: string; close: number | null | undefined }>,
+  pathStart: string,
+  pathEnd: string,
+  rangeStart: string,
+): Array<{ date: string; close: number }> {
+  const occ = occContract(lot.symbol);
+  if (occ) {
+    const hold = underlyingOhlc
+      .filter((b) => (
+        b.date >= pathStart
+        && b.date <= pathEnd
+        && b.close != null
+        && Number.isFinite(b.close)
+      ))
+      .map((b) => ({
+        date: b.date,
+        close: intrinsicClose(occ.right, occ.strike, b.close as number),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    // All-zero means the contract stayed OTM — don't invent time value.
+    if (hold.length >= 2 && hold.some((b) => b.close > 0)) {
+      const opened = lot.opened;
+      if (opened && opened >= rangeStart) {
+        const active = hold.filter((b) => b.date >= opened);
+        if (active.length >= 2) {
+          const entryOffset = lot.average_price - active[0]!.close;
+          const last = active.length - 1;
+          const modeled = new Map(
+            active.map((bar, index) => [
+              bar.date,
+              {
+                ...bar,
+                close: bar.close + entryOffset * (1 - index / last),
+              },
+            ]),
+          );
+          return hold.map((bar) => modeled.get(bar.date) ?? bar);
+        }
+      }
+      return hold;
+    }
+  }
+  if (lot.exit_price == null || !Number.isFinite(lot.exit_price)) return [];
+  return interpolateCloses(
+    weekdayDates(pathStart, pathEnd),
+    lot.average_price,
+    lot.exit_price,
+  );
+}
+
 /**
  * Replace the one-day FIFO option lump with daily mark-to-market. Schwab
  * option closes are preferred. If Schwab has no option history, deep-ITM
@@ -529,61 +628,22 @@ export function applyOptionMarkPath(
 
     const pathStart = lot.opened && lot.opened > rangeStart ? lot.opened : rangeStart;
     const pathEnd = lot.closed && lot.closed < rangeEnd ? lot.closed : rangeEnd;
+    const inWindow = (rows: Array<{ date: string; close: number | null | undefined }>) =>
+      rows
+        .filter((b) => (
+          b.date >= pathStart
+          && b.date <= pathEnd
+          && b.close != null
+          && Number.isFinite(b.close)
+        ))
+        .map((b) => ({ date: b.date, close: b.close as number }))
+        .sort((a, b) => a.date.localeCompare(b.date));
     let raw = ohlcBySymbol[lot.symbol] ?? [];
-    if (raw.length < 2) {
-      const occ = /^([A-Z0-9.-]{1,6})(\d{6})([CP])(\d{8})$/.exec(lot.symbol);
-      const strike = occ ? Number(occ[4]) / 1000 : Number.NaN;
-      let intrinsic = occ && Number.isFinite(strike)
-        ? underlyingOhlc
-            .filter((b) => (
-              b.date <= pathEnd
-              && b.close != null
-              && Number.isFinite(b.close)
-            ))
-            .map((b) => ({
-              date: b.date,
-              close: occ[3] === 'P'
-                ? Math.max(strike - (b.close as number), 0)
-                : Math.max((b.close as number) - strike, 0),
-            }))
-        : [];
-      // Intrinsic is a defensible proxy only while the contract stays ITM.
-      // This covers CAR's deep-ITM 390/500 put spread without pretending that
-      // a zero intrinsic value captures time value for an OTM option.
-      if (intrinsic.length >= 2 && intrinsic.every((b) => b.close > 0)) {
-        const opened = lot.opened;
-        if (opened && opened >= rangeStart) {
-          const active = intrinsic.filter((b) => b.date >= opened);
-          if (active.length >= 2) {
-            // Anchor the proxy at the actual fill, then let entry time value
-            // decay smoothly into intrinsic by the close. This avoids merely
-            // moving the vertical jump from assignment day to opening day.
-            const entryOffset = lot.average_price - active[0]!.close;
-            const last = active.length - 1;
-            const modeled = new Map(
-              active.map((bar, index) => [
-                bar.date,
-                {
-                  ...bar,
-                  close: bar.close + entryOffset * (1 - index / last),
-                },
-              ]),
-            );
-            intrinsic = intrinsic.map((bar) => modeled.get(bar.date) ?? bar);
-          }
-        }
-        raw = intrinsic;
-      }
+    let bars = inWindow(raw);
+    if (bars.length < 2) {
+      raw = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
+      bars = inWindow(raw);
     }
-    const bars = raw
-      .filter((b) => (
-        b.date >= pathStart
-        && b.date <= pathEnd
-        && b.close != null
-        && Number.isFinite(b.close)
-      ))
-      .map((b) => ({ date: b.date, close: b.close as number }))
-      .sort((a, b) => a.date.localeCompare(b.date));
 
     if (lot.closed && lot.closed >= rangeStart && lot.closed <= rangeEnd && lot.exit_price != null) {
       const i = bars.findIndex((b) => b.date === lot.closed);

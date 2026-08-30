@@ -198,17 +198,31 @@ export function SchwabPnlSection({
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
       const schwabBars = Array.isArray(res.ohlc) ? res.ohlc : [];
       setOptionOhlc(res.option_ohlc && typeof res.option_ohlc === 'object' ? res.option_ohlc : {});
-      if (schwabBars.length > 0) {
+      const holdStart = (Array.isArray(res.fills) ? res.fills : [])
+        .map((fill) => fill.opened || fill.date)
+        .filter((day): day is string => Boolean(day))
+        .sort()[0] ?? res.start;
+      const coversHold = schwabBars.some((bar) => bar.date && bar.date <= holdStart);
+      if (schwabBars.length > 0 && coversHold) {
         setOhlc(schwabBars);
       } else if (nextSymbol.trim()) {
         try {
           const detail = await api.symbolDetail(nextSymbol.trim(), { parts: 'ohlc' });
-          setOhlc(detail.ohlc ?? []);
+          const lake = detail.ohlc ?? [];
+          if (schwabBars.length === 0) {
+            setOhlc(lake);
+          } else {
+            const seen = new Set(schwabBars.map((bar) => bar.date));
+            setOhlc(
+              [...lake.filter((bar) => bar.date && !seen.has(bar.date)), ...schwabBars]
+                .sort((a, b) => a.date.localeCompare(b.date)),
+            );
+          }
         } catch {
-          setOhlc([]);
+          setOhlc(schwabBars);
         }
       } else {
-        setOhlc([]);
+        setOhlc(schwabBars);
       }
     } catch (err) {
       setError(formatApiError(err));
