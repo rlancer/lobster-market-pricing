@@ -10,6 +10,7 @@ import {
   normalizeTrade,
   opaqueAccountId,
   parseTradeDateRange,
+  commissionPnl,
   toTradeAccounts,
   SCHWAB_TRADES_MAX_RANGE_DAYS,
 } from "../src/schwab-trader.ts";
@@ -217,4 +218,34 @@ test("matchesTicker unifies equity and options on the same root", () => {
   assert.equal(matchesTicker({ symbol: "CARD", underlying: null }, "CAR"), false);
   assert.equal(matchesTicker({ symbol: "AAPL", underlying: null }, "CAR"), false);
   assert.equal(matchesTicker({ symbol: "CAR", underlying: null }, null), true);
+});
+
+test("commissionPnl treats charged (positive) Schwab fees as a drag", () => {
+  assert.equal(commissionPnl(0.32), -0.32);
+  assert.equal(commissionPnl(-1), -1);
+  assert.equal(commissionPnl(0), 0);
+  assert.equal(commissionPnl(null), 0);
+});
+
+test("normalizeTrade coerces live positive COMMISSION amounts to P&L", () => {
+  const trade = normalizeTrade({
+    activityId: 1,
+    description: "SOLD 100 CAR",
+    type: "TRADE",
+    status: "VALID",
+    tradeDate: "2026-05-08T15:14:53.000Z",
+    netAmount: 14513.68,
+    activityType: "EXECUTION",
+    transferItems: [
+      {
+        instrument: { assetType: "EQUITY", symbol: "CAR" },
+        amount: -100,
+        cost: 14514,
+        price: 145.14,
+        positionEffect: "CLOSING",
+      },
+      { amount: 0.32, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trade.fees, -0.32);
 });

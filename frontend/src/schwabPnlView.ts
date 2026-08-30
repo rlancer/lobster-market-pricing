@@ -50,6 +50,12 @@ function n(v: number | null | undefined): number {
   return v != null && Number.isFinite(v) ? v : 0;
 }
 
+/** Commission drag. Live Schwab fee amounts are often the charged (positive) figure. */
+function feeDrag(v: number | null | undefined): number {
+  const x = n(v);
+  return x > 0 ? -x : x;
+}
+
 /** Daily composed P&L for the selected sleeves. */
 export function composeDaily(point: SchwabPnlPoint, include: PnlInclude): number {
   const stocks = include.stocks ? n(point.daily_equity_pnl) : 0;
@@ -57,9 +63,9 @@ export function composeDaily(point: SchwabPnlPoint, include: PnlInclude): number
   const dividends = include.dividends ? n(point.daily_dividends) : 0;
   const trading = stocks + options;
   const sleeveFees =
-    (include.stocks ? n(point.daily_equity_fees) : 0) +
-    (include.options ? n(point.daily_option_fees) : 0);
-  const allFees = n(point.daily_fees);
+    (include.stocks ? feeDrag(point.daily_equity_fees) : 0) +
+    (include.options ? feeDrag(point.daily_option_fees) : 0);
+  const allFees = feeDrag(point.daily_fees);
 
   const tradingOn = include.stocks || include.options;
   if (!tradingOn && !include.dividends && include.fees) return allFees;
@@ -93,7 +99,7 @@ export function composeTotals(
     stocks += n(p.daily_equity_pnl);
     options += n(p.daily_option_pnl);
     dividends += n(p.daily_dividends);
-    fees += n(p.daily_fees);
+    fees += feeDrag(p.daily_fees);
   }
   return {
     period: composeSeries(points, include).at(-1)?.cumulative ?? 0,

@@ -278,6 +278,16 @@ function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem
   return null;
 }
 
+/**
+ * Commission P&L. Schwab `feeType` amounts are often the charged (positive)
+ * figure on live trades; some payloads already send a signed debit. Always
+ * return a drag (≤ 0) so Fees-only is commission cost, not a fake gain.
+ */
+export function commissionPnl(fees: number | null | undefined): number {
+  if (fees == null || !Number.isFinite(fees) || fees === 0) return 0;
+  return fees > 0 ? -fees : fees;
+}
+
 function sumFees(items: SchwabRawTransferItem[]): number | null {
   let total = 0;
   let any = false;
@@ -288,7 +298,7 @@ function sumFees(items: SchwabRawTransferItem[]): number | null {
     total += amt;
     any = true;
   }
-  return any ? total : null;
+  return any ? commissionPnl(total) : null;
 }
 
 export function inferTradeSide(

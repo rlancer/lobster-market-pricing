@@ -14,6 +14,7 @@ import {
   etTradeDay,
   listSchwabAccountNumbers,
   listSchwabTransactions,
+  commissionPnl,
   matchesTicker,
   normalizeTrade,
   toTradeAccounts,
@@ -856,7 +857,7 @@ export function attachCashSleeves(
   for (const trade of trades) {
     const day = tradeDay(trade);
     if (!day || day < start || day > end) continue;
-    const fees = trade.fees != null && Number.isFinite(trade.fees) ? trade.fees : 0;
+    const fees = commissionPnl(trade.fees);
     if (fees === 0) continue;
     const row = touch(day);
     row.daily_fees = round2(row.daily_fees + fees);

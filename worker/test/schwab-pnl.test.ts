@@ -881,6 +881,57 @@ test("attachCashSleeves stamps fees and dividends without changing trading PnL",
   assert.equal(stamped.at(-1)?.cumulative_pnl, 148);
 });
 
+test("attachCashSleeves coerces live positive Schwab fees to commission drag", () => {
+  const stamped = attachCashSleeves(
+    [emptyish("2026-05-08")],
+    [
+      trade({
+        id: "stock-sale",
+        trade_date: "2026-05-08",
+        side: "sell",
+        symbol: "CAR",
+        quantity: -100,
+        net_amount: 14513.68,
+        fees: 0.32,
+        position_effect: "CLOSING",
+      }),
+      trade({
+        id: "put-close",
+        trade_date: "2026-05-08",
+        side: "sell",
+        symbol: "CAR   260618P00500000",
+        underlying: "CAR",
+        asset_type: "OPTION",
+        quantity: -1,
+        net_amount: 35458.61,
+        fees: 1.39,
+        position_effect: "CLOSING",
+      }),
+    ],
+    [],
+    "2026-05-01",
+    "2026-05-10",
+  );
+  const day = stamped.find((p) => p.date === "2026-05-08");
+  assert.equal(day?.daily_fees, -1.71);
+  assert.equal(day?.daily_equity_fees, -0.32);
+  assert.equal(day?.daily_option_fees, -1.39);
+});
+
+function emptyish(date: string) {
+  return {
+    date,
+    daily_pnl: 0,
+    cumulative_pnl: 0,
+    daily_equity_pnl: 0,
+    daily_option_pnl: 0,
+    daily_fees: 0,
+    daily_equity_fees: 0,
+    daily_option_fees: 0,
+    daily_dividends: 0,
+  };
+}
+
 test("ticker filter keeps CAR stock and CAR options, drops CARD", () => {
   const rows = [
     trade({ id: "1", trade_date: "2026-01-01", side: "buy", symbol: "CAR", quantity: 1, net_amount: -10 }),

@@ -42,6 +42,20 @@ test('composeDaily adds selected sleeves and can isolate fees or dividends', () 
   assert.equal(composeDaily(p, { ...ALL, stocks: false, options: false, fees: false }), 12);
   assert.equal(composeDaily(p, { stocks: false, options: false, dividends: false, fees: true }), -3);
   assert.equal(composeDaily(p, { ...ALL, fees: false }), 245);
+
+  const live = point({
+    date: '2026-05-08',
+    daily_equity_pnl: -24486.32,
+    daily_option_pnl: 29507.12,
+    daily_fees: 3.2,
+    daily_equity_fees: 0.32,
+    daily_option_fees: 2.88,
+  });
+  assert.equal(composeDaily(live, { stocks: false, options: false, dividends: false, fees: true }), -3.2);
+  assert.equal(
+    composeDaily(live, { stocks: true, options: true, dividends: false, fees: false }),
+    -24486.32 + 29507.12 + 3.2,
+  );
 });
 
 test('composeSeries accumulates the composed daily', () => {
