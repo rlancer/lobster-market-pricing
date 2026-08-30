@@ -8,6 +8,7 @@ import {
   distributionMatchesTicker,
   fetchWindowForPnl,
   optionSymbolsForPriceHistory,
+  padOccSymbolForPriceHistory,
   normalizeSchwabDistribution,
   openMarkForTicker,
   parseOccOptionSymbol,
@@ -978,6 +979,16 @@ test("optionSymbolsForPriceHistory keeps unique OCC roots and ignores equity", (
   assert.equal(symbols.size, 2);
   assert.ok(symbols.has("CAR260618P00390000"));
   assert.ok(symbols.has("CAR260618P00500000"));
+  // Schwab /pricehistory wants the 21-char padded OCC print.
+  assert.equal(symbols.get("CAR260618P00390000"), "CAR   260618P00390000");
+  assert.equal(symbols.get("CAR260618P00500000"), "CAR   260618P00500000");
+});
+
+test("padOccSymbolForPriceHistory pads compact roots to 6 characters", () => {
+  assert.equal(padOccSymbolForPriceHistory("CAR260618P00390000"), "CAR   260618P00390000");
+  assert.equal(padOccSymbolForPriceHistory("CAR   260618P00390000"), "CAR   260618P00390000");
+  assert.equal(padOccSymbolForPriceHistory("AAPL260918C00200000"), "AAPL  260918C00200000");
+  assert.equal(padOccSymbolForPriceHistory("CAR"), null);
 });
 
 test("ticker filter keeps CAR stock and CAR options, drops CARD", () => {

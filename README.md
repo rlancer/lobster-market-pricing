@@ -293,8 +293,9 @@ with Positions, Performance, and Trade history panes. User-facing copy is
   — or returns stale flat last-trade prints that never leave the entry
   — deep-ITM contracts use intrinsic value from the Schwab underlying
   closes. Assignment reclassifies delivered-stock intrinsic loss onto
-  the short option; final book P&L is unchanged. Lake OHLC is only a
-  fallback if the underlying Schwab fetch is empty.
+  the short option; final book P&L is unchanged. Lake OHLC only
+  gap-fills sessions Schwab omitted — Schwab closes always win on
+  collisions (CAR's April crash is on Schwab; lake has no hold bars).
 - `DIVIDEND_OR_INTEREST` is a second fetch over the chart window only;
   `distributions[]` / `distributions_total` can be added to the curve
   when the Dividends chip is on.

@@ -617,9 +617,10 @@ export function DocsSchwabPnl() {
         you have on, for lots that both opened and closed inside that window.
         When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
         or mark minus cost if that field is missing) is added to the Stocks or
-        Options stat and the headline. The stock chart uses daily closes from
-        Schwab Market Data (the connected user&apos;s token) for the still-open
-        lot; lake OHLC is only a fallback if that fetch is empty. Closed
+        Options stat and the headline. Portfolio marks prefer Schwab Market
+        Data (the connected user&apos;s token): stock and option closes come
+        from Schwab first. Lake/Yahoo OHLC only gap-fills sessions Schwab
+        omitted — a Schwab close always wins on the same date. Closed
         options (including assignment) prefer Schwab option closes from the
         open to the fill when those marks actually track the fill→exit move.
         Missing history — or stale flat last-trade prints common on deep-ITM

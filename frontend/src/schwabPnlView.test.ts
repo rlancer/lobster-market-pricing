@@ -15,6 +15,7 @@ import {
   includedOpenMark,
   optionLotsFromFills,
   optionSchwabBarsTrackExit,
+  mergeOhlcPreferSchwab,
   positionTicker,
   tickerOpenMark,
   weekdayDates,
@@ -712,6 +713,126 @@ test('applyOptionMarkPath linear-spreads assignment when no OHLC is available', 
     Math.abs(may8!.daily_option_pnl ?? 0) < 1500,
     'May 8 must not keep the whole FIFO close',
   );
+  assert.equal(may8!.daily_equity_pnl, 0);
+  const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
+  assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
+});
+
+test('mergeOhlcPreferSchwab lets Schwab win on date collisions', () => {
+  const merged = mergeOhlcPreferSchwab(
+    [
+      { date: '2026-04-22', close: 443.94 },
+      { date: '2026-04-23', close: 229.14 },
+    ],
+    [
+      { date: '2026-04-22', close: 999 },
+      { date: '2026-04-21', close: 700 },
+    ],
+  );
+  assert.deepEqual(
+    merged.map((b) => ({ d: b.date, c: b.close })),
+    [
+      { d: '2026-04-21', c: 700 },
+      { d: '2026-04-22', c: 443.94 },
+      { d: '2026-04-23', c: 229.14 },
+    ],
+  );
+});
+
+test('applyOptionMarkPath follows the live CAR crash on Schwab underlying', () => {
+  // Live book: opened 2026-04-22, stock crashed 444→229 on 04-23, assigned 05-08.
+  // Schwab option history is empty; marks must come from Schwab underlying
+  // intrinsic — most of the +$5020.80 accrues on the crash, not May 8.
+  const sparse = [
+    point({ date: '2026-01-01' }),
+    point({ date: '2026-05-08', daily_option_pnl: 29507.12, daily_equity_pnl: -24486.32, daily_pnl: 5020.8 }),
+    point({ date: '2026-08-29' }),
+  ];
+  const fills = [
+    {
+      id: 'synth-390',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00390000',
+      underlying: 'CAR',
+      description: 'Option assignment close',
+      side: 'buy' as const,
+      quantity: 1,
+      price: 0,
+      net_amount: 0,
+      fees: 0,
+      realized_pnl: 8309.17,
+      opened: '2026-04-22',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'close-500',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00500000',
+      underlying: 'CAR',
+      description: '',
+      side: 'sell' as const,
+      quantity: 1,
+      price: 354.6,
+      net_amount: 35458.61,
+      fees: -1.39,
+      realized_pnl: 21197.95,
+      opened: '2026-04-22',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'stock-sale',
+      date: '2026-05-08',
+      symbol: 'CAR',
+      underlying: null,
+      description: '',
+      side: 'sell' as const,
+      quantity: 100,
+      price: 145.14,
+      net_amount: 14513.68,
+      fees: -0.32,
+      realized_pnl: -24486.32,
+      opened: '2026-05-08',
+      prior_open: false,
+      asset_type: 'EQUITY',
+    },
+  ];
+  const carOhlc = [
+    { date: '2026-04-22', close: 443.94 },
+    { date: '2026-04-23', close: 229.14 },
+    { date: '2026-04-24', close: 204 },
+    { date: '2026-04-27', close: 187.07 },
+    { date: '2026-04-28', close: 182.005 },
+    { date: '2026-04-29', close: 181.15 },
+    { date: '2026-04-30', close: 180.67 },
+    { date: '2026-05-01', close: 185.55 },
+    { date: '2026-05-04', close: 168.295 },
+    { date: '2026-05-05', close: 160.1 },
+    { date: '2026-05-06', close: 164.23 },
+    { date: '2026-05-07', close: 154.06 },
+    { date: '2026-05-08', close: 145.75 },
+  ];
+  const emptyOptionOhlc = {
+    CAR260618P00390000: [] as Array<{ date: string; close: number }>,
+    CAR260618P00500000: [] as Array<{ date: string; close: number }>,
+  };
+  const { points: path, painted, closedPnl } = applyOptionMarkPath(
+    densifyWithOhlc(sparse, carOhlc, '2026-01-01', '2026-08-29'),
+    emptyOptionOhlc,
+    optionLotsFromFills(fills),
+    '2026-01-01',
+    '2026-08-29',
+    carOhlc,
+  );
+  assert.equal(painted, true);
+  assert.equal(closedPnl, 5020.8);
+  const apr23 = path.find((p) => p.date === '2026-04-23');
+  const may8 = path.find((p) => p.date === '2026-05-08');
+  const crashMove = Math.abs(apr23?.daily_option_pnl ?? 0);
+  const assignMove = Math.abs(may8?.daily_option_pnl ?? 0);
+  assert.ok(crashMove > 2000, `crash day must carry the bulk MTM, got ${crashMove}`);
+  assert.ok(assignMove < 500, `May 8 must not keep the FIFO rocket, got ${assignMove}`);
   assert.equal(may8!.daily_equity_pnl, 0);
   const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
   assert.equal(Math.round(optionSum * 100) / 100, 5020.8);

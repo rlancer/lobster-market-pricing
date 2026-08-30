@@ -47,6 +47,7 @@ import {
   equityOpenLot,
   filterActivity,
   includedOpenMark,
+  mergeOhlcPreferSchwab,
   optionLotsFromFills,
   tickerOpenMark,
   type ActivityRow,
@@ -210,32 +211,24 @@ export function SchwabPnlSection({
       setMayBeTruncated(Boolean(res.may_be_truncated) && !res.lookback_truncated);
       const schwabBars = Array.isArray(res.ohlc) ? res.ohlc : [];
       setOptionOhlc(res.option_ohlc && typeof res.option_ohlc === 'object' ? res.option_ohlc : {});
+      // Prefer Schwab Market Data closes for portfolio marks. Lake/Yahoo only
+      // gap-fills sessions Schwab omitted — never replaces a Schwab print.
+      // (CAR's April crash lives on Schwab; lake has no bars for that hold.)
       const holdStart = (Array.isArray(res.fills) ? res.fills : [])
         .map((fill) => fill.opened || fill.date)
         .filter((day): day is string => Boolean(day))
         .sort()[0] ?? res.start;
-      const coversHold = schwabBars.some((bar) => bar.date && bar.date <= holdStart);
-      if (schwabBars.length > 0 && coversHold) {
-        setOhlc(schwabBars);
-      } else if (nextSymbol.trim()) {
+      const schwabCoversHold = schwabBars.some((bar) => bar.date && bar.date <= holdStart);
+      let lakeBars: OhlcBar[] = [];
+      if (nextSymbol.trim() && !schwabCoversHold) {
         try {
           const detail = await api.symbolDetail(nextSymbol.trim(), { parts: 'ohlc' });
-          const lake = detail.ohlc ?? [];
-          if (schwabBars.length === 0) {
-            setOhlc(lake);
-          } else {
-            const seen = new Set(schwabBars.map((bar) => bar.date));
-            setOhlc(
-              [...lake.filter((bar) => bar.date && !seen.has(bar.date)), ...schwabBars]
-                .sort((a, b) => a.date.localeCompare(b.date)),
-            );
-          }
+          lakeBars = detail.ohlc ?? [];
         } catch {
-          setOhlc(schwabBars);
+          lakeBars = [];
         }
-      } else {
-        setOhlc(schwabBars);
       }
+      setOhlc(mergeOhlcPreferSchwab(schwabBars, lakeBars));
     } catch (err) {
       setError(formatApiError(err));
       setPoints([]);

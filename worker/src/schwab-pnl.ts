@@ -952,6 +952,19 @@ function compactOccKey(symbol: string | null | undefined): string | null {
   return /^[A-Z0-9.\-]{1,6}\d{6}[CP]\d{8}$/.test(compact) ? compact : null;
 }
 
+/**
+ * Schwab Market Data wants the 21-char OCC print (root padded to 6 with
+ * spaces). Compact keys are fine for our map; the request symbol must be
+ * padded or `/pricehistory` often returns an empty candle list.
+ */
+export function padOccSymbolForPriceHistory(symbol: string | null | undefined): string | null {
+  const compact = compactOccKey(symbol);
+  if (!compact) return null;
+  const m = /^([A-Z0-9.\-]{1,6})(\d{6}[CP]\d{8})$/.exec(compact);
+  if (!m) return null;
+  return `${m[1]!.padEnd(6, " ")}${m[2]!}`;
+}
+
 /** Unique OCC roots from ticker trades, compact key → Schwab-padded symbol. */
 export function optionSymbolsForPriceHistory(
   trades: Array<{ symbol?: string | null; asset_type?: string | null }>,
@@ -961,8 +974,9 @@ export function optionSymbolsForPriceHistory(
   for (const trade of trades) {
     if (!isOptionTrade(trade as SchwabTrade) || !trade.symbol) continue;
     const key = compactOccKey(trade.symbol);
-    if (!key || out.has(key)) continue;
-    out.set(key, trade.symbol);
+    const padded = padOccSymbolForPriceHistory(trade.symbol);
+    if (!key || !padded || out.has(key)) continue;
+    out.set(key, padded);
     if (out.size >= cap) break;
   }
   return out;

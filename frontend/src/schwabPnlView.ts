@@ -574,17 +574,21 @@ function intrinsicClose(right: 'C' | 'P', strike: number, spot: number): number 
 }
 
 /**
- * Daily proxy marks when Schwab has no option history. Uses underlying
- * intrinsic on the holding window (a pre-open OTM day must not reject the
- * path). If that series is empty, linearly walk fill → exit across weekdays
- * so assignment cannot collapse onto one session.
+ * Daily proxy marks when Schwab has no option history. Prefer Schwab
+ * underlying closes → intrinsic on the holding window (a pre-open OTM day
+ * must not reject the path). Do not fade fill→intrinsic across the hold —
+ * that flattens crash MTM into a synthetic bleed and leaves a realization
+ * cliff after exit override. `applyOptionMarkPath` seeds `prev` from the
+ * fill so open-day MTM is fill→first intrinsic. If underlying history is
+ * empty, linearly walk fill → exit across weekdays so assignment cannot
+ * collapse onto one session.
  */
 export function optionProxyBars(
   lot: Pick<OptionLot, 'symbol' | 'opened' | 'closed' | 'average_price' | 'exit_price'>,
   underlyingOhlc: Array<{ date: string; close: number | null | undefined }>,
   pathStart: string,
   pathEnd: string,
-  rangeStart: string,
+  _rangeStart: string,
 ): Array<{ date: string; close: number }> {
   const occ = occContract(lot.symbol);
   if (occ) {
@@ -601,27 +605,7 @@ export function optionProxyBars(
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
     // All-zero means the contract stayed OTM — don't invent time value.
-    if (hold.length >= 2 && hold.some((b) => b.close > 0)) {
-      const opened = lot.opened;
-      if (opened && opened >= rangeStart) {
-        const active = hold.filter((b) => b.date >= opened);
-        if (active.length >= 2) {
-          const entryOffset = lot.average_price - active[0]!.close;
-          const last = active.length - 1;
-          const modeled = new Map(
-            active.map((bar, index) => [
-              bar.date,
-              {
-                ...bar,
-                close: bar.close + entryOffset * (1 - index / last),
-              },
-            ]),
-          );
-          return hold.map((bar) => modeled.get(bar.date) ?? bar);
-        }
-      }
-      return hold;
-    }
+    if (hold.length >= 2 && hold.some((b) => b.close > 0)) return hold;
   }
   if (lot.exit_price == null || !Number.isFinite(lot.exit_price)) return [];
   return interpolateCloses(
@@ -629,6 +613,26 @@ export function optionProxyBars(
     lot.average_price,
     lot.exit_price,
   );
+}
+
+/**
+ * Merge daily bars with Schwab winning on date collisions. Lake/Yahoo only
+ * gap-fills sessions Schwab did not return — never replaces a Schwab close.
+ */
+export function mergeOhlcPreferSchwab<T extends { date: string }>(
+  schwab: T[],
+  lake: T[],
+): T[] {
+  if (schwab.length === 0) return lake.slice().sort((a, b) => a.date.localeCompare(b.date));
+  if (lake.length === 0) return schwab.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const byDate = new Map<string, T>();
+  for (const bar of lake) {
+    if (bar.date) byDate.set(bar.date, bar);
+  }
+  for (const bar of schwab) {
+    if (bar.date) byDate.set(bar.date, bar);
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**
