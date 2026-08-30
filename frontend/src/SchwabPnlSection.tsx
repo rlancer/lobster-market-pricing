@@ -4,6 +4,7 @@ import {
   Area,
   Bar,
   CartesianGrid,
+  Cell,
   ComposedChart,
   ReferenceLine,
   ResponsiveContainer,
@@ -15,14 +16,19 @@ import {
 import {
   Button,
   HStack,
+  List,
+  ListItem,
+  Section,
+  SegmentedControl,
+  SegmentedControlItem,
   Spinner,
   Tab,
   TabList,
   Text,
   Token,
+  useMediaQuery,
   VStack,
 } from '@astryxdesign/core';
-import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
@@ -52,6 +58,7 @@ import {
   optionLegDailyPath,
   optionLotsFromFills,
   parseOccContract,
+  performanceFocusWindow,
   tickerOpenMark,
   type ActivityRow,
   type LegDailyPoint,
@@ -62,6 +69,8 @@ import './Portfolio.css';
 
 const PNL_RANGES: SchwabPnlRange[] = ['MTD', 'YTD', '1M', '3M', '6M', '1Y'];
 
+type ChartMetric = 'daily' | 'cumulative';
+type ChartWindow = 'focus' | 'range';
 type ActivityTableRow = ActivityRow & Record<string, unknown>;
 
 function money(n: number | null | undefined): string {
@@ -158,9 +167,19 @@ function legLabel(lot: OptionLot): string {
 }
 
 function markSourceLabel(source: LegDailyPoint['source']): string {
-  if (source === 'schwab') return 'Schwab option';
-  if (source === 'intrinsic') return 'Schwab intrinsic';
-  return 'Linear fill→exit';
+  if (source === 'schwab') return 'Schwab option prints';
+  if (source === 'intrinsic') return 'Intrinsic from Schwab stock closes';
+  return 'Linear timing estimate';
+}
+
+function markSourceExplanation(source: LegDailyPoint['source']): string {
+  if (source === 'schwab') {
+    return 'Marks are Schwab option price-history closes — actual option prints from Schwab.';
+  }
+  if (source === 'intrinsic') {
+    return 'Schwab option prints were missing or too stale to explain the exit, so each mark is intrinsic value from the Schwab underlying close. Once both spread legs are deep in the money they move together, so the net book can jump on the crash and then go nearly flat.';
+  }
+  return 'Schwab had neither usable option prints nor enough underlying closes. Marks are spaced from fill to exit only to estimate timing; the final FIFO realized total is unchanged.';
 }
 
 type LegDailyTableRow = LegDailyPoint & Record<string, unknown>;
@@ -200,8 +219,10 @@ export function SchwabPnlSection({
   const [lookbackTruncated, setLookbackTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** Activity-row expand: which option fill id's daily mark path is open. */
-  const [expandedLegId, setExpandedLegId] = useState<string | null>(null);
+  const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
+  const [chartMetric, setChartMetric] = useState<ChartMetric>('daily');
+  const [chartWindow, setChartWindow] = useState<ChartWindow>('focus');
+  const isMobile = useMediaQuery('(max-width: 47.99rem)');
 
   useEffect(() => {
     const next = initialSymbol.trim().toUpperCase();
@@ -296,7 +317,8 @@ export function SchwabPnlSection({
   }, [optionLots, optionOhlc, ohlc, windowStart, windowEnd]);
 
   useEffect(() => {
-    setExpandedLegId(null);
+    setSelectedLegId(null);
+    setChartWindow('focus');
   }, [symbol, range, accountId]);
 
   const marked = useMemo(() => {
@@ -369,18 +391,67 @@ export function SchwabPnlSection({
     () => filterActivity(buildActivityRows({ trades, fills, distributions }), include),
     [trades, fills, distributions, include],
   );
-  const markers = useMemo(
-    () => activity.map((row) => {
-      const point = series.find((p) => p.date === row.date);
-      return {
-        date: row.date,
-        cumulative: point?.cumulative ?? 0,
-        kind: row.kind,
-        label: row.symbol ?? row.description ?? row.kind,
-      };
-    }),
-    [activity, series],
+  const focusWindow = useMemo(
+    () => performanceFocusWindow(
+      series,
+      activity,
+      include.options ? optionLots : [],
+      windowStart ?? '',
+      windowEnd ?? '',
+    ),
+    [series, activity, include.options, optionLots, windowStart, windowEnd],
   );
+  const focusIsNarrower = Boolean(
+    focusWindow
+    && (focusWindow.start > windowStart! || focusWindow.end < windowEnd!),
+  );
+  const effectiveChartWindow: ChartWindow =
+    chartWindow === 'focus' && focusIsNarrower ? 'focus' : 'range';
+  const chartSeries = useMemo(() => {
+    if (effectiveChartWindow !== 'focus' || !focusWindow) return series;
+    return series.filter((point) => (
+      point.date >= focusWindow.start && point.date <= focusWindow.end
+    ));
+  }, [series, effectiveChartWindow, focusWindow]);
+  const chartMarkers = useMemo(
+    () => activity
+      .filter((row) => (
+        chartSeries.length > 0
+        && row.date >= chartSeries[0]!.date
+        && row.date <= chartSeries.at(-1)!.date
+      ))
+      .map((row) => {
+        const point = chartSeries.find((candidate) => candidate.date === row.date);
+        return {
+          date: row.date,
+          daily: point?.daily ?? 0,
+          cumulative: point?.cumulative ?? 0,
+          kind: row.kind,
+          label: row.symbol ?? row.description ?? row.kind,
+        };
+      }),
+    [activity, chartSeries],
+  );
+  const chartValues = chartSeries.map((point) => point[chartMetric]);
+  const chartMin = Math.min(0, ...chartValues);
+  const chartMax = Math.max(0, ...chartValues);
+  const chartPad = Math.max((chartMax - chartMin) * 0.08, 1);
+  const chartDomain: [number, number] = [chartMin - chartPad, chartMax + chartPad];
+  const largestDay = chartSeries.reduce<(typeof chartSeries)[number] | null>(
+    (largest, point) => (
+      !largest || Math.abs(point.daily) > Math.abs(largest.daily) ? point : largest
+    ),
+    null,
+  );
+  const markableLots = optionLots.filter((lot) => legDailyById.has(lot.id));
+  const activeLegId = markableLots.some((lot) => lot.id === selectedLegId)
+    ? selectedLegId
+    : markableLots[0]?.id ?? null;
+  const activeLeg = markableLots.find((lot) => lot.id === activeLegId) ?? null;
+  const activeLegPath = activeLegId ? legDailyById.get(activeLegId) ?? [] : [];
+  const activeLegRows = activeLegPath as LegDailyTableRow[];
+  const activeLegSource = activeLegPath[0]?.source ?? 'linear';
+  const activeLegTotal = activeLegPath.at(-1)?.cumulative_pnl ?? 0;
 
   const periodPnl = totals.period;
   const hasActivity = activity.length > 0
@@ -396,6 +467,15 @@ export function SchwabPnlSection({
       const next = { ...prev, [key]: !prev[key] };
       if (!next.stocks && !next.options && !next.dividends && !next.fees) return prev;
       return next;
+    });
+  };
+  const revealLeg = (id: string) => {
+    setSelectedLegId(id);
+    window.requestAnimationFrame(() => {
+      document.querySelector('.portfolio-leg-audit')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
     });
   };
 
@@ -523,10 +603,52 @@ export function SchwabPnlSection({
           selected sleeves.
         </Text>
       ) : (
-        <VStack gap={2} className="portfolio-pnl-chart">
-          <div className="portfolio-pnl-plot">
+        <Section variant="muted" padding={3}>
+          <VStack gap={3} className="portfolio-pnl-chart">
+            <HStack gap={3} wrap="wrap" justify="between" align="end">
+              <VStack gap={0}>
+                <Text weight="semibold">
+                  {chartMetric === 'daily' ? 'Day P&L' : 'Cumulative P&L'}
+                </Text>
+                <Text type="supporting" size="sm">
+                  {effectiveChartWindow === 'focus' && focusWindow
+                    ? `Trade window · ${focusWindow.start} → ${focusWindow.end}`
+                    : `${range} window · ${windowLabel ?? 'loading'}`}
+                </Text>
+              </VStack>
+              <HStack gap={2} wrap="wrap">
+                {focusIsNarrower ? (
+                  <SegmentedControl
+                    value={effectiveChartWindow}
+                    onChange={(value) => setChartWindow(value as ChartWindow)}
+                    label="Chart date window"
+                    size="sm"
+                  >
+                    <SegmentedControlItem value="focus" label="Trade window" />
+                    <SegmentedControlItem value="range" label={`Full ${range}`} />
+                  </SegmentedControl>
+                ) : null}
+                <SegmentedControl
+                  value={chartMetric}
+                  onChange={(value) => setChartMetric(value as ChartMetric)}
+                  label="Chart P&L measure"
+                  size="sm"
+                >
+                  <SegmentedControlItem value="daily" label="Day" />
+                  <SegmentedControlItem value="cumulative" label="Cumulative" />
+                </SegmentedControl>
+              </HStack>
+            </HStack>
+            <Text type="supporting">
+              {chartMetric === 'daily'
+                ? largestDay
+                  ? `Each bar is one session. Largest visible move: ${moneySigned(largestDay.daily)} on ${largestDay.date}.`
+                  : 'Each bar is one session.'
+                : `The step line is the running total through the visible window. The ${range} headline above always uses the full selected period.`}
+            </Text>
+            <VStack className="portfolio-pnl-plot">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+              <ComposedChart data={chartSeries} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                 <CartesianGrid
                   stroke="var(--color-border)"
                   strokeDasharray="3 3"
@@ -541,7 +663,7 @@ export function SchwabPnlSection({
                   tickFormatter={formatChartTick}
                 />
                 <YAxis
-                  domain={['auto', 'auto']}
+                  domain={chartDomain}
                   axisLine={false}
                   tickLine={false}
                   width={56}
@@ -563,33 +685,43 @@ export function SchwabPnlSection({
                     color: 'var(--color-text-primary)',
                   }}
                   labelFormatter={(d) => String(d)}
-                  formatter={(v, name) => [
+                  formatter={(v) => [
                     money(v as number),
-                    name === 'cumulative' ? 'Cumulative' : 'Day',
+                    chartMetric === 'cumulative' ? 'Cumulative P&L' : 'Day P&L',
                   ]}
                 />
                 <ReferenceLine y={0} stroke="var(--color-border)" />
-                <Bar
-                  dataKey="daily"
-                  name="daily"
-                  fill="var(--accent)"
-                  fillOpacity={0.35}
-                  isAnimationActive={false}
-                  maxBarSize={10}
-                />
-                <Area
-                  type="stepAfter"
-                  dataKey="cumulative"
-                  name="cumulative"
-                  stroke="var(--accent)"
-                  fill="var(--accent)"
-                  fillOpacity={0.12}
-                  strokeWidth={1.5}
-                  isAnimationActive={false}
-                />
+                {chartMetric === 'daily' ? (
+                  <Bar
+                    dataKey="daily"
+                    name="Day P&L"
+                    isAnimationActive={false}
+                    maxBarSize={28}
+                  >
+                    {chartSeries.map((point) => (
+                      <Cell
+                        key={point.date}
+                        fill={point.daily >= 0
+                          ? 'var(--color-success)'
+                          : 'var(--color-error)'}
+                      />
+                    ))}
+                  </Bar>
+                ) : (
+                  <Area
+                    type="stepAfter"
+                    dataKey="cumulative"
+                    name="Cumulative P&L"
+                    stroke="var(--accent)"
+                    fill="var(--accent)"
+                    fillOpacity={0.12}
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
+                )}
                 <Scatter
-                  data={markers}
-                  dataKey="cumulative"
+                  data={chartMarkers}
+                  dataKey={chartMetric}
                   fill="var(--accent)"
                   shape={(props: { cx?: number; cy?: number; payload?: { kind?: ActivityRow['kind'] } }) => {
                     const kind = props.payload?.kind ?? 'stock';
@@ -606,15 +738,13 @@ export function SchwabPnlSection({
                 />
               </ComposedChart>
             </ResponsiveContainer>
-          </div>
-          <Text type="supporting">
-            Bars are that day&apos;s P&amp;L; the step line is the running total.
-            Dots are the included fills and dividends
-            {symbol
-              ? '. Stock and option marks follow Schwab daily closes. Assignment marks the short option at intrinsic value, so receiving shares does not create a one-day P&amp;L jump.'
-              : '.'}
-          </Text>
-        </VStack>
+            </VStack>
+            <Text type="supporting" size="sm">
+              Dots are included fills and dividends. Chart focus changes only
+              the dates shown — it never changes the {range} headline.
+            </Text>
+          </VStack>
+        </Section>
       )}
 
       {summary && !loading ? (
@@ -698,288 +828,312 @@ export function SchwabPnlSection({
         </Text>
       ) : null}
 
+      {!loading && activeLeg ? (
+        <Section variant="muted" padding={3}>
+          <VStack gap={3} className="portfolio-leg-audit">
+            <VStack gap={0}>
+              <Text weight="semibold">Option leg audit · daily MTM</Text>
+              <Text type="supporting">
+                Select a leg to see the exact session marks used by the
+                Performance curve. This is mark-to-market timing, not a second
+                realized P&amp;L calculation.
+              </Text>
+            </VStack>
+            <TabList
+              size="sm"
+              value={activeLegId!}
+              onChange={(value) => setSelectedLegId(value)}
+              hasDivider
+              aria-label="Option leg"
+            >
+              {markableLots.map((lot) => (
+                <Tab key={lot.id} value={lot.id} label={legLabel(lot)} />
+              ))}
+            </TabList>
+            <HStack gap={5} wrap="wrap" justify="between" align="end">
+              <VStack gap={0}>
+                <Text type="supporting" size="sm">Mark source</Text>
+                <Token
+                  color={activeLegSource === 'schwab'
+                    ? 'green'
+                    : activeLegSource === 'intrinsic' ? 'orange' : 'gray'}
+                  label={markSourceLabel(activeLegSource)}
+                  size="sm"
+                />
+              </VStack>
+              <VStack gap={0}>
+                <Text type="supporting" size="sm">Hold</Text>
+                <Text hasTabularNumbers>
+                  {activeLegPath[0]?.date} → {activeLegPath.at(-1)?.date}
+                </Text>
+              </VStack>
+              <VStack gap={0}>
+                <Text type="supporting" size="sm">Leg MTM total</Text>
+                <Text
+                  hasTabularNumbers
+                  weight="semibold"
+                  className={`portfolio-pnl-${pnlTone(activeLegTotal)}`}
+                >
+                  {moneySigned(activeLegTotal)}
+                </Text>
+              </VStack>
+            </HStack>
+            <Text type="supporting">{markSourceExplanation(activeLegSource)}</Text>
+            {isMobile ? (
+              <List density="compact" hasDividers header="Session marks">
+                {activeLegPath.map((point) => (
+                  <ListItem
+                    key={point.date}
+                    label={point.date}
+                    description={`Mark ${money(point.mark)} · Day MTM ${moneySigned(point.daily_pnl)}`}
+                    endContent={(
+                      <Text
+                        hasTabularNumbers
+                        className={`portfolio-pnl-${pnlTone(point.cumulative_pnl)}`}
+                      >
+                        {moneySigned(point.cumulative_pnl)}
+                      </Text>
+                    )}
+                  />
+                ))}
+              </List>
+            ) : (
+              <Table
+                className="portfolio-table"
+                data={activeLegRows}
+                idKey="date"
+                density="compact"
+                dividers="rows"
+                hasHover
+                columns={[
+                  {
+                    key: 'date',
+                    header: 'Session',
+                    width: pixel(120),
+                    renderCell: (row) => (
+                      <Timestamp value={row.date} format="date" type="body" />
+                    ),
+                  },
+                  {
+                    key: 'mark',
+                    header: 'Option mark',
+                    width: proportional(1),
+                    renderCell: (row) => (
+                      <Text hasTabularNumbers>{money(row.mark)}</Text>
+                    ),
+                  },
+                  {
+                    key: 'daily_pnl',
+                    header: 'Day MTM',
+                    width: proportional(1),
+                    renderCell: (row) => (
+                      <Text
+                        hasTabularNumbers
+                        weight="semibold"
+                        className={`portfolio-pnl-${pnlTone(row.daily_pnl)}`}
+                      >
+                        {moneySigned(row.daily_pnl)}
+                      </Text>
+                    ),
+                  },
+                  {
+                    key: 'cumulative_pnl',
+                    header: 'Running MTM',
+                    width: proportional(1),
+                    renderCell: (row) => (
+                      <Text
+                        hasTabularNumbers
+                        className={`portfolio-pnl-${pnlTone(row.cumulative_pnl)}`}
+                      >
+                        {moneySigned(row.cumulative_pnl)}
+                      </Text>
+                    ),
+                  },
+                ]}
+              />
+            )}
+          </VStack>
+        </Section>
+      ) : null}
+
       {!loading && activityRows.length > 0 ? (
         <VStack gap={2} className="portfolio-pnl-breakdown">
           <Text weight="semibold">
             {symbol ? `${symbol} activity` : 'Activity'}
           </Text>
           <Text type="supporting">
-            Every included fill and dividend in this window. Options show put
-            or call, strike, and fill price so assignment vs premium is easy
-            to check. Expand an option row to see that leg&apos;s daily
-            mark-to-market (Schwab option closes, or Schwab underlying
-            intrinsic when option history is missing). Realized is set when a
-            close matched an open lot.
+            FIFO realized is the cash and cost-basis result recorded when a lot
+            closes. Daily MTM in the leg audit above explains when that value
+            accrued on the chart. Select Marks on an option close to connect
+            the activity row to its mark path.
           </Text>
-          <Table
-            className="portfolio-table"
-            data={activityRows}
-            idKey="id"
-            density="compact"
-            dividers="rows"
-            hasHover
-            textOverflow="truncate"
-            columns={[
-              {
-                key: 'marks',
-                header: 'Marks',
-                width: pixel(88),
-                renderCell: (row) => {
-                  const fillId = activityFillId(row);
-                  const path = fillId ? legDailyById.get(fillId) : undefined;
-                  if (row.kind !== 'option' || !fillId || !path || path.length === 0) {
-                    return <Text type="supporting">—</Text>;
-                  }
-                  const open = expandedLegId === fillId;
-                  return (
-                    <Button
-                      size="sm"
-                      variant={open ? 'primary' : 'ghost'}
-                      label={open ? 'Hide' : 'Daily'}
-                      onClick={() => setExpandedLegId(open ? null : fillId)}
-                    />
-                  );
+          {isMobile ? (
+            <List
+              density="compact"
+              hasDividers
+              header={`${activityRows.length.toLocaleString()} included events`}
+            >
+              {activityRows.map((row) => {
+                const fillId = activityFillId(row);
+                const hasMarks = Boolean(fillId && legDailyById.has(fillId));
+                const optionDetail = row.kind === 'option'
+                  ? ` · ${strikeLabel(row.strike)} ${row.option_right ?? 'option'}`
+                  : '';
+                const fillDetail = row.quantity != null || row.price != null
+                  ? `Qty ${qty(row.quantity)} at ${money(row.price)}`
+                  : row.description ?? 'Cash activity';
+                const realized = row.realized_pnl == null
+                  ? 'FIFO realized —'
+                  : `FIFO realized ${moneySigned(row.realized_pnl)}`;
+                return (
+                  <ListItem
+                    key={row.id}
+                    label={`${row.date} · ${row.side ?? kindLabel(row)}${optionDetail}`}
+                    description={(
+                      <VStack gap={0}>
+                        <Text weight="semibold">{row.symbol ?? row.description ?? '—'}</Text>
+                        <Text type="supporting">
+                          {fillDetail} · Net {money(row.net_amount)} · {realized}
+                        </Text>
+                        {hasMarks ? (
+                          <Text type="supporting">Tap to show this leg&apos;s daily MTM.</Text>
+                        ) : null}
+                      </VStack>
+                    )}
+                    endContent={hasMarks ? (
+                      <Token
+                        color={activeLegId === fillId ? 'orange' : 'gray'}
+                        label="Marks"
+                        size="sm"
+                      />
+                    ) : null}
+                    isSelected={activeLegId === fillId}
+                    onClick={hasMarks && fillId ? () => revealLeg(fillId) : undefined}
+                  />
+                );
+              })}
+            </List>
+          ) : (
+            <Table
+              className="portfolio-table"
+              data={activityRows}
+              idKey="id"
+              density="compact"
+              dividers="rows"
+              hasHover
+              textOverflow="wrap"
+              columns={[
+                {
+                  key: 'date',
+                  header: 'Date',
+                  width: pixel(110),
+                  renderCell: (row) => (
+                    <Timestamp value={row.date} format="date" type="body" />
+                  ),
                 },
-              },
-              {
-                key: 'date',
-                header: 'Date',
-                width: pixel(110),
-                renderCell: (row) => (
-                  <Timestamp value={row.date} format="date" type="body" />
-                ),
-              },
-              {
-                key: 'kind',
-                header: 'Kind',
-                width: pixel(80),
-                renderCell: (row) => (
-                  <Token color={kindTone(row.kind)} label={kindLabel(row)} size="sm" />
-                ),
-              },
-              {
-                key: 'side',
-                header: 'Side',
-                width: pixel(72),
-                renderCell: (row) => (
-                  row.side
-                    ? <Token color={sideTone(row.side)} label={row.side} size="sm" />
-                    : <Text type="supporting">—</Text>
-                ),
-              },
-              {
-                key: 'symbol',
-                header: 'Symbol',
-                width: proportional(1.2),
-                renderCell: (row) => (
-                  <Text weight="semibold" hasTabularNumbers>{row.symbol ?? '—'}</Text>
-                ),
-              },
-              {
-                key: 'strike',
-                header: 'Strike',
-                width: pixel(80),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers>
-                    {row.kind === 'option' ? strikeLabel(row.strike) : '—'}
-                  </Text>
-                ),
-              },
-              {
-                key: 'quantity',
-                header: 'Qty',
-                width: pixel(72),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers>{qty(row.quantity)}</Text>
-                ),
-              },
-              {
-                key: 'price',
-                header: 'Fill',
-                width: pixel(88),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers>{money(row.price)}</Text>
-                ),
-              },
-              {
-                key: 'net_amount',
-                header: 'Net',
-                width: pixel(100),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers>{money(row.net_amount)}</Text>
-                ),
-              },
-              {
-                key: 'fees',
-                header: 'Fees',
-                width: pixel(72),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers>{money(row.fees)}</Text>
-                ),
-              },
-              {
-                key: 'realized_pnl',
-                header: 'Realized',
-                width: pixel(100),
-                renderCell: (row) => (
-                  row.realized_pnl == null ? (
-                    <Text type="supporting">—</Text>
-                  ) : (
-                    <Text
-                      hasTabularNumbers
-                      weight="semibold"
-                      className={`portfolio-pnl-${pnlTone(row.realized_pnl)}`}
-                    >
-                      {moneySigned(row.realized_pnl)}
-                    </Text>
-                  )
-                ),
-              },
-              {
-                key: 'prior_open',
-                header: 'Lot',
-                width: pixel(72),
-                renderCell: (row) => (
-                  row.kind === 'dividend' ? (
-                    <Text type="supporting">—</Text>
-                  ) : row.realized_pnl == null ? (
-                    <Token color="gray" label="open" size="sm" />
-                  ) : row.prior_open ? (
-                    <Token color="gray" label="prior" size="sm" />
-                  ) : (
-                    <Token color="green" label="period" size="sm" />
-                  )
-                ),
-              },
-              {
-                key: 'description',
-                header: 'Description',
-                width: proportional(1.4),
-                renderCell: (row) => (
-                  <Text type="supporting">{row.description ?? '—'}</Text>
-                ),
-              },
-            ]}
-          />
-          {legDailyById.size > 0 ? (
-            <VStack gap={2}>
-              <Text weight="semibold">Option leg daily marks</Text>
-              <Text type="supporting">
-                Session mark and day P&amp;L for each option lot on the chart.
-                Expand a leg (or tap Daily on its activity row) to audit the
-                path — same marks the Performance curve uses.
-              </Text>
-              <CollapsibleGroup
-                type="single"
-                value={expandedLegId ?? ''}
-                onChange={(value) => {
-                  if (typeof value === 'string' && value.length > 0) {
-                    setExpandedLegId(value);
-                  } else if (Array.isArray(value) && value[0]) {
-                    setExpandedLegId(value[0]!);
-                  } else {
-                    setExpandedLegId(null);
-                  }
-                }}
-                hasDividers
-              >
-                {optionLots
-                  .filter((lot) => legDailyById.has(lot.id))
-                  .map((lot) => {
-                    const path = legDailyById.get(lot.id) ?? [];
-                    const rows: LegDailyTableRow[] = path.map((p) => ({ ...p }));
-                    const source = path[0]?.source ?? 'linear';
-                    const total = path.at(-1)?.cumulative_pnl ?? 0;
-                    return (
-                      <Collapsible
-                        key={lot.id}
-                        value={lot.id}
-                        trigger={(
-                          <HStack gap={3} align="center" wrap="wrap">
-                            <Text weight="semibold">{legLabel(lot)}</Text>
-                            <Token
-                              color="gray"
-                              label={markSourceLabel(source)}
-                              size="sm"
-                            />
-                            <Text
-                              hasTabularNumbers
-                              className={`portfolio-pnl-${pnlTone(total)}`}
-                            >
-                              {moneySigned(total)}
-                            </Text>
-                          </HStack>
-                        )}
+                {
+                  key: 'symbol',
+                  header: 'Activity',
+                  width: proportional(1.5),
+                  renderCell: (row) => (
+                    <VStack gap={0}>
+                      <HStack gap={1} wrap="wrap">
+                        <Token color={kindTone(row.kind)} label={kindLabel(row)} size="sm" />
+                        {row.side ? (
+                          <Token color={sideTone(row.side)} label={row.side} size="sm" />
+                        ) : null}
+                      </HStack>
+                      <Text weight="semibold" hasTabularNumbers>
+                        {row.symbol ?? '—'}
+                        {row.kind === 'option'
+                          ? ` · ${strikeLabel(row.strike)} ${row.option_right ?? ''}`
+                          : ''}
+                      </Text>
+                      {row.description ? (
+                        <Text type="supporting" size="sm">{row.description}</Text>
+                      ) : null}
+                    </VStack>
+                  ),
+                },
+                {
+                  key: 'quantity',
+                  header: 'Fill',
+                  width: pixel(110),
+                  renderCell: (row) => (
+                    <VStack gap={0}>
+                      <Text hasTabularNumbers>Qty {qty(row.quantity)}</Text>
+                      <Text type="supporting" hasTabularNumbers>{money(row.price)}</Text>
+                    </VStack>
+                  ),
+                },
+                {
+                  key: 'net_amount',
+                  header: 'Cash',
+                  width: pixel(110),
+                  renderCell: (row) => (
+                    <VStack gap={0}>
+                      <Text hasTabularNumbers>{money(row.net_amount)}</Text>
+                      <Text type="supporting" hasTabularNumbers>
+                        Fees {money(row.fees)}
+                      </Text>
+                    </VStack>
+                  ),
+                },
+                {
+                  key: 'realized_pnl',
+                  header: 'FIFO realized',
+                  width: pixel(120),
+                  renderCell: (row) => (
+                    row.realized_pnl == null ? (
+                      <Text type="supporting">—</Text>
+                    ) : (
+                      <Text
+                        hasTabularNumbers
+                        weight="semibold"
+                        className={`portfolio-pnl-${pnlTone(row.realized_pnl)}`}
                       >
-                        <Table
-                          className="portfolio-table"
-                          data={rows}
-                          idKey="date"
-                          density="compact"
-                          dividers="rows"
-                          hasHover
-                          columns={[
-                            {
-                              key: 'date',
-                              header: 'Date',
-                              width: pixel(110),
-                              renderCell: (row) => (
-                                <Timestamp value={row.date} format="date" type="body" />
-                              ),
-                            },
-                            {
-                              key: 'mark',
-                              header: 'Mark',
-                              width: pixel(88),
-                              renderCell: (row) => (
-                                <Text hasTabularNumbers>{money(row.mark)}</Text>
-                              ),
-                            },
-                            {
-                              key: 'daily_pnl',
-                              header: 'Day P&L',
-                              width: pixel(110),
-                              renderCell: (row) => (
-                                <Text
-                                  hasTabularNumbers
-                                  weight="semibold"
-                                  className={`portfolio-pnl-${pnlTone(row.daily_pnl)}`}
-                                >
-                                  {moneySigned(row.daily_pnl)}
-                                </Text>
-                              ),
-                            },
-                            {
-                              key: 'cumulative_pnl',
-                              header: 'Cumulative',
-                              width: pixel(110),
-                              renderCell: (row) => (
-                                <Text
-                                  hasTabularNumbers
-                                  className={`portfolio-pnl-${pnlTone(row.cumulative_pnl)}`}
-                                >
-                                  {moneySigned(row.cumulative_pnl)}
-                                </Text>
-                              ),
-                            },
-                            {
-                              key: 'source',
-                              header: 'Source',
-                              width: proportional(1),
-                              renderCell: (row) => (
-                                <Text type="supporting">
-                                  {markSourceLabel(row.source)}
-                                </Text>
-                              ),
-                            },
-                          ]}
-                        />
-                      </Collapsible>
+                        {moneySigned(row.realized_pnl)}
+                      </Text>
+                    )
+                  ),
+                },
+                {
+                  key: 'prior_open',
+                  header: 'Lot',
+                  width: pixel(76),
+                  renderCell: (row) => (
+                    row.kind === 'dividend' ? (
+                      <Text type="supporting">—</Text>
+                    ) : row.realized_pnl == null ? (
+                      <Token color="gray" label="open" size="sm" />
+                    ) : row.prior_open ? (
+                      <Token color="gray" label="prior" size="sm" />
+                    ) : (
+                      <Token color="green" label="period" size="sm" />
+                    )
+                  ),
+                },
+                {
+                  key: 'marks',
+                  header: 'Daily MTM',
+                  width: pixel(110),
+                  renderCell: (row) => {
+                    const fillId = activityFillId(row);
+                    const hasMarks = Boolean(fillId && legDailyById.has(fillId));
+                    if (!hasMarks) return <Text type="supporting">—</Text>;
+                    return (
+                      <Button
+                        size="sm"
+                        variant={activeLegId === fillId ? 'primary' : 'ghost'}
+                        label="Marks"
+                        onClick={() => revealLeg(fillId!)}
+                      />
                     );
-                  })}
-              </CollapsibleGroup>
-            </VStack>
-          ) : null}
+                  },
+                },
+              ]}
+            />
+          )}
         </VStack>
       ) : null}
     </VStack>

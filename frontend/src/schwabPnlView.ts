@@ -231,6 +231,51 @@ export function filterActivity(rows: ActivityRow[], include: PnlInclude): Activi
   });
 }
 
+/**
+ * Narrow chart-only bounds to the dates that explain a scoped book. Option
+ * holds take precedence so opening-to-close MTM remains visible even on flat
+ * sessions. The caller keeps the full range for headline totals.
+ */
+export function performanceFocusWindow(
+  points: Array<{ date: string; daily: number }>,
+  activity: Array<{ date: string }>,
+  optionLots: Array<Pick<OptionLot, 'opened' | 'closed'>>,
+  rangeStart: string,
+  rangeEnd: string,
+): { start: string; end: string } | null {
+  if (!rangeStart || !rangeEnd || rangeStart > rangeEnd) return null;
+
+  const heldLots = optionLots.filter((lot) => (
+    Boolean(lot.opened)
+    && lot.opened! <= rangeEnd
+    && (!lot.closed || lot.closed >= rangeStart)
+  ));
+  if (heldLots.length > 0) {
+    const starts = heldLots
+      .map((lot) => lot.opened!)
+      .filter((date) => date >= rangeStart && date <= rangeEnd);
+    if (starts.length === 0) starts.push(rangeStart);
+    const hasOpenLot = heldLots.some((lot) => !lot.closed || lot.closed > rangeEnd);
+    const closes = heldLots
+      .map((lot) => lot.closed)
+      .filter((date): date is string => Boolean(date && date >= rangeStart && date <= rangeEnd));
+    return {
+      start: starts.sort()[0]!,
+      end: hasOpenLot || closes.length === 0
+        ? rangeEnd
+        : closes.sort().at(-1)!,
+    };
+  }
+
+  const activeDates = [
+    ...activity.map((row) => row.date),
+    ...points.filter((point) => point.daily !== 0).map((point) => point.date),
+  ].filter((date) => date >= rangeStart && date <= rangeEnd);
+  if (activeDates.length === 0) return null;
+  activeDates.sort();
+  return { start: activeDates[0]!, end: activeDates.at(-1)! };
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }

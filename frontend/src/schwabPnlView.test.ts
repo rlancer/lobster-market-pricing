@@ -16,6 +16,7 @@ import {
   optionLotsFromFills,
   optionLegDailyPath,
   optionSchwabBarsTrackExit,
+  performanceFocusWindow,
   positionTicker,
   tickerOpenMark,
   weekdayDates,
@@ -384,6 +385,40 @@ test('buildActivityRows includes assignment synth fills that are not in trades',
   assert.equal(rows[0]?.price, 0);
   assert.equal(rows[0]?.realized_pnl, 5020.8);
   assert.equal(rows[0]?.id, 'fill-synth-assign-stock-opt-1');
+});
+
+test('performanceFocusWindow fits the chart to the CAR hold without changing YTD data', () => {
+  const points = [
+    { date: '2026-01-01', daily: 0 },
+    { date: '2026-04-23', daily: 4800 },
+    { date: '2026-05-08', daily: 220.8 },
+    { date: '2026-08-29', daily: 0 },
+  ];
+  const focus = performanceFocusWindow(
+    points,
+    [{ date: '2026-04-22' }, { date: '2026-05-08' }],
+    [
+      { opened: '2026-04-22', closed: '2026-05-08' },
+      { opened: '2026-04-22', closed: '2026-05-08' },
+    ],
+    '2026-01-01',
+    '2026-08-29',
+  );
+  assert.deepEqual(focus, { start: '2026-04-22', end: '2026-05-08' });
+  assert.equal(points.reduce((sum, row) => sum + row.daily, 0), 5020.8);
+});
+
+test('performanceFocusWindow keeps an open option hold through the range end', () => {
+  assert.deepEqual(
+    performanceFocusWindow(
+      [{ date: '2026-08-29', daily: 14 }],
+      [{ date: '2026-08-10' }],
+      [{ opened: '2026-08-10', closed: null }],
+      '2026-08-01',
+      '2026-08-29',
+    ),
+    { start: '2026-08-10', end: '2026-08-29' },
+  );
 });
 
 test('parseOccContract reads strike and put/call from padded OCC', () => {
