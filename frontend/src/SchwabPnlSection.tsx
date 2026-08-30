@@ -217,8 +217,8 @@ export function SchwabPnlSection({
     [points, include, markPnl],
   );
   const totals = useMemo(
-    () => composeTotals(points, include, markPnl),
-    [points, include, markPnl],
+    () => composeTotals(points, include, openMark),
+    [points, include, openMark],
   );
   const activity = useMemo(
     () => filterActivity(buildActivityRows({ trades, fills, distributions }), include),
@@ -526,18 +526,6 @@ export function SchwabPnlSection({
                 className={`portfolio-pnl-${pnlTone(summary.prior_open_pnl)}`}
               >
                 {moneySigned(summary.prior_open_pnl)}
-              </Text>
-            </VStack>
-          ) : null}
-          {openMark && openMark.count > 0 && (include.stocks || include.options) ? (
-            <VStack gap={0}>
-              <Text type="supporting" size="sm">Open mark ({openMark.count})</Text>
-              <Text
-                hasTabularNumbers
-                weight="semibold"
-                className={`portfolio-pnl-${pnlTone(markPnl)}`}
-              >
-                {moneySigned(markPnl)}
               </Text>
             </VStack>
           ) : null}

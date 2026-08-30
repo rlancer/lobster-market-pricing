@@ -76,13 +76,27 @@ test('ticker open mark joins the last point so headline is dividends plus MTM', 
     point({ date: '2026-08-06', daily_dividends: 33.05 }),
     point({ date: '2026-08-29' }),
   ];
-  const mark = 174;
-  const composed = composeSeries(series, ALL, mark);
+  const mark = { equity_pnl: 174, option_pnl: 50 };
+  const composed = composeSeries(series, ALL, includedOpenMark(mark, ALL));
   assert.equal(composed[1]?.cumulative, 67.53);
-  assert.equal(composed[2]?.daily, 174);
-  assert.equal(composed[2]?.cumulative, 241.53);
-  assert.equal(composeTotals(series, ALL, mark).period, 241.53);
-  assert.equal(composeTotals(series, { ...ALL, stocks: false, options: false }).period, 67.53);
+  assert.equal(composed[2]?.daily, 224);
+  assert.equal(composed[2]?.cumulative, 291.53);
+  const totals = composeTotals(series, ALL, mark);
+  assert.equal(totals.period, 291.53);
+  assert.equal(totals.stocks, 174);
+  assert.equal(totals.options, 50);
+  assert.equal(totals.dividends, 67.53);
+
+  const tlt = composeTotals(series, ALL, { equity_pnl: -438, option_pnl: 0 });
+  assert.equal(tlt.stocks, -438);
+  assert.equal(tlt.options, 0);
+  assert.equal(tlt.period, -370.47);
+
+  assert.equal(composeTotals(series, { ...ALL, stocks: false, options: false }, mark).period, 67.53);
+  assert.equal(
+    composeTotals(series, { ...ALL, stocks: false }, mark).period,
+    67.53 + 50,
+  );
   assert.equal(
     includedOpenMark({ equity_pnl: 174, option_pnl: 50 }, ALL),
     224,

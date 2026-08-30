@@ -105,7 +105,7 @@ export function composeSeries(
 export function composeTotals(
   points: SchwabPnlPoint[],
   include: PnlInclude,
-  openMarkPnl = 0,
+  mark: { equity_pnl: number; option_pnl: number } | null = null,
 ): { period: number; stocks: number; options: number; dividends: number; fees: number } {
   let stocks = 0;
   let options = 0;
@@ -117,10 +117,13 @@ export function composeTotals(
     dividends += n(p.daily_dividends);
     fees += feeDrag(p.daily_fees);
   }
+  const stockMark = n(mark?.equity_pnl);
+  const optionMark = n(mark?.option_pnl);
+  const openMarkPnl = includedOpenMark(mark, include);
   return {
     period: composeSeries(points, include, openMarkPnl).at(-1)?.cumulative ?? openMarkPnl,
-    stocks,
-    options,
+    stocks: stocks + stockMark,
+    options: options + optionMark,
     dividends,
     fees,
   };

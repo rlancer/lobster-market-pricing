@@ -574,8 +574,9 @@ export function DocsSchwabPnl() {
         chart are P&amp;L for the include chips you have on. They do not include
         deposits or withdrawals. On the whole-account book that is realized P&amp;L
         for lots you opened in the selected range. When you scope a ticker, the
-        live open mark is included in the headline and the last chart point so an
-        open ETF like TLT is dividends plus the current mark, not dividends alone.
+        live open mark is included in the Stocks / Options stats, the headline,
+        and the last chart point so an open ETF like TLT is the current mark
+        plus dividends, not dividends alone.
       </p>
 
       <h3>Where to find it</h3>
@@ -608,10 +609,11 @@ export function DocsSchwabPnl() {
         time, ending today. The headline is the composed total for the sleeves
         you have on, for lots that both opened and closed inside that window.
         When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
-        or mark minus cost if that field is missing) is added to the headline
-        and to the last chart point — we do not reconstruct a daily mark
-        history. The step chart is that same total, accumulated day by day.
-        Dots on the curve are the included fills and dividends.
+        or mark minus cost if that field is missing) is added to the Stocks or
+        Options stat, the headline, and the last chart point — we do not
+        reconstruct a daily mark history. The step chart is that same total,
+        accumulated day by day. Dots on the curve are the included fills and
+        dividends.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">
