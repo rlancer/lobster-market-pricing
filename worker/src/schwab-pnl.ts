@@ -155,7 +155,7 @@ export interface SchwabPnlView {
   ohlc_source: "schwab" | null;
   /** Decimal annual dividend yield used by the option mark model. */
   dividend_yield: number | null;
-  /** Daily option closes keyed by compact OCC (`CAR260618P00390000`). */
+  /** Reserved compatibility field; option last-sale history is not fetched. */
   option_ohlc: Record<string, SchwabPriceBar[]>;
   /** True when Schwab may have capped the trade page (~3000 rows). */
   may_be_truncated: boolean;
@@ -1268,6 +1268,11 @@ export async function loadSchwabPnl(
         throw e;
       }
     }
+    if (tradePageTruncated) {
+      throw new Error(
+        "Schwab trade history exceeded the per-day transaction cap; P&L cannot be calculated completely",
+      );
+    }
     const allTrades = raw
       .filter(isIncludedSchwabTransaction)
       .flatMap(normalizeTrades);
@@ -1304,6 +1309,11 @@ export async function loadSchwabPnl(
         start: opts.start,
         end: opts.end,
       });
+    }
+    if (distributionPageTruncated) {
+      throw new Error(
+        "Schwab distribution history exceeded the per-day transaction cap; P&L cannot be calculated completely",
+      );
     }
 
     const aliasRows: Array<{
@@ -1400,7 +1410,7 @@ export async function loadSchwabPnl(
         // Option last-sale history is intentionally not used for marks, so do
         // not spend up to eight rate-limited requests returning dead data.
         option_ohlc: {},
-        may_be_truncated: tradePageTruncated || distributionPageTruncated,
+        may_be_truncated: false,
         lookback_truncated: lookbackTruncated,
       },
     };

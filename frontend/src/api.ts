@@ -1033,7 +1033,7 @@ export interface SchwabPnlResponse {
   ohlc_source?: 'schwab' | null;
   /** Decimal annual dividend yield used by the option mark model. */
   dividend_yield?: number | null;
-  /** Daily option closes keyed by compact OCC symbol. */
+  /** Reserved compatibility field; option last-sale history is not fetched. */
   option_ohlc?: Record<string, OhlcBar[]>;
   may_be_truncated?: boolean;
   /** True when cost-basis lookback failed and only the chart window was fetched. */

@@ -168,7 +168,8 @@ export function normalizeSchwabDividendYield(
   };
   const reportedYield = num(quote.fundamental?.divYield);
   if (reportedYield != null && reportedYield >= 0) {
-    return reportedYield > 1 ? reportedYield / 100 : reportedYield;
+    // Schwab quote fundamentals express divYield in percentage points.
+    return reportedYield / 100;
   }
   const annualAmount = num(quote.fundamental?.divAmount);
   const spot =

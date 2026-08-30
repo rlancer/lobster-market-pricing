@@ -7,6 +7,7 @@ import {
   formatOccOptionSymbol,
   inferTradeSide,
   isIncludedSchwabTransaction,
+  listSchwabTransactionsComplete,
   matchesTicker,
   normalizeTrade,
   normalizeTrades,
@@ -15,6 +16,7 @@ import {
   commissionPnl,
   toTradeAccounts,
   SCHWAB_TRADES_MAX_RANGE_DAYS,
+  SCHWAB_TRANSACTIONS_PAGE_CAP,
 } from "../src/schwab-trader.ts";
 
 test("opaqueAccountId matches portfolio masking scheme", () => {
@@ -318,4 +320,33 @@ test("invalid and reversed Schwab transactions are excluded", () => {
   assert.equal(isIncludedSchwabTransaction({ status: "VALID" }), true);
   assert.equal(isIncludedSchwabTransaction({ status: "INVALID" }), false);
   assert.equal(isIncludedSchwabTransaction({ status: "REVERSED" }), false);
+});
+
+test("listSchwabTransactionsComplete partitions a capped date window", async () => {
+  let calls = 0;
+  const fetchImpl: typeof fetch = async (input) => {
+    calls += 1;
+    const url = new URL(String(input));
+    const start = Number(url.searchParams.get("startDate"));
+    const end = Number(url.searchParams.get("endDate"));
+    const rows = end - start > 24 * 60 * 60 * 1000
+      ? Array.from({ length: SCHWAB_TRANSACTIONS_PAGE_CAP }, (_, index) => ({
+          activityId: index,
+        }))
+      : [{ activityId: calls }];
+    return new Response(JSON.stringify(rows), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const page = await listSchwabTransactionsComplete(
+    "tok",
+    "hash",
+    { start: "2026-08-01", end: "2026-08-02", types: "TRADE" },
+    "Bearer",
+    fetchImpl,
+  );
+  assert.equal(calls, 3);
+  assert.equal(page.truncated, false);
+  assert.equal(page.rows.length, 2);
 });

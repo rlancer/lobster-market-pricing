@@ -436,6 +436,7 @@ async function schwabGet<T>(
   path: string,
   query?: Record<string, string>,
   tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<T> {
   const url = new URL(`${SCHWAB_TRADER_BASE}${path}`);
   if (query) {
@@ -443,7 +444,7 @@ async function schwabGet<T>(
       if (v) url.searchParams.set(k, v);
     }
   }
-  const resp = await fetch(url.toString(), {
+  const resp = await fetchImpl(url.toString(), {
     method: "GET",
     headers: {
       Authorization: `${tokenType} ${accessToken}`,
@@ -471,6 +472,7 @@ export async function listSchwabTransactions(
   accountHash: string,
   opts: { start: string; end: string; types?: string; symbol?: string },
   tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<SchwabRawTransaction[]> {
   const { startIso, endIso } = dayBoundsIso(opts.start, opts.end);
   const query: Record<string, string> = {
@@ -485,6 +487,7 @@ export async function listSchwabTransactions(
     `/accounts/${encodeURIComponent(accountHash)}/transactions`,
     query,
     tokenType,
+    fetchImpl,
   );
   return Array.isArray(rows) ? rows : [];
 }
@@ -516,6 +519,7 @@ export async function listSchwabTransactionsComplete(
   accountHash: string,
   opts: { start: string; end: string; types?: string; symbol?: string },
   tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<SchwabTransactionsPage> {
   const load = async (start: string, end: string): Promise<SchwabTransactionsPage> => {
     const rows = await listSchwabTransactions(
@@ -523,6 +527,7 @@ export async function listSchwabTransactionsComplete(
       accountHash,
       { ...opts, start, end },
       tokenType,
+      fetchImpl,
     );
     if (rows.length < SCHWAB_TRANSACTIONS_PAGE_CAP) {
       return { rows, truncated: false };

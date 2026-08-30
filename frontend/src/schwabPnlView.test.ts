@@ -1111,7 +1111,13 @@ test('option lots retain both FIFO tranches and a remaining same-symbol position
     day_pnl: null,
     open_pnl: 50,
   };
-  const lots = optionLotsFromFills([fill], [position]);
+  const otherPosition: SchwabPortfolioPosition = {
+    ...position,
+    id: 'aapl',
+    symbol: 'AAPL  260918C00200000',
+    underlying: 'AAPL',
+  };
+  const lots = optionLotsFromFills([fill], [position, otherPosition], 'CAR');
   assert.equal(lots.length, 3);
   assert.deepEqual(
     lots.filter((lot) => lot.closed).map((lot) => lot.opened),
@@ -1155,7 +1161,23 @@ test('assignment reclassification can follow the delivered stock sale', () => {
   };
   const lot = optionLotsFromFills([option, stockSale])[0]!;
   assert.equal(lot.assignment_equity_fill_id, 'stock-sale');
+  assert.equal(lot.assignment_equity_date, '2026-05-09');
   assert.equal(lot.target_pnl, -1_500);
+  const marked = applyOptionMarkPath(
+    [
+      point({ date: '2026-05-08', daily_option_pnl: 500, daily_pnl: 500 }),
+      point({ date: '2026-05-09', daily_equity_pnl: -2_000, daily_pnl: -2_000 }),
+    ],
+    {},
+    [lot],
+    '2026-04-01',
+    '2026-05-31',
+    [],
+  );
+  assert.equal(
+    marked.points.find((row) => row.date === '2026-05-09')?.daily_equity_pnl,
+    0,
+  );
 });
 
 test('positionTicker prefers underlying then OCC root', () => {

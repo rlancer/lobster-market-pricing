@@ -189,9 +189,10 @@ site and SameSite=Lax will not send it.
   as a fallback. The lake often lacks the ticker or the hold window entirely
   (live CAR April 2026 crash: Schwab had daily bars; lake had none), which
   flattens the chart until realization and recreates one-day cliffs. Option
-  legs are Black–Scholes on **Schwab underlying** closes (IV from the fill),
-  never last-trade option prints and never `symbolDetail` / lake OHLC. Linear
-  fill→exit only when there is no underlying history.
+  legs are Black–Scholes on **Schwab underlying** closes (IV from the fill,
+  current dividend yield from Schwab quote fundamentals), never last-trade
+  option prints and never `symbolDetail` / lake OHLC. Linear fill→exit only
+  when there is no underlying history.
 
 ## Documentation policy — no `PLAN-*.md` rollups
 

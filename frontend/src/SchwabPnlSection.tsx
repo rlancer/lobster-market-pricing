@@ -189,7 +189,7 @@ function markSourceLabel(source: LegDailyPoint['source']): string {
 
 function markSourceExplanation(source: LegDailyPoint['source']): string {
   if (source === 'black_scholes') {
-    return 'Each session mark is Black–Scholes on that day’s Schwab stock close, using implied vol from the fill (held constant) and never below intrinsic. Last-trade option prints are ignored — they are often stale. A crash still moves the book with delta; once both spread legs are deep in the money they move together so net daily P&L is small.';
+    return 'Each session mark is Black–Scholes on that day’s Schwab stock close, using implied vol from the fill (held constant), Schwab’s current dividend yield when available, and never below intrinsic. Last-trade option prints are ignored — they are often stale. A crash still moves the book with delta; once both spread legs are deep in the money they move together so net daily P&L is small.';
   }
   if (source === 'schwab') {
     return 'Marks are Schwab option price-history closes — actual option prints from Schwab.';
@@ -340,7 +340,7 @@ export function SchwabPnlSection({
   }, [openMarkFromApi, positions, symbol]);
 
   const optionLots = useMemo(
-    () => (symbol ? optionLotsFromFills(fills, positions) : []),
+    () => (symbol ? optionLotsFromFills(fills, positions, symbol) : []),
     [fills, positions, symbol],
   );
   const assignmentEquityFillIds = useMemo(
@@ -647,9 +647,9 @@ export function SchwabPnlSection({
 
       {lookbackTruncated ? (
         <Text type="supporting" role="status">
-          Cost-basis lookback was unavailable, so only trades inside this chart
-          window were loaded. Closes of positions opened earlier may be missing
-          from realized PnL.
+          Complete cost basis was unavailable from Schwab history. Closes of
+          positions opened before the available lookback may be missing from
+          realized PnL.
         </Text>
       ) : null}
 

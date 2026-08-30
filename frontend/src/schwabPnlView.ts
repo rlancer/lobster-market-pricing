@@ -665,6 +665,7 @@ export type OptionLot = {
   /** Assigned-stock realization reclassified onto the short option. */
   assignment_equity_pnl: number;
   assignment_equity_fill_id?: string;
+  assignment_equity_date?: string;
   target_pnl: number;
   prior_open: boolean;
 };
@@ -685,8 +686,10 @@ function isAssignmentFill(fill: SchwabPnlFill): boolean {
 export function optionLotsFromFills(
   fills: SchwabPnlFill[],
   positions: SchwabPortfolioPosition[] = [],
+  ticker?: string | null,
 ): OptionLot[] {
   const lots: OptionLot[] = [];
+  const want = ticker?.trim().toUpperCase() || null;
   const usedEquityFills = new Set<string>();
   for (const fill of fills) {
     if (!isOptionLike(fill)) continue;
@@ -709,10 +712,12 @@ export function optionLotsFromFills(
     // Schwab omits the short-option close on assignment. FIFO therefore books
     // the premium as a zero-price option win and the intrinsic loss on the
     // delivered stock. That is cash-correct but mark-path-wrong. Pair the
-    // synthetic cover with the same-day, same-size stock realization and move
-    // that amount onto the option, yielding an intrinsic assignment close.
+    // synthetic cover with the same-size delivered-stock lot (even when that
+    // stock is sold on a later session) and move its realization onto the
+    // option, yielding an intrinsic assignment close.
     let assignmentEquityPnl = 0;
     let assignmentEquityFillId: string | undefined;
+    let assignmentEquityDate: string | undefined;
     if (isAssignmentFill(fill)) {
       const root = optionRoot(fill.symbol);
       const assignedShares = closures.reduce((sum, lot) => sum + Math.abs(lot.quantity), 0)
@@ -721,6 +726,7 @@ export function optionLotsFromFills(
         .filter((candidate) => {
           if (usedEquityFills.has(candidate.id) || isOptionLike(candidate)) return false;
           if (candidate.date < fill.date || candidate.prior_open) return false;
+          if (candidate.opened !== fill.date) return false;
           const candidateRoot = (candidate.underlying ?? candidate.symbol ?? '').trim().toUpperCase();
           if (!root || candidateRoot !== root) return false;
           return Math.abs(Math.abs(candidate.quantity ?? 0) - assignedShares) < 1e-8;
@@ -729,6 +735,7 @@ export function optionLotsFromFills(
       if (equity) {
         assignmentEquityPnl = n(equity.realized_pnl);
         assignmentEquityFillId = equity.id;
+        assignmentEquityDate = equity.date;
         usedEquityFills.add(equity.id);
       }
     }
@@ -758,6 +765,7 @@ export function optionLotsFromFills(
         realized_pnl: realized,
         assignment_equity_pnl: assignedPnl,
         assignment_equity_fill_id: assignmentEquityFillId,
+        assignment_equity_date: assignmentEquityDate,
         target_pnl: target,
         prior_open: false,
       });
@@ -765,6 +773,7 @@ export function optionLotsFromFills(
   }
   for (const position of positions) {
     if (!isOptionLike(position) || position.quantity === 0) continue;
+    if (want && positionTicker(position) !== want) continue;
     const symbol = compactOccSymbol(position.symbol);
     if (!symbol) continue;
     if (position.average_price == null || !Number.isFinite(position.average_price)) continue;
@@ -780,6 +789,7 @@ export function optionLotsFromFills(
       realized_pnl: 0,
       assignment_equity_pnl: 0,
       assignment_equity_fill_id: undefined,
+      assignment_equity_date: undefined,
       target_pnl: n(position.open_pnl),
       prior_open: false,
     });
@@ -1070,7 +1080,7 @@ export function applyOptionMarkPath(
       row.daily_pnl = round2(n(row.daily_pnl) - lot.realized_pnl);
     }
     if (lot.closed && lot.assignment_equity_pnl !== 0) {
-      const row = touch(lot.closed);
+      const row = touch(lot.assignment_equity_date ?? lot.closed);
       row.daily_equity_pnl = round2(
         n(row.daily_equity_pnl) - lot.assignment_equity_pnl,
       );
