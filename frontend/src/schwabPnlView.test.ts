@@ -14,6 +14,7 @@ import {
   filterActivity,
   includedOpenMark,
   optionLotsFromFills,
+  optionSchwabBarsTrackExit,
   positionTicker,
   tickerOpenMark,
   weekdayDates,
@@ -495,6 +496,141 @@ test('applyOptionMarkPath spreads the CAR assignment instead of a one-day rocket
   assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
   assert.equal(may8!.daily_equity_pnl, 0);
   assert.ok(Math.abs(may8!.daily_pnl ?? 0) < 500);
+});
+
+test('optionSchwabBarsTrackExit rejects flat stale prints before the exit', () => {
+  assert.equal(
+    optionSchwabBarsTrackExit(
+      [
+        { date: '2026-04-01', close: 83.09 },
+        { date: '2026-04-15', close: 83.09 },
+        { date: '2026-05-07', close: 83.09 },
+      ],
+      83.09,
+      244.86,
+    ),
+    false,
+  );
+  assert.equal(
+    optionSchwabBarsTrackExit(
+      [
+        { date: '2026-04-01', close: 90 },
+        { date: '2026-04-15', close: 160 },
+        { date: '2026-05-07', close: 220 },
+      ],
+      83.09,
+      244.86,
+    ),
+    true,
+  );
+  assert.equal(optionSchwabBarsTrackExit([{ date: '2026-04-01', close: 83 }], 83, 244), false);
+});
+
+test('applyOptionMarkPath ignores flat Schwab option prints and uses intrinsic', () => {
+  const sparse = [
+    point({ date: '2026-01-01' }),
+    point({ date: '2026-05-08', daily_option_pnl: 29507.12, daily_equity_pnl: -24486.32, daily_pnl: 5020.8 }),
+    point({ date: '2026-08-29' }),
+  ];
+  const fills = [
+    {
+      id: 'synth-390',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00390000',
+      underlying: 'CAR',
+      description: 'Option assignment close',
+      side: 'buy' as const,
+      quantity: 1,
+      price: 0,
+      net_amount: 0,
+      fees: 0,
+      realized_pnl: 8309.17,
+      opened: '2026-04-01',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'close-500',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00500000',
+      underlying: 'CAR',
+      description: '',
+      side: 'sell' as const,
+      quantity: 1,
+      price: 354.6,
+      net_amount: 35458.61,
+      fees: -1.39,
+      realized_pnl: 21197.95,
+      opened: '2026-04-01',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'stock-sale',
+      date: '2026-05-08',
+      symbol: 'CAR',
+      underlying: null,
+      description: '',
+      side: 'sell' as const,
+      quantity: 100,
+      price: 145.14,
+      net_amount: 14513.68,
+      fees: -0.32,
+      realized_pnl: -24486.32,
+      opened: '2026-05-08',
+      prior_open: false,
+      asset_type: 'EQUITY',
+    },
+  ];
+  const lots = optionLotsFromFills(fills);
+  const first = Date.parse('2026-04-01T12:00:00Z');
+  const penultimate = Date.parse('2026-05-07T12:00:00Z');
+  const carOhlc = Array.from({ length: 20 }, (_, index) => ({
+    date: new Date(first + ((penultimate - first) * index) / 19).toISOString().slice(0, 10),
+    close: 300 - (150 * index) / 19,
+  }));
+  carOhlc.push({ date: '2026-05-08', close: 145.14 });
+
+  // Stale last-trade marks: enough bars to pass the old length>=2 gate, but
+  // never leave the entry print — the live CAR bug on Schwab option history.
+  const flatOptionOhlc = {
+    CAR260618P00390000: [
+      { date: '2026-04-01', close: 83.09 },
+      { date: '2026-04-15', close: 83.09 },
+      { date: '2026-05-01', close: 83.09 },
+      { date: '2026-05-07', close: 83.09 },
+    ],
+    CAR260618P00500000: [
+      { date: '2026-04-01', close: 142.62 },
+      { date: '2026-04-15', close: 142.62 },
+      { date: '2026-05-01', close: 142.62 },
+      { date: '2026-05-07', close: 142.62 },
+    ],
+  };
+
+  const { points: path, painted, closedPnl } = applyOptionMarkPath(
+    densifyWithOhlc(sparse, carOhlc, '2026-01-01', '2026-08-29'),
+    flatOptionOhlc,
+    lots,
+    '2026-01-01',
+    '2026-08-29',
+    carOhlc,
+  );
+  assert.equal(painted, true);
+  assert.equal(closedPnl, 5020.8);
+  const may8 = path.find((p) => p.date === '2026-05-08');
+  const holdingDays = path.filter((p) => p.date >= '2026-04-01' && p.date < '2026-05-08');
+  assert.ok(
+    holdingDays.some((p) => Math.abs(p.daily_option_pnl ?? 0) > 0),
+    'flat Schwab option prints must not block the intrinsic hold path',
+  );
+  assert.ok(
+    Math.abs(may8!.daily_option_pnl ?? 0) < 500,
+    'May 8 must not keep the whole close when Schwab option marks were flat',
+  );
+  const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
+  assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
+  assert.equal(may8!.daily_equity_pnl, 0);
 });
 
 test('applyOptionMarkPath linear-spreads assignment when no OHLC is available', () => {
