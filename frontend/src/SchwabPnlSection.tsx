@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Area,
+  Bar,
   CartesianGrid,
   ComposedChart,
   ReferenceLine,
@@ -522,9 +523,18 @@ export function SchwabPnlSection({
                   ]}
                 />
                 <ReferenceLine y={0} stroke="var(--color-border)" />
+                <Bar
+                  dataKey="daily"
+                  name="daily"
+                  fill="var(--accent)"
+                  fillOpacity={0.35}
+                  isAnimationActive={false}
+                  maxBarSize={10}
+                />
                 <Area
                   type="stepAfter"
                   dataKey="cumulative"
+                  name="cumulative"
                   stroke="var(--accent)"
                   fill="var(--accent)"
                   fillOpacity={0.12}
@@ -552,11 +562,11 @@ export function SchwabPnlSection({
             </ResponsiveContainer>
           </div>
           <Text type="supporting">
-            Dots are the included fills and dividends on that day. Hover the
-            curve for the running total
+            Bars are that day&apos;s P&amp;L; the step line is the running total.
+            Dots are the included fills and dividends
             {symbol
-              ? '. Stock and option lines follow Schwab daily closes. Assignment marks the short option at intrinsic value, so receiving shares does not create a one-day P&L jump.'
-              : ''}
+              ? '. Stock and option marks follow Schwab daily closes. Assignment marks the short option at intrinsic value, so receiving shares does not create a one-day P&amp;L jump.'
+              : '.'}
           </Text>
         </VStack>
       )}
