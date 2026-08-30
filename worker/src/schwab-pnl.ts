@@ -24,7 +24,11 @@ import {
 } from "./schwab-trader";
 
 export { etDateString };
-import { SchwabApiError } from "./schwab-portfolio";
+import {
+  fetchSchwabAccountsRaw,
+  normalizeSchwabAccounts,
+  SchwabApiError,
+} from "./schwab-portfolio";
 
 export type SchwabPnlRange = "MTD" | "YTD" | "1M" | "3M" | "6M" | "1Y";
 
@@ -79,6 +83,7 @@ export interface SchwabDistribution {
   amount: number | null;
   type: string | null;
   status: string | null;
+  cusip: string | null;
 }
 
 export interface SchwabPnlSummary {
@@ -395,6 +400,7 @@ export function synthesizeOptionAssignmentCloses(trades: SchwabTrade[]): SchwabT
               position_effect: "CLOSING",
               order_id: null,
               position_id: null,
+              cusip: lot.trade.cusip,
             });
             lot.qty -= take;
             remaining -= take;
@@ -772,6 +778,7 @@ export function normalizeSchwabDistribution(tx: SchwabRawTransaction): SchwabDis
   const items = Array.isArray(tx.transferItems) ? tx.transferItems : [];
   let amount: number | null = null;
   let symbol: string | null = null;
+  let cusip: string | null = null;
   let description: string | null =
     typeof tx.description === "string" ? tx.description : null;
 
@@ -791,6 +798,10 @@ export function normalizeSchwabDistribution(tx: SchwabRawTransaction): SchwabDis
       continue;
     }
     if (inst?.symbol?.trim()) symbol = inst.symbol.trim().toUpperCase();
+    else if (!symbol && inst?.underlyingSymbol?.trim()) {
+      symbol = inst.underlyingSymbol.trim().toUpperCase();
+    }
+    if (!cusip && inst?.cusip?.trim()) cusip = inst.cusip.trim().toUpperCase();
     if (!description && typeof inst?.description === "string") {
       description = inst.description;
     }
@@ -809,7 +820,51 @@ export function normalizeSchwabDistribution(tx: SchwabRawTransaction): SchwabDis
     amount: amount != null ? round2(amount) : null,
     type: typeof tx.type === "string" ? tx.type : null,
     status: typeof tx.status === "string" ? tx.status : null,
+    cusip,
   };
+}
+
+function fundNameKey(name: string | null | undefined): string {
+  return (name ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+/**
+ * CUSIPs and fund names that belong to `ticker`, from trades/positions that
+ * already have a symbol. ETF dividends often omit instrument.symbol and
+ * only carry the legal name or CUSIP.
+ */
+export function aliasesForTicker(
+  ticker: string,
+  rows: Array<{
+    symbol?: string | null;
+    underlying?: string | null;
+    description?: string | null;
+    cusip?: string | null;
+  }>,
+): { cusips: Set<string>; names: Set<string> } {
+  const cusips = new Set<string>();
+  const names = new Set<string>();
+  for (const row of rows) {
+    if (!matchesTicker(row, ticker)) continue;
+    const cusip = row.cusip?.trim().toUpperCase();
+    if (cusip) cusips.add(cusip);
+    const name = fundNameKey(row.description);
+    if (name) names.add(name);
+  }
+  return { cusips, names };
+}
+
+export function distributionMatchesTicker(
+  dist: { symbol?: string | null; description?: string | null; cusip?: string | null },
+  ticker: string | null | undefined,
+  aliases: { cusips: Set<string>; names: Set<string> },
+): boolean {
+  if (!ticker?.trim()) return true;
+  if (matchesTicker({ symbol: dist.symbol, underlying: null }, ticker)) return true;
+  const cusip = dist.cusip?.trim().toUpperCase();
+  if (cusip && aliases.cusips.has(cusip)) return true;
+  const name = fundNameKey(dist.description);
+  return Boolean(name && aliases.names.has(name));
 }
 
 function round2(n: number): number {
@@ -999,7 +1054,8 @@ export async function loadSchwabPnl(
         throw e;
       }
     }
-    const trades = raw.map(normalizeTrade).filter((t) => matchesTicker(t, ticker));
+    const allTrades = raw.map(normalizeTrade);
+    const trades = allTrades.filter((t) => matchesTicker(t, ticker));
     const ledger = buildRealizedPnlLedger(trades);
     const { points: tradingPoints, summary } = seriesFromLedger(ledger, opts.start, opts.end);
     const fills = buildPnlFills(ledger, opts.start, opts.end);
@@ -1026,11 +1082,42 @@ export async function loadSchwabPnl(
       });
     }
 
+    const aliasRows: Array<{
+      symbol?: string | null;
+      underlying?: string | null;
+      description?: string | null;
+      cusip?: string | null;
+    }> = [...allTrades];
+    if (ticker) {
+      try {
+        const rawAccounts = await fetchSchwabAccountsRaw(token.accessToken, token.tokenType);
+        const view = normalizeSchwabAccounts(rawAccounts);
+        const acct = view.accounts.find((a) => a.id === selected.id) ?? view.accounts[0];
+        for (const p of acct?.positions ?? []) {
+          aliasRows.push({
+            symbol: p.symbol,
+            underlying: p.underlying,
+            description: p.description,
+            cusip: p.cusip,
+          });
+        }
+      } catch (e) {
+        console.error("schwab pnl: position alias fetch failed", {
+          status: e instanceof SchwabApiError ? e.status : null,
+          detail: e instanceof Error ? e.message.slice(0, 300) : String(e),
+        });
+      }
+    }
+    const aliases = ticker
+      ? aliasesForTicker(ticker, aliasRows)
+      : { cusips: new Set<string>(), names: new Set<string>() };
+
     const distributions = distRaw
       .map(normalizeSchwabDistribution)
       .filter((d): d is SchwabDistribution => d != null)
       .filter((d) => d.date >= opts.start && d.date <= opts.end)
-      .filter((d) => matchesTicker({ symbol: d.symbol, underlying: null }, ticker))
+      .filter((d) => distributionMatchesTicker(d, ticker, aliases))
+      .map((d) => (ticker && !d.symbol ? { ...d, symbol: ticker } : d))
       .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
     const distributionsTotal = round2(
       distributions.reduce((s, d) => s + (d.amount ?? 0), 0),

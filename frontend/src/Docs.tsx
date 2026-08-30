@@ -650,6 +650,10 @@ export function DocsSchwabPnl() {
         Cash credits in the same window (ordinary dividends, interest) show as
         Div rows and in the Dividends stat. Turn the Dividends chip on to add
         them to the curve; turn it off to keep the chart as trading P&amp;L only.
+        ETF dividends from Schwab often omit the ticker and only name the fund —
+        we join those cash rows to the ticker via CUSIP or the same fund name
+        on a trade or open position, so TLT still shows iShares 20+ Year
+        Treasury distributions.
       </p>
 
       <h3>Option assignment</h3>

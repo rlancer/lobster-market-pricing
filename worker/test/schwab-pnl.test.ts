@@ -4,6 +4,8 @@ import {
   attachCashSleeves,
   buildPnlFills,
   buildRealizedPnlLedger,
+  aliasesForTicker,
+  distributionMatchesTicker,
   fetchWindowForPnl,
   normalizeSchwabDistribution,
   parseOccOptionSymbol,
@@ -34,6 +36,7 @@ function trade(partial: Partial<SchwabTrade> & Pick<SchwabTrade, "id" | "trade_d
     position_effect: null,
     order_id: null,
     position_id: null,
+    cusip: null,
     ...partial,
   };
 }
@@ -310,6 +313,36 @@ test("normalizeSchwabDistribution sums currency legs", () => {
   assert.equal(d!.symbol, "VTI");
   assert.equal(d!.amount, 12.5);
   assert.equal(d!.id, "dist-99");
+  assert.equal(d!.cusip, null);
+});
+
+test("normalizeSchwabDistribution keeps CUSIP when ETF dividend omits symbol", () => {
+  const d = normalizeSchwabDistribution({
+    activityId: 7,
+    time: "2026-08-06T04:00:00.000Z",
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    type: "DIVIDEND_OR_INTEREST",
+    status: "VALID",
+    netAmount: 33.05,
+    transferItems: [
+      {
+        instrument: {
+          assetType: "COLLECTIVE_INVESTMENT",
+          cusip: "464287432",
+          description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        },
+        amount: 0,
+      },
+      {
+        instrument: { assetType: "CURRENCY", symbol: "CURRENCY_USD" },
+        amount: 33.05,
+      },
+    ],
+  });
+  assert.ok(d);
+  assert.equal(d!.symbol, null);
+  assert.equal(d!.cusip, "464287432");
+  assert.equal(d!.amount, 33.05);
 });
 
 test("buildPnlFills includes fees from the closing trade", () => {
@@ -871,6 +904,7 @@ test("attachCashSleeves stamps fees and dividends without changing trading PnL",
       amount: 12.5,
       type: "DIVIDEND_OR_INTEREST",
       status: "VALID",
+      cusip: null,
     }],
     "2026-01-01",
     "2026-03-01",
@@ -949,4 +983,57 @@ test("ticker filter keeps CAR stock and CAR options, drops CARD", () => {
   ].filter((t) => matchesTicker(t, "CAR"));
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map((t) => t.id), ["1", "2"]);
+});
+
+test("ETF dividends without a ticker join TLT via CUSIP or fund name", () => {
+  const tltBuy = trade({
+    id: "tlt-buy",
+    trade_date: "2026-03-18",
+    side: "buy",
+    symbol: "TLT",
+    asset_type: "COLLECTIVE_INVESTMENT",
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: "464287432",
+    quantity: 100,
+    net_amount: -8726,
+    position_effect: "OPENING",
+  });
+  const nameAliases = aliasesForTicker("TLT", [tltBuy]);
+  const cusipOnly = aliasesForTicker("TLT", [
+    trade({
+      id: "tlt-buy-bare",
+      trade_date: "2026-03-18",
+      side: "buy",
+      symbol: "TLT",
+      asset_type: "COLLECTIVE_INVESTMENT",
+      description: null,
+      cusip: "464287432",
+    }),
+  ]);
+
+  const unnamed = {
+    symbol: null,
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: "464287432",
+  };
+  const unnamedNoCusip = {
+    symbol: null as string | null,
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: null as string | null,
+  };
+  assert.equal(distributionMatchesTicker(unnamed, "TLT", nameAliases), true);
+  assert.equal(distributionMatchesTicker(unnamed, "TLT", cusipOnly), true);
+  assert.equal(distributionMatchesTicker(unnamedNoCusip, "TLT", nameAliases), true);
+  assert.equal(
+    distributionMatchesTicker(unnamed, "CARD", aliasesForTicker("CARD", [tltBuy])),
+    false,
+  );
+  assert.equal(
+    distributionMatchesTicker(
+      { symbol: null, description: "SPDR S&P 500", cusip: "78462F103" },
+      "TLT",
+      nameAliases,
+    ),
+    false,
+  );
 });

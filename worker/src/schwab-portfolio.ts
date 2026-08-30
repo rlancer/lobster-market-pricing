@@ -22,6 +22,7 @@ export interface SchwabPortfolioPosition {
   market_value: number | null;
   day_pnl: number | null;
   open_pnl: number | null;
+  cusip: string | null;
 }
 
 export interface SchwabPortfolioAccount {
@@ -126,6 +127,7 @@ function normalizePosition(
     market_value: num(pos.marketValue),
     day_pnl: num(pos.currentDayProfitLoss),
     open_pnl: positionOpenPnl(pos),
+    cusip: str(instrument.cusip),
   };
 }
 

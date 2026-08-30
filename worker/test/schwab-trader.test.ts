@@ -114,6 +114,7 @@ test("normalizeTrade extracts equity leg + fees", () => {
   assert.equal(trade.fees, -1);
   assert.equal(trade.position_effect, "OPENING");
   assert.equal(trade.id, "9876543210");
+  assert.equal(trade.cusip, null);
 });
 
 test("normalizeTrade prefers equity leg over CURRENCY_USD cash leg", () => {
@@ -248,4 +249,33 @@ test("normalizeTrade coerces live positive COMMISSION amounts to P&L", () => {
     ],
   });
   assert.equal(trade.fees, -0.32);
+});
+
+test("normalizeTrade copies instrument description and CUSIP when tx description is empty", () => {
+  const trade = normalizeTrade({
+    activityId: 8,
+    description: "",
+    type: "TRADE",
+    status: "VALID",
+    tradeDate: "2026-03-18T15:00:00.000Z",
+    netAmount: -8726,
+    activityType: "EXECUTION",
+    transferItems: [
+      {
+        instrument: {
+          assetType: "COLLECTIVE_INVESTMENT",
+          symbol: "TLT",
+          cusip: "464287432",
+          description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        },
+        amount: 100,
+        cost: -8726,
+        price: 87.26,
+        positionEffect: "OPENING",
+      },
+    ],
+  });
+  assert.equal(trade.symbol, "TLT");
+  assert.equal(trade.description, "ISHARES 20+ YEAR TREASURY BOND ETF");
+  assert.equal(trade.cusip, "464287432");
 });

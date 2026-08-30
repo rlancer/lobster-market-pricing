@@ -87,6 +87,8 @@ export interface SchwabTrade {
   position_effect: string | null;
   order_id: number | null;
   position_id: number | null;
+  /** CUSIP when Schwab sends it — used to join ETF dividends that omit symbol. */
+  cusip: string | null;
 }
 
 function asNumber(v: unknown): number | null {
@@ -339,7 +341,7 @@ export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
     });
   }
 
-  const description = tx.description ?? null;
+  const description = tx.description?.trim() || inst?.description?.trim() || null;
   const side = inferTradeSide(description, quantity, cost);
 
   return {
@@ -364,6 +366,7 @@ export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
     position_effect: security?.positionEffect ?? null,
     order_id: orderId,
     position_id: positionId,
+    cusip: inst?.cusip?.trim() || null,
   };
 }
 
