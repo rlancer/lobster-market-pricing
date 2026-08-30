@@ -18,11 +18,12 @@ import {
 import {
   etDateString,
   etTradeDay,
+  isIncludedSchwabTransaction,
   listSchwabAccountNumbers,
-  listSchwabTransactions,
+  listSchwabTransactionsComplete,
   commissionPnl,
   matchesTicker,
-  normalizeTrade,
+  normalizeTrades,
   toTradeAccounts,
   type SchwabRawTransaction,
   type SchwabTrade,
@@ -80,6 +81,14 @@ export interface SchwabPnlFill {
   /** True when every closed lot was opened before the chart window. */
   prior_open: boolean;
   asset_type: string | null;
+  /** FIFO tranches closed by this fill; kept separate for historical exposure. */
+  lots: Array<{
+    id: string;
+    opened: string;
+    quantity: number;
+    realized_pnl: number;
+    prior_open: boolean;
+  }>;
 }
 
 export interface SchwabDistribution {
@@ -297,8 +306,6 @@ function looksLikeRegularEquityExecution(trade: SchwabTrade): boolean {
 
 /** Equity delivery from assignment opens a stock position; skip CLOSING stock legs. */
 function equityDeliveryCanBeAssignment(trade: SchwabTrade): boolean {
-  const effect = (trade.position_effect ?? "").toUpperCase();
-  if (effect === "CLOSING") return false;
   if (looksLikeRegularEquityExecution(trade)) return false;
   return true;
 }
@@ -737,6 +744,7 @@ export function buildPnlFills(
     anyPrior: boolean;
     anyPeriod: boolean;
     earliestOpened: string;
+    lots: SchwabPnlFill["lots"];
   };
   const byTrade = new Map<string, Agg>();
 
@@ -754,11 +762,21 @@ export function buildPnlFills(
         anyPrior: false,
         anyPeriod: false,
         earliestOpened: e.opened,
+        lots: [],
       };
       byTrade.set(id, agg);
     }
     agg.realized += e.amount;
     agg.closedQty += e.closed_qty;
+    if (e.closed_qty > 0) {
+      agg.lots.push({
+        id: `${t.id}:lot:${agg.lots.length}`,
+        opened: e.opened,
+        quantity: round4(e.closed_qty),
+        realized_pnl: round2(e.amount),
+        prior_open: e.opened < start,
+      });
+    }
     if (e.opened < start) agg.anyPrior = true;
     else agg.anyPeriod = true;
     if (e.opened < agg.earliestOpened) agg.earliestOpened = e.opened;
@@ -783,6 +801,7 @@ export function buildPnlFills(
       opened: agg.earliestOpened,
       prior_open: priorOpen,
       asset_type: t.asset_type,
+      lots: agg.lots,
     };
   });
 
@@ -799,7 +818,7 @@ export function normalizeSchwabDistribution(tx: SchwabRawTransaction): SchwabDis
     (typeof tx.tradeDate === "string" && tx.tradeDate) ||
     (typeof tx.settlementDate === "string" && tx.settlementDate) ||
     null;
-  const date = time && /^\d{4}-\d{2}-\d{2}/.test(time) ? time.slice(0, 10) : "";
+  const date = etTradeDay(time) ?? "";
   if (!date) return null;
 
   const items = Array.isArray(tx.transferItems) ? tx.transferItems : [];
@@ -907,7 +926,8 @@ function markPnlOf(position: SchwabPortfolioPosition): number {
     Number.isFinite(position.average_price) &&
     Number.isFinite(position.market_value)
   ) {
-    return position.market_value - position.average_price * position.quantity;
+    const multiplier = isOptionInstrument(position) ? 100 : 1;
+    return position.market_value - position.average_price * position.quantity * multiplier;
   }
   return 0;
 }
@@ -1177,10 +1197,11 @@ export async function loadSchwabPnl(
     }
 
     const fetchBounds = fetchWindowForPnl(opts.start, opts.end);
-    let raw: Awaited<ReturnType<typeof listSchwabTransactions>>;
+    let raw: SchwabRawTransaction[];
+    let tradePageTruncated = false;
     let lookbackTruncated = false;
     try {
-      raw = await listSchwabTransactions(
+      const page = await listSchwabTransactionsComplete(
         token.accessToken,
         selected.hash,
         {
@@ -1190,6 +1211,8 @@ export async function loadSchwabPnl(
         },
         token.tokenType,
       );
+      raw = page.rows;
+      tradePageTruncated = page.truncated;
     } catch (e) {
       if (
         e instanceof SchwabApiError &&
@@ -1203,7 +1226,7 @@ export async function loadSchwabPnl(
           chart: { start: opts.start, end: opts.end },
         });
         lookbackTruncated = true;
-        raw = await listSchwabTransactions(
+        const page = await listSchwabTransactionsComplete(
           token.accessToken,
           selected.hash,
           {
@@ -1213,28 +1236,29 @@ export async function loadSchwabPnl(
           },
           token.tokenType,
         );
+        raw = page.rows;
+        tradePageTruncated = page.truncated;
       } else {
         throw e;
       }
     }
-    const allTrades = raw.map(normalizeTrade);
+    const allTrades = raw
+      .filter(isIncludedSchwabTransaction)
+      .flatMap(normalizeTrades);
     const trades = allTrades.filter((t) => matchesTicker(t, ticker));
-    const optionOhlcPromise = ticker
-      ? fetchOptionPriceHistories(
-          token.accessToken,
-          token.tokenType,
-          trades,
-          opts.start,
-          opts.end,
-        )
-      : Promise.resolve({} as Record<string, SchwabPriceBar[]>);
     const ledger = buildRealizedPnlLedger(trades);
+    if (ledger.unmatchedCloseDays.some((day) => day >= opts.start && day <= opts.end)) {
+      // Schwab only exposes bounded transaction history. Surface incomplete
+      // basis explicitly rather than presenting a silently partial total.
+      lookbackTruncated = true;
+    }
     const { points: tradingPoints, summary } = seriesFromLedger(ledger, opts.start, opts.end);
     const fills = buildPnlFills(ledger, opts.start, opts.end);
 
     let distRaw: SchwabRawTransaction[] = [];
+    let distributionPageTruncated = false;
     try {
-      distRaw = await listSchwabTransactions(
+      const page = await listSchwabTransactionsComplete(
         token.accessToken,
         selected.hash,
         {
@@ -1244,6 +1268,8 @@ export async function loadSchwabPnl(
         },
         token.tokenType,
       );
+      distRaw = page.rows;
+      distributionPageTruncated = page.truncated;
     } catch (e) {
       console.error("schwab pnl: dividend fetch failed", {
         status: e instanceof SchwabApiError ? e.status : null,
@@ -1288,6 +1314,7 @@ export async function loadSchwabPnl(
     const openMark = ticker ? openMarkForTicker(tickerPositions, ticker, aliases) : null;
 
     const distributions = distRaw
+      .filter(isIncludedSchwabTransaction)
       .map(normalizeSchwabDistribution)
       .filter((d): d is SchwabDistribution => d != null)
       .filter((d) => d.date >= opts.start && d.date <= opts.end)
@@ -1317,8 +1344,7 @@ export async function loadSchwabPnl(
       opts.end,
     );
 
-    const [ohlc, option_ohlc] = await Promise.all([priceHistoryPromise, optionOhlcPromise]);
-    const rowTruncated = raw.length >= 3000;
+    const ohlc = await priceHistoryPromise;
     return {
       ok: true,
       view: {
@@ -1339,8 +1365,10 @@ export async function loadSchwabPnl(
         trades: windowTrades,
         ohlc,
         ohlc_source: ohlc.length > 0 ? "schwab" : null,
-        option_ohlc,
-        may_be_truncated: rowTruncated || lookbackTruncated,
+        // Option last-sale history is intentionally not used for marks, so do
+        // not spend up to eight rate-limited requests returning dead data.
+        option_ohlc: {},
+        may_be_truncated: tradePageTruncated || distributionPageTruncated,
         lookback_truncated: lookbackTruncated,
       },
     };
