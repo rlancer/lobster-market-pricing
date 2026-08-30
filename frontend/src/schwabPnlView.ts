@@ -590,7 +590,7 @@ export function optionProxyBars(
   pathStart: string,
   pathEnd: string,
   _rangeStart: string,
-): Array<{ date: string; close: number }> {
+): { bars: Array<{ date: string; close: number }>; source: 'intrinsic' | 'linear' } {
   const occ = occContract(lot.symbol);
   if (occ) {
     const hold = underlyingOhlc
@@ -606,14 +606,21 @@ export function optionProxyBars(
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
     // All-zero means the contract stayed OTM — don't invent time value.
-    if (hold.length >= 2 && hold.some((b) => b.close > 0)) return hold;
+    if (hold.length >= 2 && hold.some((b) => b.close > 0)) {
+      return { bars: hold, source: 'intrinsic' };
+    }
   }
-  if (lot.exit_price == null || !Number.isFinite(lot.exit_price)) return [];
-  return interpolateCloses(
-    weekdayDates(pathStart, pathEnd),
-    lot.average_price,
-    lot.exit_price,
-  );
+  if (lot.exit_price == null || !Number.isFinite(lot.exit_price)) {
+    return { bars: [], source: 'linear' };
+  }
+  return {
+    bars: interpolateCloses(
+      weekdayDates(pathStart, pathEnd),
+      lot.average_price,
+      lot.exit_price,
+    ),
+    source: 'linear',
+  };
 }
 
 /**
@@ -634,6 +641,106 @@ export function optionSchwabBarsTrackExit(
   if (Math.abs(totalMove) < 1e-6) return true;
   const last = bars[bars.length - 1]!.close;
   return (last - entryPrice) / totalMove >= 0.5;
+}
+
+export type LegMarkSource = 'schwab' | 'intrinsic' | 'linear';
+
+export type LegDailyPoint = {
+  date: string;
+  /** Option mark used that session (per contract). */
+  mark: number;
+  daily_pnl: number;
+  cumulative_pnl: number;
+  source: LegMarkSource;
+};
+
+/**
+ * Daily mark-to-market path for one option lot (same rules as the chart).
+ * Used by the activity-table expand so each leg shows session P&L.
+ */
+export function optionLegDailyPath(
+  lot: OptionLot,
+  ohlcBySymbol: Record<string, Array<{ date: string; close: number | null | undefined }>>,
+  rangeStart: string,
+  rangeEnd: string,
+  underlyingOhlc: Array<{ date: string; close: number | null | undefined }> = [],
+): LegDailyPoint[] {
+  if (lot.prior_open || lot.quantity === 0 || !rangeStart || !rangeEnd) return [];
+  if (lot.closed && lot.closed < rangeStart) return [];
+  if (lot.opened && lot.opened > rangeEnd) return [];
+
+  const pathStart = lot.opened && lot.opened > rangeStart ? lot.opened : rangeStart;
+  const pathEnd = lot.closed && lot.closed < rangeEnd ? lot.closed : rangeEnd;
+  const inWindow = (rows: Array<{ date: string; close: number | null | undefined }>) =>
+    rows
+      .filter((b) => (
+        b.date >= pathStart
+        && b.date <= pathEnd
+        && b.close != null
+        && Number.isFinite(b.close)
+      ))
+      .map((b) => ({ date: b.date, close: b.close as number }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+  let raw = ohlcBySymbol[lot.symbol] ?? [];
+  let bars = inWindow(raw);
+  let source: LegMarkSource = 'schwab';
+  const schwabForGate = lot.closed
+    ? bars.filter((b) => b.date < lot.closed!)
+    : bars;
+  const trustSchwab = optionSchwabBarsTrackExit(
+    schwabForGate.length >= 2 ? schwabForGate : bars,
+    lot.average_price,
+    lot.exit_price,
+  );
+  if (!trustSchwab) {
+    const proxy = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
+    raw = proxy.bars;
+    bars = inWindow(raw);
+    source = proxy.source;
+  }
+
+  if (lot.closed && lot.closed >= rangeStart && lot.closed <= rangeEnd && lot.exit_price != null) {
+    const i = bars.findIndex((b) => b.date === lot.closed);
+    if (i >= 0) bars[i] = { date: lot.closed, close: lot.exit_price };
+    else bars.push({ date: lot.closed, close: lot.exit_price });
+    bars.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  if (bars.length === 0) return [];
+
+  const openedInRange = !lot.opened || lot.opened >= rangeStart;
+  const prior = [...raw]
+    .filter((b) => b.date < pathStart && b.close != null && Number.isFinite(b.close))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .at(-1);
+  let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
+  if (prev == null) prev = bars[0]!.close;
+
+  const out: LegDailyPoint[] = [];
+  let cumulative = 0;
+  let lotSum = 0;
+  for (const bar of bars) {
+    const change = round2(lot.quantity * OPTION_MULTIPLIER * (bar.close - prev));
+    cumulative = round2(cumulative + change);
+    lotSum = round2(lotSum + change);
+    out.push({
+      date: bar.date,
+      mark: bar.close,
+      daily_pnl: change,
+      cumulative_pnl: cumulative,
+      source,
+    });
+    prev = bar.close;
+  }
+  if (lot.closed && out.length > 0) {
+    const drift = round2(lot.target_pnl - lotSum);
+    if (drift !== 0) {
+      const last = out[out.length - 1]!;
+      last.daily_pnl = round2(last.daily_pnl + drift);
+      last.cumulative_pnl = round2(last.cumulative_pnl + drift);
+    }
+  }
+  return out;
 }
 
 /**
@@ -670,53 +777,14 @@ export function applyOptionMarkPath(
   let closedPnl = 0;
 
   for (const lot of lots) {
-    if (lot.prior_open || lot.quantity === 0) continue;
-    if (lot.closed && lot.closed < rangeStart) continue;
-    if (lot.opened && lot.opened > rangeEnd) continue;
-
-    const pathStart = lot.opened && lot.opened > rangeStart ? lot.opened : rangeStart;
-    const pathEnd = lot.closed && lot.closed < rangeEnd ? lot.closed : rangeEnd;
-    const inWindow = (rows: Array<{ date: string; close: number | null | undefined }>) =>
-      rows
-        .filter((b) => (
-          b.date >= pathStart
-          && b.date <= pathEnd
-          && b.close != null
-          && Number.isFinite(b.close)
-        ))
-        .map((b) => ({ date: b.date, close: b.close as number }))
-        .sort((a, b) => a.date.localeCompare(b.date));
-    let raw = ohlcBySymbol[lot.symbol] ?? [];
-    let bars = inWindow(raw);
-    // Judge Schwab marks before forcing the exit print onto the close day.
-    const schwabForGate = lot.closed
-      ? bars.filter((b) => b.date < lot.closed!)
-      : bars;
-    const trustSchwab = optionSchwabBarsTrackExit(
-      schwabForGate.length >= 2 ? schwabForGate : bars,
-      lot.average_price,
-      lot.exit_price,
+    const path = optionLegDailyPath(
+      lot,
+      ohlcBySymbol,
+      rangeStart,
+      rangeEnd,
+      underlyingOhlc,
     );
-    if (!trustSchwab) {
-      raw = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
-      bars = inWindow(raw);
-    }
-
-    if (lot.closed && lot.closed >= rangeStart && lot.closed <= rangeEnd && lot.exit_price != null) {
-      const i = bars.findIndex((b) => b.date === lot.closed);
-      if (i >= 0) bars[i] = { date: lot.closed, close: lot.exit_price };
-      else bars.push({ date: lot.closed, close: lot.exit_price });
-      bars.sort((a, b) => a.date.localeCompare(b.date));
-    }
-    if (bars.length === 0) continue;
-
-    const openedInRange = !lot.opened || lot.opened >= rangeStart;
-    const prior = [...raw]
-      .filter((b) => b.date < pathStart && b.close != null && Number.isFinite(b.close))
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .at(-1);
-    let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
-    if (prev == null) prev = bars[0]!.close;
+    if (path.length === 0) continue;
 
     if (lot.closed && lot.realized_pnl !== 0) {
       const row = touch(lot.closed);
@@ -731,27 +799,13 @@ export function applyOptionMarkPath(
       row.daily_pnl = round2(n(row.daily_pnl) - lot.assignment_equity_pnl);
     }
 
-    let lotSum = 0;
-    let lastDate: string | null = null;
-    for (const bar of bars) {
-      const change = round2(lot.quantity * OPTION_MULTIPLIER * (bar.close - prev));
-      const row = touch(bar.date);
-      row.daily_option_pnl = round2(n(row.daily_option_pnl) + change);
-      row.daily_pnl = round2(n(row.daily_pnl) + change);
-      lotSum = round2(lotSum + change);
-      prev = bar.close;
-      lastDate = bar.date;
+    for (const day of path) {
+      const row = touch(day.date);
+      row.daily_option_pnl = round2(n(row.daily_option_pnl) + day.daily_pnl);
+      row.daily_pnl = round2(n(row.daily_pnl) + day.daily_pnl);
     }
-    if (lastDate && lot.closed) {
-      const drift = round2(lot.target_pnl - lotSum);
-      if (drift !== 0) {
-        const row = touch(lastDate);
-        row.daily_option_pnl = round2(n(row.daily_option_pnl) + drift);
-        row.daily_pnl = round2(n(row.daily_pnl) + drift);
-        lotSum = round2(lotSum + drift);
-      }
-      closedPnl = round2(closedPnl + lot.target_pnl);
-    }
+    const lotSum = path.at(-1)?.cumulative_pnl ?? 0;
+    if (lot.closed) closedPnl = round2(closedPnl + lot.target_pnl);
     inWindowMtm = round2(inWindowMtm + lotSum);
     painted = true;
   }

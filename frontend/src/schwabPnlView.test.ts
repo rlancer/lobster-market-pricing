@@ -14,6 +14,7 @@ import {
   filterActivity,
   includedOpenMark,
   optionLotsFromFills,
+  optionLegDailyPath,
   optionSchwabBarsTrackExit,
   positionTicker,
   tickerOpenMark,
@@ -814,6 +815,66 @@ test('applyOptionMarkPath follows the live CAR crash on Schwab underlying', () =
   assert.equal(may8!.daily_equity_pnl, 0);
   const optionSum = path.reduce((s, p) => s + (p.daily_option_pnl ?? 0), 0);
   assert.equal(Math.round(optionSum * 100) / 100, 5020.8);
+});
+
+test('optionLegDailyPath exposes per-session marks for a CAR put leg', () => {
+  const fills = [
+    {
+      id: 'synth-390',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00390000',
+      underlying: 'CAR',
+      description: 'Option assignment close',
+      side: 'buy' as const,
+      quantity: 1,
+      price: 0,
+      net_amount: 0,
+      fees: 0,
+      realized_pnl: 8309.17,
+      opened: '2026-04-22',
+      prior_open: false,
+      asset_type: 'OPTION',
+    },
+    {
+      id: 'stock-sale',
+      date: '2026-05-08',
+      symbol: 'CAR',
+      underlying: null,
+      description: '',
+      side: 'sell' as const,
+      quantity: 100,
+      price: 145.14,
+      net_amount: 14513.68,
+      fees: -0.32,
+      realized_pnl: -24486.32,
+      opened: '2026-05-08',
+      prior_open: false,
+      asset_type: 'EQUITY',
+    },
+  ];
+  const lot = optionLotsFromFills(fills).find((l) => l.quantity < 0);
+  assert.ok(lot);
+  const carOhlc = [
+    { date: '2026-04-22', close: 443.94 },
+    { date: '2026-04-23', close: 229.14 },
+    { date: '2026-05-07', close: 154.06 },
+    { date: '2026-05-08', close: 145.75 },
+  ];
+  const path = optionLegDailyPath(
+    lot!,
+    {},
+    '2026-01-01',
+    '2026-08-29',
+    carOhlc,
+  );
+  assert.ok(path.length >= 3);
+  assert.equal(path[0]?.source, 'intrinsic');
+  assert.equal(path[0]?.date, '2026-04-22');
+  // Open day: fill → first intrinsic (OTM short put → mark 0) books the premium.
+  assert.ok(Math.abs((path[0]?.daily_pnl ?? 0) - 8309.17) < 1);
+  const crash = path.find((p) => p.date === '2026-04-23');
+  assert.ok(crash && crash.daily_pnl < -1000, 'crash day must mark the short put up');
+  assert.equal(Math.round((path.at(-1)?.cumulative_pnl ?? 0) * 100) / 100, lot!.target_pnl);
 });
 
 test('positionTicker prefers underlying then OCC root', () => {

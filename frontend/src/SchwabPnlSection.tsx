@@ -22,6 +22,7 @@ import {
   Token,
   VStack,
 } from '@astryxdesign/core';
+import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Timestamp } from '@astryxdesign/core/Timestamp';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
@@ -48,9 +49,13 @@ import {
   equityOpenLot,
   filterActivity,
   includedOpenMark,
+  optionLegDailyPath,
   optionLotsFromFills,
+  parseOccContract,
   tickerOpenMark,
   type ActivityRow,
+  type LegDailyPoint,
+  type OptionLot,
   type PnlInclude,
 } from './schwabPnlView';
 import './Portfolio.css';
@@ -137,6 +142,29 @@ function markerColor(kind: ActivityRow['kind']): string {
   return 'var(--accent)';
 }
 
+function activityFillId(row: ActivityRow): string | null {
+  if (row.id.startsWith('fill-')) return row.id.slice('fill-'.length);
+  if (row.id.startsWith('trade-')) return row.id.slice('trade-'.length);
+  return null;
+}
+
+function legLabel(lot: OptionLot): string {
+  const occ = parseOccContract(lot.symbol);
+  const side = lot.quantity < 0 ? 'Short' : 'Long';
+  const qtyAbs = Math.abs(lot.quantity);
+  if (!occ) return `${side} ${qtyAbs} · ${lot.symbol}`;
+  const right = occ.right === 'P' ? 'Put' : 'Call';
+  return `${side} ${qtyAbs} ${occ.root} ${strikeLabel(occ.strike)} ${right}`;
+}
+
+function markSourceLabel(source: LegDailyPoint['source']): string {
+  if (source === 'schwab') return 'Schwab option';
+  if (source === 'intrinsic') return 'Schwab intrinsic';
+  return 'Linear fill→exit';
+}
+
+type LegDailyTableRow = LegDailyPoint & Record<string, unknown>;
+
 /**
  * Realized trading PnL curve for a linked Schwab account.
  * Ticker scopes equity + options on the same root (CAR stock and CAR puts).
@@ -172,6 +200,8 @@ export function SchwabPnlSection({
   const [lookbackTruncated, setLookbackTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Activity-row expand: which option fill id's daily mark path is open. */
+  const [expandedLegId, setExpandedLegId] = useState<string | null>(null);
 
   useEffect(() => {
     const next = initialSymbol.trim().toUpperCase();
@@ -252,6 +282,22 @@ export function SchwabPnlSection({
     () => optionLotsFromFills(fills, positions),
     [fills, positions],
   );
+
+  const legDailyById = useMemo(() => {
+    const start = windowStart ?? '';
+    const end = windowEnd ?? '';
+    const map = new Map<string, LegDailyPoint[]>();
+    if (!start || !end) return map;
+    for (const lot of optionLots) {
+      const path = optionLegDailyPath(lot, optionOhlc, start, end, ohlc);
+      if (path.length > 0) map.set(lot.id, path);
+    }
+    return map;
+  }, [optionLots, optionOhlc, ohlc, windowStart, windowEnd]);
+
+  useEffect(() => {
+    setExpandedLegId(null);
+  }, [symbol, range, accountId]);
 
   const marked = useMemo(() => {
     const start = windowStart ?? '';
@@ -660,9 +706,10 @@ export function SchwabPnlSection({
           <Text type="supporting">
             Every included fill and dividend in this window. Options show put
             or call, strike, and fill price so assignment vs premium is easy
-            to check. Realized is set when a close matched an open lot. Fees
-            stay on the trade row — turn off Stocks/Options/Dividends and
-            leave Fees on to see only commission drag.
+            to check. Expand an option row to see that leg&apos;s daily
+            mark-to-market (Schwab option closes, or Schwab underlying
+            intrinsic when option history is missing). Realized is set when a
+            close matched an open lot.
           </Text>
           <Table
             className="portfolio-table"
@@ -673,6 +720,27 @@ export function SchwabPnlSection({
             hasHover
             textOverflow="truncate"
             columns={[
+              {
+                key: 'marks',
+                header: 'Marks',
+                width: pixel(88),
+                renderCell: (row) => {
+                  const fillId = activityFillId(row);
+                  const path = fillId ? legDailyById.get(fillId) : undefined;
+                  if (row.kind !== 'option' || !fillId || !path || path.length === 0) {
+                    return <Text type="supporting">—</Text>;
+                  }
+                  const open = expandedLegId === fillId;
+                  return (
+                    <Button
+                      size="sm"
+                      variant={open ? 'primary' : 'ghost'}
+                      label={open ? 'Hide' : 'Daily'}
+                      onClick={() => setExpandedLegId(open ? null : fillId)}
+                    />
+                  );
+                },
+              },
               {
                 key: 'date',
                 header: 'Date',
@@ -793,6 +861,125 @@ export function SchwabPnlSection({
               },
             ]}
           />
+          {legDailyById.size > 0 ? (
+            <VStack gap={2}>
+              <Text weight="semibold">Option leg daily marks</Text>
+              <Text type="supporting">
+                Session mark and day P&amp;L for each option lot on the chart.
+                Expand a leg (or tap Daily on its activity row) to audit the
+                path — same marks the Performance curve uses.
+              </Text>
+              <CollapsibleGroup
+                type="single"
+                value={expandedLegId ?? ''}
+                onChange={(value) => {
+                  if (typeof value === 'string' && value.length > 0) {
+                    setExpandedLegId(value);
+                  } else if (Array.isArray(value) && value[0]) {
+                    setExpandedLegId(value[0]!);
+                  } else {
+                    setExpandedLegId(null);
+                  }
+                }}
+                hasDividers
+              >
+                {optionLots
+                  .filter((lot) => legDailyById.has(lot.id))
+                  .map((lot) => {
+                    const path = legDailyById.get(lot.id) ?? [];
+                    const rows: LegDailyTableRow[] = path.map((p) => ({ ...p }));
+                    const source = path[0]?.source ?? 'linear';
+                    const total = path.at(-1)?.cumulative_pnl ?? 0;
+                    return (
+                      <Collapsible
+                        key={lot.id}
+                        value={lot.id}
+                        trigger={(
+                          <HStack gap={3} align="center" wrap="wrap">
+                            <Text weight="semibold">{legLabel(lot)}</Text>
+                            <Token
+                              color="gray"
+                              label={markSourceLabel(source)}
+                              size="sm"
+                            />
+                            <Text
+                              hasTabularNumbers
+                              className={`portfolio-pnl-${pnlTone(total)}`}
+                            >
+                              {moneySigned(total)}
+                            </Text>
+                          </HStack>
+                        )}
+                      >
+                        <Table
+                          className="portfolio-table"
+                          data={rows}
+                          idKey="date"
+                          density="compact"
+                          dividers="rows"
+                          hasHover
+                          columns={[
+                            {
+                              key: 'date',
+                              header: 'Date',
+                              width: pixel(110),
+                              renderCell: (row) => (
+                                <Timestamp value={row.date} format="date" type="body" />
+                              ),
+                            },
+                            {
+                              key: 'mark',
+                              header: 'Mark',
+                              width: pixel(88),
+                              renderCell: (row) => (
+                                <Text hasTabularNumbers>{money(row.mark)}</Text>
+                              ),
+                            },
+                            {
+                              key: 'daily_pnl',
+                              header: 'Day P&L',
+                              width: pixel(110),
+                              renderCell: (row) => (
+                                <Text
+                                  hasTabularNumbers
+                                  weight="semibold"
+                                  className={`portfolio-pnl-${pnlTone(row.daily_pnl)}`}
+                                >
+                                  {moneySigned(row.daily_pnl)}
+                                </Text>
+                              ),
+                            },
+                            {
+                              key: 'cumulative_pnl',
+                              header: 'Cumulative',
+                              width: pixel(110),
+                              renderCell: (row) => (
+                                <Text
+                                  hasTabularNumbers
+                                  className={`portfolio-pnl-${pnlTone(row.cumulative_pnl)}`}
+                                >
+                                  {moneySigned(row.cumulative_pnl)}
+                                </Text>
+                              ),
+                            },
+                            {
+                              key: 'source',
+                              header: 'Source',
+                              width: proportional(1),
+                              renderCell: (row) => (
+                                <Text type="supporting">
+                                  {markSourceLabel(row.source)}
+                                </Text>
+                              ),
+                            },
+                          ]}
+                        />
+                      </Collapsible>
+                    );
+                  })}
+              </CollapsibleGroup>
+            </VStack>
+          ) : null}
         </VStack>
       ) : null}
     </VStack>
