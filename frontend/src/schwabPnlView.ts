@@ -5,6 +5,7 @@ import type {
   SchwabPortfolioPosition,
   SchwabTrade,
 } from './api';
+import { etTradeDay } from './tickerChartRange.ts';
 
 export type PnlInclude = {
   stocks: boolean;
@@ -88,8 +89,9 @@ export function composeSeries(
   points: SchwabPnlPoint[],
   include: PnlInclude,
   openMarkPnl = 0,
+  startCumulative = 0,
 ): Array<SchwabPnlPoint & { daily: number; cumulative: number }> {
-  let cumulative = 0;
+  let cumulative = startCumulative;
   const rows = points.map((point) => {
     const daily = composeDaily(point, include);
     cumulative += daily;
@@ -106,6 +108,7 @@ export function composeTotals(
   points: SchwabPnlPoint[],
   include: PnlInclude,
   mark: { equity_pnl: number; option_pnl: number } | null = null,
+  opts?: { startCumulative?: number; lastPointPnl?: number },
 ): { period: number; stocks: number; options: number; dividends: number; fees: number } {
   let stocks = 0;
   let options = 0;
@@ -117,13 +120,13 @@ export function composeTotals(
     dividends += n(p.daily_dividends);
     fees += feeDrag(p.daily_fees);
   }
-  const stockMark = n(mark?.equity_pnl);
-  const optionMark = n(mark?.option_pnl);
-  const openMarkPnl = includedOpenMark(mark, include);
+  const startCumulative = opts?.startCumulative ?? 0;
+  const lastPointPnl = opts?.lastPointPnl ?? includedOpenMark(mark, include);
   return {
-    period: composeSeries(points, include, openMarkPnl).at(-1)?.cumulative ?? openMarkPnl,
-    stocks: stocks + stockMark,
-    options: options + optionMark,
+    period: composeSeries(points, include, lastPointPnl, startCumulative).at(-1)?.cumulative
+      ?? startCumulative + lastPointPnl,
+    stocks: stocks + n(mark?.equity_pnl),
+    options: options + n(mark?.option_pnl),
     dividends,
     fees,
   };
@@ -140,11 +143,7 @@ export function buildActivityRows(opts: {
   const rows: ActivityRow[] = [];
   for (const trade of opts.trades) {
     const fill = realized.get(trade.id);
-    const day = (fill?.date
-      ?? (trade.trade_date && /^\d{4}-\d{2}-\d{2}/.test(trade.trade_date)
-        ? trade.trade_date.slice(0, 10)
-        : null))
-      ?? '';
+    const day = fill?.date ?? etTradeDay(trade.trade_date) ?? '';
     if (!day) continue;
     rows.push({
       id: `trade-${trade.id}`,
@@ -159,6 +158,25 @@ export function buildActivityRows(opts: {
       realized_pnl: fill?.realized_pnl ?? null,
       prior_open: Boolean(fill?.prior_open),
       description: trade.description,
+    });
+  }
+
+  const tradeIds = new Set(opts.trades.map((t) => t.id));
+  for (const fill of opts.fills) {
+    if (tradeIds.has(fill.id)) continue;
+    rows.push({
+      id: `fill-${fill.id}`,
+      date: fill.date,
+      kind: isOptionLike(fill) ? 'option' : 'stock',
+      side: fill.side,
+      symbol: fill.symbol,
+      quantity: fill.quantity != null ? Math.abs(fill.quantity) : null,
+      price: fill.price,
+      net_amount: fill.net_amount,
+      fees: fill.fees,
+      realized_pnl: fill.realized_pnl,
+      prior_open: Boolean(fill.prior_open),
+      description: fill.description,
     });
   }
 
@@ -218,13 +236,12 @@ function emptyPoint(date: string): SchwabPnlPoint {
 }
 
 function tradeDay(trade: Pick<SchwabTrade, 'trade_date'>): string | null {
-  const raw = trade.trade_date;
-  if (raw && /^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  return null;
+  return etTradeDay(trade.trade_date);
 }
 
 export type EquityOpenLot = {
-  opened: string;
+  /** ET session date of the open; null when the opening fill is not in this window. */
+  opened: string | null;
   quantity: number;
   average_price: number;
   live_pnl: number;
@@ -269,7 +286,7 @@ export function equityOpenLot(
   }
   if (average_price == null || !Number.isFinite(average_price)) return null;
   return {
-    opened: opened ?? '0000-01-01',
+    opened,
     quantity,
     average_price,
     live_pnl: live,
@@ -278,8 +295,10 @@ export function equityOpenLot(
 
 /**
  * Paint daily equity mark-to-market from lake OHLC so the chart follows the
- * holding instead of dumping the live open P&L on the last sparse point.
- * Last session is reconciled to Schwab's live open_pnl.
+ * holding. In-window days are incremental (prior close → close). Lots opened
+ * inside the window use fill price on the first session. Last-session drift
+ * to Schwab's full open_pnl is applied via series carry-in, not a one-day
+ * dump on the first or last bar.
  */
 export function applyEquityMarkPath(
   points: SchwabPnlPoint[],
@@ -287,20 +306,23 @@ export function applyEquityMarkPath(
   lot: EquityOpenLot | null,
   rangeStart: string,
   rangeEnd: string,
-): { points: SchwabPnlPoint[]; painted: boolean } {
-  if (!lot || lot.quantity === 0 || !rangeStart || !rangeEnd) {
-    return { points, painted: false };
-  }
-  const bars = ohlc
-    .filter((b) => (
-      b.date >= rangeStart
-      && b.date <= rangeEnd
-      && b.close != null
-      && Number.isFinite(b.close)
-    ))
+): { points: SchwabPnlPoint[]; painted: boolean; inWindowMtm: number } {
+  const none = { points, painted: false, inWindowMtm: 0 };
+  if (!lot || lot.quantity === 0 || !rangeStart || !rangeEnd) return none;
+
+  const allBars = ohlc
+    .filter((b) => b.close != null && Number.isFinite(b.close))
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (bars.length === 0) return { points, painted: false };
+  const inBars = allBars.filter((b) => b.date >= rangeStart && b.date <= rangeEnd);
+  if (inBars.length === 0) return none;
+
+  const opened = lot.opened;
+  const openedInRange = Boolean(opened && opened >= rangeStart && opened <= rangeEnd);
+  const pathStart = opened && opened > rangeStart ? opened : rangeStart;
+  const prior = [...allBars].reverse().find((b) => b.date < pathStart);
+  let prev: number | null = openedInRange ? lot.average_price : (prior?.close ?? null);
+  if (prev == null) return none;
 
   const byDate = new Map<string, SchwabPnlPoint>();
   for (const p of points) byDate.set(p.date, { ...p });
@@ -312,16 +334,14 @@ export function applyEquityMarkPath(
     }
     return row;
   };
-  for (const bar of bars) touch(bar.date);
+  for (const bar of inBars) touch(bar.date);
 
-  let prev: number | null = null;
   let mtmSum = 0;
   let lastMtmDate: string | null = null;
-  for (const bar of bars) {
-    if (bar.date < lot.opened) continue;
+  for (const bar of inBars) {
+    if (opened && bar.date < opened) continue;
     const close = bar.close as number;
-    const basis = prev == null ? lot.average_price : prev;
-    const change = round2(lot.quantity * (close - basis));
+    const change = round2(lot.quantity * (close - prev));
     const row = touch(bar.date);
     row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + change);
     row.daily_pnl = round2(n(row.daily_pnl) + change);
@@ -329,16 +349,11 @@ export function applyEquityMarkPath(
     prev = close;
     lastMtmDate = bar.date;
   }
-  if (lastMtmDate == null) return { points, painted: false };
-  const drift = round2(lot.live_pnl - mtmSum);
-  if (drift !== 0) {
-    const row = touch(lastMtmDate);
-    row.daily_equity_pnl = round2(n(row.daily_equity_pnl) + drift);
-    row.daily_pnl = round2(n(row.daily_pnl) + drift);
-  }
+  if (lastMtmDate == null) return none;
   return {
     points: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
     painted: true,
+    inWindowMtm: mtmSum,
   };
 }
 

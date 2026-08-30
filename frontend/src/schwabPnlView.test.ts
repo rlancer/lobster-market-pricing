@@ -128,7 +128,7 @@ test('applyEquityMarkPath follows daily closes instead of a one-day cliff', () =
     average_price: 87.26,
     live_pnl: -438,
   };
-  const { points: path, painted } = applyEquityMarkPath(
+  const { points: path, painted, inWindowMtm } = applyEquityMarkPath(
     sparse,
     ohlc,
     lot,
@@ -143,7 +143,11 @@ test('applyEquityMarkPath follows daily closes instead of a one-day cliff', () =
   assert.equal(last?.date, '2026-08-29');
   const jul6Equity = jul6!.daily_equity_pnl ?? 0;
   assert.ok(Math.abs(jul6Equity) < 200, '7/6 must not carry the whole open mark');
-  const totals = composeTotals(path, ALL, { equity_pnl: 0, option_pnl: 0 });
+  const start = lot.live_pnl - inWindowMtm;
+  const totals = composeTotals(path, ALL, { equity_pnl: lot.live_pnl - inWindowMtm, option_pnl: 0 }, {
+    startCumulative: start,
+    lastPointPnl: 0,
+  });
   assert.equal(totals.stocks, -438);
   assert.equal(totals.period, Math.round((34.48 + 31.8 - 438) * 100) / 100);
 
@@ -187,6 +191,30 @@ test('applyEquityMarkPath follows daily closes instead of a one-day cliff', () =
   );
   assert.equal(fromPos?.opened, '2026-03-18');
   assert.equal(fromPos?.live_pnl, -438);
+});
+
+test('applyEquityMarkPath first in-range bar is incremental when the lot opened earlier', () => {
+  const { points: path, painted } = applyEquityMarkPath(
+    [point({ date: '2026-08-01' }), point({ date: '2026-08-29' })],
+    [
+      { date: '2026-07-31', close: 82.25 },
+      { date: '2026-08-03', close: 82.19 },
+      { date: '2026-08-28', close: 83.22 },
+    ],
+    {
+      opened: '2026-03-18',
+      quantity: 100,
+      average_price: 87.26,
+      live_pnl: -438,
+    },
+    '2026-08-01',
+    '2026-08-29',
+  );
+  assert.equal(painted, true);
+  const first = path.find((p) => p.date === '2026-08-03');
+  assert.ok(first);
+  assert.equal(first!.daily_equity_pnl, Math.round(100 * (82.19 - 82.25) * 100) / 100);
+  assert.notEqual(first!.daily_equity_pnl, Math.round(100 * (82.19 - 87.26) * 100) / 100);
 });
 
 test('tickerOpenMark matches ETF and OCC option rows and derives missing open_pnl', () => {
@@ -311,6 +339,33 @@ test('buildActivityRows unifies trades, realized fills, and dividends', () => {
   const feesOnly = filterActivity(rows, { stocks: false, options: false, dividends: false, fees: true });
   assert.equal(feesOnly.length, 1);
   assert.equal(feesOnly[0]?.fees, -1);
+});
+
+test('buildActivityRows includes assignment synth fills that are not in trades', () => {
+  const rows = buildActivityRows({
+    trades: [],
+    fills: [{
+      id: 'synth-assign-stock-opt-1',
+      date: '2026-05-08',
+      symbol: 'CAR   260618P00390000',
+      underlying: 'CAR',
+      description: 'Option assignment close (CAR   260618P00390000)',
+      side: 'buy',
+      quantity: 1,
+      price: 0,
+      net_amount: 0,
+      fees: 0,
+      realized_pnl: 5020.8,
+      opened: '2026-01-02',
+      prior_open: false,
+      asset_type: 'OPTION',
+    }],
+    distributions: [],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.kind, 'option');
+  assert.equal(rows[0]?.realized_pnl, 5020.8);
+  assert.equal(rows[0]?.id, 'fill-synth-assign-stock-opt-1');
 });
 
 test('positionTicker prefers underlying then OCC root', () => {

@@ -252,23 +252,32 @@ export function SchwabPnlSection({
     [points, ohlc, lot, windowStart, windowEnd],
   );
 
-  const markForCompose = useMemo(() => {
+  const markForTotals = useMemo(() => {
     if (!openMark) return null;
     if (!marked.painted) return openMark;
-    return { ...openMark, equity_pnl: 0 };
-  }, [openMark, marked.painted]);
+    return { ...openMark, equity_pnl: openMark.equity_pnl - marked.inWindowMtm };
+  }, [openMark, marked.painted, marked.inWindowMtm]);
 
-  const markPnl = useMemo(
-    () => includedOpenMark(markForCompose, include),
-    [markForCompose, include],
-  );
+  const startCumulative = useMemo(() => {
+    if (!marked.painted || !include.stocks) return 0;
+    return (openMark?.equity_pnl ?? 0) - marked.inWindowMtm;
+  }, [marked.painted, marked.inWindowMtm, include.stocks, openMark]);
+
+  const lastPointPnl = useMemo(() => {
+    if (marked.painted) return include.options ? (openMark?.option_pnl ?? 0) : 0;
+    return includedOpenMark(openMark, include);
+  }, [marked.painted, include, openMark]);
+
   const series = useMemo(
-    () => composeSeries(marked.points, include, markPnl),
-    [marked.points, include, markPnl],
+    () => composeSeries(marked.points, include, lastPointPnl, startCumulative),
+    [marked.points, include, lastPointPnl, startCumulative],
   );
   const totals = useMemo(
-    () => composeTotals(marked.points, include, markForCompose),
-    [marked.points, include, markForCompose],
+    () => composeTotals(marked.points, include, markForTotals, {
+      startCumulative,
+      lastPointPnl,
+    }),
+    [marked.points, include, markForTotals, startCumulative, lastPointPnl],
   );
   const activity = useMemo(
     () => filterActivity(buildActivityRows({ trades, fills, distributions }), include),
@@ -288,7 +297,10 @@ export function SchwabPnlSection({
   );
 
   const periodPnl = totals.period;
-  const hasActivity = activity.length > 0 || series.some((p) => p.daily !== 0) || markPnl !== 0;
+  const hasActivity = activity.length > 0
+    || series.some((p) => p.daily !== 0)
+    || lastPointPnl !== 0
+    || startCumulative !== 0;
   const activityRows = activity as ActivityTableRow[];
   const periodStart = windowLabel?.split(' → ')[0] ?? 'this period';
   const tickerLabel = symbol || 'this account';
@@ -559,7 +571,9 @@ export function SchwabPnlSection({
           ) : null}
           {include.fees ? (
             <VStack gap={0}>
-              <Text type="supporting" size="sm">Fees</Text>
+              <Text type="supporting" size="sm">
+                {include.stocks || include.options ? 'Fees (in trading)' : 'Fees'}
+              </Text>
               <Text
                 hasTabularNumbers
                 weight="semibold"

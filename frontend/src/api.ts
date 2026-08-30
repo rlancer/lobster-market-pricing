@@ -998,7 +998,8 @@ export interface SchwabPnlResponse {
   symbol?: string | null;
   /**
    * Live open mark for a scoped ticker. Null on the whole-account book.
-   * The UI adds this to the headline and the last chart point.
+   * The UI adds equity mark via the daily OHLC path (carry-in + incremental)
+   * and option mark on the last chart point.
    */
   open_mark?: {
     count: number;

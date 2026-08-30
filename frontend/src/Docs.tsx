@@ -576,9 +576,12 @@ export function DocsSchwabPnl() {
         for lots you opened in the selected range. When you scope a ticker, the
         live open mark is included in the Stocks / Options stats and the
         headline so an open ETF like TLT is the current mark plus dividends,
-        not dividends alone. The stock curve follows daily lake closes from the
-        open lot (last session reconciled to Schwab), not a one-day drop of the
-        whole open P&amp;L.
+        not dividends alone. The stock curve follows daily lake closes for the
+        still-open lot. Days inside the selected range are incremental (prior
+        close to close); a lot opened before the range does not dump all prior
+        mark onto the first session. The headline is still full-name P&amp;L
+        (carry-in plus in-window moves). Option open mark, when present, is
+        applied on the last point.
       </p>
 
       <h3>Where to find it</h3>
@@ -602,7 +605,8 @@ export function DocsSchwabPnl() {
         off to hide those rows and drop them from the chart. Fees-only shows
         commission drag. Dividends-only shows cash distributions. Trading
         P&amp;L already includes commissions; turning Fees off adds that drag
-        back so you can see the fill without the ticket.
+        back so you can see the fill without the ticket. The Fees stat is that
+        same drag again — it is not a fifth addend on the headline.
       </p>
 
       <h3>The headline number and chart</h3>
@@ -612,11 +616,12 @@ export function DocsSchwabPnl() {
         you have on, for lots that both opened and closed inside that window.
         When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
         or mark minus cost if that field is missing) is added to the Stocks or
-        Options stat and the headline. The stock chart is daily lake closes for
-        the still-open lot, reconciled to that live mark on the last session —
-        we do not dump the whole open P&amp;L onto one day. The step chart is
-        that same total, accumulated day by day. Dots on the curve are the
-        included fills and dividends.
+        Options stat and the headline. The stock chart uses daily lake closes
+        for the still-open lot. In-window days are close-to-close; a buy from
+        before the range does not dump all prior mark onto the first session.
+        The curve is carried in so the last point still matches full-name P&amp;L.
+        Option open mark, when present, lands on the last point. Dots on the
+        curve are the included fills and dividends.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">

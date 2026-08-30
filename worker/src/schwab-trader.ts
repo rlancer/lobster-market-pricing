@@ -525,7 +525,7 @@ export async function loadSchwabTrades(
         end: opts.end,
         symbol: opts.symbol?.trim().toUpperCase() || null,
         trades,
-        may_be_truncated: trades.length >= 3000,
+        may_be_truncated: raw.length >= 3000,
       },
     };
   } catch (e) {
