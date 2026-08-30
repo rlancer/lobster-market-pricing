@@ -15,10 +15,10 @@ import {
   Button,
   HStack,
   Spinner,
+  Tab,
+  TabList,
   Text,
   Token,
-  ToggleButton,
-  ToggleButtonGroup,
   VStack,
 } from '@astryxdesign/core';
 import { TextInput } from '@astryxdesign/core/TextInput';
@@ -392,19 +392,16 @@ export function SchwabPnlSection({
             onClick={() => applySymbol(symbolDraft)}
           />
         </HStack>
-        <ToggleButtonGroup
-          label="PnL range"
-          type="single"
+        <TabList
           size="sm"
+          aria-label="PnL range"
           value={range}
-          onChange={(value) => {
-            if (typeof value === 'string') setRange(value as SchwabPnlRange);
-          }}
+          onChange={(value) => setRange(value as SchwabPnlRange)}
         >
           {PNL_RANGES.map((key) => (
-            <ToggleButton key={key} value={key} label={key} />
+            <Tab key={key} value={key} label={key} />
           ))}
-        </ToggleButtonGroup>
+        </TabList>
       </HStack>
 
       <HStack gap={2} wrap="wrap" role="group" aria-label="Include in performance">

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
-  Button,
   Heading,
   HStack,
+  Tab,
+  TabList,
+  TabMenu,
   Text,
   Token,
   VStack,
@@ -794,19 +796,25 @@ export default function TextVsImageNotebookPage() {
             charts. Hybrid rows send a textless PNG plus a markdown color key in one probe
             (no OCR). Pick one to inspect the payload.
           </Text>
-          <HStack gap={2} style={{ flexWrap: 'wrap' }}>
-            {allReps.map((rep) => (
-              <Button
-                key={rep.id}
-                size="sm"
-                variant={selectedRep === rep.id ? 'primary' : 'secondary'}
-                label={'approxTokens' in rep
-                  ? `${rep.label} (~${rep.approxTokens} tok)`
-                  : rep.label}
-                onClick={() => setSelectedRep(rep.id)}
-              />
+          <TabList
+            size="sm"
+            aria-label="Representations"
+            value={selectedRep}
+            onChange={setSelectedRep}
+          >
+            {allReps.slice(0, 6).map((rep) => (
+              <Tab key={rep.id} value={rep.id} label={rep.label} />
             ))}
-          </HStack>
+            {allReps.length > 6 ? (
+              <TabMenu
+                label="More"
+                options={allReps.slice(6).map((rep) => ({
+                  value: rep.id,
+                  label: rep.label,
+                }))}
+              />
+            ) : null}
+          </TabList>
           {selectedText ? (
             <VStack gap={2}>
               <Text type="supporting">{selectedText.description}</Text>

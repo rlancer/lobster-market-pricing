@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Button, HStack, Theme, Token } from '@astryxdesign/core';
+import { Button, HStack, Tab, TabList, Theme, Token } from '@astryxdesign/core';
 import { useIsAdmin } from './useAdmin';
 import { lobsterTheme } from './theme';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -111,6 +111,7 @@ export default function BrandPage() {
   const navigate = useNavigate();
   const { isAdmin, isPending } = useIsAdmin();
   const [active, setActive] = useState<string>(BRAND_PAGES[0].id);
+  const [chromeTab, setChromeTab] = useState('chat');
 
   useEffect(() => {
     if (!isPending && !isAdmin) {
@@ -346,9 +347,22 @@ export default function BrandPage() {
 
         <Section id="components" num="07" title="Components">
           <p className="brand-lede">
-            Interactive chrome comes from Astryx on the lobster theme. One primary action per view;
-            tokens for metadata, never decoration.
+            Interactive chrome comes from Astryx on the lobster theme. TabList
+            switches related views; Buttons are for actions. One primary action
+            per view; tokens for metadata, never decoration.
           </p>
+          <div className="brand-comp-row">
+            <TabList
+              size="sm"
+              aria-label="Example views"
+              value={chromeTab}
+              onChange={setChromeTab}
+            >
+              <Tab value="chat" label="Chat" />
+              <Tab value="data" label="Data" />
+              <Tab value="docs" label="Docs" />
+            </TabList>
+          </div>
           <div className="brand-comp-row">
             <Button variant="primary" label="Ask the Lobster" />
             <Button variant="secondary" label="Open Data" />
