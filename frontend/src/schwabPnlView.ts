@@ -632,9 +632,30 @@ export function optionProxyBars(
 }
 
 /**
+ * Schwab option `/pricehistory` often returns stale last-trade prints for
+ * illiquid deep-ITM contracts (flat across the hold). Using those marks and
+ * then forcing the fill/assignment exit on the close day recreates the
+ * one-day rocket. Require the last Schwab print to have already tracked at
+ * least half of entry → exit before we trust the series.
+ */
+export function optionSchwabBarsTrackExit(
+  bars: Array<{ date: string; close: number }>,
+  entryPrice: number,
+  exitPrice: number | null,
+): boolean {
+  if (bars.length < 2) return false;
+  if (exitPrice == null || !Number.isFinite(exitPrice)) return true;
+  const totalMove = exitPrice - entryPrice;
+  if (Math.abs(totalMove) < 1e-6) return true;
+  const last = bars[bars.length - 1]!.close;
+  return (last - entryPrice) / totalMove >= 0.5;
+}
+
+/**
  * Replace the one-day FIFO option lump with daily mark-to-market. Schwab
- * option closes are preferred. If Schwab has no option history, deep-ITM
- * contracts use intrinsic value from Schwab underlying closes. Assignment
+ * option closes are preferred when they actually track the fill→exit move.
+ * Stale/flat Schwab prints (common on deep-ITM assigned puts) fall through
+ * to the underlying-intrinsic proxy, same as missing history. Assignment
  * moves the delivered-stock intrinsic loss onto the short option.
  */
 export function applyOptionMarkPath(
@@ -682,7 +703,16 @@ export function applyOptionMarkPath(
         .sort((a, b) => a.date.localeCompare(b.date));
     let raw = ohlcBySymbol[lot.symbol] ?? [];
     let bars = inWindow(raw);
-    if (bars.length < 2) {
+    // Judge Schwab marks before forcing the exit print onto the close day.
+    const schwabForGate = lot.closed
+      ? bars.filter((b) => b.date < lot.closed!)
+      : bars;
+    const trustSchwab = optionSchwabBarsTrackExit(
+      schwabForGate.length >= 2 ? schwabForGate : bars,
+      lot.average_price,
+      lot.exit_price,
+    );
+    if (!trustSchwab) {
       raw = optionProxyBars(lot, underlyingOhlc, pathStart, pathEnd, rangeStart);
       bars = inWindow(raw);
     }
