@@ -139,8 +139,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/schwab/connect', desc: <>Start Schwab OAuth (302 → Schwab; session required)</> },
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
-  { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; ≤366 days)</> },
-  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account)</> },
+  { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; symbol matches equity and options on that root; ≤366 days)</> },
+  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; ticker-scoped ohlc[] from Schwab Market Data on the connected token)</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
@@ -571,10 +571,22 @@ export function DocsSchwabPnl() {
       </p>
       <p className="docs-callout">
         <b>This is not your account balance over time.</b> The big number and the
-        chart are realized trading P&amp;L for positions you <em>opened in the
-        selected range</em>. They do not include deposits, withdrawals, or the
-        open mark-to-market on positions you still hold. Dividends and interest
-        show in their own table under the chart, not in the curve.
+        chart are P&amp;L for the include chips you have on. They do not include
+        deposits or withdrawals. On the whole-account book that is realized P&amp;L
+        for lots you opened in the selected range. When you scope a ticker, the
+        live open mark is included in the Stocks / Options stats and the
+        headline so an open ETF like TLT is the current mark plus dividends,
+        not dividends alone. Stock curves reconstruct each closed and still-open
+        FIFO tranche, so partial exits and reopened positions use the quantity
+        actually held each session. Option legs use Black–Scholes on those same
+        stock closes (implied vol from the fill plus Schwab&apos;s current
+        dividend yield), not last-trade option prints.
+        Days inside the
+        selected range are incremental (prior
+        close to close); a lot opened before the range does not dump all prior
+        mark onto the first session. The headline is still full-name P&amp;L
+        (carry-in plus in-window moves). Option open mark, when present, is
+        applied on the last point.
       </p>
 
       <h3>Where to find it</h3>
@@ -583,12 +595,46 @@ export function DocsSchwabPnl() {
         Performance. Connect Schwab from Account if you have not already.
       </p>
 
+      <h3>Ticker — stocks and options together</h3>
+      <p className="docs-lede">
+        Leave Ticker blank for the whole account. Enter a root such as
+        <b> CAR</b> to see that equity plus every option on CAR in one book —
+        the same FIFO matching and assignment rules, just scoped. Clicking a
+        symbol on Positions opens Performance with that root filled in
+        (an OCC option row uses the underlying, not the long option code).
+      </p>
+
+      <h3>Include chips</h3>
+      <p className="docs-lede">
+        Stocks, Options, Dividends, and Fees are on by default. Turn sleeves
+        off to hide those rows and drop them from the chart. Fees-only shows
+        commission drag. Dividends-only shows cash distributions. Trading
+        P&amp;L already includes commissions; turning Fees off adds that drag
+        back so you can see the fill without the ticket. The Fees stat is that
+        same drag again — it is not a fifth addend on the headline.
+      </p>
+
       <h3>The headline number and chart</h3>
       <p className="docs-lede">
         The range buttons (MTD, YTD, 1M, 3M, 6M, 1Y) pick a window in US Eastern
-        time, ending today. The headline is realized P&amp;L for trades that both
-        opened and closed inside that window. The step chart is that same total,
-        accumulated day by day.
+        time, ending today. The headline is the composed total for the sleeves
+        you have on, for lots that both opened and closed inside that window.
+        When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
+        or mark minus cost if that field is missing) is added to the Stocks or
+        Options stat and the headline. Portfolio marks use Schwab Market
+        Data only (the connected user&apos;s token) — never lake/Yahoo OHLC,
+        which may lack the ticker or hold window entirely. Closed
+        options (including assignment) are marked with Black–Scholes on
+        Schwab stock closes, using implied vol from the fill (held constant),
+        Schwab quote dividend yield, and never below intrinsic. Last-trade
+        option prints are neither fetched nor used —
+        they are often stale. On assignment, intrinsic loss belongs to the short
+        put rather than the delivered shares, so settlement does not create a
+        one-day rocket. In-window days are close-to-close; a buy from
+        before the range does not dump all prior mark onto the first session.
+        The curve is carried in so the last point still matches full-name P&amp;L.
+        Open marks are reconciled to Schwab&apos;s current P&amp;L. Dots on
+        the curve are the included fills and dividends.
       </p>
       <div className="docs-table-wrap">
         <table className="docs-table">
@@ -617,19 +663,23 @@ export function DocsSchwabPnl() {
         into this month.
       </p>
 
-      <h3>Closing fills</h3>
+      <h3>Activity</h3>
       <p className="docs-lede">
-        The table under the chart lists each trade that realized P&amp;L in the
-        window: side, symbol, quantity, price, fees on the close, realized
-        amount, when the lot was opened, and whether it is period or prior-lot.
-        Use it to trace a spike or drop on a given day.
+        The table under the chart lists every included fill and dividend in the
+        window — opens and closes — with kind (stock / option / div), side,
+        fees, and realized P&amp;L when a close matched an open lot. Rows tagged
+        prior-lot are excluded from the chart total.
       </p>
 
       <h3>Dividends and interest</h3>
       <p className="docs-lede">
-        Cash credits in the same window (ordinary dividends, interest) are listed
-        separately and totaled as “Dividends / interest.” They are not added
-        into the trading chart.
+        Cash credits in the same window (ordinary dividends, interest) show as
+        Div rows and in the Dividends stat. Turn the Dividends chip on to add
+        them to the curve; turn it off to keep the chart as trading P&amp;L only.
+        ETF dividends from Schwab often omit the ticker and only name the fund —
+        we join those cash rows to the ticker via CUSIP or the same fund name
+        on a trade or open position, so TLT still shows iShares 20+ Year
+        Treasury distributions.
       </p>
 
       <h3>Option assignment</h3>
@@ -653,8 +703,8 @@ export function DocsSchwabPnl() {
 
       <h3>Warnings you may see</h3>
       <ul className="docs-ordered">
-        <li><b>Cost-basis lookback was unavailable</b> — only trades inside the visible range could be loaded. Closes of older positions may be missing from realized P&amp;L.</li>
-        <li><b>Trade history may be truncated</b> — Schwab can cap how many rows come back. Some closes may lack a matching open.</li>
+        <li><b>Complete cost basis was unavailable</b> — the extended request failed or the opening trade predates Schwab&apos;s available history. Affected closes are excluded instead of inventing basis.</li>
+        <li><b>Trade history may be truncated</b> — date windows are automatically partitioned around Schwab&apos;s row cap. If one day alone still reaches the cap, Performance stops instead of displaying an incomplete total.</li>
         <li><b>Closing trades lacked a matching open</b> — those rows are excluded so we do not invent a profit or loss without a cost basis.</li>
       </ul>
       <p className="docs-note">

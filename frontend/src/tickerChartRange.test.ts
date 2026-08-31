@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { OhlcBar } from './api.ts';
 import {
   chartRangeLabel,
+  etTradeDay,
   formatChartTick,
   rangeMove,
   sliceBars,
@@ -94,4 +95,10 @@ test('chartRangeLabel and formatChartTick', () => {
   assert.equal(formatChartTick('2026-08-17'), '08-17');
   assert.equal(formatChartTick('2026-08-17T09:35'), '09:35');
   assert.equal(formatChartTick('2026-08-17T15:55:00'), '15:55');
+});
+
+test('etTradeDay buckets after-hours ISO timestamps onto the ET calendar', () => {
+  assert.equal(etTradeDay('2026-08-28'), '2026-08-28');
+  assert.equal(etTradeDay('2026-08-28T21:30:00.000Z'), '2026-08-28');
+  assert.equal(etTradeDay('2026-08-29T01:30:00.000Z'), '2026-08-28');
 });
