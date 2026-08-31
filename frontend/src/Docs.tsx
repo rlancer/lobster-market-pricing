@@ -576,9 +576,11 @@ export function DocsSchwabPnl() {
         for lots you opened in the selected range. When you scope a ticker, the
         live open mark is included in the Stocks / Options stats and the
         headline so an open ETF like TLT is the current mark plus dividends,
-        not dividends alone. The stock curve follows Schwab daily closes for the
-        still-open lot. Option legs use Black–Scholes on those same stock
-        closes (implied vol from the fill), not last-trade option prints.
+        not dividends alone. Stock curves reconstruct each closed and still-open
+        FIFO tranche, so partial exits and reopened positions use the quantity
+        actually held each session. Option legs use Black–Scholes on those same
+        stock closes (implied vol from the fill plus Schwab&apos;s current
+        dividend yield), not last-trade option prints.
         Days inside the
         selected range are incremental (prior
         close to close); a lot opened before the range does not dump all prior
@@ -623,8 +625,9 @@ export function DocsSchwabPnl() {
         Data only (the connected user&apos;s token) — never lake/Yahoo OHLC,
         which may lack the ticker or hold window entirely. Closed
         options (including assignment) are marked with Black–Scholes on
-        Schwab stock closes, using implied vol from the fill (held constant)
-        and never below intrinsic. Last-trade option prints are ignored —
+        Schwab stock closes, using implied vol from the fill (held constant),
+        Schwab quote dividend yield, and never below intrinsic. Last-trade
+        option prints are neither fetched nor used —
         they are often stale. On assignment, intrinsic loss belongs to the short
         put rather than the delivered shares, so settlement does not create a
         one-day rocket. In-window days are close-to-close; a buy from
@@ -700,8 +703,8 @@ export function DocsSchwabPnl() {
 
       <h3>Warnings you may see</h3>
       <ul className="docs-ordered">
-        <li><b>Cost-basis lookback was unavailable</b> — only trades inside the visible range could be loaded. Closes of older positions may be missing from realized P&amp;L.</li>
-        <li><b>Trade history may be truncated</b> — Schwab can cap how many rows come back. Some closes may lack a matching open.</li>
+        <li><b>Complete cost basis was unavailable</b> — the extended request failed or the opening trade predates Schwab&apos;s available history. Affected closes are excluded instead of inventing basis.</li>
+        <li><b>Trade history may be truncated</b> — date windows are automatically partitioned around Schwab&apos;s row cap. If one day alone still reaches the cap, Performance stops instead of displaying an incomplete total.</li>
         <li><b>Closing trades lacked a matching open</b> — those rows are excluded so we do not invent a profit or loss without a cost basis.</li>
       </ul>
       <p className="docs-note">

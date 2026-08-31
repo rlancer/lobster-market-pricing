@@ -6,13 +6,17 @@ import {
   etTradeDay,
   formatOccOptionSymbol,
   inferTradeSide,
+  isIncludedSchwabTransaction,
+  listSchwabTransactionsComplete,
   matchesTicker,
   normalizeTrade,
+  normalizeTrades,
   opaqueAccountId,
   parseTradeDateRange,
   commissionPnl,
   toTradeAccounts,
   SCHWAB_TRADES_MAX_RANGE_DAYS,
+  SCHWAB_TRANSACTIONS_PAGE_CAP,
 } from "../src/schwab-trader.ts";
 
 test("opaqueAccountId matches portfolio masking scheme", () => {
@@ -278,4 +282,71 @@ test("normalizeTrade copies instrument description and CUSIP when tx description
   assert.equal(trade.symbol, "TLT");
   assert.equal(trade.description, "ISHARES 20+ YEAR TREASURY BOND ETF");
   assert.equal(trade.cusip, "464287432");
+});
+
+test("normalizeTrades preserves every leg and allocates transaction fees", () => {
+  const trades = normalizeTrades({
+    activityId: 99,
+    description: "VERTICAL SPREAD",
+    status: "VALID",
+    tradeDate: "2026-08-28T15:00:00.000Z",
+    netAmount: 298,
+    transferItems: [
+      {
+        instrument: { assetType: "OPTION", symbol: "CAR   260918P00390000" },
+        amount: -1,
+        cost: 500,
+        price: 5,
+        positionEffect: "OPENING",
+      },
+      {
+        instrument: { assetType: "OPTION", symbol: "CAR   260918P00350000" },
+        amount: 1,
+        cost: -200,
+        price: 2,
+        positionEffect: "OPENING",
+      },
+      { amount: -2, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trades.length, 2);
+  assert.deepEqual(trades.map((trade) => trade.side), ["sell", "buy"]);
+  assert.deepEqual(trades.map((trade) => trade.net_amount), [499, -201]);
+  assert.deepEqual(trades.map((trade) => trade.fees), [-1, -1]);
+  assert.notEqual(trades[0]!.id, trades[1]!.id);
+});
+
+test("invalid and reversed Schwab transactions are excluded", () => {
+  assert.equal(isIncludedSchwabTransaction({ status: "VALID" }), true);
+  assert.equal(isIncludedSchwabTransaction({ status: "INVALID" }), false);
+  assert.equal(isIncludedSchwabTransaction({ status: "REVERSED" }), false);
+});
+
+test("listSchwabTransactionsComplete partitions a capped date window", async () => {
+  let calls = 0;
+  const fetchImpl: typeof fetch = async (input) => {
+    calls += 1;
+    const url = new URL(String(input));
+    const start = Date.parse(url.searchParams.get("startDate") ?? "");
+    const end = Date.parse(url.searchParams.get("endDate") ?? "");
+    const rows = end - start > 24 * 60 * 60 * 1000
+      ? Array.from({ length: SCHWAB_TRANSACTIONS_PAGE_CAP }, (_, index) => ({
+          activityId: index,
+        }))
+      : [{ activityId: calls }];
+    return new Response(JSON.stringify(rows), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const page = await listSchwabTransactionsComplete(
+    "tok",
+    "hash",
+    { start: "2026-08-01", end: "2026-08-02", types: "TRADE" },
+    "Bearer",
+    fetchImpl,
+  );
+  assert.equal(calls, 3);
+  assert.equal(page.truncated, false);
+  assert.equal(page.rows.length, 2);
 });

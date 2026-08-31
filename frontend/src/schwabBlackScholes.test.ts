@@ -35,6 +35,39 @@ test('impliedVol round-trips a CAR-like put fill', () => {
   assert.ok(Math.abs(priced - 83.09) < 0.05);
 });
 
+test('impliedVol does not silently clamp very high short-dated volatility', () => {
+  const years = yearFraction('2026-08-27', '2026-08-28');
+  const iv = impliedVol({
+    right: 'C',
+    spot: 100,
+    strike: 100,
+    years,
+    price: 15,
+  });
+  assert.ok(iv != null && iv > 5, `expected IV above 500%, got ${iv}`);
+  assert.ok(Math.abs(blackScholesPrice({
+    right: 'C',
+    spot: 100,
+    strike: 100,
+    years,
+    vol: iv!,
+  }) - 15) < 0.01);
+});
+
+test('blackScholesPrice incorporates the underlying dividend yield', () => {
+  const base = {
+    right: 'C' as const,
+    spot: 100,
+    strike: 100,
+    years: 0.5,
+    vol: 0.3,
+  };
+  assert.ok(
+    blackScholesPrice({ ...base, dividend: 0.05 })
+      < blackScholesPrice({ ...base, dividend: 0 }),
+  );
+});
+
 test('americanOptionMark never marks a put below intrinsic', () => {
   const years = yearFraction('2026-04-23', '2026-06-18');
   const mark = americanOptionMark({

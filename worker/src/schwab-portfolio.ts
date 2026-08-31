@@ -103,11 +103,13 @@ export function resolvePositionOpenPnl(
   quantity: number,
   averagePrice: number | null,
   marketValue: number | null,
+  assetType?: string | null,
 ): number | null {
   const reported = positionOpenPnl(pos);
   if (reported != null) return reported;
   if (averagePrice == null || marketValue == null) return null;
-  return marketValue - averagePrice * quantity;
+  const multiplier = (assetType ?? "").toUpperCase() === "OPTION" ? 100 : 1;
+  return marketValue - averagePrice * quantity * multiplier;
 }
 
 function normalizePosition(
@@ -139,7 +141,13 @@ function normalizePosition(
     average_price: avg,
     market_value: num(pos.marketValue),
     day_pnl: num(pos.currentDayProfitLoss),
-    open_pnl: resolvePositionOpenPnl(pos, quantity, avg, num(pos.marketValue)),
+    open_pnl: resolvePositionOpenPnl(
+      pos,
+      quantity,
+      avg,
+      num(pos.marketValue),
+      str(instrument.assetType),
+    ),
     cusip: str(instrument.cusip),
   };
 }

@@ -117,6 +117,28 @@ test("normalizeSchwabAccounts derives ETF open P&L from mark minus cost", () => 
   assert.equal(tlt.open_pnl, 8900 - 87.26 * 100);
 });
 
+test("normalizeSchwabAccounts applies the option contract multiplier", () => {
+  const view = normalizeSchwabAccounts([
+    {
+      securitiesAccount: {
+        accountNumber: "1111",
+        positions: [{
+          longQuantity: 0,
+          shortQuantity: 1,
+          averagePrice: 2.5,
+          marketValue: -200,
+          instrument: {
+            symbol: "CAR   260918P00390000",
+            underlyingSymbol: "CAR",
+            assetType: "OPTION",
+          },
+        }],
+      },
+    },
+  ]);
+  assert.equal(view.accounts[0]!.positions[0]!.open_pnl, 50);
+});
+
 test("fetchSchwabAccountsRaw requests positions and auth header", async () => {
   const calls: { url: string; auth: string | null }[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {

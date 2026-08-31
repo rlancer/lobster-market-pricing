@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { SchwabPnlPoint, SchwabTrade } from './api.ts';
+import type {
+  SchwabPnlFill,
+  SchwabPnlPoint,
+  SchwabPortfolioPosition,
+  SchwabTrade,
+} from './api.ts';
 import {
   applyEquityMarkPath,
   applyOptionMarkPath,
@@ -11,6 +16,7 @@ import {
   composeTotals,
   densifyWithOhlc,
   equityOpenLot,
+  equityLotsFromFills,
   filterActivity,
   includedOpenMark,
   optionLotsFromFills,
@@ -39,6 +45,30 @@ function point(partial: Partial<SchwabPnlPoint> & Pick<SchwabPnlPoint, 'date'>):
   };
 }
 
+function schwabTrade(
+  partial: Partial<SchwabTrade> & Pick<SchwabTrade, 'id' | 'trade_date' | 'side'>,
+): SchwabTrade {
+  return {
+    activity_id: null,
+    settlement_date: null,
+    description: null,
+    status: 'VALID',
+    activity_type: 'EXECUTION',
+    net_amount: null,
+    symbol: 'CAR',
+    underlying: null,
+    asset_type: 'EQUITY',
+    quantity: null,
+    price: null,
+    cost: null,
+    fees: null,
+    position_effect: null,
+    order_id: null,
+    position_id: null,
+    ...partial,
+  };
+}
+
 test('composeDaily adds selected sleeves and can isolate fees or dividends', () => {
   const p = point({
     date: '2026-02-10',
@@ -52,6 +82,10 @@ test('composeDaily adds selected sleeves and can isolate fees or dividends', () 
   assert.equal(composeDaily(p, ALL), 242);
   assert.equal(composeDaily(p, { ...ALL, options: false }), 162);
   assert.equal(composeDaily(p, { ...ALL, stocks: false, options: false, fees: false }), 12);
+  assert.equal(
+    composeDaily(p, { stocks: false, options: false, dividends: true, fees: true }),
+    9,
+  );
   assert.equal(composeDaily(p, { stocks: false, options: false, dividends: false, fees: true }), -3);
   assert.equal(composeDaily(p, { ...ALL, fees: false }), 245);
 
@@ -260,6 +294,20 @@ test('tickerOpenMark matches ETF and OCC option rows and derives missing open_pn
   assert.equal(mark?.option_pnl, 0);
   assert.equal(tickerOpenMark([], 'TLT'), null);
   assert.equal(tickerOpenMark([], null), null);
+  assert.equal(tickerOpenMark([
+    {
+      id: 'car-put-fallback',
+      symbol: 'CAR   260918P00390000',
+      underlying: 'CAR',
+      asset_type: 'OPTION',
+      description: null,
+      quantity: -1,
+      average_price: 2.5,
+      market_value: -200,
+      day_pnl: null,
+      open_pnl: null,
+    },
+  ], 'CAR')?.option_pnl, 50);
 });
 
 test('buildActivityRows unifies trades, realized fills, and dividends', () => {
@@ -355,6 +403,13 @@ test('buildActivityRows unifies trades, realized fills, and dividends', () => {
   const feesOnly = filterActivity(rows, { stocks: false, options: false, dividends: false, fees: true });
   assert.equal(feesOnly.length, 1);
   assert.equal(feesOnly[0]?.fees, -1);
+  const dividendsAndFees = filterActivity(rows, {
+    stocks: false,
+    options: false,
+    dividends: true,
+    fees: true,
+  });
+  assert.equal(dividendsAndFees.length, 2);
 });
 
 test('buildActivityRows includes assignment synth fills that are not in trades', () => {
@@ -911,6 +966,218 @@ test('optionLegDailyPath exposes per-session marks for a CAR put leg', () => {
   const crash = path.find((p) => p.date === '2026-04-23');
   assert.ok(crash && crash.daily_pnl < -1000, 'crash day must mark the short put up');
   assert.equal(Math.round((path.at(-1)?.cumulative_pnl ?? 0) * 100) / 100, lot!.target_pnl);
+});
+
+test('equityLotsFromFills preserves closed exposure and a later reopened lot', () => {
+  const positions: SchwabPortfolioPosition[] = [{
+    id: 'car-current',
+    symbol: 'CAR',
+    underlying: null,
+    description: null,
+    asset_type: 'EQUITY',
+    quantity: 100,
+    average_price: 120,
+    market_value: 13_000,
+    day_pnl: null,
+    open_pnl: 1_000,
+  }];
+  const trades = [
+    schwabTrade({
+      id: 'buy-old',
+      trade_date: '2026-01-05',
+      side: 'buy',
+      quantity: 100,
+      price: 100,
+    }),
+    schwabTrade({
+      id: 'sell-old',
+      trade_date: '2026-02-05',
+      side: 'sell',
+      quantity: 100,
+      price: 110,
+    }),
+    schwabTrade({
+      id: 'buy-current',
+      trade_date: '2026-07-05',
+      side: 'buy',
+      quantity: 100,
+      price: 120,
+    }),
+  ];
+  const fills: SchwabPnlFill[] = [{
+    id: 'sell-old',
+    date: '2026-02-05',
+    symbol: 'CAR',
+    underlying: null,
+    description: null,
+    side: 'sell',
+    quantity: 100,
+    price: 110,
+    net_amount: 11_000,
+    fees: 0,
+    realized_pnl: 1_000,
+    opened: '2026-01-05',
+    prior_open: false,
+    asset_type: 'EQUITY',
+  }];
+  const lots = equityLotsFromFills(positions, trades, fills, 'CAR');
+  assert.equal(lots.filter((lot) => lot.closed).length, 1);
+  const current = lots.find((lot) => !lot.closed);
+  assert.equal(current?.opened, '2026-07-05');
+  assert.equal(current?.quantity, 100);
+});
+
+test('equity mark path spreads a fully closed trade over its holding sessions', () => {
+  const fills: SchwabPnlFill[] = [{
+    id: 'sell',
+    date: '2026-01-07',
+    symbol: 'CAR',
+    underlying: null,
+    description: null,
+    side: 'sell',
+    quantity: 100,
+    price: 110,
+    net_amount: 11_000,
+    fees: 0,
+    realized_pnl: 1_000,
+    opened: '2026-01-05',
+    prior_open: false,
+    asset_type: 'EQUITY',
+  }];
+  const lots = equityLotsFromFills([], [], fills, 'CAR');
+  const marked = applyEquityMarkPath(
+    [
+      point({ date: '2026-01-01' }),
+      point({ date: '2026-01-07', daily_equity_pnl: 1_000, daily_pnl: 1_000 }),
+    ],
+    [
+      { date: '2026-01-05', close: 102 },
+      { date: '2026-01-06', close: 106 },
+      { date: '2026-01-07', close: 109 },
+    ],
+    lots,
+    '2026-01-01',
+    '2026-01-31',
+  );
+  assert.equal(marked.closedPnl, 1_000);
+  assert.ok((marked.points.find((row) => row.date === '2026-01-06')?.daily_equity_pnl ?? 0) > 0);
+  assert.equal(
+    marked.points.reduce((sum, row) => sum + (row.daily_equity_pnl ?? 0), 0),
+    1_000,
+  );
+});
+
+test('option lots retain both FIFO tranches and a remaining same-symbol position', () => {
+  const fill: SchwabPnlFill = {
+    id: 'close-two',
+    date: '2026-03-05',
+    symbol: 'CAR   260918P00390000',
+    description: null,
+    side: 'buy',
+    quantity: 2,
+    price: 2,
+    net_amount: -400,
+    fees: 0,
+    realized_pnl: 400,
+    opened: '2026-01-05',
+    prior_open: false,
+    asset_type: 'OPTION',
+    lots: [
+      {
+        id: 'jan',
+        opened: '2026-01-05',
+        quantity: 1,
+        realized_pnl: 300,
+        prior_open: false,
+      },
+      {
+        id: 'feb',
+        opened: '2026-02-05',
+        quantity: 1,
+        realized_pnl: 100,
+        prior_open: false,
+      },
+    ],
+  };
+  const position: SchwabPortfolioPosition = {
+    id: 'remaining',
+    symbol: fill.symbol!,
+    underlying: 'CAR',
+    description: null,
+    asset_type: 'OPTION',
+    quantity: -1,
+    average_price: 3,
+    market_value: -250,
+    day_pnl: null,
+    open_pnl: 50,
+  };
+  const otherPosition: SchwabPortfolioPosition = {
+    ...position,
+    id: 'aapl',
+    symbol: 'AAPL  260918C00200000',
+    underlying: 'AAPL',
+  };
+  const lots = optionLotsFromFills([fill], [position, otherPosition], 'CAR');
+  assert.equal(lots.length, 3);
+  assert.deepEqual(
+    lots.filter((lot) => lot.closed).map((lot) => lot.opened),
+    ['2026-01-05', '2026-02-05'],
+  );
+  assert.equal(lots.find((lot) => !lot.closed)?.id, 'remaining');
+});
+
+test('assignment reclassification can follow the delivered stock sale', () => {
+  const option: SchwabPnlFill = {
+    id: 'synth-assign-put',
+    date: '2026-05-08',
+    symbol: 'CAR   260618P00100000',
+    underlying: 'CAR',
+    description: 'Option assignment close',
+    side: 'buy',
+    quantity: 1,
+    price: 0,
+    net_amount: 0,
+    fees: 0,
+    realized_pnl: 500,
+    opened: '2026-04-01',
+    prior_open: false,
+    asset_type: 'OPTION',
+  };
+  const stockSale: SchwabPnlFill = {
+    id: 'stock-sale',
+    date: '2026-05-09',
+    symbol: 'CAR',
+    underlying: null,
+    description: null,
+    side: 'sell',
+    quantity: 100,
+    price: 80,
+    net_amount: 8_000,
+    fees: 0,
+    realized_pnl: -2_000,
+    opened: '2026-05-08',
+    prior_open: false,
+    asset_type: 'EQUITY',
+  };
+  const lot = optionLotsFromFills([option, stockSale])[0]!;
+  assert.equal(lot.assignment_equity_fill_id, 'stock-sale');
+  assert.equal(lot.assignment_equity_date, '2026-05-09');
+  assert.equal(lot.target_pnl, -1_500);
+  const marked = applyOptionMarkPath(
+    [
+      point({ date: '2026-05-08', daily_option_pnl: 500, daily_pnl: 500 }),
+      point({ date: '2026-05-09', daily_equity_pnl: -2_000, daily_pnl: -2_000 }),
+    ],
+    {},
+    [lot],
+    '2026-04-01',
+    '2026-05-31',
+    [],
+  );
+  assert.equal(
+    marked.points.find((row) => row.date === '2026-05-09')?.daily_equity_pnl,
+    0,
+  );
 });
 
 test('positionTicker prefers underlying then OCC root', () => {

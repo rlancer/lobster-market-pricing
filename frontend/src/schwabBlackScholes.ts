@@ -111,12 +111,12 @@ export function impliedVol(opts: {
 
   const at = (vol: number) => blackScholesPrice({ ...opts, vol });
   const loPrice = at(0);
-  const hiPrice = at(5);
   if (price <= loPrice + 1e-8) return 0;
-  if (price >= hiPrice) return 5;
 
   let lo = 1e-6;
-  let hi = 5;
+  let hi = 1;
+  while (hi < 20 && at(hi) < price) hi *= 2;
+  if (at(hi) + 1e-8 < price) return null;
   for (let i = 0; i < 80; i++) {
     const mid = (lo + hi) / 2;
     if (at(mid) > price) hi = mid;
