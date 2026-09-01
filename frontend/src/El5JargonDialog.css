@@ -1,0 +1,16 @@
+/* EL5 dialogs: Astryx Dialog is height:fit-content + max-height, so a fill
+   Layout never gets a definite height and LayoutContent cannot scroll.
+   Make the body the scrollport under a capped shell. */
+
+.el5-dialog-shell {
+  max-height: 85vh;
+  min-height: 0;
+}
+
+.el5-dialog-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* Leave room for DialogHeader + LayoutFooter inside the 85vh shell. */
+  max-height: calc(85vh - (var(--spacing-10) + var(--spacing-10) + var(--spacing-8)));
+  min-height: 0;
+}

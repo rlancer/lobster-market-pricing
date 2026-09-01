@@ -16,6 +16,7 @@ import {
 } from '@astryxdesign/core';
 import { Lightbulb } from 'lucide-react';
 import { api, type El5Translation } from './api';
+import './El5JargonDialog.css';
 
 type JargonTerm = {
   term: string;
@@ -182,8 +183,9 @@ export function El5JargonButton({
         width={520}
         maxHeight="85vh"
       >
+        {/* Dialog is height:fit-content — shell + scroll class give a real scrollport. */}
         <Layout
-          height="auto"
+          className="el5-dialog-shell"
           header={
             <DialogHeader
               title="Trading jargon · EL5"
@@ -192,7 +194,7 @@ export function El5JargonButton({
             />
           }
           content={
-            <LayoutContent>
+            <LayoutContent isScrollable className="el5-dialog-scroll">
               <JargonBody />
             </LayoutContent>
           }
@@ -282,8 +284,9 @@ export function El5PostButton({
         width={520}
         maxHeight="85vh"
       >
+        {/* Dialog is height:fit-content — shell + scroll class give a real scrollport. */}
         <Layout
-          height="auto"
+          className="el5-dialog-shell"
           header={
             <DialogHeader
               title="EL5"
@@ -292,7 +295,7 @@ export function El5PostButton({
             />
           }
           content={
-            <LayoutContent>
+            <LayoutContent isScrollable className="el5-dialog-scroll">
               {loading ? (
                 <HStack gap={2} vAlign="center">
                   <Spinner size="sm" />
@@ -302,9 +305,9 @@ export function El5PostButton({
                 <Text type="supporting">{error}</Text>
               ) : translation ? (
                 <VStack gap={3} className="el5-post-body">
-                  <div className="ai-text">
+                  <VStack gap={2} className="ai-text">
                     <Markdown>{translation.el5}</Markdown>
-                  </div>
+                  </VStack>
                   <Text type="supporting">
                     {translation.cache_hit ? "Cached translation." : "Fresh translation — saved for the next reader."}
                   </Text>
