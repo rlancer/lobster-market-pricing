@@ -11,7 +11,6 @@ import {
   ChatSendButton,
   Dialog,
   DialogHeader,
-  HStack,
   IconButton,
   Spinner,
   StatusDot,
