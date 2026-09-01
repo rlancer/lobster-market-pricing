@@ -14,7 +14,6 @@ import {
   Text,
   VStack,
 } from '@astryxdesign/core';
-import { Lightbulb } from 'lucide-react';
 import { api, type El5Translation } from './api';
 import './El5JargonDialog.css';
 
@@ -173,7 +172,6 @@ export function El5JargonButton({
         variant={variant}
         size={size}
         tooltip="Explain trading jargon like I’m 5"
-        icon={<Lightbulb size={14} />}
         onClick={() => setOpen(true)}
       />
       <Dialog
@@ -281,7 +279,6 @@ export function El5PostButton({
         variant="ghost"
         size="sm"
         tooltip="Explain this post like I’m 5"
-        icon={<Lightbulb size={14} />}
         onClick={() => setOpen(true)}
       />
       <Dialog
