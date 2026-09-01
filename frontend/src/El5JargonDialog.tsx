@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -9,10 +9,13 @@ import {
   LayoutFooter,
   List,
   ListItem,
+  Markdown,
+  Spinner,
   Text,
   VStack,
 } from '@astryxdesign/core';
 import { Lightbulb } from 'lucide-react';
+import { api, type El5Translation } from './api';
 
 type JargonTerm = {
   term: string;
@@ -191,6 +194,122 @@ export function El5JargonButton({
           content={
             <LayoutContent>
               <JargonBody />
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button
+                  label="Got it"
+                  variant="primary"
+                  onClick={() => setOpen(false)}
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      </Dialog>
+    </>
+  );
+}
+
+/** Module cache so reopening a post does not refetch a translation we already have. */
+const el5ClientCache = new Map<string, El5Translation>();
+
+/**
+ * Per-post EL5: opens a modal and loads (or generates) a cached kid-simple
+ * rewrite of that public share.
+ */
+export function El5PostButton({
+  shareId,
+  title,
+}: {
+  shareId: string;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [translation, setTranslation] = useState<El5Translation | null>(
+    () => el5ClientCache.get(shareId) ?? null,
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const cached = el5ClientCache.get(shareId);
+    if (cached) {
+      setTranslation(cached);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.shareEl5(shareId)
+      .then((result) => {
+        if (cancelled) return;
+        el5ClientCache.set(shareId, result);
+        setTranslation(result);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, shareId]);
+
+  return (
+    <>
+      <Button
+        className="el5-post"
+        label="EL5"
+        variant="ghost"
+        size="sm"
+        tooltip="Explain this post like I’m 5"
+        icon={<Lightbulb size={14} />}
+        onClick={() => setOpen(true)}
+      />
+      <Dialog
+        isOpen={open}
+        onOpenChange={setOpen}
+        purpose="info"
+        width={520}
+        maxHeight="85vh"
+      >
+        <Layout
+          height="auto"
+          header={
+            <DialogHeader
+              title="EL5"
+              subtitle={title?.trim() || "Kid-simple version of this post."}
+              onOpenChange={setOpen}
+            />
+          }
+          content={
+            <LayoutContent>
+              {loading ? (
+                <HStack gap={2} vAlign="center">
+                  <Spinner size="sm" />
+                  <Text type="supporting">Translating the jargon…</Text>
+                </HStack>
+              ) : error ? (
+                <Text type="supporting">{error}</Text>
+              ) : translation ? (
+                <VStack gap={3} className="el5-post-body">
+                  <div className="ai-text">
+                    <Markdown>{translation.el5}</Markdown>
+                  </div>
+                  <Text type="supporting">
+                    {translation.cache_hit ? "Cached translation." : "Fresh translation — saved for the next reader."}
+                  </Text>
+                </VStack>
+              ) : null}
             </LayoutContent>
           }
           footer={

@@ -17,6 +17,7 @@ import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import type { SharedChatMessage, TimelinePost } from './api';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
+import { El5PostButton } from './El5JargonDialog';
 import { PostShareButton, messageShareFragment, messageShareUrl } from './PostShareButton';
 import { TimelineFollowUp } from './TimelineFollowUp';
 import { UserAvatar } from './UserAvatar';
@@ -228,7 +229,10 @@ export function TimelinePostRow({
             </HStack>
           )}
         </VStack>
-        <PostShareButton url={post.url} title={titleText} />
+        <HStack gap={1} vAlign="start" className="timeline-post-actions">
+          <El5PostButton shareId={post.share_id} title={titleText} />
+          <PostShareButton url={post.url} title={titleText} />
+        </HStack>
       </HStack>
 
       {/* 3. Sources — same frame exploration as live chat (SQL / Open in Data) */}

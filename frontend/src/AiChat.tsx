@@ -31,7 +31,6 @@ import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
 import { ReplyStylePicker } from './ReplyStylePicker';
-import { El5JargonButton } from './El5JargonDialog';
 import { loadReplyPref } from './replyStyle';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { AssistantMark } from './Sunglasses';
@@ -1464,14 +1463,7 @@ function AiChatSession({
                                   ? 'Start to resume, or ask a follow-up…'
                                   : 'Ask about liquidity, volatility, or a ticker…'
                       }
-                      footerActions={
-                        !botHandle ? (
-                          <HStack gap={2} vAlign="center">
-                            <El5JargonButton size="md" />
-                            <ReplyStylePicker compact />
-                          </HStack>
-                        ) : undefined
-                      }
+                      footerActions={!botHandle ? <ReplyStylePicker compact /> : undefined}
                       sendButton={<ChatSendButton />}
                     />
                   </footer>

@@ -66,10 +66,14 @@
   min-width: 0;
 }
 
-.timeline-post-head .post-share {
+.timeline-post-head .timeline-post-actions {
   flex-shrink: 0;
-  /* Nudge so the icon sits on the title’s cap-height, not the row’s top edge. */
   margin-block-start: calc(var(--spacing-1) * -1);
+}
+
+.timeline-post-head .post-share,
+.timeline-post-head .el5-post {
+  flex-shrink: 0;
 }
 
 .timeline-post-title {

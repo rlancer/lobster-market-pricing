@@ -29,6 +29,7 @@ import {
 } from "./copilot-desk";
 import { tradesSuggestBlock } from "./copilot-trades";
 import { COMMENTARY_SYSTEM } from "./research-commentary";
+import { EL5_SYSTEM } from "./el5";
 import { DEFAULT_REPLY_STYLE, replyStyleAddon } from "./reply-style";
 
 export type CopilotPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
@@ -180,6 +181,14 @@ export function describeCopilotCapabilities(opts?: {
       summary: "Brand-voice takeaway on /research/{ticker} grounded in the cached brief.",
       body: COMMENTARY_SYSTEM,
       used_by: "generateTickerCommentary()",
+    },
+    {
+      id: "el5-post",
+      kind: "system",
+      title: "EL5 post translation",
+      summary: "Kid-simple rewrite of a public shared Copilot post. Cached in D1 per share_id + source hash.",
+      body: EL5_SYSTEM,
+      used_by: "generateEl5Text() / GET /api/share/{id}/el5",
     },
   ];
 

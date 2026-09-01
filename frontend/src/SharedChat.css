@@ -36,9 +36,13 @@
   width: 100%;
   min-width: 0;
 }
-.share-title-bar .post-share {
+.share-title-bar .share-title-actions {
   flex-shrink: 0;
   margin-block-start: var(--spacing-1);
+}
+.share-title-bar .post-share,
+.share-title-bar .el5-post {
+  flex-shrink: 0;
 }
 .share-tickers {
   flex-wrap: wrap;
