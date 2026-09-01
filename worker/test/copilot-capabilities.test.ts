@@ -31,6 +31,7 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
     "chat-meta",
     "bot-prompt-invent",
     "research-commentary",
+    "el5-post",
   ]);
   const copilot = caps.prompts.find((prompt) => prompt.id === "copilot");
   assert.ok(copilot);

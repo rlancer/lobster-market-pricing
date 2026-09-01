@@ -505,6 +505,15 @@ export interface ShareChatRecord extends Omit<ChatHistoryRecord, 'messages'> {
   run_id?: string;
 }
 
+/** Response of GET /api/share/:id/el5 — kid-simple rewrite of a public post. */
+export interface El5Translation {
+  share_id: string;
+  el5: string;
+  cache_hit: boolean;
+  computed_at: number;
+  model: string | null;
+}
+
 /** Response of GET /api/share/:id — public, unlisted, read-only. No auth: the id is the key. */
 export interface SharedChat {
   share_id: string;
@@ -1480,6 +1489,11 @@ export const api = {
   // identically. The share_id is high-entropy, so the URL is the capability.
   sharedChat: (shareId: string) =>
     get<SharedChat>(`/api/share/${encodeURIComponent(shareId)}`),
+  /** EL5 rewrite of a public post. Cached in D1 after the first generation. */
+  shareEl5: (shareId: string, opts?: { force?: boolean }) =>
+    get<El5Translation>(
+      `/api/share/${encodeURIComponent(shareId)}/el5${opts?.force ? '?force=1' : ''}`,
+    ),
   timeline: (opts?: { handle?: string; before?: number; limit?: number }) =>
     request<TimelineFeed>(`/api/timeline${qs({ handle: opts?.handle, before: opts?.before, limit: opts?.limit })}`, {
       // Moderated feed — never reuse a cached list after publish/unpublish.

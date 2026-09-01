@@ -141,6 +141,14 @@ import {
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import {
+  computeEl5FromLookup,
+  d1El5Store,
+  El5Error,
+  el5GenerationRateLimited,
+  lookupEl5,
+  logEl5Generation,
+} from "./el5";
+import {
   selectResearchKalshiMarkets,
   type KalshiMarketBrief,
 } from "./research-kalshi";
@@ -2473,6 +2481,42 @@ async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): 
   });
 }
 
+/**
+ * GET /api/share/:id/el5 — EL5 rewrite of a public post. Cache hit is free;
+ * a miss calls OpenRouter once and stores the translation in D1.
+ */
+async function handleShareEl5Get(env: Env, req: Request, shareId: string): Promise<Response> {
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+  const ip = (req.headers.get("CF-Connecting-IP") ?? "").slice(0, CHAT_HISTORY_MAX_AUX);
+  const store = d1El5Store(env.SCHEMA_DB);
+  try {
+    const looked = await lookupEl5(shareId, store, { force });
+    if (looked.hit) return json(env, looked.hit, 200, "private");
+    if (await el5GenerationRateLimited(env.SCHEMA_DB, ip)) {
+      return json(env, { error: "rate limited" }, 429, "private");
+    }
+    const origin = url.origin;
+    const result = await computeEl5FromLookup(looked, {
+      store,
+      modelName: env.COPILOT_MODEL ?? null,
+      createModel: () => {
+        if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
+        return createCopilotModel(
+          { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+          origin,
+        );
+      },
+    });
+    await logEl5Generation(env.SCHEMA_DB, ip);
+    return json(env, result, 200, "private");
+  } catch (e) {
+    if (e instanceof El5Error) return json(env, { error: e.message }, e.status, "private");
+    const message = e instanceof Error ? e.message : String(e);
+    return json(env, { error: message }, 502, "private");
+  }
+}
+
 export class CopilotAgent extends CopilotAgentBase<Env> {
   /**
    * Remember the signed-in user on this DO so suggest_trades can open paper
@@ -4248,6 +4292,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   // IS the capability — no auth, and unknown ids 404 identically to expired.
   if (path === "/api/share/chat" && req.method === "POST")
     return await createShare(env, req, ctx);
+  const el5Match = path.match(/^\/api\/share\/([^/]+)\/el5$/);
+  if (el5Match && req.method === "GET")
+    return await handleShareEl5Get(env, req, el5Match[1]);
   if (path.startsWith("/api/share/"))
     return await getSharedChat(env, path.slice("/api/share/".length), ctx);
 

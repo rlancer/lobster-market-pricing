@@ -56,20 +56,25 @@
   animation: none;
 }
 
-.timeline-post-head {
+.timeline-post-tags {
   width: 100%;
   min-width: 0;
+  justify-content: space-between;
 }
 
-.timeline-post-head-main {
+.timeline-post-tags-spacer {
   flex: 1;
   min-width: 0;
 }
 
-.timeline-post-head .post-share {
+.timeline-post-tags .timeline-post-actions {
   flex-shrink: 0;
-  /* Nudge so the icon sits on the title’s cap-height, not the row’s top edge. */
-  margin-block-start: calc(var(--spacing-1) * -1);
+  margin-inline-start: auto;
+}
+
+.timeline-post-tags .post-share,
+.timeline-post-tags .el5-post {
+  flex-shrink: 0;
 }
 
 .timeline-post-title {
