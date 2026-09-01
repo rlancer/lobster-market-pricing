@@ -15,6 +15,7 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
+import { El5JargonButton } from './El5JargonDialog';
 import { usePageMeta } from './usePageMeta';
 import { whenIdle, isResearchBriefReady, pendingTickerResearch } from './researchLazy';
 import './Research.css';
@@ -283,7 +284,10 @@ export default function ResearchPage() {
     <VStack className="research-page content-column" gap={3}>
       {!tickerParam && (
         <VStack gap={2} className="research-page-head">
-          <Heading level={1}>Ticker details</Heading>
+          <HStack gap={3} vAlign="center">
+            <Heading level={1}>Ticker details</Heading>
+            <El5JargonButton />
+          </HStack>
           <Text type="supporting">
             Spot, chart, the Lobster's take, and the options chain for one underlying.
             Search any ticker from the header — or jump to a common name below.
