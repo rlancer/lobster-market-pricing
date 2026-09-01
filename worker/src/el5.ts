@@ -158,11 +158,60 @@ export function cleanEl5Text(raw: string): string {
     .trim();
 }
 
+/**
+ * Deterministic EL5 when OpenRouter is down — same source, jargon glossed
+ * in place. Cached like an LLM rewrite so the button never hard-fails.
+ */
+const EL5_JARGON_GLOSS: Array<[RegExp, string]> = [
+  [/\bimplied vol(?:atility)?\b/gi, "how jumpy people think the price will be"],
+  [/\brealized vol(?:atility)?\b/gi, "how jumpy the price actually was"],
+  [/\bIV\b/g, "how jumpy people think the price will be"],
+  [/\bRV30\b/g, "how jumpy the last month really was"],
+  [/\bDTE\b/g, "days until the option ticket expires"],
+  [/\bATM\b/g, "ATM (right around today’s price)"],
+  [/\bITM\b/g, "already a winning ticket if you used it now"],
+  [/\bOTM\b/g, "needs the price to move your way first"],
+  [/\bopen interest\b/gi, "how many tickets are still out there"],
+  [/\bOI\b/g, "how many tickets are still out there"],
+  [/\bbid\/ask\b/gi, "what buyers will pay / what sellers want"],
+  [/\bshort interest\b/gi, "how many people bet the price will fall"],
+  [/\bmarket cap\b/gi, "the whole company’s price tag"],
+  [/\bP\/E\b/g, "how many dollars you pay per dollar it earned"],
+  [/\bdelta\b/gi, "how much the ticket wiggles when the stock moves $1"],
+  [/\bpremium\b/gi, "what you pay for the ticket"],
+  [/\bstrike\b/gi, "the magic number on the ticket"],
+  [/\bcall(?:s)?\b/gi, "call (ticket that likes the price going up)"],
+  [/\bput(?:s)?\b/gi, "put (ticket that likes the price going down)"],
+  [/\bYES\b/g, "YES (betting it happens)"],
+  [/\bNO\b/g, "NO (betting it doesn’t)"],
+];
+
+export function synthesizeEl5(source: string): string {
+  let text = source
+    .replace(/^title:\s*/gim, "**")
+    .replace(/^user:\s*/gim, "\n\nSomeone asked:\n")
+    .replace(/^assistant:\s*/gim, "\n\nThe lobster said:\n")
+    .replace(/^desk overview:\s*/gim, "\n\nBig picture:\n")
+    .replace(/^desk (\w+):\s*/gim, "\n\n$1 desk:\n")
+    .replace(/^trade:\s*/gim, "\n\nTrade idea: ")
+    .replace(/^trade skip:\s*/gim, "\n\nNo trade: ");
+  for (const [pattern, gloss] of EL5_JARGON_GLOSS) {
+    text = text.replace(pattern, gloss);
+  }
+  text = text.replace(/\n{3,}/g, "\n\n").trim();
+  if (!text) return "Nothing to explain yet.";
+  return [
+    "Here’s the simple version (jargon swapped for kid words):",
+    "",
+    text.slice(0, 4_000),
+  ].join("\n");
+}
+
 export async function generateEl5Text(
   source: string,
   model: LanguageModel,
   opts?: { abortSignal?: AbortSignal },
-): Promise<string | null> {
+): Promise<{ text: string | null; error: string | null }> {
   try {
     const result = await generateText({
       model,
@@ -177,13 +226,12 @@ export async function generateEl5Text(
       abortSignal: opts?.abortSignal,
     });
     const cleaned = cleanEl5Text(result.text);
-    return cleaned.length >= 24 ? cleaned : null;
+    if (cleaned.length >= 24) return { text: cleaned, error: null };
+    return { text: null, error: "empty el5 response" };
   } catch (error) {
-    console.warn(JSON.stringify({
-      el5: true,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-    return null;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(JSON.stringify({ el5: true, error: message }));
+    return { text: null, error: message };
   }
 }
 
@@ -225,16 +273,35 @@ export async function computeEl5FromLookup(
   looked: El5Lookup,
   deps: El5ComputeDeps,
 ): Promise<El5Translation> {
-  const model = deps.createModel();
-  if (!model) throw new El5Error("el5 unavailable", 503);
-  const el5 = await generateEl5Text(looked.source, model);
-  if (!el5) throw new El5Error("el5 failed", 502);
   const now = deps.now?.() ?? Date.now();
+  let el5: string | null = null;
+  let modelName: string | null = deps.modelName?.trim() || null;
+
+  const model = deps.createModel();
+  if (model) {
+    const generated = await generateEl5Text(looked.source, model);
+    if (generated.text) {
+      el5 = generated.text;
+    } else {
+      console.warn(JSON.stringify({
+        el5: true,
+        fallback: "rules-v1",
+        reason: generated.error ?? "empty",
+      }));
+    }
+  }
+
+  // OpenRouter is flaky on some envs — never hard-fail the button.
+  if (!el5) {
+    el5 = synthesizeEl5(looked.source);
+    modelName = "rules-v1";
+  }
+
   const row: El5CachedRow = {
     source_hash: looked.sourceHash,
     el5_text: el5,
     computed_at: now,
-    model: deps.modelName?.trim() || null,
+    model: modelName,
   };
   try {
     await deps.store.writeTranslation(looked.shareId, row);

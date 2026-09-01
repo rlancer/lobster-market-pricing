@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   cleanEl5Text,
+  computeEl5FromLookup,
   formatEl5Source,
   getOrComputeEl5,
   hashEl5Source,
   lookupEl5,
   resolveEl5Cache,
+  synthesizeEl5,
   type El5CachedRow,
   type El5ShareRecord,
   type El5Store,
@@ -50,12 +52,10 @@ test("formatEl5Source keeps title, turns, desk, and trades", () => {
 });
 
 test("formatEl5Source clips from the tail when over budget", () => {
-  const text = formatEl5Source(
-    [{ role: "assistant", content: "abcdefghij" }],
-    null,
-    8,
+  assert.equal(
+    formatEl5Source([{ role: "assistant", content: "abcdefghij" }], null, 8),
+    "cdefghij",
   );
-  assert.equal(text, "cdefghij");
 });
 
 test("hashEl5Source is stable SHA-256 hex", async () => {
@@ -125,4 +125,38 @@ test("getOrComputeEl5 serves a matching cache without calling the model", async 
   });
   assert.equal(hit.cache_hit, true);
   assert.equal(hit.el5, "The crowd thinks the price will jump around a lot.");
+});
+
+test("synthesizeEl5 glosses jargon and keeps the story", () => {
+  const out = synthesizeEl5([
+    "title: NVDA IV crush",
+    "user: Is the call ATM?",
+    "assistant: IV is elevated vs RV30. The 30 DTE call is ATM.",
+    "trade: NVDA — bearish — put debit — Fade the pop.",
+  ].join("\n\n"));
+  assert.match(out, /simple version/i);
+  assert.match(out, /how jumpy people think the price will be/i);
+  assert.match(out, /ATM \(right around today’s price\)/);
+  assert.match(out, /Trade idea:/);
+  assert.doesNotMatch(out, /\bIV\b/);
+});
+
+test("computeEl5FromLookup falls back to rules-v1 when the model fails", async () => {
+  const store = memoryStore({
+    title: "NVDA",
+    messages: [{ role: "assistant", content: "IV is high and the ATM call is rich." }],
+    expires_at: null,
+  });
+  const looked = await lookupEl5("ShareId0001", store);
+  const result = await computeEl5FromLookup(looked, {
+    store,
+    modelName: "openai/gpt-test",
+    createModel: () => ({ fake: true }) as never,
+  });
+  assert.equal(result.cache_hit, false);
+  assert.equal(result.model, "rules-v1");
+  assert.match(result.el5, /simple version/i);
+  assert.match(result.el5, /how jumpy people think the price will be/i);
+  const cached = await store.readTranslation("ShareId0001");
+  assert.equal(cached?.model, "rules-v1");
 });
