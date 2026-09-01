@@ -216,7 +216,12 @@ export function El5JargonButton({
 }
 
 /** Module cache so reopening a post does not refetch a translation we already have. */
+const EL5_CLIENT_CACHE_VERSION = 2;
 const el5ClientCache = new Map<string, El5Translation>();
+
+function el5ClientCacheKey(shareId: string): string {
+  return `v${EL5_CLIENT_CACHE_VERSION}:${shareId}`;
+}
 
 /**
  * Per-post EL5: opens a modal and loads (or generates) a cached kid-simple
@@ -233,12 +238,13 @@ export function El5PostButton({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [translation, setTranslation] = useState<El5Translation | null>(
-    () => el5ClientCache.get(shareId) ?? null,
+    () => el5ClientCache.get(el5ClientCacheKey(shareId)) ?? null,
   );
 
   useEffect(() => {
     if (!open) return;
-    const cached = el5ClientCache.get(shareId);
+    const cacheKey = el5ClientCacheKey(shareId);
+    const cached = el5ClientCache.get(cacheKey);
     if (cached) {
       setTranslation(cached);
       setError(null);
@@ -248,10 +254,11 @@ export function El5PostButton({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    // Server hash includes EL5_CACHE_VERSION — stale D1 rows miss and regenerate.
     api.shareEl5(shareId)
       .then((result) => {
         if (cancelled) return;
-        el5ClientCache.set(shareId, result);
+        el5ClientCache.set(cacheKey, result);
         setTranslation(result);
       })
       .catch((err) => {
@@ -304,13 +311,8 @@ export function El5PostButton({
               ) : error ? (
                 <Text type="supporting">{error}</Text>
               ) : translation ? (
-                <VStack gap={3} className="el5-post-body">
-                  <VStack gap={2} className="ai-text">
-                    <Markdown>{translation.el5}</Markdown>
-                  </VStack>
-                  <Text type="supporting">
-                    {translation.cache_hit ? "Cached translation." : "Fresh translation — saved for the next reader."}
-                  </Text>
+                <VStack gap={2} className="el5-post-body ai-text">
+                  <Markdown>{translation.el5}</Markdown>
                 </VStack>
               ) : null}
             </LayoutContent>

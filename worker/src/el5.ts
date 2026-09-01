@@ -16,10 +16,12 @@ export const EL5_SYSTEM = [
   "Do not mention being an AI or that this is a translation.",
 ].join("\n");
 
-export const EL5_MAX_SOURCE_CHARS = 8_000;
-export const EL5_MAX_OUTPUT_TOKENS = 700;
+export const EL5_MAX_SOURCE_CHARS = 20_000;
+export const EL5_MAX_OUTPUT_TOKENS = 1_600;
 export const EL5_RATE_WINDOW_MS = 10 * 60_000;
 export const EL5_RATE_LIMIT = 20;
+/** Bump when the rewrite shape changes so D1 cache misses stale rows. */
+export const EL5_CACHE_VERSION = 2;
 
 export const EL5_SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 
@@ -122,11 +124,15 @@ export function formatEl5Source(
 
 function clipSource(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
-  return text.slice(text.length - maxChars);
+  // Keep the start (title + ask) — a headless tail reads as truncated.
+  return `${text.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
 export async function hashEl5Source(source: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`el5:v${EL5_CACHE_VERSION}\n${source}`),
+  );
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -203,7 +209,7 @@ export function synthesizeEl5(source: string): string {
   return [
     "Here’s the simple version (jargon swapped for kid words):",
     "",
-    text.slice(0, 4_000),
+    text,
   ].join("\n");
 }
 

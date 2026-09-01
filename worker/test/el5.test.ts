@@ -51,10 +51,19 @@ test("formatEl5Source keeps title, turns, desk, and trades", () => {
   assert.doesNotMatch(text, /system:/);
 });
 
-test("formatEl5Source clips from the tail when over budget", () => {
+test("formatEl5Source clips from the start when over budget", () => {
+  // Role prefix is part of the source budget: "assistant: abcdefghij"
   assert.equal(
-    formatEl5Source([{ role: "assistant", content: "abcdefghij" }], null, 8),
-    "cdefghij",
+    formatEl5Source([{ role: "assistant", content: "abcdefghij" }], null, 12),
+    "assistant:…",
+  );
+  assert.ok(
+    !formatEl5Source([{ role: "assistant", content: "abcdefghij" }], null, 8)
+      .startsWith("…"),
+  );
+  assert.equal(
+    formatEl5Source([{ role: "assistant", content: "abcdefghij" }], null, 100),
+    "assistant: abcdefghij",
   );
 });
 

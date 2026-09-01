@@ -13,4 +13,12 @@
   /* Leave room for DialogHeader + LayoutFooter inside the 85vh shell. */
   max-height: calc(85vh - (var(--spacing-10) + var(--spacing-10) + var(--spacing-8)));
   min-height: 0;
+  padding-bottom: var(--spacing-2);
+}
+
+.el5-post-body {
+  /* Don’t inherit chat bubble clamps; show the full rewrite. */
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  display: block;
 }
