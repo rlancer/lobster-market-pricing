@@ -30,23 +30,27 @@
   letter-spacing: -0.02em;
   color: var(--text);
   min-width: 0;
-  flex: 1;
 }
-.share-title-bar {
+.share-tags-row {
   width: 100%;
   min-width: 0;
+  margin-top: var(--spacing-2);
+  justify-content: space-between;
 }
-.share-title-bar .share-title-actions {
+.share-tags-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.share-tags-row .share-title-actions {
   flex-shrink: 0;
-  margin-block-start: var(--spacing-1);
+  margin-inline-start: auto;
 }
-.share-title-bar .post-share,
-.share-title-bar .el5-post {
+.share-tags-row .post-share,
+.share-tags-row .el5-post {
   flex-shrink: 0;
 }
 .share-tickers {
   flex-wrap: wrap;
-  margin-top: var(--spacing-2);
   min-width: 0;
 }
 .share-ticker {

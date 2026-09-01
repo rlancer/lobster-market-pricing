@@ -200,36 +200,36 @@ export function TimelinePostRow({
         <Timestamp value={post.published_at / 1000} format="auto" isLive />
       </HStack>
 
-      {/* 2. Headline + share — title opens the post; share sits on the same row */}
-      <HStack gap={3} vAlign="start" className="timeline-post-head">
-        <VStack gap={2} className="timeline-post-head-main">
-          {showTitle && (
-            <Heading level={titleLevel} className="timeline-post-title">
+      {/* 2. Headline — title alone; share/EL5 sit on the tags row */}
+      {showTitle && (
+        <Heading level={titleLevel} className="timeline-post-title">
+          <Link
+            to="/share/$shareId"
+            params={{ shareId: post.share_id }}
+            className="timeline-post-title-link"
+          >
+            {titleText}
+          </Link>
+        </Heading>
+      )}
+      <HStack gap={2} vAlign="center" className="timeline-post-tags">
+        {tickers.length > 0 ? (
+          <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tags">
+            {tickers.map((ticker) => (
               <Link
-                to="/share/$shareId"
-                params={{ shareId: post.share_id }}
-                className="timeline-post-title-link"
+                key={ticker}
+                to="/research/$ticker"
+                params={{ ticker }}
+                className="timeline-ticker"
               >
-                {titleText}
+                {ticker}
               </Link>
-            </Heading>
-          )}
-          {tickers.length > 0 && (
-            <HStack gap={2} vAlign="center" className="timeline-tickers" aria-label="Tags">
-              {tickers.map((ticker) => (
-                <Link
-                  key={ticker}
-                  to="/research/$ticker"
-                  params={{ ticker }}
-                  className="timeline-ticker"
-                >
-                  {ticker}
-                </Link>
-              ))}
-            </HStack>
-          )}
-        </VStack>
-        <HStack gap={1} vAlign="start" className="timeline-post-actions">
+            ))}
+          </HStack>
+        ) : (
+          <span className="timeline-post-tags-spacer" aria-hidden="true" />
+        )}
+        <HStack gap={1} vAlign="center" className="timeline-post-actions">
           <El5PostButton shareId={post.share_id} title={titleText} />
           <PostShareButton url={post.url} title={titleText} />
         </HStack>

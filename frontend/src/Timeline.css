@@ -56,23 +56,24 @@
   animation: none;
 }
 
-.timeline-post-head {
+.timeline-post-tags {
   width: 100%;
   min-width: 0;
+  justify-content: space-between;
 }
 
-.timeline-post-head-main {
+.timeline-post-tags-spacer {
   flex: 1;
   min-width: 0;
 }
 
-.timeline-post-head .timeline-post-actions {
+.timeline-post-tags .timeline-post-actions {
   flex-shrink: 0;
-  margin-block-start: calc(var(--spacing-1) * -1);
+  margin-inline-start: auto;
 }
 
-.timeline-post-head .post-share,
-.timeline-post-head .el5-post {
+.timeline-post-tags .post-share,
+.timeline-post-tags .el5-post {
   flex-shrink: 0;
 }
 

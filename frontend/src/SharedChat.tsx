@@ -129,9 +129,25 @@ function SharedChatRoute() {
       {!loading && !missing && share && (
         <>
           <header className="share-title-row">
-            <HStack gap={3} vAlign="start" className="share-title-bar">
-              <h1 className="share-title">{shareTitle || 'Shared chat'}</h1>
-              <HStack gap={1} vAlign="start" className="share-title-actions">
+            <h1 className="share-title">{shareTitle || 'Shared chat'}</h1>
+            <HStack gap={2} vAlign="center" className="share-tags-row">
+              {(share.tickers?.length ?? 0) > 0 ? (
+                <HStack gap={2} vAlign="center" className="share-tickers" aria-label="Tags">
+                  {share.tickers!.map((ticker) => (
+                    <Link
+                      key={ticker}
+                      to="/research/$ticker"
+                      params={{ ticker }}
+                      className="share-ticker"
+                    >
+                      {ticker}
+                    </Link>
+                  ))}
+                </HStack>
+              ) : (
+                <span className="share-tags-spacer" aria-hidden="true" />
+              )}
+              <HStack gap={1} vAlign="center" className="share-title-actions">
                 <El5PostButton shareId={share.share_id} title={shareTitle || 'Shared chat'} />
                 <PostShareButton
                   url={`/share/${share.share_id}`}
@@ -139,20 +155,6 @@ function SharedChatRoute() {
                 />
               </HStack>
             </HStack>
-            {(share.tickers?.length ?? 0) > 0 && (
-              <HStack gap={2} vAlign="center" className="share-tickers" aria-label="Tags">
-                {share.tickers!.map((ticker) => (
-                  <Link
-                    key={ticker}
-                    to="/research/$ticker"
-                    params={{ ticker }}
-                    className="share-ticker"
-                  >
-                    {ticker}
-                  </Link>
-                ))}
-              </HStack>
-            )}
             <p className="share-meta">
               {(share.bot || share.author) && (
                 <Link
