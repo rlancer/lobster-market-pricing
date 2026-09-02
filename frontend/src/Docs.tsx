@@ -170,7 +170,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows timeline listing' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
-  { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (noreply@lobster.mp)' },
+  { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
   { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all Copilot chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
