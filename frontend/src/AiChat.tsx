@@ -7,28 +7,38 @@ import './AiChat.css';
 import {
   Button,
   ChatComposer,
+  ChatComposerDrawer,
   ChatMessageMetadata,
   ChatSendButton,
   Dialog,
   DialogHeader,
+  HStack,
   IconButton,
   Spinner,
   StatusDot,
   Switch,
   Timestamp,
+  Token,
   useAppShellMobile,
   useChatStreamScroll,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { Share2, SquarePen, Trash2 } from 'lucide-react';
+import { Briefcase, Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
+import {
+  attachmentsForBody,
+  PORTFOLIO_SOURCE_LABELS,
+  removePortfolioAttachment,
+  type ChatAttachment,
+} from './chatAttachments';
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
+import { PortfolioAttachControl } from './PortfolioAttachControl';
 import { ReplyStylePicker } from './ReplyStylePicker';
 import { loadReplyPref } from './replyStyle';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -79,6 +89,7 @@ const TOOL_LABELS: Record<string, string> = {
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
   get_paper_portfolio: 'Paper portfolio',
+  get_portfolio: 'Portfolio',
   get_bot_trades: 'Bot trade performance',
 };
 
@@ -554,6 +565,7 @@ function AiChatSession({
   const [progressStatus, setProgressStatus] = useState('');
   const [scopeLocked, setScopeLocked] = useState(false);
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
@@ -586,6 +598,8 @@ function AiChatSession({
   const wasBusyRef = useRef(false);
   /** Last assistant message id we already tried to reconcile against turn-budget capture. */
   const captureReconciledRef = useRef<string | null>(null);
+  const attachmentsRef = useRef<ChatAttachment[]>(attachments);
+  attachmentsRef.current = attachments;
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -631,12 +645,14 @@ function AiChatSession({
       const origin = window.location.origin;
       const botHandle = peekBotHandle();
       if (botHandle) return { origin, bot_handle: botHandle };
-      // Peek localStorage at send time — useAgentChat may keep the first body fn.
+      // Peek at send time — useAgentChat may keep the first body fn.
       const reply = loadReplyPref();
+      const attached = attachmentsForBody(attachmentsRef.current);
       return {
         origin,
         reply_style: reply.style,
         ...(reply.note ? { reply_note: reply.note } : {}),
+        ...(attached.length ? { attachments: attached } : {}),
       };
     },
     onData: (part) => {
@@ -1235,7 +1251,13 @@ function AiChatSession({
       <section className="ai-chat-body">
         <section className="ai-chat-main">
           {!accessBlocked && !isDesktop && (
-            <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
+            <ChatContextStrip
+              chatId={chatId}
+              frames={frames}
+              attachments={attachments}
+              onAttachmentsChange={setAttachments}
+              refreshKey={researchRefreshKey}
+            />
           )}
           <section className="ai-messages" ref={bindMessagesScrollRoot}>
                     {showSavedLoading && (
@@ -1462,14 +1484,57 @@ function AiChatSession({
                                   ? 'Start to resume, or ask a follow-up…'
                                   : 'Ask about liquidity, volatility, or a ticker…'
                       }
-                      footerActions={!botHandle ? <ReplyStylePicker compact /> : undefined}
+                      drawer={
+                        !botHandle && attachments.length > 0 ? (
+                          <ChatComposerDrawer
+                            count={attachments.length}
+                            label="Attached"
+                            defaultIsCollapsed={false}
+                          >
+                            <HStack gap={2} wrap="wrap" vAlign="center">
+                              {attachments.map((attachment) => (
+                                <Token
+                                  key={`attach:${attachment.source}:${attachment.account_id ?? ''}`}
+                                  label={PORTFOLIO_SOURCE_LABELS[attachment.source]}
+                                  size="sm"
+                                  color="teal"
+                                  icon={<Briefcase size={12} />}
+                                  onRemove={() => setAttachments((prev) => (
+                                    removePortfolioAttachment(
+                                      prev,
+                                      attachment.source,
+                                      attachment.account_id,
+                                    )
+                                  ))}
+                                />
+                              ))}
+                            </HStack>
+                          </ChatComposerDrawer>
+                        ) : undefined
+                      }
+                      footerActions={!botHandle ? (
+                        <HStack gap={1} vAlign="center" wrap="wrap">
+                          <PortfolioAttachControl
+                            attachments={attachments}
+                            onChange={setAttachments}
+                            returnTo={`${window.location.origin}/chat/${chatId}`}
+                          />
+                          <ReplyStylePicker compact />
+                        </HStack>
+                      ) : undefined}
                       sendButton={<ChatSendButton />}
                     />
                   </footer>
 
         </section>
         {!accessBlocked && (
-          <ChatRail chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
+          <ChatRail
+            chatId={chatId}
+            frames={frames}
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            refreshKey={researchRefreshKey}
+          />
         )}
       </section>
       <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={480}>

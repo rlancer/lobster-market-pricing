@@ -5,6 +5,8 @@ import {
   normalizeSchwabAccounts,
   SCHWAB_TRADER_BASE,
   fetchSchwabAccountsRaw,
+  filterSchwabPortfolioView,
+  formatSchwabPortfolioSummary,
   SchwabApiError,
 } from "../src/schwab-portfolio.ts";
 
@@ -163,4 +165,46 @@ test("fetchSchwabAccountsRaw throws SchwabApiError on failure", async () => {
     () => fetchSchwabAccountsRaw("bad", "Bearer", fetchImpl),
     (err: unknown) => err instanceof SchwabApiError && err.status === 401,
   );
+});
+
+test("formatSchwabPortfolioSummary and filter are Copilot-safe", () => {
+  const view = normalizeSchwabAccounts(
+    [
+      {
+        securitiesAccount: {
+          type: "MARGIN",
+          accountNumber: "9876543210",
+          currentBalances: {
+            cashBalance: 1_250.5,
+            liquidationValue: 50_000,
+            buyingPower: 10_000,
+          },
+          positions: [
+            {
+              longQuantity: 10,
+              shortQuantity: 0,
+              averagePrice: 100,
+              marketValue: 1_050,
+              currentDayProfitLoss: 12.5,
+              longOpenProfitLoss: 50,
+              instrument: {
+                symbol: "AAPL",
+                assetType: "EQUITY",
+                description: "APPLE INC",
+              },
+            },
+          ],
+        },
+      },
+    ],
+    1_700_000_000_000,
+  );
+  const summary = formatSchwabPortfolioSummary(view);
+  assert.match(summary, /Schwab portfolio/);
+  assert.match(summary, /AAPL/);
+  assert.match(summary, /Equity/);
+  const scoped = filterSchwabPortfolioView(view, view.accounts[0]!.id);
+  assert.equal(scoped.accounts.length, 1);
+  assert.equal(scoped.totals.position_count, 1);
+  assert.equal(filterSchwabPortfolioView(view, "missing").accounts.length, 1);
 });

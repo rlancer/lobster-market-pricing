@@ -176,6 +176,7 @@ import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio,
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
 import { handleSchwab } from "./schwab-http";
 import { schwabConfigured } from "./schwab";
+import { loadSchwabPortfolio } from "./schwab-portfolio";
 
 
 // ---------------------------------------------------------------------------
@@ -2690,6 +2691,55 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       userId,
       { status, conviction: conviction ?? null, refreshMarks: true },
     );
+  }
+
+  /** Live Schwab book for get_portfolio(source=schwab). */
+  protected override async loadSchwabPortfolioForChat() {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) {
+      return { ok: false as const, reason: "no_owner" as const };
+    }
+    if (!schwabConfigured(this.env)) {
+      return { ok: false as const, reason: "not_configured" as const };
+    }
+
+    let sessionUserId: string | null = null;
+    try {
+      this.sql`
+        CREATE TABLE IF NOT EXISTS paper_session_hint (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          user_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `;
+      const hint = this.sql<{ user_id: string }>`
+        SELECT user_id FROM paper_session_hint WHERE singleton = 1
+      `[0];
+      sessionUserId = hint?.user_id ?? null;
+    } catch {
+      sessionUserId = null;
+    }
+
+    const userId = await resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, sessionUserId);
+    if (!userId) return { ok: false as const, reason: "no_owner" as const };
+
+    const result = await loadSchwabPortfolio(this.env, userId);
+    if (result.ok) return { ok: true as const, view: result.view };
+    if (result.reason === "not_connected") {
+      return { ok: false as const, reason: "not_connected" as const };
+    }
+    if (result.reason === "refresh_failed") {
+      return {
+        ok: false as const,
+        reason: "reauth_required" as const,
+        message: result.message,
+      };
+    }
+    return {
+      ok: false as const,
+      reason: "upstream" as const,
+      message: result.message,
+    };
   }
 
   /** Public bot trade book for get_bot_trades. */

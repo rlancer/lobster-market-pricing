@@ -31,6 +31,7 @@ import { tradesSuggestBlock } from "./copilot-trades";
 import { COMMENTARY_SYSTEM } from "./research-commentary";
 import { EL5_SYSTEM } from "./el5";
 import { DEFAULT_REPLY_STYLE, replyStyleAddon } from "./reply-style";
+import { attachmentsPromptAddon } from "./chat-attachments";
 
 export type CopilotPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
 
@@ -149,6 +150,17 @@ export function describeCopilotCapabilities(opts?: {
       summary: "Canned audience (desk / hedge fund / new to trading) plus an optional 240-char note. Same Copilot tools as bots; voice only.",
       body: replyStyleAddon({ style: DEFAULT_REPLY_STYLE, note: "<optional reply_note, max 240 chars>" }),
       used_by: "systemPrompt(..., { reply }) / parseReplyPrefFromBody()",
+    },
+    {
+      id: "chat-attachments",
+      kind: "addon",
+      title: "Attached portfolios",
+      summary: "User-opted portfolio handles from chat controls. Instructs get_portfolio for Schwab/paper; extend sources as new brokers land.",
+      body: attachmentsPromptAddon([
+        { kind: "portfolio", source: "schwab" },
+        { kind: "portfolio", source: "paper" },
+      ]),
+      used_by: "systemPrompt(..., { attachments }) / parseAttachmentsFromBody()",
     },
     {
       id: "scope-classifier",

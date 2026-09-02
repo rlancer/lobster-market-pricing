@@ -37,6 +37,16 @@ test("systemPrompt applies a fund reply voice and skips it for bots", () => {
   assert.doesNotMatch(bot, /Audience: new to trading/);
 });
 
+test("systemPrompt requires get_portfolio when a portfolio is attached", () => {
+  const body = systemPrompt("[schema]", {
+    attachments: [{ kind: "portfolio", source: "schwab" }],
+  });
+  assert.match(body, /Attached context/);
+  assert.match(body, /get_portfolio with source="schwab"/);
+  assert.match(body, /Schwab portfolio/);
+  assert.match(COPILOT_TOOL_DESCRIPTIONS.get_portfolio, /source=schwab/);
+});
+
 test("systemPrompt requires publish_desk on bot timeline posts", () => {
   const body = systemPrompt("[schema]", {
     handle: "macrolobster",

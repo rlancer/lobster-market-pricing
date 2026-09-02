@@ -8,6 +8,7 @@ import { QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
 import { tradesSuggestBlock } from "./copilot-trades";
 import type { LakeTable } from "./copilot-sql";
 import { DEFAULT_REPLY_STYLE, replyStyleAddon, type ReplyPref } from "./reply-style";
+import { attachmentsPromptAddon, type ChatAttachment } from "./chat-attachments";
 
 export interface BotPromptProfile {
   handle: string;
@@ -22,6 +23,8 @@ export interface SystemPromptOptions {
   deskSpecialists?: readonly DeskViewpointId[];
   /** Interactive-chat audience. Ignored when a bot profile is bound. */
   reply?: ReplyPref | null;
+  /** User-opted context handles (portfolios, …). Ignored for bots. */
+  attachments?: readonly ChatAttachment[] | null;
 }
 
 export const SCHEMA_PLACEHOLDER =
@@ -56,6 +59,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
   const bot = opts.bot ?? null;
   const deskSpecialists = opts.deskSpecialists;
   const reply = bot ? null : (opts.reply ?? { style: DEFAULT_REPLY_STYLE, note: null });
+  const attachments = bot ? [] : (opts.attachments ?? []);
   const lines = [
     "You are Lobster MP's market desk: a multi-analyst team writing DataFusion SQL (R2 SQL) against an options market Iceberg lake, then publishing only the specialists needed for the ask plus a weighed overview.",
     "",
@@ -87,7 +91,8 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It lake-normalizes the symbol, links this chat to that security, and returns price/volume technicals, lake fundamentals, earnings, and news. Ground every specialist take in that brief plus follow-up SQL.",
     "- If research_ticker reports thin/missing lake data for a ticker, the system auto-enrolls it into the continuous ETL so options, OHLC, and fundamentals start landing. Tell the user data is being loaded and they can retry shortly — do not invent chain or OHLC numbers.",
     "- Suggested trades MUST be actually tradable and MUST go through suggest_trades (never prose-only). After research_ticker, query options.option_contracts for the candidate strikes before recommending them: require a two-sided quote (bid>0 and ask>=bid), a relative bid-ask spread that is not wide (prefer <=15%), and demonstrated interest (volume >= 10 or open interest >= 100). Prefer names with several near-ATM listed contracts that actually quote. Skip one-sided/empty books and wide markets — a pretty structure on an untradeable name is a bad answer. If liquidity is too thin, call suggest_trades with trades: [] (skip_reason optional) — do not invent a fill. Markable suggestions auto-open in the signed-in user's paper portfolio (and in a bot's public trade book when this chat is a bot).",
-    "- When the user asks about their paper book, tracked suggestions, portfolio PnL, or how prior ideas are doing, MUST call get_paper_portfolio and ground the answer in that tool output — do not invent positions or fills.",
+    "- When the user asks about their paper book, tracked suggestions, portfolio PnL, or how prior ideas are doing, MUST call get_paper_portfolio (or get_portfolio with source=paper) and ground the answer in that tool output — do not invent positions or fills.",
+    "- When the user attached a portfolio in chat controls, or asks about their Schwab / brokerage holdings, hedges, adjustments, or uncorrelated adds relative to that book, MUST call get_portfolio with the matching source (schwab or paper) and ground the answer in that tool output — never invent brokerage positions.",
     "- When the user asks how a public bot's ideas are doing (e.g. @yololobster trades / PnL), MUST call get_bot_trades with that handle and ground the answer in the tool output.",
     "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
     "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
@@ -118,6 +123,9 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     );
   } else if (reply) {
     lines.push(replyStyleAddon(reply));
+  }
+  if (!bot && attachments.length) {
+    lines.push(attachmentsPromptAddon(attachments));
   }
   return lines.join("\n");
 }

@@ -39,6 +39,12 @@ import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { formatBotTradesSummary } from "./bot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
+import { parseAttachmentsFromBody } from "./chat-attachments";
+import {
+  filterSchwabPortfolioView,
+  formatSchwabPortfolioSummary,
+  type SchwabPortfolioView,
+} from "./schwab-portfolio";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
 import { stripLeakedToolMarkup } from "./tool-markup";
@@ -267,7 +273,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   /**
-   * Load the chat owner's paper book for get_paper_portfolio.
+   * Load the chat owner's paper book for get_paper_portfolio / get_portfolio.
    * Default null = tool unavailable (tests / no lake binding).
    */
   protected loadPaperPortfolio(
@@ -275,6 +281,21 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     _conviction?: "high" | "medium" | "low" | null,
   ): Promise<import("./paper-portfolio").PaperPortfolioView | null> {
     return Promise.resolve(null);
+  }
+
+  /**
+   * Load the chat owner's live Schwab book for get_portfolio(source=schwab).
+   * Default not_configured so tests without Schwab bindings stay quiet.
+   */
+  protected loadSchwabPortfolioForChat(): Promise<
+    | { ok: true; view: SchwabPortfolioView }
+    | {
+      ok: false;
+      reason: "no_owner" | "not_configured" | "not_connected" | "reauth_required" | "upstream";
+      message?: string;
+    }
+  > {
+    return Promise.resolve({ ok: false, reason: "not_configured" });
   }
 
   /**
@@ -1130,6 +1151,50 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           return this.output(true, formatPaperPortfolioSummary(view), { error: null });
         }),
       }),
+      get_portfolio: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_portfolio,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_portfolio,
+        execute: async (args) => runTool("get_portfolio", TOOL_LABELS.get_portfolio, args, async () => {
+          const source = args.source;
+          if (source === "paper") {
+            status("Loading paper portfolio…");
+            const statusFilter = args.status ?? "open";
+            const conviction = args.conviction ?? null;
+            const view = await this.loadPaperPortfolio(statusFilter, conviction);
+            if (!view) {
+              return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
+                error: "no_owner",
+                source,
+              });
+            }
+            return this.output(true, formatPaperPortfolioSummary(view), { error: null, source });
+          }
+
+          status("Loading Schwab portfolio…");
+          const result = await this.loadSchwabPortfolioForChat();
+          if (!result.ok) {
+            const messages: Record<typeof result.reason, string> = {
+              no_owner: "Sign in to attach and load your Schwab portfolio.",
+              not_configured: "Schwab connect is not configured on this environment.",
+              not_connected: "Connect Schwab from Account (or Portfolio) first, then attach it in chat controls.",
+              reauth_required: "Schwab session expired — reconnect Schwab from Account, then retry.",
+              upstream: result.message
+                ? `Schwab portfolio unavailable: ${result.message}`
+                : "Schwab portfolio temporarily unavailable — try again shortly.",
+            };
+            return this.output(false, messages[result.reason], {
+              error: result.reason,
+              source,
+            });
+          }
+          const scoped = filterSchwabPortfolioView(result.view, args.account_id ?? null);
+          return this.output(true, formatSchwabPortfolioSummary(scoped), {
+            error: null,
+            source,
+            account_id: args.account_id ?? null,
+          });
+        }),
+      }),
       get_bot_trades: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.get_bot_trades,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_bot_trades,
@@ -1232,6 +1297,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const userQuestion = latestUserText(this.messages);
     const latestQuestion = userQuestion.toLowerCase();
     const reply = bot ? null : parseReplyPrefFromBody(options.body);
+    const attachments = bot ? [] : parseAttachmentsFromBody(options.body);
     const deskSpecialists = selectDeskSpecialists(
       userQuestion,
       bot ? `${bot.persona}\n${bot.system_prompt_extra}` : (reply?.note ?? undefined),
@@ -1249,7 +1315,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         const tools = this.createTools(tables, capture, status, turn, deskSpecialists);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply }),
+          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply, attachments }),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),
