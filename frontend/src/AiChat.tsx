@@ -31,8 +31,13 @@ import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
 import {
   attachmentsForBody,
+  FINISH_INCOMPLETE_PROMPT,
+  isIncompleteAssistantTurn,
+  loadChatAttachments,
   PORTFOLIO_SOURCE_LABELS,
+  portfolioAttachmentsFromTools,
   removePortfolioAttachment,
+  saveChatAttachments,
   type ChatAttachment,
 } from './chatAttachments';
 import { CopyButton } from './CopyButton';
@@ -251,6 +256,12 @@ function formatToolArgs(name: string, input: unknown): string {
       return o.days != null ? `next ${o.days} days` : '';
     case 'list_frames':
       return '';
+    case 'get_portfolio':
+    case 'get_paper_portfolio': {
+      const source = String(o.source ?? (name === 'get_paper_portfolio' ? 'paper' : '')).trim();
+      const account = o.account_id != null ? String(o.account_id).trim() : '';
+      return [source, account ? `acct ${account}` : ''].filter(Boolean).join(' · ').slice(0, 120);
+    }
     default:
       return JSON.stringify(input).slice(0, 140);
   }
@@ -565,7 +576,7 @@ function AiChatSession({
   const [progressStatus, setProgressStatus] = useState('');
   const [scopeLocked, setScopeLocked] = useState(false);
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>(() => loadChatAttachments(chatId));
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
@@ -603,6 +614,18 @@ function AiChatSession({
   const incompleteAutoAttemptsRef = useRef(0);
   const attachmentsRef = useRef<ChatAttachment[]>(attachments);
   attachmentsRef.current = attachments;
+
+  // Refresh / new chat: restore or clear persisted portfolio attaches for this id.
+  useEffect(() => {
+    setAttachments(loadChatAttachments(chatId));
+    incompleteContinueRef.current = null;
+    incompleteAutoAttemptsRef.current = 0;
+  }, [chatId]);
+
+  useEffect(() => {
+    saveChatAttachments(chatId, attachments);
+  }, [chatId, attachments]);
+
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -624,7 +647,6 @@ function AiChatSession({
     setMessages,
     sendMessage,
     resumeStream,
-    regenerate,
     status: chatStatus,
     error: chatError,
     isStreaming,
@@ -1143,31 +1165,65 @@ function AiChatSession({
   const incompleteAssistant = useMemo(() => {
     if (busy || paused || accessBlocked || scopeLocked) return null;
     const last = projectedMessages[projectedMessages.length - 1];
-    if (!last || last.role !== 'assistant') return null;
-    if (last.content.trim() || last.desk || last.error) return null;
-    if (!(last.tools?.length || last.reasoning?.trim())) return null;
+    if (!isIncompleteAssistantTurn(last)) return null;
     return last;
   }, [projectedMessages, busy, paused, accessBlocked, scopeLocked]);
 
   const continueIncomplete = useCallback(() => {
     if (!incompleteAssistant || busy) return;
     incompleteContinueRef.current = incompleteAssistant.id;
-    void regenerate().catch(() => {});
-  }, [incompleteAssistant, busy, regenerate]);
+    const recovered = portfolioAttachmentsFromTools(incompleteAssistant.tools);
+    if (recovered.length) {
+      setAttachments((current) => {
+        const keys = new Set(current.map((a) => `${a.source}:${a.account_id ?? ''}`));
+        const merged = [...current];
+        for (const item of recovered) {
+          const key = `${item.source}:${item.account_id ?? ''}`;
+          if (!keys.has(key)) {
+            keys.add(key);
+            merged.push(item);
+          }
+        }
+        // body() reads the ref at send time — update before the finish follow-up.
+        attachmentsRef.current = merged;
+        return merged;
+      });
+    }
+    // Follow-up keeps prior get_portfolio results in history — regenerate would drop them.
+    window.setTimeout(() => {
+      send(FINISH_INCOMPLETE_PROMPT);
+    }, 0);
+  }, [incompleteAssistant, busy, send]);
 
   // After reconnect/refresh settles on an unfinished assistant (tools, no prose),
-  // try one regenerate so the turn can finish without a manual Continue click.
+  // send one finish follow-up so the turn can complete without a manual Continue click.
   useEffect(() => {
     if (!incompleteAssistant || socketState !== 'open') return;
     if (incompleteContinueRef.current === incompleteAssistant.id) return;
     if (incompleteAutoAttemptsRef.current >= 1) return;
     incompleteContinueRef.current = incompleteAssistant.id;
     incompleteAutoAttemptsRef.current += 1;
+    const recovered = portfolioAttachmentsFromTools(incompleteAssistant.tools);
+    if (recovered.length) {
+      setAttachments((current) => {
+        const keys = new Set(current.map((a) => `${a.source}:${a.account_id ?? ''}`));
+        const merged = [...current];
+        for (const item of recovered) {
+          const key = `${item.source}:${item.account_id ?? ''}`;
+          if (!keys.has(key)) {
+            keys.add(key);
+            merged.push(item);
+          }
+        }
+        attachmentsRef.current = merged;
+        return merged;
+      });
+    }
     const timer = window.setTimeout(() => {
-      void regenerate().catch(() => {});
-    }, 600);
+      send(FINISH_INCOMPLETE_PROMPT);
+    }, 700);
     return () => window.clearTimeout(timer);
-  }, [incompleteAssistant, socketState, regenerate]);
+  }, [incompleteAssistant, socketState, send]);
 
   const pendingConsumedRef = useRef(false);
   useEffect(() => {

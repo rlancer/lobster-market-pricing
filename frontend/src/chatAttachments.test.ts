@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
   attachmentsForBody,
   hasPortfolioSource,
+  isIncompleteAssistantTurn,
+  portfolioAttachmentsFromTools,
   removePortfolioAttachment,
   togglePortfolioAttachment,
 } from './chatAttachments.ts';
@@ -34,5 +36,35 @@ test('attachmentsForBody serializes handles only', () => {
       { kind: 'portfolio', source: 'schwab', account_id: 'acct' },
       { kind: 'portfolio', source: 'paper' },
     ],
+  );
+});
+
+test('isIncompleteAssistantTurn detects tools without prose', () => {
+  assert.equal(
+    isIncompleteAssistantTurn({
+      role: 'assistant',
+      content: '',
+      tools: [{ name: 'get_portfolio' }],
+      reasoning: 'looking…',
+    }),
+    true,
+  );
+  assert.equal(
+    isIncompleteAssistantTurn({
+      role: 'assistant',
+      content: 'Here are the risks…',
+      tools: [{ name: 'get_portfolio' }],
+    }),
+    false,
+  );
+});
+
+test('portfolioAttachmentsFromTools recovers schwab from args JSON', () => {
+  assert.deepEqual(
+    portfolioAttachmentsFromTools([
+      { name: 'get_portfolio', args: '{"source":"schwab","status":"open"}', ok: true, summary: 'Schwab portfolio' },
+      { name: 'research_ticker', args: 'SIVR', ok: true },
+    ]),
+    [{ kind: 'portfolio', source: 'schwab' }],
   );
 });
