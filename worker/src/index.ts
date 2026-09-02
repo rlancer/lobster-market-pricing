@@ -27,6 +27,7 @@ import {
   resolveEmailTestRecipient,
   sendAdminEmailTest,
 } from "./admin-email-test";
+import { handleInboundEmail, HELLO_FORWARD_TO } from "./inbound-email";
 import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
@@ -4359,6 +4360,36 @@ export default {
       return withCors(env, req, await handle(env, req, ctx));
     } catch (e) {
       return withCors(env, req, json(env, { error: String(e) }, 500));
+    }
+  },
+
+  /**
+   * Cloudflare Email Routing → Worker. hello@lobster.mp forwards to the owner
+   * Gmail; other addresses are rejected. Destination must be verified in
+   * Email Routing before forward succeeds.
+   */
+  async email(message: ForwardableEmailMessage, _env: Env, _ctx: ExecutionContext): Promise<void> {
+    const subject = message.headers.get("subject") || "";
+    try {
+      const outcome = await handleInboundEmail(message);
+      console.log(
+        JSON.stringify({
+          inboundEmail: true,
+          outcome,
+          from: message.from,
+          to: message.to,
+          subject,
+          rawSize: message.rawSize,
+        }),
+      );
+    } catch (error) {
+      console.error("inbound email handler failed", error);
+      try {
+        await message.forward(HELLO_FORWARD_TO);
+      } catch (fallbackError) {
+        console.error("inbound email fallback forward failed", fallbackError);
+        message.setReject("Inbound processing error");
+      }
     }
   },
 

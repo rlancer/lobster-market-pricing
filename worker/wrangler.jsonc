@@ -45,6 +45,8 @@
   },
   // Cloudflare Email Service — transactional send from noreply@lobster.mp
   // (domain onboarded via `wrangler email sending enable lobster.mp`).
+  // Inbound: Email Routing delivers hello@lobster.mp to this Worker's email()
+  // handler (see src/inbound-email.ts); destination must be verified.
   "send_email": [
     { "name": "EMAIL" }
   ],

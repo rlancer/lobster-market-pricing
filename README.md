@@ -443,6 +443,12 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/admin/email/test` | Admin session — Cloudflare Email Service smoke test. Sends from `noreply@lobster.mp` to the signed-in admin's email (or `ADMIN_TOKEN` + `{ "to": "…" }`). Returns `{ ok, to, message_id }`. |
 | `GET /api/admin/trades` | Admin session (or `ADMIN_TOKEN`) — flattened suggested trades from successful `suggest_trades` tool events (~30 day retention). Legs are formal (`instrument`: `option` \| `equity`, `side` buy/sell = long/short, optional `qty`; options also carry right/strike/expiry). Optional `limit` (default 100, max 500) and `before` (ISO `created_at` cursor). Enriches with newest `share_id` / `bot_handle` when the chat was shared. Powers `/trades`. |
 
+Inbound mail (Email Routing): `hello@lobster.mp` is routed to the production
+`screener-api` Worker `email()` handler, which forwards to the verified owner
+destination `robert.lancer@gmail.com`. Other addresses are rejected. Enable /
+rules / destinations are managed with `wrangler email routing …` (zone
+`lobster.mp`); destination addresses must be verified before forward works.
+
 ### `/api/screen` query parameters
 
 `symbol`, `type` (`call`|`put`), `sector`,
