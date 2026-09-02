@@ -35,10 +35,13 @@ import { handleInputError, normalizeHandleInput } from './handle';
 export function TimelineFollowUp({
   shareId,
   postHandle,
+  continuePrompt = null,
 }: {
   shareId: string;
   /** Timeline post author — used only for copy; fork attribution comes from the API. */
   postHandle?: string;
+  /** When the shared answer sealed empty after tools, offer Continue with this finish prompt. */
+  continuePrompt?: string | null;
 }) {
   const navigate = useNavigate();
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -195,6 +198,17 @@ export function TimelineFollowUp({
       className="timeline-followup"
       aria-label="Ask a follow-up"
     >
+      {continuePrompt?.trim() ? (
+        <HStack gap={2} vAlign="center" className="ai-scope-lock-hint">
+          <span>Answer interrupted before it finished. Continue to complete it.</span>
+          <Button
+            variant="secondary"
+            label="Continue"
+            onClick={() => onSubmit(continuePrompt)}
+            isDisabled={busy}
+          />
+        </HStack>
+      ) : null}
       <ChatComposer
         value={value}
         onChange={setValue}

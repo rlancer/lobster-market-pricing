@@ -42,6 +42,7 @@ import { formatBotTradesSummary } from "./bot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { parseAttachmentsFromBody } from "./chat-attachments";
+import { interruptedPortfolioGrounding, finishPortfolioStepsAfterQuerySeed } from "./interrupted-portfolio";
 import {
   filterSchwabPortfolioView,
   formatSchwabPortfolioSummary,
@@ -1274,6 +1275,19 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       portfolioLoaded: capture.portfolio_loaded === true,
       stepsAfterQuery: typeof capture.steps_after_query === "number" ? capture.steps_after_query : 0,
     };
+    // Finish follow-up after disconnect: prior turn(s) already ran get_portfolio
+    // with empty prose (shares 23nE1Q9… / 1Wqv4a…). Seed evidence + successfulQuery
+    // so stepsAfterQuery advances, and leave one auto compose step before forcing
+    // publish_desk (forcing on step 0 produced stub desks that were rejected).
+    if (!options.continuation && interruptedPortfolioGrounding(originalMessages)) {
+      turn.portfolioLoaded = true;
+      turn.successfulQuery = true;
+      turn.stepsAfterQuery = Math.max(
+        turn.stepsAfterQuery,
+        finishPortfolioStepsAfterQuerySeed(AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK),
+      );
+      capture.portfolio_loaded = true;
+    }
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
 
     const historyCharsMax = positiveInt(this.env.COPILOT_MAX_HISTORY_CHARS, HISTORY_CHARS_DEFAULT, HISTORY_CHARS_DEFAULT);
