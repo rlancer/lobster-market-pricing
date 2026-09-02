@@ -22,3 +22,8 @@
   -webkit-line-clamp: unset;
   display: block;
 }
+
+.el5-post-model {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-xs);
+}
