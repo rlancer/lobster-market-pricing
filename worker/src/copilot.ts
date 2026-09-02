@@ -1164,10 +1164,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             if (!view) {
               return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
                 error: "no_owner",
-                source,
               });
             }
-            return this.output(true, formatPaperPortfolioSummary(view), { error: null, source });
+            return this.output(true, formatPaperPortfolioSummary(view), { error: null });
           }
 
           status("Loading Schwab portfolio…");
@@ -1184,14 +1183,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             };
             return this.output(false, messages[result.reason], {
               error: result.reason,
-              source,
             });
           }
           const scoped = filterSchwabPortfolioView(result.view, args.account_id ?? null);
           return this.output(true, formatSchwabPortfolioSummary(scoped), {
             error: null,
-            source,
-            account_id: args.account_id ?? null,
           });
         }),
       }),
