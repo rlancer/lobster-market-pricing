@@ -250,6 +250,33 @@ test('treats a loaded portfolio as grounding evidence (desk gather auto)', () =>
   assert.equal(policy.toolChoice, 'auto');
 });
 
+test('forces publish_desk sooner after portfolio evidence than after lake SQL', () => {
+  // Regression: share 23nE1Q9OqTm1noJSWszE0Qj3E — researched every holding
+  // through the default 5-step gather window, then disconnected with empty content.
+  const afterPortfolio = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    portfolioLoaded: true,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 2,
+    autoStepsBeforeDesk: 2,
+  });
+  assert.deepEqual(afterPortfolio.toolChoice, { type: 'tool', toolName: 'publish_desk' });
+
+  const afterLake = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 2,
+    autoStepsBeforeDesk: 5,
+  });
+  assert.equal(afterLake.toolChoice, 'auto');
+});
+
 test('seals after PORTFOLIO_FORCE_FAILURES_MAX so the model can explain', () => {
   const policy = nextCopilotStepPolicy({
     ...base,

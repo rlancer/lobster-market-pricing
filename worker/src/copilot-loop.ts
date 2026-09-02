@@ -34,6 +34,13 @@ export const DESK_FORCE_FAILURES_MAX = 4;
  */
 export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 5;
 
+/**
+ * After get_portfolio already grounded the book, keep the gather window short.
+ * Portfolio risk reviews otherwise research every holding until disconnect
+ * (share 23nE1Q9OqTm1noJSWszE0Qj3E: get_portfolio + research ×N, empty content).
+ */
+export const AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK = 2;
+
 export type CopilotToolChoice =
   | "auto"
   | "none"

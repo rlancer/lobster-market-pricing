@@ -28,6 +28,8 @@ import {
 import { insertToolEvent, purgeExpiredToolEvents } from "./copilot-tool-events";
 import {
   AGENT_ITERATIONS_MAX,
+  AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK,
+  AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
   QUERY_FORCE_FAILURES_MAX,
   nextCopilotStepPolicy,
 } from "./copilot-loop";
@@ -1363,6 +1365,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               requirePortfolio,
               portfolioLoaded: turn.portfolioLoaded,
               failedPortfolioCount: turn.failedPortfolioCount,
+              // Portfolio evidence is already the book — keep gather short so
+              // risk reviews finish (publish_desk) instead of researching every name.
+              autoStepsBeforeDesk: turn.portfolioLoaded
+                ? AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK
+                : AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
               // Bot thesis posts and interactive chat both publish the routed
               // specialist personas via publish_desk. Structured trades stay
               // interactive-only so a rates post is not forced into a flyer.

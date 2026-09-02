@@ -598,6 +598,9 @@ function AiChatSession({
   const wasBusyRef = useRef(false);
   /** Last assistant message id we already tried to reconcile against turn-budget capture. */
   const captureReconciledRef = useRef<string | null>(null);
+  /** One auto-continue attempt per incomplete assistant id after reconnect. */
+  const incompleteContinueRef = useRef<string | null>(null);
+  const incompleteAutoAttemptsRef = useRef(0);
   const attachmentsRef = useRef<ChatAttachment[]>(attachments);
   attachmentsRef.current = attachments;
   const navigate = useNavigate();
@@ -621,6 +624,7 @@ function AiChatSession({
     setMessages,
     sendMessage,
     resumeStream,
+    regenerate,
     status: chatStatus,
     error: chatError,
     isStreaming,
@@ -1135,6 +1139,36 @@ function AiChatSession({
   /* Mobile app bar owns New chat; omit the empty Share strip until a turn exists. */
   const showChatHead = !isMobile || Boolean(botHandle) || Boolean(forkContext) || canShare;
 
+  /** Tools/reasoning landed but no prose — disconnect mid-turn left an unfinished answer. */
+  const incompleteAssistant = useMemo(() => {
+    if (busy || paused || accessBlocked || scopeLocked) return null;
+    const last = projectedMessages[projectedMessages.length - 1];
+    if (!last || last.role !== 'assistant') return null;
+    if (last.content.trim() || last.desk || last.error) return null;
+    if (!(last.tools?.length || last.reasoning?.trim())) return null;
+    return last;
+  }, [projectedMessages, busy, paused, accessBlocked, scopeLocked]);
+
+  const continueIncomplete = useCallback(() => {
+    if (!incompleteAssistant || busy) return;
+    incompleteContinueRef.current = incompleteAssistant.id;
+    void regenerate().catch(() => {});
+  }, [incompleteAssistant, busy, regenerate]);
+
+  // After reconnect/refresh settles on an unfinished assistant (tools, no prose),
+  // try one regenerate so the turn can finish without a manual Continue click.
+  useEffect(() => {
+    if (!incompleteAssistant || socketState !== 'open') return;
+    if (incompleteContinueRef.current === incompleteAssistant.id) return;
+    if (incompleteAutoAttemptsRef.current >= 1) return;
+    incompleteContinueRef.current = incompleteAssistant.id;
+    incompleteAutoAttemptsRef.current += 1;
+    const timer = window.setTimeout(() => {
+      void regenerate().catch(() => {});
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [incompleteAssistant, socketState, regenerate]);
+
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
     if (pendingConsumedRef.current) return;
@@ -1424,6 +1458,19 @@ function AiChatSession({
                               hideTools={isLive}
                               chatId={chatId}
                             />
+                            {!isLive
+                              && incompleteAssistant?.id === message.id
+                              && (
+                              <div className="ai-scope-lock-hint">
+                                <span>Answer interrupted before it finished. Continue to complete it.</span>
+                                <Button
+                                  variant="secondary"
+                                  label="Continue"
+                                  onClick={continueIncomplete}
+                                  isDisabled={busy || disconnected}
+                                />
+                              </div>
+                              )}
                             {!isLive && (shareTurnButton || message.ts !== undefined || message.model) && (
                               <ChatMessageMetadata
                                 timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}

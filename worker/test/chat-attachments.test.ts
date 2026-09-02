@@ -42,5 +42,6 @@ test("attachmentsPromptAddon instructs get_portfolio for each source", () => {
   assert.match(body, /never invent holdings/i);
   assert.match(body, /ONLY via get_portfolio/i);
   assert.match(body, /never run_query/i);
+  assert.match(body, /at most 2–3 material names/i);
   assert.equal(attachmentsPromptAddon([]), "");
 });
