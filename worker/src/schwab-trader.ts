@@ -87,6 +87,8 @@ export interface SchwabTrade {
   position_effect: string | null;
   order_id: number | null;
   position_id: number | null;
+  /** CUSIP when Schwab sends it — used to join ETF dividends that omit symbol. */
+  cusip: string | null;
 }
 
 function asNumber(v: unknown): number | null {
@@ -238,6 +240,32 @@ export function formatOccOptionSymbol(opts: {
   return `${root.padEnd(6, " ")}${exp}${right}${strikePart}`;
 }
 
+/**
+ * True when an activity belongs to `ticker` as equity or as an option on that
+ * root. Exact match only — `CAR` does not include `CARD`. Schwab's
+ * transactions `symbol=` query misses OCC option symbols, so callers fetch
+ * unfiltered and apply this locally.
+ */
+export function matchesTicker(
+  activity: { symbol?: string | null; underlying?: string | null },
+  ticker: string | null | undefined,
+): boolean {
+  const want = ticker?.trim().toUpperCase();
+  if (!want) return true;
+  const underlying = activity.underlying?.trim().toUpperCase();
+  if (underlying === want) return true;
+  const symbol = activity.symbol?.trim().toUpperCase();
+  if (!symbol) return false;
+  if (symbol === want) return true;
+
+  const compact = symbol.replace(/\s+/g, "");
+  const occ = /^([A-Z0-9.\-]{1,6})\d{6}[CP]\d{8}$/.exec(compact);
+  if (occ) return occ[1] === want;
+  const readable =
+    /^([A-Z0-9.\-]{1,6})\s+(\d{4}-\d{2}-\d{2})\s+(C|P|CALL|PUT)\b/.exec(symbol);
+  return readable?.[1] === want;
+}
+
 function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem | null {
   // Prefer real securities — cash/CURRENCY legs also carry a symbol (CURRENCY_USD)
   // and must not win over the equity/option transfer item on the same TRADE.
@@ -252,6 +280,20 @@ function pickSecurityItem(items: SchwabRawTransferItem[]): SchwabRawTransferItem
   return null;
 }
 
+function securityItems(items: SchwabRawTransferItem[]): SchwabRawTransferItem[] {
+  return items.filter((item) => !isCurrencyItem(item) && Boolean(item.instrument));
+}
+
+/**
+ * Commission P&L. Schwab `feeType` amounts are often the charged (positive)
+ * figure on live trades; some payloads already send a signed debit. Always
+ * return a drag (≤ 0) so Fees-only is commission cost, not a fake gain.
+ */
+export function commissionPnl(fees: number | null | undefined): number {
+  if (fees == null || !Number.isFinite(fees) || fees === 0) return 0;
+  return fees > 0 ? -fees : fees;
+}
+
 function sumFees(items: SchwabRawTransferItem[]): number | null {
   let total = 0;
   let any = false;
@@ -262,7 +304,7 @@ function sumFees(items: SchwabRawTransferItem[]): number | null {
     total += amt;
     any = true;
   }
-  return any ? total : null;
+  return any ? commissionPnl(total) : null;
 }
 
 export function inferTradeSide(
@@ -280,9 +322,13 @@ export function inferTradeSide(
   return "unknown";
 }
 
-export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
-  const items = Array.isArray(tx.transferItems) ? tx.transferItems : [];
-  const security = pickSecurityItem(items);
+function normalizeTradeLeg(
+  tx: SchwabRawTransaction,
+  security: SchwabRawTransferItem | null,
+  legIndex: number,
+  legCount: number,
+  fees: number | null,
+): SchwabTrade {
   const inst = security?.instrument;
   const quantity = asNumber(security?.amount);
   const price = asNumber(security?.price);
@@ -303,32 +349,86 @@ export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
     });
   }
 
-  const description = tx.description ?? null;
-  const side = inferTradeSide(description, quantity, cost);
+  const description = tx.description?.trim() || inst?.description?.trim() || null;
+  // Complex executions can describe several opposing legs in one transaction.
+  // For those, infer each side from its own signed cost/quantity rather than
+  // applying the transaction-level prose to every leg.
+  const side = inferTradeSide(legCount === 1 ? description : null, quantity, cost);
+  const multiplier = (inst?.assetType ?? "").toUpperCase() === "OPTION" ? 100 : 1;
+  const calculatedGross =
+    cost ??
+    (quantity != null && price != null
+      ? -quantity * price * multiplier
+      : null);
+  const legNet =
+    legCount === 1
+      ? asNumber(tx.netAmount) ?? (calculatedGross != null ? calculatedGross + (fees ?? 0) : null)
+      : calculatedGross != null
+        ? calculatedGross + (fees ?? 0)
+        : null;
+  const baseId = activityId != null
+    ? String(activityId)
+    : `${tx.tradeDate ?? tx.time ?? "tx"}-${symbol ?? "x"}-${quantity ?? 0}`;
 
   return {
-    id: activityId != null
-      ? String(activityId)
-      : `${tx.tradeDate ?? tx.time ?? "tx"}-${symbol ?? "x"}-${quantity ?? 0}`,
+    id: legCount > 1 ? `${baseId}:leg:${legIndex}` : baseId,
     activity_id: activityId,
     trade_date: tx.tradeDate ?? tx.time ?? null,
     settlement_date: tx.settlementDate ?? null,
     description,
     status: tx.status ?? null,
     activity_type: tx.activityType ?? null,
-    net_amount: asNumber(tx.netAmount),
+    net_amount: legNet,
     symbol,
     underlying,
     asset_type: inst?.assetType ?? null,
     quantity,
     price,
     cost,
-    fees: sumFees(items),
+    fees,
     side,
     position_effect: security?.positionEffect ?? null,
     order_id: orderId,
     position_id: positionId,
+    cusip: inst?.cusip?.trim() || null,
   };
+}
+
+/**
+ * Normalize every security leg in a Schwab transaction. Complex option orders
+ * share one activity id/net amount but carry per-leg cost and position effect;
+ * collapsing them into one row corrupts both inventory and cash basis.
+ */
+export function normalizeTrades(tx: SchwabRawTransaction): SchwabTrade[] {
+  const items = Array.isArray(tx.transferItems) ? tx.transferItems : [];
+  const legs = securityItems(items);
+  if (legs.length === 0) {
+    return [normalizeTradeLeg(tx, pickSecurityItem(items), 0, 1, sumFees(items))];
+  }
+
+  const totalFees = sumFees(items);
+  const weights = legs.map((leg) => Math.abs(asNumber(leg.amount) ?? 0));
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  return legs.map((leg, index) => {
+    const allocatedFees =
+      totalFees == null
+        ? null
+        : weightTotal > 0
+          ? totalFees * (weights[index]! / weightTotal)
+          : totalFees / legs.length;
+    return normalizeTradeLeg(tx, leg, index, legs.length, allocatedFees);
+  });
+}
+
+/** Backward-compatible single-row helper for callers that expect one leg. */
+export function normalizeTrade(tx: SchwabRawTransaction): SchwabTrade {
+  return normalizeTrades(tx)[0]!;
+}
+
+/** Rows explicitly rejected/reversed by Schwab must never enter accounting. */
+export function isIncludedSchwabTransaction(tx: SchwabRawTransaction): boolean {
+  const status = (tx.status ?? "").trim().toUpperCase();
+  return !["INVALID", "CANCELED", "CANCELLED", "REJECTED", "REVERSED"].includes(status);
 }
 
 async function schwabGet<T>(
@@ -336,6 +436,7 @@ async function schwabGet<T>(
   path: string,
   query?: Record<string, string>,
   tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<T> {
   const url = new URL(`${SCHWAB_TRADER_BASE}${path}`);
   if (query) {
@@ -343,7 +444,7 @@ async function schwabGet<T>(
       if (v) url.searchParams.set(k, v);
     }
   }
-  const resp = await fetch(url.toString(), {
+  const resp = await fetchImpl(url.toString(), {
     method: "GET",
     headers: {
       Authorization: `${tokenType} ${accessToken}`,
@@ -371,6 +472,7 @@ export async function listSchwabTransactions(
   accountHash: string,
   opts: { start: string; end: string; types?: string; symbol?: string },
   tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<SchwabRawTransaction[]> {
   const { startIso, endIso } = dayBoundsIso(opts.start, opts.end);
   const query: Record<string, string> = {
@@ -385,8 +487,66 @@ export async function listSchwabTransactions(
     `/accounts/${encodeURIComponent(accountHash)}/transactions`,
     query,
     tokenType,
+    fetchImpl,
   );
   return Array.isArray(rows) ? rows : [];
+}
+
+export const SCHWAB_TRANSACTIONS_PAGE_CAP = 3000;
+
+export interface SchwabTransactionsPage {
+  rows: SchwabRawTransaction[];
+  /** A single ET day still hit Schwab's cap and cannot be split further. */
+  truncated: boolean;
+}
+
+function dateMidpoint(start: string, end: string): string {
+  const startMs = Date.parse(`${start}T12:00:00.000Z`);
+  const endMs = Date.parse(`${end}T12:00:00.000Z`);
+  const days = Math.floor((endMs - startMs) / (24 * 60 * 60 * 1000));
+  return new Date(startMs + Math.floor(days / 2) * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Fetch a complete transaction window by bisecting capped responses. Schwab
+ * exposes no cursor for this endpoint; non-overlapping date partitions avoid
+ * silently calculating from the first ~3000 rows.
+ */
+export async function listSchwabTransactionsComplete(
+  accessToken: string,
+  accountHash: string,
+  opts: { start: string; end: string; types?: string; symbol?: string },
+  tokenType = "Bearer",
+  fetchImpl: typeof fetch = fetch,
+): Promise<SchwabTransactionsPage> {
+  const load = async (start: string, end: string): Promise<SchwabTransactionsPage> => {
+    const rows = await listSchwabTransactions(
+      accessToken,
+      accountHash,
+      { ...opts, start, end },
+      tokenType,
+      fetchImpl,
+    );
+    if (rows.length < SCHWAB_TRANSACTIONS_PAGE_CAP) {
+      return { rows, truncated: false };
+    }
+    if (start === end) return { rows, truncated: true };
+
+    const midpoint = dateMidpoint(start, end);
+    const rightStart = addCalendarDay(midpoint);
+    // Keep partition requests sequential so a busy account does not fan out
+    // into a burst that trips Schwab's per-application rate limit.
+    const left = await load(start, midpoint);
+    const right = await load(rightStart, end);
+    return {
+      rows: [...left.rows, ...right.rows],
+      truncated: left.truncated || right.truncated,
+    };
+  };
+
+  return load(opts.start, opts.end);
 }
 
 export interface SchwabTradesView {
@@ -456,22 +616,27 @@ export async function loadSchwabTrades(
       selected = match;
     }
 
-    const raw = await listSchwabTransactions(
+    const ticker = opts.symbol?.trim().toUpperCase() || null;
+    const page = await listSchwabTransactionsComplete(
       token.accessToken,
       selected.hash,
       {
         start: opts.start,
         end: opts.end,
         types: opts.types?.trim() || "TRADE",
-        symbol: opts.symbol ?? undefined,
+        // Never forward symbol= — Schwab misses OCC option rows for the root.
       },
       token.tokenType,
     );
-    const trades = raw.map(normalizeTrade).sort((a, b) => {
-      const ta = a.trade_date ?? "";
-      const tb = b.trade_date ?? "";
-      return tb.localeCompare(ta);
-    });
+    const trades = page.rows
+      .filter(isIncludedSchwabTransaction)
+      .flatMap(normalizeTrades)
+      .filter((t) => matchesTicker(t, ticker))
+      .sort((a, b) => {
+        const ta = a.trade_date ?? "";
+        const tb = b.trade_date ?? "";
+        return tb.localeCompare(ta);
+      });
 
     return {
       ok: true,
@@ -482,7 +647,7 @@ export async function loadSchwabTrades(
         end: opts.end,
         symbol: opts.symbol?.trim().toUpperCase() || null,
         trades,
-        may_be_truncated: trades.length >= 3000,
+        may_be_truncated: page.truncated,
       },
     };
   } catch (e) {

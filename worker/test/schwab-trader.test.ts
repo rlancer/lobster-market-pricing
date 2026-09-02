@@ -6,11 +6,17 @@ import {
   etTradeDay,
   formatOccOptionSymbol,
   inferTradeSide,
+  isIncludedSchwabTransaction,
+  listSchwabTransactionsComplete,
+  matchesTicker,
   normalizeTrade,
+  normalizeTrades,
   opaqueAccountId,
   parseTradeDateRange,
+  commissionPnl,
   toTradeAccounts,
   SCHWAB_TRADES_MAX_RANGE_DAYS,
+  SCHWAB_TRANSACTIONS_PAGE_CAP,
 } from "../src/schwab-trader.ts";
 
 test("opaqueAccountId matches portfolio masking scheme", () => {
@@ -112,6 +118,7 @@ test("normalizeTrade extracts equity leg + fees", () => {
   assert.equal(trade.fees, -1);
   assert.equal(trade.position_effect, "OPENING");
   assert.equal(trade.id, "9876543210");
+  assert.equal(trade.cusip, null);
 });
 
 test("normalizeTrade prefers equity leg over CURRENCY_USD cash leg", () => {
@@ -206,4 +213,140 @@ test("formatOccOptionSymbol pads root and strike millis", () => {
     }),
     null,
   );
+});
+
+test("matchesTicker unifies equity and options on the same root", () => {
+  assert.equal(matchesTicker({ symbol: "CAR", underlying: null }, "car"), true);
+  assert.equal(matchesTicker({ symbol: "CAR   260618P00390000", underlying: "CAR" }, "CAR"), true);
+  assert.equal(matchesTicker({ symbol: "CAR 2026-06-18 P 390", underlying: null }, "CAR"), true);
+  assert.equal(matchesTicker({ symbol: "CAR260618C00020000", underlying: null }, "CAR"), true);
+  assert.equal(matchesTicker({ symbol: "CARD", underlying: null }, "CAR"), false);
+  assert.equal(matchesTicker({ symbol: "AAPL", underlying: null }, "CAR"), false);
+  assert.equal(matchesTicker({ symbol: "CAR", underlying: null }, null), true);
+});
+
+test("commissionPnl treats charged (positive) Schwab fees as a drag", () => {
+  assert.equal(commissionPnl(0.32), -0.32);
+  assert.equal(commissionPnl(-1), -1);
+  assert.equal(commissionPnl(0), 0);
+  assert.equal(commissionPnl(null), 0);
+});
+
+test("normalizeTrade coerces live positive COMMISSION amounts to P&L", () => {
+  const trade = normalizeTrade({
+    activityId: 1,
+    description: "SOLD 100 CAR",
+    type: "TRADE",
+    status: "VALID",
+    tradeDate: "2026-05-08T15:14:53.000Z",
+    netAmount: 14513.68,
+    activityType: "EXECUTION",
+    transferItems: [
+      {
+        instrument: { assetType: "EQUITY", symbol: "CAR" },
+        amount: -100,
+        cost: 14514,
+        price: 145.14,
+        positionEffect: "CLOSING",
+      },
+      { amount: 0.32, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trade.fees, -0.32);
+});
+
+test("normalizeTrade copies instrument description and CUSIP when tx description is empty", () => {
+  const trade = normalizeTrade({
+    activityId: 8,
+    description: "",
+    type: "TRADE",
+    status: "VALID",
+    tradeDate: "2026-03-18T15:00:00.000Z",
+    netAmount: -8726,
+    activityType: "EXECUTION",
+    transferItems: [
+      {
+        instrument: {
+          assetType: "COLLECTIVE_INVESTMENT",
+          symbol: "TLT",
+          cusip: "464287432",
+          description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        },
+        amount: 100,
+        cost: -8726,
+        price: 87.26,
+        positionEffect: "OPENING",
+      },
+    ],
+  });
+  assert.equal(trade.symbol, "TLT");
+  assert.equal(trade.description, "ISHARES 20+ YEAR TREASURY BOND ETF");
+  assert.equal(trade.cusip, "464287432");
+});
+
+test("normalizeTrades preserves every leg and allocates transaction fees", () => {
+  const trades = normalizeTrades({
+    activityId: 99,
+    description: "VERTICAL SPREAD",
+    status: "VALID",
+    tradeDate: "2026-08-28T15:00:00.000Z",
+    netAmount: 298,
+    transferItems: [
+      {
+        instrument: { assetType: "OPTION", symbol: "CAR   260918P00390000" },
+        amount: -1,
+        cost: 500,
+        price: 5,
+        positionEffect: "OPENING",
+      },
+      {
+        instrument: { assetType: "OPTION", symbol: "CAR   260918P00350000" },
+        amount: 1,
+        cost: -200,
+        price: 2,
+        positionEffect: "OPENING",
+      },
+      { amount: -2, feeType: "COMMISSION" },
+    ],
+  });
+  assert.equal(trades.length, 2);
+  assert.deepEqual(trades.map((trade) => trade.side), ["sell", "buy"]);
+  assert.deepEqual(trades.map((trade) => trade.net_amount), [499, -201]);
+  assert.deepEqual(trades.map((trade) => trade.fees), [-1, -1]);
+  assert.notEqual(trades[0]!.id, trades[1]!.id);
+});
+
+test("invalid and reversed Schwab transactions are excluded", () => {
+  assert.equal(isIncludedSchwabTransaction({ status: "VALID" }), true);
+  assert.equal(isIncludedSchwabTransaction({ status: "INVALID" }), false);
+  assert.equal(isIncludedSchwabTransaction({ status: "REVERSED" }), false);
+});
+
+test("listSchwabTransactionsComplete partitions a capped date window", async () => {
+  let calls = 0;
+  const fetchImpl: typeof fetch = async (input) => {
+    calls += 1;
+    const url = new URL(String(input));
+    const start = Date.parse(url.searchParams.get("startDate") ?? "");
+    const end = Date.parse(url.searchParams.get("endDate") ?? "");
+    const rows = end - start > 24 * 60 * 60 * 1000
+      ? Array.from({ length: SCHWAB_TRANSACTIONS_PAGE_CAP }, (_, index) => ({
+          activityId: index,
+        }))
+      : [{ activityId: calls }];
+    return new Response(JSON.stringify(rows), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const page = await listSchwabTransactionsComplete(
+    "tok",
+    "hash",
+    { start: "2026-08-01", end: "2026-08-02", types: "TRADE" },
+    "Bearer",
+    fetchImpl,
+  );
+  assert.equal(calls, 3);
+  assert.equal(page.truncated, false);
+  assert.equal(page.rows.length, 2);
 });

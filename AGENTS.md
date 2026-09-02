@@ -183,6 +183,16 @@ site and SameSite=Lax will not send it.
   `#/login-one-step` / `#/authenticators`. Callbacks must be comma-separated
   HTTPS URLs matching `worker/src/schwab.ts` exactly. Full URLs, API table,
   and external reference links: `README.md` → “Charles Schwab connect”.
+- **Schwab Portfolio pricing — never the lake.** Positions, Performance
+  mark-to-market, and trade P&L paths must use Schwab Market Data (and
+  Schwab portfolio marks) on the connected user token — not lake/Yahoo OHLC
+  as a fallback. The lake often lacks the ticker or the hold window entirely
+  (live CAR April 2026 crash: Schwab had daily bars; lake had none), which
+  flattens the chart until realization and recreates one-day cliffs. Option
+  legs are Black–Scholes on **Schwab underlying** closes (IV from the fill,
+  current dividend yield from Schwab quote fundamentals), never last-trade
+  option prints and never `symbolDetail` / lake OHLC. Linear fill→exit only
+  when there is no underlying history.
 
 ## Documentation policy — no `PLAN-*.md` rollups
 

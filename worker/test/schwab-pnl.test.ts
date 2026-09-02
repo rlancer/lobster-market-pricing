@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  attachCashSleeves,
   buildPnlFills,
   buildRealizedPnlLedger,
+  aliasesForTicker,
+  distributionMatchesTicker,
   fetchWindowForPnl,
+  optionSymbolsForPriceHistory,
+  padOccSymbolForPriceHistory,
   normalizeSchwabDistribution,
+  openMarkForTicker,
   parseOccOptionSymbol,
   resolvePnlRange,
   seriesFromLedger,
   synthesizeOptionAssignmentCloses,
   SCHWAB_PNL_RANGES,
 } from "../src/schwab-pnl.ts";
+import { matchesTicker } from "../src/schwab-trader.ts";
 import type { SchwabTrade } from "../src/schwab-trader.ts";
 import { SCHWAB_TRADES_MAX_RANGE_DAYS } from "../src/schwab-trader.ts";
 
@@ -32,6 +39,7 @@ function trade(partial: Partial<SchwabTrade> & Pick<SchwabTrade, "id" | "trade_d
     position_effect: null,
     order_id: null,
     position_id: null,
+    cusip: null,
     ...partial,
   };
 }
@@ -158,6 +166,56 @@ test("partial FIFO close realizes pro-rata", () => {
     }),
   ]);
   assert.equal(daySum(ledger, "2026-01-20"), 800);
+});
+
+test("buildPnlFills preserves FIFO tranches closed by one order", () => {
+  const symbol = "CAR   260918P00390000";
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "open-jan",
+      trade_date: "2026-01-05",
+      side: "sell",
+      symbol,
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 500,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "open-feb",
+      trade_date: "2026-02-05",
+      side: "sell",
+      symbol,
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 300,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "close-both",
+      trade_date: "2026-03-05",
+      side: "buy",
+      symbol,
+      asset_type: "OPTION",
+      quantity: 2,
+      net_amount: -400,
+      price: 2,
+      position_effect: "CLOSING",
+    }),
+  ]);
+  const fills = buildPnlFills(ledger, "2026-01-01", "2026-03-31");
+  assert.equal(fills.length, 1);
+  assert.deepEqual(
+    fills[0]!.lots.map((lot) => ({
+      opened: lot.opened,
+      quantity: lot.quantity,
+      realized_pnl: lot.realized_pnl,
+    })),
+    [
+      { opened: "2026-01-05", quantity: 1, realized_pnl: 300 },
+      { opened: "2026-02-05", quantity: 1, realized_pnl: 100 },
+    ],
+  );
 });
 
 test("CLOSING without in-window open is unmatched (no phantom PnL)", () => {
@@ -308,6 +366,46 @@ test("normalizeSchwabDistribution sums currency legs", () => {
   assert.equal(d!.symbol, "VTI");
   assert.equal(d!.amount, 12.5);
   assert.equal(d!.id, "dist-99");
+  assert.equal(d!.cusip, null);
+});
+
+test("normalizeSchwabDistribution keeps CUSIP when ETF dividend omits symbol", () => {
+  const d = normalizeSchwabDistribution({
+    activityId: 7,
+    time: "2026-08-06T04:00:00.000Z",
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    type: "DIVIDEND_OR_INTEREST",
+    status: "VALID",
+    netAmount: 33.05,
+    transferItems: [
+      {
+        instrument: {
+          assetType: "COLLECTIVE_INVESTMENT",
+          cusip: "464287432",
+          description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        },
+        amount: 0,
+      },
+      {
+        instrument: { assetType: "CURRENCY", symbol: "CURRENCY_USD" },
+        amount: 33.05,
+      },
+    ],
+  });
+  assert.ok(d);
+  assert.equal(d!.symbol, null);
+  assert.equal(d!.cusip, "464287432");
+  assert.equal(d!.amount, 33.05);
+});
+
+test("normalizeSchwabDistribution uses the ET posting date", () => {
+  const d = normalizeSchwabDistribution({
+    activityId: 8,
+    time: "2026-08-29T01:30:00.000Z",
+    status: "VALID",
+    netAmount: 10,
+  });
+  assert.equal(d!.date, "2026-08-28");
 });
 
 test("buildPnlFills includes fees from the closing trade", () => {
@@ -618,6 +716,42 @@ test("CLOSING equity at strike does not synthesize assignment cover", () => {
   );
 });
 
+test("explicit covered-call assignment can close existing shares", () => {
+  const trades = [
+    trade({
+      id: "short-call",
+      activity_id: 1,
+      trade_date: "2026-03-01T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL  260417C00150000",
+      underlying: "AAPL",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 350,
+      position_effect: "OPENING",
+    }),
+    trade({
+      id: "assigned-stock",
+      activity_id: 2,
+      trade_date: "2026-04-17T15:00:00.000Z",
+      side: "sell",
+      symbol: "AAPL",
+      asset_type: "EQUITY",
+      quantity: 100,
+      price: 150,
+      net_amount: 15000,
+      position_effect: "CLOSING",
+      activity_type: "ASSIGNMENT",
+      description: "CALL ASSIGNMENT",
+    }),
+  ];
+  assert.equal(
+    synthesizeOptionAssignmentCloses(trades)
+      .filter((row) => row.id.startsWith("synth-assign-")).length,
+    1,
+  );
+});
+
 test("after-hours close stays on the ET session date for period attribution", () => {
   const ledger = buildRealizedPnlLedger([
     trade({
@@ -761,3 +895,373 @@ test("seriesFromLedger scopes unmatched_close_count to the chart window", () => 
   const outside = seriesFromLedger(ledger, "2026-03-01", "2026-03-31");
   assert.equal(outside.summary.unmatched_close_count, 0);
 });
+
+test("seriesFromLedger splits equity vs option realized sleeves", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "eq-open",
+      trade_date: "2026-01-10",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1000,
+      position_effect: "OPENING",
+      symbol: "CAR",
+    }),
+    trade({
+      id: "eq-close",
+      trade_date: "2026-02-10",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1150,
+      position_effect: "CLOSING",
+      symbol: "CAR",
+    }),
+    trade({
+      id: "opt-open",
+      trade_date: "2026-01-12",
+      side: "sell",
+      quantity: 1,
+      net_amount: 250,
+      position_effect: "OPENING",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+    }),
+    trade({
+      id: "opt-close",
+      trade_date: "2026-02-12",
+      side: "buy",
+      quantity: 1,
+      net_amount: -100,
+      position_effect: "CLOSING",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+    }),
+  ]);
+  const { points, summary } = seriesFromLedger(ledger, "2026-01-01", "2026-03-01");
+  assert.equal(summary.period_pnl, 300);
+  const eqClose = points.find((p) => p.date === "2026-02-10");
+  const optClose = points.find((p) => p.date === "2026-02-12");
+  assert.equal(eqClose?.daily_equity_pnl, 150);
+  assert.equal(eqClose?.daily_option_pnl, 0);
+  assert.equal(optClose?.daily_option_pnl, 150);
+  assert.equal(optClose?.daily_equity_pnl, 0);
+});
+
+test("attachCashSleeves stamps fees and dividends without changing trading PnL", () => {
+  const ledger = buildRealizedPnlLedger([
+    trade({
+      id: "1",
+      trade_date: "2026-01-10",
+      side: "buy",
+      quantity: 10,
+      net_amount: -1001,
+      fees: -1,
+      position_effect: "OPENING",
+      symbol: "CAR",
+    }),
+    trade({
+      id: "2",
+      trade_date: "2026-02-10",
+      side: "sell",
+      quantity: 10,
+      net_amount: 1149,
+      fees: -1,
+      position_effect: "CLOSING",
+      symbol: "CAR",
+    }),
+  ]);
+  const { points } = seriesFromLedger(ledger, "2026-01-01", "2026-03-01");
+  const stamped = attachCashSleeves(
+    points,
+    [
+      trade({
+        id: "1",
+        trade_date: "2026-01-10",
+        side: "buy",
+        quantity: 10,
+        net_amount: -1001,
+        fees: -1,
+        symbol: "CAR",
+      }),
+      trade({
+        id: "2",
+        trade_date: "2026-02-10",
+        side: "sell",
+        quantity: 10,
+        net_amount: 1149,
+        fees: -1,
+        symbol: "CAR",
+      }),
+    ],
+    [{
+      id: "d1",
+      date: "2026-02-05",
+      symbol: "CAR",
+      description: "Qualified dividend",
+      amount: 12.5,
+      type: "DIVIDEND_OR_INTEREST",
+      status: "VALID",
+      cusip: null,
+    }],
+    "2026-01-01",
+    "2026-03-01",
+  );
+  assert.equal(stamped.find((p) => p.date === "2026-01-10")?.daily_equity_fees, -1);
+  assert.equal(stamped.find((p) => p.date === "2026-02-10")?.daily_fees, -1);
+  assert.equal(stamped.find((p) => p.date === "2026-02-05")?.daily_dividends, 12.5);
+  assert.equal(stamped.at(-1)?.cumulative_pnl, 148);
+});
+
+test("attachCashSleeves coerces live positive Schwab fees to commission drag", () => {
+  const stamped = attachCashSleeves(
+    [emptyish("2026-05-08")],
+    [
+      trade({
+        id: "stock-sale",
+        trade_date: "2026-05-08",
+        side: "sell",
+        symbol: "CAR",
+        quantity: -100,
+        net_amount: 14513.68,
+        fees: 0.32,
+        position_effect: "CLOSING",
+      }),
+      trade({
+        id: "put-close",
+        trade_date: "2026-05-08",
+        side: "sell",
+        symbol: "CAR   260618P00500000",
+        underlying: "CAR",
+        asset_type: "OPTION",
+        quantity: -1,
+        net_amount: 35458.61,
+        fees: 1.39,
+        position_effect: "CLOSING",
+      }),
+    ],
+    [],
+    "2026-05-01",
+    "2026-05-10",
+  );
+  const day = stamped.find((p) => p.date === "2026-05-08");
+  assert.equal(day?.daily_fees, -1.71);
+  assert.equal(day?.daily_equity_fees, -0.32);
+  assert.equal(day?.daily_option_fees, -1.39);
+});
+
+function emptyish(date: string) {
+  return {
+    date,
+    daily_pnl: 0,
+    cumulative_pnl: 0,
+    daily_equity_pnl: 0,
+    daily_option_pnl: 0,
+    daily_fees: 0,
+    daily_equity_fees: 0,
+    daily_option_fees: 0,
+    daily_dividends: 0,
+  };
+}
+
+test("optionSymbolsForPriceHistory keeps unique OCC roots and ignores equity", () => {
+  const symbols = optionSymbolsForPriceHistory([
+    trade({ id: "1", trade_date: "2026-04-01", side: "sell", symbol: "CAR   260618P00390000", asset_type: "OPTION" }),
+    trade({ id: "2", trade_date: "2026-04-01", side: "buy", symbol: "CAR   260618P00500000", asset_type: "OPTION" }),
+    trade({ id: "3", trade_date: "2026-05-08", side: "sell", symbol: "CAR", asset_type: "EQUITY" }),
+    trade({ id: "4", trade_date: "2026-05-08", side: "buy", symbol: "CAR   260618P00390000", asset_type: "OPTION" }),
+  ]);
+  assert.equal(symbols.size, 2);
+  assert.ok(symbols.has("CAR260618P00390000"));
+  assert.ok(symbols.has("CAR260618P00500000"));
+  // Schwab /pricehistory wants the 21-char padded OCC print.
+  assert.equal(symbols.get("CAR260618P00390000"), "CAR   260618P00390000");
+  assert.equal(symbols.get("CAR260618P00500000"), "CAR   260618P00500000");
+});
+
+test("padOccSymbolForPriceHistory pads compact roots to 6 characters", () => {
+  assert.equal(padOccSymbolForPriceHistory("CAR260618P00390000"), "CAR   260618P00390000");
+  assert.equal(padOccSymbolForPriceHistory("CAR   260618P00390000"), "CAR   260618P00390000");
+  assert.equal(padOccSymbolForPriceHistory("AAPL260918C00200000"), "AAPL  260918C00200000");
+  assert.equal(padOccSymbolForPriceHistory("CAR"), null);
+});
+
+test("ticker filter keeps CAR stock and CAR options, drops CARD", () => {
+  const rows = [
+    trade({ id: "1", trade_date: "2026-01-01", side: "buy", symbol: "CAR", quantity: 1, net_amount: -10 }),
+    trade({
+      id: "2",
+      trade_date: "2026-01-02",
+      side: "sell",
+      symbol: "CAR   260618P00390000",
+      underlying: "CAR",
+      asset_type: "OPTION",
+      quantity: 1,
+      net_amount: 20,
+    }),
+    trade({ id: "3", trade_date: "2026-01-03", side: "buy", symbol: "CARD", quantity: 1, net_amount: -5 }),
+  ].filter((t) => matchesTicker(t, "CAR"));
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((t) => t.id), ["1", "2"]);
+});
+
+test("ETF dividends without a ticker join TLT via CUSIP or fund name", () => {
+  const tltBuy = trade({
+    id: "tlt-buy",
+    trade_date: "2026-03-18",
+    side: "buy",
+    symbol: "TLT",
+    asset_type: "COLLECTIVE_INVESTMENT",
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: "464287432",
+    quantity: 100,
+    net_amount: -8726,
+    position_effect: "OPENING",
+  });
+  const nameAliases = aliasesForTicker("TLT", [tltBuy]);
+  const cusipOnly = aliasesForTicker("TLT", [
+    trade({
+      id: "tlt-buy-bare",
+      trade_date: "2026-03-18",
+      side: "buy",
+      symbol: "TLT",
+      asset_type: "COLLECTIVE_INVESTMENT",
+      description: null,
+      cusip: "464287432",
+    }),
+  ]);
+
+  const unnamed = {
+    symbol: null,
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: "464287432",
+  };
+  const unnamedNoCusip = {
+    symbol: null as string | null,
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: null as string | null,
+  };
+  assert.equal(distributionMatchesTicker(unnamed, "TLT", nameAliases), true);
+  assert.equal(distributionMatchesTicker(unnamed, "TLT", cusipOnly), true);
+  assert.equal(distributionMatchesTicker(unnamedNoCusip, "TLT", nameAliases), true);
+  assert.equal(
+    distributionMatchesTicker(unnamed, "CARD", aliasesForTicker("CARD", [tltBuy])),
+    false,
+  );
+  assert.equal(
+    distributionMatchesTicker(
+      { symbol: null, description: "SPDR S&P 500", cusip: "78462F103" },
+      "TLT",
+      nameAliases,
+    ),
+    false,
+  );
+});
+
+test("openMarkForTicker joins TLT via symbol or CUSIP and splits option MTM", () => {
+  const tltBuy = trade({
+    id: "tlt-buy",
+    trade_date: "2026-03-18",
+    side: "buy",
+    symbol: "TLT",
+    asset_type: "COLLECTIVE_INVESTMENT",
+    description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+    cusip: "464287432",
+  });
+  const aliases = aliasesForTicker("TLT", [tltBuy]);
+  const tlt = openMarkForTicker(
+    [
+      {
+        id: "1",
+        symbol: "TLT",
+        underlying: null,
+        description: "iShares 20+ Year Treasury Bond ETF",
+        asset_type: "COLLECTIVE_INVESTMENT",
+        quantity: 100,
+        average_price: 87.26,
+        market_value: 8900,
+        day_pnl: null,
+        open_pnl: 174,
+        cusip: "464287432",
+      },
+    ],
+    "TLT",
+    aliases,
+  );
+  assert.equal(tlt.count, 1);
+  assert.equal(tlt.equity_pnl, 174);
+  assert.equal(tlt.option_pnl, 0);
+
+  const unnamedFund = openMarkForTicker(
+    [
+      {
+        id: "2",
+        symbol: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        underlying: null,
+        description: "ISHARES 20+ YEAR TREASURY BOND ETF",
+        asset_type: "COLLECTIVE_INVESTMENT",
+        quantity: 100,
+        average_price: 87.26,
+        market_value: 8900,
+        day_pnl: null,
+        open_pnl: null,
+        cusip: "464287432",
+      },
+    ],
+    "TLT",
+    aliases,
+  );
+  assert.equal(unnamedFund.count, 1);
+  assert.equal(unnamedFund.equity_pnl, 8900 - 87.26 * 100);
+
+  const mixed = openMarkForTicker(
+    [
+      {
+        id: "eq",
+        symbol: "CAR",
+        underlying: null,
+        description: null,
+        asset_type: "EQUITY",
+        quantity: 10,
+        average_price: 10,
+        market_value: 120,
+        day_pnl: null,
+        open_pnl: 20,
+        cusip: null,
+      },
+      {
+        id: "opt",
+        symbol: "CAR   260618P00390000",
+        underlying: "CAR",
+        description: null,
+        asset_type: "OPTION",
+        quantity: -1,
+        average_price: 2.5,
+        market_value: -200,
+        day_pnl: null,
+        open_pnl: 50,
+        cusip: null,
+      },
+      {
+        id: "other",
+        symbol: "CARD",
+        underlying: null,
+        description: null,
+        asset_type: "EQUITY",
+        quantity: 1,
+        average_price: 5,
+        market_value: 6,
+        day_pnl: null,
+        open_pnl: 1,
+        cusip: null,
+      },
+    ],
+    "CAR",
+    { cusips: new Set(), names: new Set() },
+  );
+  assert.equal(mixed.count, 2);
+  assert.equal(mixed.equity_pnl, 20);
+  assert.equal(mixed.option_pnl, 50);
+});
+

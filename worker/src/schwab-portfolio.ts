@@ -13,6 +13,8 @@ export const SCHWAB_TRADER_BASE = "https://api.schwabapi.com/trader/v1";
 export interface SchwabPortfolioPosition {
   id: string;
   symbol: string;
+  /** Option root / underlying when Schwab sends it (equity is null). */
+  underlying: string | null;
   description: string | null;
   asset_type: string | null;
   quantity: number;
@@ -20,6 +22,7 @@ export interface SchwabPortfolioPosition {
   market_value: number | null;
   day_pnl: number | null;
   open_pnl: number | null;
+  cusip: string | null;
 }
 
 export interface SchwabPortfolioAccount {
@@ -94,6 +97,21 @@ function positionOpenPnl(pos: Record<string, unknown>): number | null {
   return (long ?? 0) + (short ?? 0);
 }
 
+/** Schwab's open P&L, or mark − cost when that field is omitted (common on ETFs). */
+export function resolvePositionOpenPnl(
+  pos: Record<string, unknown>,
+  quantity: number,
+  averagePrice: number | null,
+  marketValue: number | null,
+  assetType?: string | null,
+): number | null {
+  const reported = positionOpenPnl(pos);
+  if (reported != null) return reported;
+  if (averagePrice == null || marketValue == null) return null;
+  const multiplier = (assetType ?? "").toUpperCase() === "OPTION" ? 100 : 1;
+  return marketValue - averagePrice * quantity * multiplier;
+}
+
 function normalizePosition(
   pos: Record<string, unknown>,
   accountId: string,
@@ -116,13 +134,21 @@ function normalizePosition(
   return {
     id: `${accountId}:${symbol}:${index}`,
     symbol,
+    underlying: str(instrument.underlyingSymbol),
     description: str(instrument.description),
     asset_type: str(instrument.assetType),
     quantity,
     average_price: avg,
     market_value: num(pos.marketValue),
     day_pnl: num(pos.currentDayProfitLoss),
-    open_pnl: positionOpenPnl(pos),
+    open_pnl: resolvePositionOpenPnl(
+      pos,
+      quantity,
+      avg,
+      num(pos.marketValue),
+      str(instrument.assetType),
+    ),
+    cusip: str(instrument.cusip),
   };
 }
 

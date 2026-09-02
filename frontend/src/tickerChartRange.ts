@@ -31,6 +31,20 @@ export function etDateString(d = new Date()): string {
   }).format(d);
 }
 
+/**
+ * Bucket a timestamp onto the ET trading calendar (same rules as the Worker).
+ * Date-only `YYYY-MM-DD` is kept; ISO times convert through America/New_York.
+ */
+export function etTradeDay(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const normalized = trimmed.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+  const ms = Date.parse(normalized);
+  if (Number.isFinite(ms)) return etDateString(new Date(ms));
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : null;
+}
+
 function yearStart(ymd: string): string {
   return `${ymd.slice(0, 4)}-01-01`;
 }

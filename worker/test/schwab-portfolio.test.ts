@@ -72,6 +72,8 @@ test("normalizeSchwabAccounts maps securitiesAccount envelope", () => {
   assert.equal(acct.buying_power, 10_000);
   assert.equal(acct.positions.length, 2);
   assert.equal(acct.positions[0]!.symbol, "AAPL");
+  assert.equal(acct.positions[0]!.underlying, null);
+  assert.equal(acct.positions[1]!.underlying, "AAPL");
   assert.equal(acct.positions[0]!.quantity, 10);
   assert.equal(acct.positions[0]!.open_pnl, 50);
   assert.equal(acct.positions[1]!.quantity, -2);
@@ -81,6 +83,60 @@ test("normalizeSchwabAccounts maps securitiesAccount envelope", () => {
   assert.equal(view.totals.open_pnl, 10);
   // Never leak raw account numbers into ids beyond masked digits.
   assert.ok(!JSON.stringify(view).includes("9876543210"));
+});
+
+test("normalizeSchwabAccounts derives ETF open P&L from mark minus cost", () => {
+  const view = normalizeSchwabAccounts(
+    [
+      {
+        securitiesAccount: {
+          type: "MARGIN",
+          accountNumber: "1111",
+          currentBalances: { cashBalance: 0, liquidationValue: 8900, buyingPower: 0 },
+          positions: [
+            {
+              longQuantity: 100,
+              shortQuantity: 0,
+              averagePrice: 87.26,
+              marketValue: 8900,
+              instrument: {
+                symbol: "TLT",
+                assetType: "COLLECTIVE_INVESTMENT",
+                description: "iShares 20+ Year Treasury Bond ETF",
+                cusip: "464287432",
+              },
+            },
+          ],
+        },
+      },
+    ],
+    1_700_000_000_000,
+  );
+  const tlt = view.accounts[0]!.positions[0]!;
+  assert.equal(tlt.symbol, "TLT");
+  assert.equal(tlt.open_pnl, 8900 - 87.26 * 100);
+});
+
+test("normalizeSchwabAccounts applies the option contract multiplier", () => {
+  const view = normalizeSchwabAccounts([
+    {
+      securitiesAccount: {
+        accountNumber: "1111",
+        positions: [{
+          longQuantity: 0,
+          shortQuantity: 1,
+          averagePrice: 2.5,
+          marketValue: -200,
+          instrument: {
+            symbol: "CAR   260918P00390000",
+            underlyingSymbol: "CAR",
+            assetType: "OPTION",
+          },
+        }],
+      },
+    },
+  ]);
+  assert.equal(view.accounts[0]!.positions[0]!.open_pnl, 50);
 });
 
 test("fetchSchwabAccountsRaw requests positions and auth header", async () => {
