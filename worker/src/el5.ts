@@ -254,6 +254,13 @@ export async function generateEl5Text(
       maxOutputTokens: EL5_MAX_OUTPUT_TOKENS,
       temperature: 0.2,
       abortSignal: opts?.abortSignal,
+      // DeepSeek V4 Flash can burn the whole output budget on hidden reasoning
+      // and return empty text — same trap as timeline moderation.
+      providerOptions: {
+        openrouter: {
+          reasoning: { effort: "none" },
+        },
+      },
     });
     const cleaned = cleanEl5Text(result.text);
     if (cleaned.length >= 24) return { text: cleaned, error: null };
@@ -308,7 +315,13 @@ export async function computeEl5FromLookup(
   let modelName: string | null = deps.modelName?.trim() || null;
 
   const model = deps.createModel();
-  if (model) {
+  if (!model) {
+    console.warn(JSON.stringify({
+      el5: true,
+      fallback: "rules-v2",
+      reason: "model_unavailable",
+    }));
+  } else {
     const generated = await generateEl5Text(looked.source, model);
     if (generated.text) {
       el5 = generated.text;
