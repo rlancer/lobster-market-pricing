@@ -544,8 +544,11 @@ audiences `desk` (working trader), `fund` (hedge-fund / PM), or `learner`
 tools and desk as everyone else. Chat controls can also **attach a portfolio**
 (Schwab brokerage and/or the paper book today): the client sends small
 `attachments` handles on the turn body; the agent loads live holdings via
-`get_portfolio` (never paste positions into the prompt). New brokers add a
-source id + tool branch without redesigning the attach UX. Bot `system_prompt_extra` is capped at 1000
+`get_portfolio` on the Worker (Schwab Trader API on the connected user token,
+or the paper book in D1) — private positions never go through lake SQL.
+When a portfolio is attached, the tool loop forces `get_portfolio` before any
+`run_query`. New brokers add a source id + tool branch without redesigning the
+attach UX. Bot `system_prompt_extra` is capped at 1000
 characters so timeline personas cannot dump unbounded context. The Worker owns the schema context,
 deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
 validation, OpenFIGI ticker research (`research_ticker`), news, web search, economic calendar, tool iteration, and the final

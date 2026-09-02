@@ -75,8 +75,9 @@ export function attachmentsPromptAddon(attachments: readonly ChatAttachment[]): 
         + " before recommending adjustments, hedges, or uncorrelated adds. Ground every answer in that tool output.",
     );
   }
-  lines.push(
-    "Attached Schwab is the live brokerage book (not paper). Attached paper is the tracked suggestion book. Do not conflate them.",
-  );
+    lines.push(
+      "Attached Schwab is the live brokerage book (not paper). Attached paper is the tracked suggestion book. Do not conflate them.",
+      "Private holdings load ONLY via get_portfolio — never run_query against the lake for brokerage positions, cash, or account numbers.",
+    );
   return lines.join("\n");
 }

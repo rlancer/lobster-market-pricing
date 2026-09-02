@@ -122,6 +122,10 @@ interface Capture {
   failed_trades_count?: number;
   /** In-turn counter: failed publish_desk while forcing (stub rejection, etc.). */
   failed_desk_count?: number;
+  /** In-turn counter: failed get_portfolio while forcing an attached book. */
+  failed_portfolio_count?: number;
+  /** True once get_portfolio / get_paper_portfolio returned ok this turn. */
+  portfolio_loaded?: boolean;
   /** Steps completed after the first successful lake query (desk gather window). */
   steps_after_query?: number;
 }
@@ -869,6 +873,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       failedQueryCount: number;
       failedTradesCount: number;
       failedDeskCount: number;
+      failedPortfolioCount: number;
+      portfolioLoaded: boolean;
       stepsAfterQuery: number;
     },
     deskSpecialists: readonly DeskViewpointId[],
@@ -886,6 +892,21 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const noteDeskFailure = () => {
       turn.failedDeskCount += 1;
       capture.failed_desk_count = turn.failedDeskCount;
+      persist();
+    };
+    const notePortfolioFailure = () => {
+      turn.failedPortfolioCount += 1;
+      capture.failed_portfolio_count = turn.failedPortfolioCount;
+      persist();
+    };
+    const notePortfolioLoaded = () => {
+      // Private book evidence — unlocks the post-evidence desk path without
+      // requiring a lake SQL hit (Schwab tokens never enter R2 SQL).
+      turn.portfolioLoaded = true;
+      turn.successfulQuery = true;
+      capture.portfolio_loaded = true;
+      turn.failedPortfolioCount = 0;
+      capture.failed_portfolio_count = 0;
       persist();
     };
     const runTool = (
@@ -1144,10 +1165,12 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           const conviction = args.conviction ?? null;
           const view = await this.loadPaperPortfolio(statusFilter, conviction);
           if (!view) {
+            notePortfolioFailure();
             return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
               error: "no_owner",
             });
           }
+          notePortfolioLoaded();
           return this.output(true, formatPaperPortfolioSummary(view), { error: null });
         }),
       }),
@@ -1162,16 +1185,19 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             const conviction = args.conviction ?? null;
             const view = await this.loadPaperPortfolio(statusFilter, conviction);
             if (!view) {
+              notePortfolioFailure();
               return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
                 error: "no_owner",
               });
             }
+            notePortfolioLoaded();
             return this.output(true, formatPaperPortfolioSummary(view), { error: null });
           }
 
           status("Loading Schwab portfolio…");
           const result = await this.loadSchwabPortfolioForChat();
           if (!result.ok) {
+            notePortfolioFailure();
             const messages: Record<typeof result.reason, string> = {
               no_owner: "Sign in to attach and load your Schwab portfolio.",
               not_configured: "Schwab connect is not configured on this environment.",
@@ -1185,6 +1211,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               error: result.reason,
             });
           }
+          notePortfolioLoaded();
           const scoped = filterSchwabPortfolioView(result.view, args.account_id ?? null);
           return this.output(true, formatSchwabPortfolioSummary(scoped), {
             error: null,
@@ -1241,6 +1268,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       failedQueryCount: budget.failed_query_count,
       failedTradesCount: typeof capture.failed_trades_count === "number" ? capture.failed_trades_count : 0,
       failedDeskCount: typeof capture.failed_desk_count === "number" ? capture.failed_desk_count : 0,
+      failedPortfolioCount: typeof capture.failed_portfolio_count === "number" ? capture.failed_portfolio_count : 0,
+      portfolioLoaded: capture.portfolio_loaded === true,
       stepsAfterQuery: typeof capture.steps_after_query === "number" ? capture.steps_after_query : 0,
     };
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
@@ -1320,6 +1349,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             openrouter: { reasoning: { effort: normalizeReasoningEffort(reasoningEffort) } },
           },
           prepareStep: ({ stepNumber }) => {
+            const requirePortfolio = attachments.some((a) => a.kind === "portfolio");
             const policy = nextCopilotStepPolicy({
               stepNumber,
               remainingTokens: budget.total_output_tokens - turn.used,
@@ -1328,6 +1358,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               preferFilterFrame: Boolean(requestedFrame),
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
+              // Attached private books load via get_portfolio (Schwab API /
+              // paper D1) — never forced into lake SQL.
+              requirePortfolio,
+              portfolioLoaded: turn.portfolioLoaded,
+              failedPortfolioCount: turn.failedPortfolioCount,
               // Bot thesis posts and interactive chat both publish the routed
               // specialist personas via publish_desk. Structured trades stay
               // interactive-only so a rates post is not forced into a flyer.

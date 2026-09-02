@@ -67,7 +67,7 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Requires a signed-in chat owner — returns a clear error when anonymous/bot.",
   get_portfolio:
     "Read a signed-in user's attached portfolio by source. " +
-    "source=schwab loads the live Schwab brokerage book (balances + positions); " +
+    "source=schwab loads the live Schwab brokerage book via the Worker Schwab token (balances + positions) — NEVER query the lake for private brokerage holdings. " +
     "source=paper loads the paper tracking book (same data as get_paper_portfolio). " +
     "Call when the user attached a portfolio in chat controls, or asks about their brokerage/Schwab holdings, hedges, or uncorrelated adds. " +
     "Optional account_id scopes Schwab to one linked account. " +
