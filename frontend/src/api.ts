@@ -1544,6 +1544,9 @@ export const api = {
     del<{ ok: boolean; share_id: string }>(`/api/timeline/${encodeURIComponent(shareId)}`),
   adminUsers: (limit?: number) =>
     get<{ items: AdminUser[] }>(`/api/admin/users${qs({ limit })}`),
+  /** Admin — Cloudflare Email Service smoke test to the signed-in session email. */
+  adminEmailTest: () =>
+    post<{ ok: true; to: string; message_id: string }>('/api/admin/email/test', {}),
   adminChatHistory: (opts?: { limit?: number; before?: string }) =>
     get<AdminChatHistoryResponse>(
       `/api/admin/chat_history${qs({ limit: opts?.limit, before: opts?.before })}`,

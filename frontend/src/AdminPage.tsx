@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Heading, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
-import { Bot, ChevronRight, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import { Banner, Button, Heading, HStack, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
+import { Bot, ChevronRight, Mail, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
+import { api } from './api';
+import { authClient } from './auth';
 import MonitorStatus from './MonitorStatus';
 import { useIsAdmin } from './useAdmin';
 import './Admin.css';
@@ -54,6 +56,11 @@ const ADMIN_TOOLS: AdminTool[] = [
   },
 ];
 
+type EmailTestState =
+  | { status: 'idle' }
+  | { status: 'ok'; to: string; messageId: string }
+  | { status: 'error'; message: string };
+
 /**
  * Admin hub — one left-nav entry that opens every admin-only surface.
  * Individual routes stay reachable; this is the index.
@@ -61,6 +68,9 @@ const ADMIN_TOOLS: AdminTool[] = [
 export default function AdminPage() {
   const navigate = useNavigate();
   const { isAdmin, isPending } = useIsAdmin();
+  const { data: session } = authClient.useSession();
+  const [emailTest, setEmailTest] = useState<EmailTestState>({ status: 'idle' });
+  const sessionEmail = session?.user?.email?.trim() || null;
 
   useEffect(() => {
     if (!isPending && !isAdmin) {
@@ -89,6 +99,56 @@ export default function AdminPage() {
       <VStack className="admin-dataset" gap={2}>
         <Text type="supporting" weight="semibold">Dataset</Text>
         <MonitorStatus />
+      </VStack>
+
+      <VStack className="admin-email-test" gap={2}>
+        <Text type="supporting" weight="semibold">Email Service</Text>
+        <Text type="supporting">
+          Send a Cloudflare Email Service smoke test to your signed-in address
+          {sessionEmail ? ` (${sessionEmail})` : ''}.
+        </Text>
+        <HStack gap={2} vAlign="center">
+          <Button
+            variant="secondary"
+            label="Send test email"
+            icon={<Mail size={16} />}
+            isDisabled={!sessionEmail}
+            clickAction={async () => {
+              setEmailTest({ status: 'idle' });
+              try {
+                const result = await api.adminEmailTest();
+                setEmailTest({
+                  status: 'ok',
+                  to: result.to,
+                  messageId: result.message_id,
+                });
+              } catch (err) {
+                setEmailTest({
+                  status: 'error',
+                  message: err instanceof Error ? err.message : 'Send failed',
+                });
+              }
+            }}
+          />
+        </HStack>
+        {emailTest.status === 'ok' ? (
+          <Banner
+            status="success"
+            title={`Sent to ${emailTest.to}`}
+            description={`message_id ${emailTest.messageId}`}
+            isDismissable
+            onDismiss={() => setEmailTest({ status: 'idle' })}
+          />
+        ) : null}
+        {emailTest.status === 'error' ? (
+          <Banner
+            status="error"
+            title="Email send failed"
+            description={emailTest.message}
+            isDismissable
+            onDismiss={() => setEmailTest({ status: 'idle' })}
+          />
+        ) : null}
       </VStack>
 
       <List density="spacious" hasDividers header="Tools">

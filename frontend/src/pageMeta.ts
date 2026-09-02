@@ -194,7 +194,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Admin'),
       description:
-        'Admin hub for bots, users, chats, Copilot internals, and brand — operator tools behind one left-nav entry.',
+        'Admin hub for bots, users, chats, Copilot internals, brand, and an Email Service smoke test — operator tools behind one left-nav entry.',
       path: '/admin',
     };
   }

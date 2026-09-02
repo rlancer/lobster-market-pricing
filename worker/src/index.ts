@@ -184,8 +184,6 @@ export interface Env extends Cloudflare.Env {
   BETTER_AUTH_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
-  SCHWAB_CLIENT_ID?: string;
-  SCHWAB_CLIENT_SECRET?: string;
   /** Optional; must match a Callback URL registered in the Schwab developer portal. */
   SCHWAB_REDIRECT_URI?: string;
   /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
@@ -4227,6 +4225,42 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     const limit = Number(q.get("limit") ?? 500);
     return json(env, { items: await listAdminUsers(env.SCHEMA_DB, { limit }) }, 200, "private");
+  }
+
+  // Cloudflare Email Service smoke test — sends to the signed-in admin's email.
+  if (path === "/api/admin/email/test" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const user = admin.user ?? (await getSessionUser(env, req));
+    if (!user?.email) {
+      return json(
+        env,
+        { error: "signed-in admin session required to receive the test email" },
+        401,
+        "private",
+      );
+    }
+    const to = user.email.trim();
+    if (!to.includes("@")) {
+      return json(env, { error: "session email is missing or invalid" }, 400, "private");
+    }
+    const safeTo = to.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    try {
+      const result = await env.EMAIL.send({
+        to,
+        from: { email: "noreply@lobster.mp", name: "Lobster" },
+        subject: "Lobster Email Service test",
+        text: `This is a Cloudflare Email Service smoke test for ${to}.`,
+        html: `<p>This is a Cloudflare Email Service smoke test for <strong>${safeTo}</strong>.</p>`,
+      });
+      return json(env, { ok: true, to, message_id: result.messageId }, 200, "private");
+    } catch (err) {
+      const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : null;
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : "email send failed";
+      const status = code === "E_RATE_LIMIT_EXCEEDED" || code === "E_DAILY_LIMIT_EXCEEDED" ? 429 : 502;
+      return json(env, { ok: false, error: message, code }, status, "private");
+    }
   }
 
   // Suggested trades from successful suggest_trades tool events (~30d retention).
