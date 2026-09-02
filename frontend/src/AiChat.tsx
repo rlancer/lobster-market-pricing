@@ -7,28 +7,46 @@ import './AiChat.css';
 import {
   Button,
   ChatComposer,
+  ChatComposerDrawer,
   ChatMessageMetadata,
   ChatSendButton,
   Dialog,
   DialogHeader,
+  HStack,
   IconButton,
   Spinner,
   StatusDot,
   Switch,
   Timestamp,
+  Token,
   useAppShellMobile,
   useChatStreamScroll,
   useMediaQuery,
 } from '@astryxdesign/core';
-import { Share2, SquarePen, Trash2 } from 'lucide-react';
+import { Briefcase, Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
+import {
+  attachmentsForBody,
+  FINISH_INCOMPLETE_PROMPT,
+  isFinishIncompletePrompt,
+  isIncompleteAssistantTurn,
+  loadChatAttachments,
+  loadFinishAutoAttempted,
+  markFinishAutoAttempted,
+  PORTFOLIO_SOURCE_LABELS,
+  portfolioAttachmentsFromTools,
+  removePortfolioAttachment,
+  saveChatAttachments,
+  type ChatAttachment,
+} from './chatAttachments';
 import { CopyButton } from './CopyButton';
 import { usePageMeta } from './usePageMeta';
 import { SITE_NAME, truncateTitle } from './pageMeta';
+import { PortfolioAttachControl } from './PortfolioAttachControl';
 import { ReplyStylePicker } from './ReplyStylePicker';
 import { loadReplyPref } from './replyStyle';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
@@ -79,6 +97,7 @@ const TOOL_LABELS: Record<string, string> = {
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
   get_paper_portfolio: 'Paper portfolio',
+  get_portfolio: 'Portfolio',
   get_bot_trades: 'Bot trade performance',
 };
 
@@ -240,6 +259,12 @@ function formatToolArgs(name: string, input: unknown): string {
       return o.days != null ? `next ${o.days} days` : '';
     case 'list_frames':
       return '';
+    case 'get_portfolio':
+    case 'get_paper_portfolio': {
+      const source = String(o.source ?? (name === 'get_paper_portfolio' ? 'paper' : '')).trim();
+      const account = o.account_id != null ? String(o.account_id).trim() : '';
+      return [source, account ? `acct ${account}` : ''].filter(Boolean).join(' · ').slice(0, 120);
+    }
     default:
       return JSON.stringify(input).slice(0, 140);
   }
@@ -554,6 +579,7 @@ function AiChatSession({
   const [progressStatus, setProgressStatus] = useState('');
   const [scopeLocked, setScopeLocked] = useState(false);
   const [frames, setFrames] = useState<FrameMetadata[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>(() => loadChatAttachments(chatId));
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareResult, setShareResult] = useState<ShareChatResponse | null>(null);
@@ -586,6 +612,23 @@ function AiChatSession({
   const wasBusyRef = useRef(false);
   /** Last assistant message id we already tried to reconcile against turn-budget capture. */
   const captureReconciledRef = useRef<string | null>(null);
+  /** One auto-continue attempt per incomplete assistant id after reconnect. */
+  const incompleteContinueRef = useRef<string | null>(null);
+  const incompleteAutoAttemptsRef = useRef(0);
+  const attachmentsRef = useRef<ChatAttachment[]>(attachments);
+  attachmentsRef.current = attachments;
+
+  // Refresh / new chat: restore or clear persisted portfolio attaches for this id.
+  useEffect(() => {
+    setAttachments(loadChatAttachments(chatId));
+    incompleteContinueRef.current = null;
+    incompleteAutoAttemptsRef.current = 0;
+  }, [chatId]);
+
+  useEffect(() => {
+    saveChatAttachments(chatId, attachments);
+  }, [chatId, attachments]);
+
   const navigate = useNavigate();
   const { data: session } = authClient.useSession();
   const user = session?.user ?? null;
@@ -631,12 +674,14 @@ function AiChatSession({
       const origin = window.location.origin;
       const botHandle = peekBotHandle();
       if (botHandle) return { origin, bot_handle: botHandle };
-      // Peek localStorage at send time — useAgentChat may keep the first body fn.
+      // Peek at send time — useAgentChat may keep the first body fn.
       const reply = loadReplyPref();
+      const attached = attachmentsForBody(attachmentsRef.current);
       return {
         origin,
         reply_style: reply.style,
         ...(reply.note ? { reply_note: reply.note } : {}),
+        ...(attached.length ? { attachments: attached } : {}),
       };
     },
     onData: (part) => {
@@ -1119,6 +1164,64 @@ function AiChatSession({
   /* Mobile app bar owns New chat; omit the empty Share strip until a turn exists. */
   const showChatHead = !isMobile || Boolean(botHandle) || Boolean(forkContext) || canShare;
 
+  /** Tools/reasoning landed but no prose — disconnect mid-turn left an unfinished answer. */
+  const incompleteAssistant = useMemo(() => {
+    if (busy || paused || accessBlocked || scopeLocked) return null;
+    const last = projectedMessages[projectedMessages.length - 1];
+    if (!isIncompleteAssistantTurn(last)) return null;
+    return last;
+  }, [projectedMessages, busy, paused, accessBlocked, scopeLocked]);
+
+  const mergeRecoveredAttachments = useCallback((tools: { name?: string; args?: string; ok?: boolean; summary?: string }[] | undefined) => {
+    const fromLast = portfolioAttachmentsFromTools(tools);
+    const fromHistory = projectedMessages.flatMap((message) => portfolioAttachmentsFromTools(message.tools));
+    const recovered = [...fromLast, ...fromHistory];
+    if (!recovered.length) return;
+    setAttachments((current) => {
+      const keys = new Set(current.map((a) => `${a.source}:${a.account_id ?? ''}`));
+      const merged = [...current];
+      for (const item of recovered) {
+        const key = `${item.source}:${item.account_id ?? ''}`;
+        if (!keys.has(key)) {
+          keys.add(key);
+          merged.push(item);
+        }
+      }
+      // body() reads the ref at send time — update before the finish follow-up.
+      attachmentsRef.current = merged;
+      return merged;
+    });
+  }, [projectedMessages]);
+
+  const continueIncomplete = useCallback(() => {
+    if (!incompleteAssistant || busy) return;
+    incompleteContinueRef.current = incompleteAssistant.id;
+    mergeRecoveredAttachments(incompleteAssistant.tools);
+    // Follow-up keeps prior get_portfolio results in history — regenerate would drop them.
+    window.setTimeout(() => {
+      send(FINISH_INCOMPLETE_PROMPT);
+    }, 0);
+  }, [incompleteAssistant, busy, send, mergeRecoveredAttachments]);
+
+  // After reconnect/refresh settles on an unfinished assistant (tools, no prose),
+  // send one finish follow-up so the turn can complete without a manual Continue click.
+  // Do not auto-loop when a finish attempt already sealed empty again (share 1Wqv4a…).
+  useEffect(() => {
+    if (!incompleteAssistant || socketState !== 'open') return;
+    if (incompleteContinueRef.current === incompleteAssistant.id) return;
+    if (incompleteAutoAttemptsRef.current >= 1 || loadFinishAutoAttempted(chatId)) return;
+    const priorUser = [...projectedMessages].reverse().find((message) => message.role === 'user');
+    if (isFinishIncompletePrompt(priorUser?.content)) return;
+    incompleteContinueRef.current = incompleteAssistant.id;
+    incompleteAutoAttemptsRef.current += 1;
+    markFinishAutoAttempted(chatId);
+    mergeRecoveredAttachments(incompleteAssistant.tools);
+    const timer = window.setTimeout(() => {
+      send(FINISH_INCOMPLETE_PROMPT);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [incompleteAssistant, socketState, send, chatId, projectedMessages, mergeRecoveredAttachments]);
+
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
     if (pendingConsumedRef.current) return;
@@ -1235,7 +1338,13 @@ function AiChatSession({
       <section className="ai-chat-body">
         <section className="ai-chat-main">
           {!accessBlocked && !isDesktop && (
-            <ChatContextStrip chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
+            <ChatContextStrip
+              chatId={chatId}
+              frames={frames}
+              attachments={attachments}
+              onAttachmentsChange={setAttachments}
+              refreshKey={researchRefreshKey}
+            />
           )}
           <section className="ai-messages" ref={bindMessagesScrollRoot}>
                     {showSavedLoading && (
@@ -1402,6 +1511,19 @@ function AiChatSession({
                               hideTools={isLive}
                               chatId={chatId}
                             />
+                            {!isLive
+                              && incompleteAssistant?.id === message.id
+                              && (
+                              <div className="ai-scope-lock-hint">
+                                <span>Answer interrupted before it finished. Continue to complete it.</span>
+                                <Button
+                                  variant="secondary"
+                                  label="Continue"
+                                  onClick={continueIncomplete}
+                                  isDisabled={busy || disconnected}
+                                />
+                              </div>
+                              )}
                             {!isLive && (shareTurnButton || message.ts !== undefined || message.model) && (
                               <ChatMessageMetadata
                                 timestamp={message.ts !== undefined ? <Timestamp value={message.ts / 1000} format="time" /> : undefined}
@@ -1462,14 +1584,57 @@ function AiChatSession({
                                   ? 'Start to resume, or ask a follow-up…'
                                   : 'Ask about liquidity, volatility, or a ticker…'
                       }
-                      footerActions={!botHandle ? <ReplyStylePicker compact /> : undefined}
+                      drawer={
+                        !botHandle && attachments.length > 0 ? (
+                          <ChatComposerDrawer
+                            count={attachments.length}
+                            label="Attached"
+                            defaultIsCollapsed={false}
+                          >
+                            <HStack gap={2} wrap="wrap" vAlign="center">
+                              {attachments.map((attachment) => (
+                                <Token
+                                  key={`attach:${attachment.source}:${attachment.account_id ?? ''}`}
+                                  label={PORTFOLIO_SOURCE_LABELS[attachment.source]}
+                                  size="sm"
+                                  color="teal"
+                                  icon={<Briefcase size={12} />}
+                                  onRemove={() => setAttachments((prev) => (
+                                    removePortfolioAttachment(
+                                      prev,
+                                      attachment.source,
+                                      attachment.account_id,
+                                    )
+                                  ))}
+                                />
+                              ))}
+                            </HStack>
+                          </ChatComposerDrawer>
+                        ) : undefined
+                      }
+                      footerActions={!botHandle ? (
+                        <HStack gap={1} vAlign="center" wrap="wrap">
+                          <PortfolioAttachControl
+                            attachments={attachments}
+                            onChange={setAttachments}
+                            returnTo={`${window.location.origin}/chat/${chatId}`}
+                          />
+                          <ReplyStylePicker compact />
+                        </HStack>
+                      ) : undefined}
                       sendButton={<ChatSendButton />}
                     />
                   </footer>
 
         </section>
         {!accessBlocked && (
-          <ChatRail chatId={chatId} frames={frames} refreshKey={researchRefreshKey} />
+          <ChatRail
+            chatId={chatId}
+            frames={frames}
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            refreshKey={researchRefreshKey}
+          />
         )}
       </section>
       <Dialog isOpen={shareOpen} onOpenChange={(open) => !open && closeShareDialog()} width={480}>

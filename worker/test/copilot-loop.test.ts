@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   AGENT_ITERATIONS_MAX,
   DESK_FORCE_FAILURES_MAX,
+  PORTFOLIO_FORCE_FAILURES_MAX,
   QUERY_FORCE_FAILURES_MAX,
   TRADES_FORCE_FAILURES_MAX,
   nextCopilotStepPolicy,
@@ -209,6 +210,79 @@ test('stops forcing tools after QUERY_FORCE_FAILURES_MAX failures', () => {
     ...base,
     stepNumber: 3,
     failedQueryCount: QUERY_FORCE_FAILURES_MAX,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
+});
+
+test('forces get_portfolio before lake SQL when a portfolio is attached', () => {
+  // Regression: share 1pQXi6YlgunqnHl5QCzgfsTgn — model knew to call
+  // get_portfolio but the loop forced run_query (SELECT 1 ×3) instead.
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 0,
+    requirePortfolio: true,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'get_portfolio' });
+});
+
+test('does not force run_query while an attached portfolio is still loading', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 1,
+    requirePortfolio: true,
+    failedPortfolioCount: 0,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'get_portfolio' });
+  assert.notDeepEqual(policy.toolChoice, { type: 'tool', toolName: 'run_query' });
+});
+
+test('treats a loaded portfolio as grounding evidence (desk gather auto)', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 1,
+    requirePortfolio: true,
+    portfolioLoaded: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 0,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('forces publish_desk sooner after portfolio evidence than after lake SQL', () => {
+  // Regression: share 23nE1Q9OqTm1noJSWszE0Qj3E — researched every holding
+  // through the default 5-step gather window, then disconnected with empty content.
+  const afterPortfolio = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    portfolioLoaded: true,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 2,
+    autoStepsBeforeDesk: 2,
+  });
+  assert.deepEqual(afterPortfolio.toolChoice, { type: 'tool', toolName: 'publish_desk' });
+
+  const afterLake = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 2,
+    autoStepsBeforeDesk: 5,
+  });
+  assert.equal(afterLake.toolChoice, 'auto');
+});
+
+test('seals after PORTFOLIO_FORCE_FAILURES_MAX so the model can explain', () => {
+  const policy = nextCopilotStepPolicy({
+    ...base,
+    stepNumber: 2,
+    requirePortfolio: true,
+    failedPortfolioCount: PORTFOLIO_FORCE_FAILURES_MAX,
   });
   assert.equal(policy.toolChoice, 'none');
   assert.deepEqual(policy.activeTools, []);

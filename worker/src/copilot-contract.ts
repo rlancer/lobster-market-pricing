@@ -25,6 +25,7 @@ export const COPILOT_TOOL_LABELS = {
   publish_desk: "Desk viewpoints",
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
+  get_portfolio: "Portfolio",
   get_bot_trades: "Bot trade performance",
 } as const;
 
@@ -64,6 +65,13 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Call when the user asks about their book, paper PnL, tracked suggestions, or how suggested trades are doing. " +
     "Optional conviction filter (high|medium|low) scopes positions and PnL. " +
     "Requires a signed-in chat owner — returns a clear error when anonymous/bot.",
+  get_portfolio:
+    "Read a signed-in user's attached portfolio by source. " +
+    "source=schwab loads the live Schwab brokerage book via the Worker Schwab token (balances + positions) — NEVER query the lake for private brokerage holdings. " +
+    "source=paper loads the paper tracking book (same data as get_paper_portfolio). " +
+    "Call when the user attached a portfolio in chat controls, or asks about their brokerage/Schwab holdings, hedges, or uncorrelated adds. " +
+    "Optional account_id scopes Schwab to one linked account. " +
+    "Paper-only filters: status and conviction. Requires sign-in; Schwab also requires a connected Schwab link.",
   get_bot_trades:
     "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
     "Call when the user asks how @yololobster / @nowlobster / another bot's ideas are doing. " +
@@ -163,6 +171,16 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
       .describe("Which positions to include. Default open."),
     conviction: z.enum(["high", "medium", "low"]).optional()
       .describe("Optional conviction filter for positions and PnL."),
+  }).strict(),
+  get_portfolio: z.object({
+    source: z.enum(["schwab", "paper"])
+      .describe("Which book to load. schwab = live brokerage; paper = tracked suggestions."),
+    account_id: z.string().trim().min(1).max(64).optional()
+      .describe("Optional Schwab account id when the user attached a single account."),
+    status: z.enum(["open", "closed", "all"]).default("open")
+      .describe("Paper only — which positions to include. Default open."),
+    conviction: z.enum(["high", "medium", "low"]).optional()
+      .describe("Paper only — optional conviction filter."),
   }).strict(),
   get_bot_trades: z.object({
     handle: z.string().trim().min(1).max(32)

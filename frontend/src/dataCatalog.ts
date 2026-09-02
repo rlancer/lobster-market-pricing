@@ -163,7 +163,7 @@ export const TOOLS: CatalogItem[] = [
     description:
       'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity|kalshi, side buy|sell (long/short), optional qty, plus option right/strike/expiry or Kalshi market_ticker + contract_side (yes|no). The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute option strikes must come from option_contracts quote evidence; Kalshi legs must cite options.kalshi_markets quotes. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking. For public bots, the same suggestions are snapshotted into that bot’s trade book on /u/{handle}.',
     tables: ['option_contracts', 'kalshi_markets'],
-    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_bot_trades'],
+    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_portfolio', 'get_bot_trades'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
@@ -181,6 +181,22 @@ export const TOOLS: CatalogItem[] = [
     params: [
       { name: 'status', type: 'open|closed|all?', note: 'Default open' },
       { name: 'conviction', type: 'high|medium|low?', note: 'Optional performance filter' },
+    ],
+  },
+  {
+    id: 'tool:get_portfolio',
+    kind: 'tool',
+    title: 'get_portfolio',
+    summary: 'Read an attached portfolio by source (Schwab / paper)',
+    description:
+      'Loads a signed-in user’s portfolio by source. source=schwab reads the live Schwab brokerage book (balances + positions via the Worker’s Schwab token). source=paper reads the paper tracking book. Call when the user attached a portfolio in chat controls, or asks about brokerage holdings, hedges, adjustments, or uncorrelated adds. Optional account_id scopes Schwab to one linked account. Paper-only filters: status and conviction. New brokers add another source value — the chat attach menu stays the same.',
+    endpoint: 'GET /api/schwab/portfolio · GET /api/portfolio',
+    tools: ['get_paper_portfolio'],
+    params: [
+      { name: 'source', type: 'schwab|paper', note: 'Which book to load' },
+      { name: 'account_id', type: 'string?', note: 'Optional Schwab account id' },
+      { name: 'status', type: 'open|closed|all?', note: 'Paper only — default open' },
+      { name: 'conviction', type: 'high|medium|low?', note: 'Paper only' },
     ],
   },
   {

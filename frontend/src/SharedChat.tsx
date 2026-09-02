@@ -5,6 +5,7 @@ import './SharedChat.css';
 import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
 import { api, type SharedChat, type SharedChatMessage } from './api';
+import { FINISH_INCOMPLETE_PROMPT, isIncompleteAssistantTurn } from './chatAttachments';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { El5PostButton } from './El5JargonDialog';
 import { PostShareButton, messageShareFragment, messageShareUrl } from './PostShareButton';
@@ -175,6 +176,8 @@ function SharedChatRoute() {
             const messages = coalesceAssistantMessages(share.messages);
             const frames = framesFromMessages(messages);
             const postHandle = (share.bot ?? share.author)?.handle;
+            const last = messages[messages.length - 1];
+            const incomplete = isIncompleteAssistantTurn(last);
             return (
               <>
                 {frames.length > 0 && (
@@ -221,6 +224,7 @@ function SharedChatRoute() {
                   <TimelineFollowUp
                     shareId={share.share_id}
                     postHandle={postHandle}
+                    continuePrompt={incomplete ? FINISH_INCOMPLETE_PROMPT : null}
                   />
                 </VStack>
               </>

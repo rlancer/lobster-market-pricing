@@ -28,6 +28,8 @@ import {
 import { insertToolEvent, purgeExpiredToolEvents } from "./copilot-tool-events";
 import {
   AGENT_ITERATIONS_MAX,
+  AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK,
+  AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
   QUERY_FORCE_FAILURES_MAX,
   nextCopilotStepPolicy,
 } from "./copilot-loop";
@@ -39,6 +41,13 @@ import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { formatBotTradesSummary } from "./bot-trades";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
+import { parseAttachmentsFromBody } from "./chat-attachments";
+import { interruptedPortfolioGrounding, finishPortfolioStepsAfterQuerySeed } from "./interrupted-portfolio";
+import {
+  filterSchwabPortfolioView,
+  formatSchwabPortfolioSummary,
+  type SchwabPortfolioView,
+} from "./schwab-portfolio";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
 import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
 import { stripLeakedToolMarkup } from "./tool-markup";
@@ -116,6 +125,10 @@ interface Capture {
   failed_trades_count?: number;
   /** In-turn counter: failed publish_desk while forcing (stub rejection, etc.). */
   failed_desk_count?: number;
+  /** In-turn counter: failed get_portfolio while forcing an attached book. */
+  failed_portfolio_count?: number;
+  /** True once get_portfolio / get_paper_portfolio returned ok this turn. */
+  portfolio_loaded?: boolean;
   /** Steps completed after the first successful lake query (desk gather window). */
   steps_after_query?: number;
 }
@@ -267,7 +280,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   /**
-   * Load the chat owner's paper book for get_paper_portfolio.
+   * Load the chat owner's paper book for get_paper_portfolio / get_portfolio.
    * Default null = tool unavailable (tests / no lake binding).
    */
   protected loadPaperPortfolio(
@@ -275,6 +288,21 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     _conviction?: "high" | "medium" | "low" | null,
   ): Promise<import("./paper-portfolio").PaperPortfolioView | null> {
     return Promise.resolve(null);
+  }
+
+  /**
+   * Load the chat owner's live Schwab book for get_portfolio(source=schwab).
+   * Default not_configured so tests without Schwab bindings stay quiet.
+   */
+  protected loadSchwabPortfolioForChat(): Promise<
+    | { ok: true; view: SchwabPortfolioView }
+    | {
+      ok: false;
+      reason: "no_owner" | "not_configured" | "not_connected" | "reauth_required" | "upstream";
+      message?: string;
+    }
+  > {
+    return Promise.resolve({ ok: false, reason: "not_configured" });
   }
 
   /**
@@ -848,6 +876,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       failedQueryCount: number;
       failedTradesCount: number;
       failedDeskCount: number;
+      failedPortfolioCount: number;
+      portfolioLoaded: boolean;
       stepsAfterQuery: number;
     },
     deskSpecialists: readonly DeskViewpointId[],
@@ -865,6 +895,21 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const noteDeskFailure = () => {
       turn.failedDeskCount += 1;
       capture.failed_desk_count = turn.failedDeskCount;
+      persist();
+    };
+    const notePortfolioFailure = () => {
+      turn.failedPortfolioCount += 1;
+      capture.failed_portfolio_count = turn.failedPortfolioCount;
+      persist();
+    };
+    const notePortfolioLoaded = () => {
+      // Private book evidence — unlocks the post-evidence desk path without
+      // requiring a lake SQL hit (Schwab tokens never enter R2 SQL).
+      turn.portfolioLoaded = true;
+      turn.successfulQuery = true;
+      capture.portfolio_loaded = true;
+      turn.failedPortfolioCount = 0;
+      capture.failed_portfolio_count = 0;
       persist();
     };
     const runTool = (
@@ -1123,11 +1168,57 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           const conviction = args.conviction ?? null;
           const view = await this.loadPaperPortfolio(statusFilter, conviction);
           if (!view) {
+            notePortfolioFailure();
             return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
               error: "no_owner",
             });
           }
+          notePortfolioLoaded();
           return this.output(true, formatPaperPortfolioSummary(view), { error: null });
+        }),
+      }),
+      get_portfolio: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_portfolio,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_portfolio,
+        execute: async (args) => runTool("get_portfolio", TOOL_LABELS.get_portfolio, args, async () => {
+          const source = args.source;
+          if (source === "paper") {
+            status("Loading paper portfolio…");
+            const statusFilter = args.status ?? "open";
+            const conviction = args.conviction ?? null;
+            const view = await this.loadPaperPortfolio(statusFilter, conviction);
+            if (!view) {
+              notePortfolioFailure();
+              return this.output(false, "Sign in to view your paper portfolio (tracked suggested trades + PnL).", {
+                error: "no_owner",
+              });
+            }
+            notePortfolioLoaded();
+            return this.output(true, formatPaperPortfolioSummary(view), { error: null });
+          }
+
+          status("Loading Schwab portfolio…");
+          const result = await this.loadSchwabPortfolioForChat();
+          if (!result.ok) {
+            notePortfolioFailure();
+            const messages: Record<typeof result.reason, string> = {
+              no_owner: "Sign in to attach and load your Schwab portfolio.",
+              not_configured: "Schwab connect is not configured on this environment.",
+              not_connected: "Connect Schwab from Account (or Portfolio) first, then attach it in chat controls.",
+              reauth_required: "Schwab session expired — reconnect Schwab from Account, then retry.",
+              upstream: result.message
+                ? `Schwab portfolio unavailable: ${result.message}`
+                : "Schwab portfolio temporarily unavailable — try again shortly.",
+            };
+            return this.output(false, messages[result.reason], {
+              error: result.reason,
+            });
+          }
+          notePortfolioLoaded();
+          const scoped = filterSchwabPortfolioView(result.view, args.account_id ?? null);
+          return this.output(true, formatSchwabPortfolioSummary(scoped), {
+            error: null,
+          });
         }),
       }),
       get_bot_trades: tool({
@@ -1180,8 +1271,23 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       failedQueryCount: budget.failed_query_count,
       failedTradesCount: typeof capture.failed_trades_count === "number" ? capture.failed_trades_count : 0,
       failedDeskCount: typeof capture.failed_desk_count === "number" ? capture.failed_desk_count : 0,
+      failedPortfolioCount: typeof capture.failed_portfolio_count === "number" ? capture.failed_portfolio_count : 0,
+      portfolioLoaded: capture.portfolio_loaded === true,
       stepsAfterQuery: typeof capture.steps_after_query === "number" ? capture.steps_after_query : 0,
     };
+    // Finish follow-up after disconnect: prior turn(s) already ran get_portfolio
+    // with empty prose (shares 23nE1Q9… / 1Wqv4a…). Seed evidence + successfulQuery
+    // so stepsAfterQuery advances, and leave one auto compose step before forcing
+    // publish_desk (forcing on step 0 produced stub desks that were rejected).
+    if (!options.continuation && interruptedPortfolioGrounding(originalMessages)) {
+      turn.portfolioLoaded = true;
+      turn.successfulQuery = true;
+      turn.stepsAfterQuery = Math.max(
+        turn.stepsAfterQuery,
+        finishPortfolioStepsAfterQuerySeed(AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK),
+      );
+      capture.portfolio_loaded = true;
+    }
     this.stash({ turnId: budget.turn_id, usedOutputTokens: turn.used });
 
     const historyCharsMax = positiveInt(this.env.COPILOT_MAX_HISTORY_CHARS, HISTORY_CHARS_DEFAULT, HISTORY_CHARS_DEFAULT);
@@ -1232,6 +1338,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const userQuestion = latestUserText(this.messages);
     const latestQuestion = userQuestion.toLowerCase();
     const reply = bot ? null : parseReplyPrefFromBody(options.body);
+    const attachments = bot ? [] : parseAttachmentsFromBody(options.body);
     const deskSpecialists = selectDeskSpecialists(
       userQuestion,
       bot ? `${bot.persona}\n${bot.system_prompt_extra}` : (reply?.note ?? undefined),
@@ -1249,7 +1356,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         const tools = this.createTools(tables, capture, status, turn, deskSpecialists);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply }),
+          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply, attachments }),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),
@@ -1258,6 +1365,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             openrouter: { reasoning: { effort: normalizeReasoningEffort(reasoningEffort) } },
           },
           prepareStep: ({ stepNumber }) => {
+            const requirePortfolio = attachments.some((a) => a.kind === "portfolio");
             const policy = nextCopilotStepPolicy({
               stepNumber,
               remainingTokens: budget.total_output_tokens - turn.used,
@@ -1266,6 +1374,16 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               preferFilterFrame: Boolean(requestedFrame),
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
+              // Attached private books load via get_portfolio (Schwab API /
+              // paper D1) — never forced into lake SQL.
+              requirePortfolio,
+              portfolioLoaded: turn.portfolioLoaded,
+              failedPortfolioCount: turn.failedPortfolioCount,
+              // Portfolio evidence is already the book — keep gather short so
+              // risk reviews finish (publish_desk) instead of researching every name.
+              autoStepsBeforeDesk: turn.portfolioLoaded
+                ? AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK
+                : AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
               // Bot thesis posts and interactive chat both publish the routed
               // specialist personas via publish_desk. Structured trades stay
               // interactive-only so a rates post is not forced into a flyer.

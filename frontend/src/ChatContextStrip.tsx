@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Heading, HStack, IconButton, Spinner, Text, VStack } from '@astryxdesign/core';
-import { X } from 'lucide-react';
+import { Heading, HStack, IconButton, Spinner, Text, Token, VStack } from '@astryxdesign/core';
+import { Briefcase, X } from 'lucide-react';
 import { api, type ChatTickerLink } from './api';
+import {
+  PORTFOLIO_SOURCE_LABELS,
+  removePortfolioAttachment,
+  type ChatAttachment,
+  type PortfolioSource,
+} from './chatAttachments';
 import { CopyButton } from './CopyButton';
 import './Research.css';
 
@@ -17,9 +23,10 @@ export interface FrameMetadata {
 type Active = { kind: 'frame'; name: string } | null;
 
 /**
- * Unified chat context strip — session frames and linked tickers as one row of
- * bubbles. Ticker chips link to the ticker detail page; frame chips expand a
- * panel (only one frame panel open at a time).
+ * Unified chat context strip — session frames, linked tickers, and user-attached
+ * portfolios as one row of bubbles. Ticker chips link to the ticker detail page;
+ * frame chips expand a panel (only one frame panel open at a time). Portfolio
+ * tokens are removable when `onAttachmentsChange` is provided.
  *
  * `variant="rail"` stacks under a Sources heading for the desktop chat column;
  * the default strip stays a compact row above the transcript (mobile / timeline).
@@ -31,6 +38,8 @@ export function ChatContextStrip({
   chatId,
   tickers,
   frames,
+  attachments = [],
+  onAttachmentsChange,
   refreshKey = 0,
   variant = 'strip',
   onPresenceChange,
@@ -40,6 +49,10 @@ export function ChatContextStrip({
   /** Static ticker symbols (timeline / share) — used when chatId is absent. */
   tickers?: string[];
   frames: FrameMetadata[];
+  /** User-opted portfolio attachments for this chat. */
+  attachments?: ChatAttachment[];
+  /** When set, portfolio tokens show a remove control. */
+  onAttachmentsChange?: (next: ChatAttachment[]) => void;
   /** Bump when a research_ticker tool completes so the strip refreshes. */
   refreshKey?: number;
   variant?: 'strip' | 'rail';
@@ -54,6 +67,8 @@ export function ChatContextStrip({
   const staticTickers = (tickers ?? [])
     .map((ticker) => ticker.trim().toUpperCase())
     .filter(Boolean);
+
+  const portfolioAttachments = attachments.filter((a) => a.kind === 'portfolio');
 
   useEffect(() => {
     if (!chatId) {
@@ -89,14 +104,23 @@ export function ChatContextStrip({
   const tickerCount = chatId ? links.length : staticTickers.length;
 
   useEffect(() => {
-    onPresenceChange?.(frames.length > 0 || tickerCount > 0);
-  }, [frames.length, tickerCount, onPresenceChange]);
+    onPresenceChange?.(
+      frames.length > 0 || tickerCount > 0 || portfolioAttachments.length > 0,
+    );
+  }, [frames.length, tickerCount, portfolioAttachments.length, onPresenceChange]);
 
   const activeFrame = active?.kind === 'frame'
     ? frames.find((frame) => frame.name === active.name) ?? null
     : null;
 
-  if (!loadingLinks && tickerCount === 0 && frames.length === 0) return null;
+  if (
+    !loadingLinks
+    && tickerCount === 0
+    && frames.length === 0
+    && portfolioAttachments.length === 0
+  ) {
+    return null;
+  }
 
   const closePanel = () => setActive(null);
 
@@ -111,6 +135,10 @@ export function ChatContextStrip({
   const frameAgeLabel = (fetchedAt: number) => {
     const ageMin = Math.round((Date.now() - fetchedAt) / 60000);
     return ageMin < 1 ? 'fresh' : `${ageMin}m ago`;
+  };
+
+  const removePortfolio = (source: PortfolioSource, accountId?: string) => {
+    onAttachmentsChange?.(removePortfolioAttachment(attachments, source, accountId));
   };
 
   const tickerChips = chatId
@@ -139,8 +167,26 @@ export function ChatContextStrip({
       </Link>
     ));
 
+  const portfolioChips = portfolioAttachments.map((attachment) => {
+    const label = PORTFOLIO_SOURCE_LABELS[attachment.source];
+    return (
+      <Token
+        key={`portfolio:${attachment.source}:${attachment.account_id ?? ''}`}
+        label={label}
+        size="sm"
+        color="teal"
+        icon={<Briefcase size={12} />}
+        description={`Attached ${label} portfolio`}
+        onRemove={onAttachmentsChange
+          ? () => removePortfolio(attachment.source, attachment.account_id)
+          : undefined}
+      />
+    );
+  });
+
   const chips = (
     <div className={`ai-frames chat-research-strip${variant === 'rail' ? ' is-rail' : ''}`}>
+      {portfolioChips}
       {frames.map((frame) => (
         <button
           key={`frame:${frame.name}`}

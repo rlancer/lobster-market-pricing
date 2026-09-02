@@ -322,3 +322,81 @@ export async function loadSchwabPortfolio(
     };
   }
 }
+
+function money(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * Scope a portfolio view to one account when the user attached a specific id.
+ * Unknown ids fall back to the full book (caller can still see totals).
+ */
+export function filterSchwabPortfolioView(
+  view: SchwabPortfolioView,
+  accountId?: string | null,
+): SchwabPortfolioView {
+  const id = accountId?.trim();
+  if (!id) return view;
+  const account = view.accounts.find((a) => a.id === id);
+  if (!account) return view;
+  return {
+    connected: true,
+    fetched_at: view.fetched_at,
+    accounts: [account],
+    totals: {
+      cash: account.cash ?? 0,
+      equity: account.equity ?? 0,
+      buying_power: account.buying_power ?? 0,
+      day_pnl: account.day_pnl ?? 0,
+      open_pnl: account.open_pnl ?? 0,
+      position_count: account.positions.length,
+      account_count: 1,
+    },
+  };
+}
+
+/** Compact text book for Copilot tool output / prompt grounding. */
+export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string {
+  const lines = [
+    "Schwab portfolio (live brokerage)",
+    `Fetched ${view.fetched_at}`,
+    `Accounts ${view.totals.account_count} · Positions ${view.totals.position_count}`
+      + ` · Cash ${money(view.totals.cash)} · Equity ${money(view.totals.equity)}`
+      + ` · Buying power ${money(view.totals.buying_power)}`
+      + ` · Day PnL ${money(view.totals.day_pnl)} · Open PnL ${money(view.totals.open_pnl)}`,
+  ];
+
+  let listed = 0;
+  for (const account of view.accounts) {
+    lines.push(
+      `Account ${account.account_number_masked}`
+        + (account.type ? ` (${account.type})` : "")
+        + ` · Cash ${money(account.cash)} · Equity ${money(account.equity)}`
+        + ` · Day ${money(account.day_pnl)} · Open ${money(account.open_pnl)}`,
+    );
+    for (const p of account.positions) {
+      if (listed >= 60) break;
+      const under = p.underlying && p.underlying !== p.symbol ? ` · und ${p.underlying}` : "";
+      const asset = p.asset_type ? ` · ${p.asset_type}` : "";
+      lines.push(
+        `- ${p.symbol}${under}${asset} · qty ${p.quantity}`
+          + ` · avg ${money(p.average_price)} · mark ${money(p.market_value)}`
+          + ` · day ${money(p.day_pnl)} · open ${money(p.open_pnl)}`,
+      );
+      listed += 1;
+    }
+    if (listed >= 60) break;
+  }
+  if (view.totals.position_count > listed) {
+    lines.push(`…and ${view.totals.position_count - listed} more positions`);
+  }
+  if (view.totals.position_count === 0) {
+    lines.push("No open positions.");
+  }
+  return lines.join("\n");
+}

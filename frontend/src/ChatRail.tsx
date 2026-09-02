@@ -13,6 +13,7 @@ import {
   ChatContextStrip,
   type FrameMetadata,
 } from './ChatContextStrip';
+import type { ChatAttachment } from './chatAttachments';
 import './CompanionRail.css';
 
 const CHAT_RAIL_LABELS = {
@@ -139,27 +140,35 @@ function NewsAndTape({
 
 /**
  * Desktop companion column inside chat chrome. Appears once the conversation
- * has attached sources (frames / linked tickers). Hosts those sources plus
- * related news and session tape.
+ * has attached sources (frames / linked tickers / portfolios). Hosts those
+ * sources plus related news and session tape.
  */
 export function ChatRail({
   chatId,
   frames,
+  attachments = [],
+  onAttachmentsChange,
   refreshKey = 0,
 }: {
   chatId: string;
   frames: FrameMetadata[];
+  attachments?: ChatAttachment[];
+  onAttachmentsChange?: (next: ChatAttachment[]) => void;
   /** Bump when research_ticker links a new symbol so the rail refreshes. */
   refreshKey?: number;
 }): ReactNode {
   const isDesktop = useMediaQuery('(min-width: 56rem)');
   const [rail, setRail] = useState<CompanionRailData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [hasStrip, setHasStrip] = useState(frames.length > 0);
+  const [hasStrip, setHasStrip] = useState(
+    frames.length > 0 || attachments.length > 0,
+  );
 
   useEffect(() => {
-    setHasStrip((prev) => (frames.length > 0 ? true : prev));
-  }, [frames.length]);
+    setHasStrip((prev) => (
+      frames.length > 0 || attachments.length > 0 ? true : prev
+    ));
+  }, [frames.length, attachments.length]);
 
   useEffect(() => {
     if (!isDesktop || !chatId) return;
@@ -183,7 +192,7 @@ export function ChatRail({
   if (!isDesktop) return null;
 
   const hasTickers = (rail?.tags.length ?? 0) > 0;
-  const showRail = hasStrip || hasTickers || frames.length > 0;
+  const showRail = hasStrip || hasTickers || frames.length > 0 || attachments.length > 0;
   if (!showRail) return null;
 
   return (
@@ -196,6 +205,8 @@ export function ChatRail({
       <ChatContextStrip
         chatId={chatId}
         frames={frames}
+        attachments={attachments}
+        onAttachmentsChange={onAttachmentsChange}
         refreshKey={refreshKey}
         variant="rail"
         onPresenceChange={setHasStrip}

@@ -27,6 +27,7 @@ test("describeCopilotCapabilities exposes the known system prompts", () => {
     "suggest-trades",
     "bot-addon",
     "reply-style",
+    "chat-attachments",
     "scope-classifier",
     "chat-meta",
     "bot-prompt-invent",

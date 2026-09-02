@@ -6,12 +6,19 @@
  * then burned the whole 10-step budget on bare probes like `SELECT 1` /
  * `SELECT 'test' AS t` (chat c7d67546…, 2026-08-16). After a small number of
  * failures we stop forcing tools so the turn can close in prose.
+ *
+ * When the user attaches a portfolio, force `get_portfolio` first — lake SQL
+ * is not the grounding evidence for brokerage/paper books (share
+ * 1pQXi6YlgunqnHl5QCzgfsTgn: forced SELECT 1 ×3, never called get_portfolio).
  */
 
 export const AGENT_ITERATIONS_MAX = 10;
 
 /** Forced run_query attempts before the loop releases the model to answer. */
 export const QUERY_FORCE_FAILURES_MAX = 3;
+
+/** Forced get_portfolio attempts before sealing so the model can explain. */
+export const PORTFOLIO_FORCE_FAILURES_MAX = 2;
 
 /** Forced suggest_trades attempts before sealing without structured trades. */
 export const TRADES_FORCE_FAILURES_MAX = 2;
@@ -27,10 +34,25 @@ export const DESK_FORCE_FAILURES_MAX = 4;
  */
 export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 5;
 
+/**
+ * After get_portfolio already grounded the book, keep the gather window short.
+ * Portfolio risk reviews otherwise research every holding until disconnect
+ * (share 23nE1Q9OqTm1noJSWszE0Qj3E: get_portfolio + research ×N, empty content).
+ */
+export const AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK = 2;
+
 export type CopilotToolChoice =
   | "auto"
   | "none"
-  | { type: "tool"; toolName: "run_query" | "filter_frame" | "publish_desk" | "suggest_trades" };
+  | {
+    type: "tool";
+    toolName:
+      | "run_query"
+      | "filter_frame"
+      | "publish_desk"
+      | "suggest_trades"
+      | "get_portfolio";
+  };
 
 export type CopilotActiveToolName =
   | "run_query"
@@ -44,7 +66,10 @@ export type CopilotActiveToolName =
   | "eco_calendar"
   | "research_ticker"
   | "publish_desk"
-  | "suggest_trades";
+  | "suggest_trades"
+  | "get_paper_portfolio"
+  | "get_portfolio"
+  | "get_bot_trades";
 
 export interface CopilotStepPolicy {
   toolChoice: CopilotToolChoice;
@@ -63,6 +88,14 @@ export function nextCopilotStepPolicy(opts: {
   finalTokenReserve: number;
   maxSteps?: number;
   forceFailuresMax?: number;
+  /**
+   * User attached a portfolio this turn — load it before forcing lake SQL.
+   * Cleared once portfolioLoaded (or successfulQuery) is true.
+   */
+  requirePortfolio?: boolean;
+  portfolioLoaded?: boolean;
+  failedPortfolioCount?: number;
+  portfolioForceFailuresMax?: number;
   /** When true, force publish_desk once evidence exists and the desk is not yet published. */
   requireDesk?: boolean;
   deskPublished?: boolean;
@@ -80,6 +113,7 @@ export function nextCopilotStepPolicy(opts: {
 }): CopilotStepPolicy {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
+  const portfolioForceFailuresMax = opts.portfolioForceFailuresMax ?? PORTFOLIO_FORCE_FAILURES_MAX;
   const tradesForceFailuresMax = opts.tradesForceFailuresMax ?? TRADES_FORCE_FAILURES_MAX;
   const deskForceFailuresMax = opts.deskForceFailuresMax ?? DESK_FORCE_FAILURES_MAX;
   const autoBeforeDesk = opts.autoStepsBeforeDesk ?? AUTO_STEPS_AFTER_QUERY_BEFORE_DESK;
@@ -94,8 +128,10 @@ export function nextCopilotStepPolicy(opts: {
   }
 
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
+  // Portfolio load counts as grounding evidence (same post-evidence desk path).
+  const hasEvidence = opts.successfulQuery || Boolean(opts.portfolioLoaded);
 
-  if (opts.successfulQuery) {
+  if (hasEvidence) {
     // Callers that opt out of the desk (legacy bot path) keep interleaved
     // text + tools for a visible takeaway. Do not hard-seal on chart alone —
     // that left "(see reasoning)" shares on prod after #210 (DeepSeek dumps
@@ -171,6 +207,20 @@ export function nextCopilotStepPolicy(opts: {
       return { toolChoice: "auto", maxOutputTokens: toolBudget };
     }
     return { toolChoice: "auto", maxOutputTokens: toolBudget };
+  }
+
+  // Attached portfolio: load the book before any lake SQL force. Without this,
+  // portfolio questions burn QUERY_FORCE_FAILURES_MAX on SELECT 1 and never
+  // call get_portfolio.
+  if (opts.requirePortfolio && !opts.portfolioLoaded) {
+    const failedPortfolio = opts.failedPortfolioCount ?? 0;
+    if (failedPortfolio >= portfolioForceFailuresMax) {
+      return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+    }
+    return {
+      maxOutputTokens: toolBudget,
+      toolChoice: { type: "tool", toolName: "get_portfolio" },
+    };
   }
 
   // After repeated SQL failures, stop forcing tools so the model cannot

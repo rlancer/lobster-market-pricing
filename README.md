@@ -401,11 +401,11 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/schwab/connect` | Start Schwab OAuth (302 → Schwab LMS). Session required. |
 | `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account` or `/portfolio`. |
 | `POST /api/schwab/disconnect` | Delete stored Schwab tokens for the signed-in user. |
-| `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. |
+| `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. Copilot loads the same book via `get_portfolio(source=schwab)` when the user attaches Schwab in chat controls. |
 | `GET /api/schwab/trades` | Historical TRADE transactions for a linked account (`start`/`end` YYYY-MM-DD, optional `account` + `symbol`). `symbol` matches equity and options on that root locally (Schwab's query param is not used). Caps a single query at ≤366 days. |
 | `GET /api/schwab/pnl` | Realized trading PnL time series from TRADE history (`range=MTD\|YTD\|1M\|3M\|6M\|1Y`, optional `account` + `symbol`). FIFO lot matching on the America/New_York calendar; synthesizes option covers when Schwab posts assignment stock delivery without an option close (nearest expiry when several shorts share a strike); point sleeves for equity / option / fees / dividends; window `trades[]` plus closing-fill rows and `DIVIDEND_OR_INTEREST` distributions for the Portfolio Performance pane. Not an account-balance curve (excludes deposits/withdrawals). Ticker-scoped UI adds live open mark and daily paths from Schwab Market Data on the connected user token (`ohlc[]`; option legs are Black–Scholes on those stock closes, IV from the fill). Assignment moves delivered-stock intrinsic loss onto the short option so settlement does not shock net P&L. When the extended cost-basis lookback fails, `lookback_truncated: true` and the response uses the chart window only. User help: `/docs/schwab-pnl`. Matching rules: this README, Schwab Performance matching. |
 | `GET /api/admin/schwab/pnl` | Admin diagnostic (`Bearer ADMIN_TOKEN`): same PnL series for `user_id=` plus a sample of trades (`trade_start`/`trade_end`, `symbol`, `limit`, `trade_types`). Tokens never leave the Worker. |
-| `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via the `get_paper_portfolio` tool. 401 if anonymous. |
+| `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via `get_paper_portfolio` / `get_portfolio(source=paper)`. 401 if anonymous. |
 | `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}`, `{reply_style?}`, `{reply_note?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Reply style is a canned audience (desk trader / hedge fund / new to trading); `reply_note` is optional flavor, 240 chars max (blank clears). Reply prefs do not require a claimed handle. 400 if invalid/reserved, 409 if handle taken. |
@@ -541,7 +541,16 @@ stays interactive-chat-only unless the bot actually has a tradable idea.
 Interactive chat (and the Account menu) also pick a **reply voice** — canned
 audiences `desk` (working trader), `fund` (hedge-fund / PM), or `learner`
 (new to trading), plus an optional 240-character note. Voice only: same Copilot
-tools and desk as everyone else. Bot `system_prompt_extra` is capped at 1000
+tools and desk as everyone else. Chat controls can also **attach a portfolio**
+(Schwab brokerage and/or the paper book today): the client sends small
+`attachments` handles on the turn body; the agent loads live holdings via
+`get_portfolio` on the Worker (Schwab Trader API on the connected user token,
+or the paper book in D1) — private positions never go through lake SQL.
+When a portfolio is attached, the tool loop forces `get_portfolio` before any
+`run_query`, then keeps the post-book gather window short so risk reviews
+`publish_desk` instead of researching every holding until disconnect. New
+brokers add a source id + tool branch without redesigning the
+attach UX. Bot `system_prompt_extra` is capped at 1000
 characters so timeline personas cannot dump unbounded context. The Worker owns the schema context,
 deterministic SQL validation, R2 SQL execution, per-chat cached frames, chart
 validation, OpenFIGI ticker research (`research_ticker`), news, web search, economic calendar, tool iteration, and the final
