@@ -43,6 +43,11 @@
   "images": {
     "binding": "IMAGES"
   },
+  // Cloudflare Email Service — transactional send from noreply@lobster.mp
+  // (domain onboarded via `wrangler email sending enable lobster.mp`).
+  "send_email": [
+    { "name": "EMAIL" }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -91,6 +96,9 @@
       "images": {
         "binding": "IMAGES"
       },
+      "send_email": [
+        { "name": "EMAIL" }
+      ],
       "routes": [
         { "pattern": "api-dev.lobster.mp", "custom_domain": true }
       ]

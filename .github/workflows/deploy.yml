@@ -436,6 +436,35 @@ jobs:
           workingDirectory: worker
           command: deploy --env dev
 
+      # Prove the EMAIL binding after deploy (Admin hub button uses the same path
+      # with a signed-in session). ADMIN_TOKEN + {to} avoids interactive Google login.
+      - name: Smoke-test Email Service binding
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "ADMIN_TOKEN not set — skipping Email Service smoke"
+            exit 0
+          fi
+          TO="${EMAIL_SMOKE_TO:-robert.lancer@gmail.com}"
+          echo "POST https://api-dev.lobster.mp/api/admin/email/test to $TO"
+          resp=$(curl -sS -X POST \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"to\":\"$TO\"}" \
+            -w '\n__HTTP_%{http_code}' \
+            "https://api-dev.lobster.mp/api/admin/email/test")
+          body="${resp%__HTTP_*}"
+          code="${resp##*__HTTP_}"
+          echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "::error::email smoke returned HTTP $code"
+            exit 1
+          fi
+          echo "$body" | grep -q '"ok":true'
+          echo "$body" | grep -q '"message_id"'
+
   deploy-dev:
     name: Deploy → dev
     needs: [build, deploy-worker-dev]

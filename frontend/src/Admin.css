@@ -8,6 +8,11 @@
   align-items: flex-start;
 }
 
+.admin-email-test {
+  width: 100%;
+  align-items: flex-start;
+}
+
 .admin-dataset .monitor-status {
   width: auto;
   max-width: 100%;

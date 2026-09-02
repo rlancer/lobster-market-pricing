@@ -1,0 +1,60 @@
+name: Email Service smoke test
+
+# Operator lever to prove the Worker EMAIL binding can send from
+# noreply@lobster.mp. Uses ADMIN_TOKEN (never printed) against api-dev by
+# default. The Admin hub button remains the primary UX for signed-in admins.
+
+on:
+  workflow_dispatch:
+    inputs:
+      to:
+        description: 'Recipient email (defaults to robert.lancer@gmail.com)'
+        type: string
+        default: robert.lancer@gmail.com
+      target:
+        description: 'API host'
+        type: choice
+        options:
+          - api-dev
+          - api
+        default: api-dev
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Email Service smoke test
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          TO: ${{ inputs.to }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          if [ "$TARGET" = "api" ]; then
+            BASE="https://api.lobster.mp"
+          else
+            BASE="https://api-dev.lobster.mp"
+          fi
+          echo "POST $BASE/api/admin/email/test → $TO"
+          resp=$(curl -sS -X POST \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg to "$TO" '{to:$to}')" \
+            -w '\n__HTTP_%{http_code}' \
+            "$BASE/api/admin/email/test")
+          body="${resp%__HTTP_*}"
+          code="${resp##*__HTTP_}"
+          echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "::error::email smoke returned HTTP $code"
+            exit 1
+          fi
+          echo "$body" | grep -q '"ok":true'
+          echo "$body" | grep -q '"message_id"'

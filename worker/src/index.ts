@@ -23,6 +23,10 @@
  */
 import { routeAgentRequest } from "agents";
 import { isAdminEmail } from "./admin";
+import {
+  resolveEmailTestRecipient,
+  sendAdminEmailTest,
+} from "./admin-email-test";
 import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
@@ -41,6 +45,7 @@ import {
   upsertBotSchedule,
 } from "./bot-schedule";
 import {
+  adminTokenAuthorized,
   botShareReuseDecision,
   createBotProfile,
   createBotRun,
@@ -184,8 +189,6 @@ export interface Env extends Cloudflare.Env {
   BETTER_AUTH_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
-  SCHWAB_CLIENT_ID?: string;
-  SCHWAB_CLIENT_SECRET?: string;
   /** Optional; must match a Callback URL registered in the Schwab developer portal. */
   SCHWAB_REDIRECT_URI?: string;
   /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
@@ -4227,6 +4230,38 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     const limit = Number(q.get("limit") ?? 500);
     return json(env, { items: await listAdminUsers(env.SCHEMA_DB, { limit }) }, 200, "private");
+  }
+
+  // Cloudflare Email Service smoke test — session admin email, or ADMIN_TOKEN + {to}.
+  if (path === "/api/admin/email/test" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const user = admin.user ?? (await getSessionUser(env, req));
+    let bodyTo: unknown;
+    try {
+      const raw = await req.text();
+      bodyTo = raw ? (JSON.parse(raw) as { to?: unknown }).to : undefined;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const recipient = resolveEmailTestRecipient({
+      sessionEmail: user?.email,
+      bodyTo,
+      tokenAuthorized: adminTokenAuthorized(req, env),
+    });
+    if (!recipient.ok) {
+      return json(env, { error: recipient.error }, recipient.status, "private");
+    }
+    try {
+      const result = await sendAdminEmailTest(env.EMAIL, recipient.to);
+      return json(env, { ok: true, to: recipient.to, message_id: result.messageId }, 200, "private");
+    } catch (err) {
+      const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : null;
+      const message =
+        err instanceof Error ? err.message : typeof err === "string" ? err : "email send failed";
+      const status = code === "E_RATE_LIMIT_EXCEEDED" || code === "E_DAILY_LIMIT_EXCEEDED" ? 429 : 502;
+      return json(env, { ok: false, error: message, code }, status, "private");
+    }
   }
 
   // Suggested trades from successful suggest_trades tool events (~30d retention).
