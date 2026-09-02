@@ -214,7 +214,7 @@ export function El5JargonButton({
 }
 
 /** Module cache so reopening a post does not refetch a translation we already have. */
-const EL5_CLIENT_CACHE_VERSION = 2;
+const EL5_CLIENT_CACHE_VERSION = 3;
 const el5ClientCache = new Map<string, El5Translation>();
 
 function el5ClientCacheKey(shareId: string): string {
@@ -222,8 +222,8 @@ function el5ClientCacheKey(shareId: string): string {
 }
 
 /**
- * Per-post EL5: opens a modal and loads (or generates) a cached kid-simple
- * rewrite of that public share.
+ * Per-post EL5: opens a modal and loads (or generates) a cached plain-English
+ * summary of that public share.
  */
 export function El5PostButton({
   shareId,
@@ -278,7 +278,7 @@ export function El5PostButton({
         label="EL5"
         variant="ghost"
         size="sm"
-        tooltip="Explain this post like I’m 5"
+        tooltip="Quick plain-English summary"
         onClick={() => setOpen(true)}
       />
       <Dialog
@@ -294,7 +294,7 @@ export function El5PostButton({
           header={
             <DialogHeader
               title="EL5"
-              subtitle={title?.trim() || "Kid-simple version of this post."}
+              subtitle={title?.trim() || "Quick plain-English take."}
               onOpenChange={setOpen}
             />
           }
@@ -303,7 +303,7 @@ export function El5PostButton({
               {loading ? (
                 <HStack gap={2} vAlign="center">
                   <Spinner size="sm" />
-                  <Text type="supporting">Translating the jargon…</Text>
+                  <Text type="supporting">Summarizing…</Text>
                 </HStack>
               ) : error ? (
                 <Text type="supporting">{error}</Text>

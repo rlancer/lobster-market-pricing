@@ -186,7 +186,7 @@ export function describeCopilotCapabilities(opts?: {
       id: "el5-post",
       kind: "system",
       title: "EL5 post translation",
-      summary: "Kid-simple rewrite of a public shared Copilot post. Cached in D1 per share_id + source hash.",
+      summary: "Quick plain-English summary of a public shared Copilot post for adults with basic market knowledge. Cached in D1 per share_id + source hash.",
       body: EL5_SYSTEM,
       used_by: "generateEl5Text() / GET /api/share/{id}/el5",
     },

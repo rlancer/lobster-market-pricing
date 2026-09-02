@@ -1,5 +1,5 @@
 /**
- * EL5 (“explain like I’m 5”) rewrite of a public shared Copilot post.
+ * EL5 — quick plain-English summary of a public shared Copilot post.
  *
  * First viewer pays for one OpenRouter call; later viewers read D1.
  * source_hash (SHA-256 of the compact transcript) invalidates the cache
@@ -9,19 +9,20 @@
 import { generateText, type LanguageModel } from "ai";
 
 export const EL5_SYSTEM = [
-  "You rewrite one Lobster MP Copilot post so a five-year-old could follow the idea.",
-  "Keep every ticker, number, date, and conclusion. Do not invent trades, fills, or news.",
-  "When you hit jargon (IV, DTE, delta, spread, ATM, ITM, OTM, premium, short interest, Kalshi YES/NO, greeks), replace it with a tiny kid analogy in the same sentence, then keep going.",
-  "Short Markdown paragraphs. No headings, no tables, no code fences, no emoji.",
+  "You write a quick plain-English summary of one Lobster MP Copilot post.",
+  "Audience: adults with basic market knowledge. Do not define well-known companies, tickers, or everyday finance words (e.g. do not say NVIDIA is a company, or explain what a stock is).",
+  "Only gloss dense jargon when it actually appears (IV, DTE, delta, ATM/ITM/OTM, premium, short interest, Kalshi YES/NO, greeks) — one short clause, no kid analogies.",
+  "Keep tickers, key numbers, dates, and the conclusion. Skip play-by-play, desk section dumps, and filler. Do not invent trades, fills, or news.",
+  "Aim for 2–4 short Markdown paragraphs (about 80–150 words). No headings, lists, tables, code fences, or emoji.",
   "Do not mention being an AI or that this is a translation.",
 ].join("\n");
 
 export const EL5_MAX_SOURCE_CHARS = 20_000;
-export const EL5_MAX_OUTPUT_TOKENS = 1_600;
+export const EL5_MAX_OUTPUT_TOKENS = 400;
 export const EL5_RATE_WINDOW_MS = 10 * 60_000;
 export const EL5_RATE_LIMIT = 20;
 /** Bump when the rewrite shape changes so D1 cache misses stale rows. */
-export const EL5_CACHE_VERSION = 2;
+export const EL5_CACHE_VERSION = 3;
 
 export const EL5_SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 
@@ -165,52 +166,75 @@ export function cleanEl5Text(raw: string): string {
 }
 
 /**
- * Deterministic EL5 when OpenRouter is down — same source, jargon glossed
- * in place. Cached like an LLM rewrite so the button never hard-fails.
+ * Deterministic EL5 when OpenRouter is down — short summary with dense
+ * jargon glossed in place. Cached like an LLM rewrite so the button never hard-fails.
  */
 const EL5_JARGON_GLOSS: Array<[RegExp, string]> = [
-  [/\bimplied vol(?:atility)?\b/gi, "how jumpy people think the price will be"],
-  [/\brealized vol(?:atility)?\b/gi, "how jumpy the price actually was"],
-  [/\bIV\b/g, "how jumpy people think the price will be"],
-  [/\bRV30\b/g, "how jumpy the last month really was"],
-  [/\bDTE\b/g, "days until the option ticket expires"],
-  [/\bATM\b/g, "ATM (right around today’s price)"],
-  [/\bITM\b/g, "already a winning ticket if you used it now"],
-  [/\bOTM\b/g, "needs the price to move your way first"],
-  [/\bopen interest\b/gi, "how many tickets are still out there"],
-  [/\bOI\b/g, "how many tickets are still out there"],
-  [/\bbid\/ask\b/gi, "what buyers will pay / what sellers want"],
-  [/\bshort interest\b/gi, "how many people bet the price will fall"],
-  [/\bmarket cap\b/gi, "the whole company’s price tag"],
-  [/\bP\/E\b/g, "how many dollars you pay per dollar it earned"],
-  [/\bdelta\b/gi, "how much the ticket wiggles when the stock moves $1"],
-  [/\bpremium\b/gi, "what you pay for the ticket"],
-  [/\bstrike\b/gi, "the magic number on the ticket"],
-  [/\bcall(?:s)?\b/gi, "call (ticket that likes the price going up)"],
-  [/\bput(?:s)?\b/gi, "put (ticket that likes the price going down)"],
-  [/\bYES\b/g, "YES (betting it happens)"],
-  [/\bNO\b/g, "NO (betting it doesn’t)"],
+  [/\bimplied vol(?:atility)?\b/gi, "implied vol (market’s expected swing)"],
+  [/\brealized vol(?:atility)?\b/gi, "realized vol (how much it actually moved)"],
+  [/\bIV\b/g, "implied vol (market’s expected swing)"],
+  [/\bRV30\b/g, "30-day realized vol"],
+  [/\bDTE\b/g, "days to expiration"],
+  [/\bATM\b/g, "at-the-money"],
+  [/\bITM\b/g, "in-the-money"],
+  [/\bOTM\b/g, "out-of-the-money"],
+  [/\bopen interest\b/gi, "open interest (contracts still open)"],
+  [/\bOI\b/g, "open interest"],
 ];
 
-export function synthesizeEl5(source: string): string {
-  let text = source
-    .replace(/^title:\s*/gim, "**")
-    .replace(/^user:\s*/gim, "\n\nSomeone asked:\n")
-    .replace(/^assistant:\s*/gim, "\n\nThe lobster said:\n")
-    .replace(/^desk overview:\s*/gim, "\n\nBig picture:\n")
-    .replace(/^desk (\w+):\s*/gim, "\n\n$1 desk:\n")
-    .replace(/^trade:\s*/gim, "\n\nTrade idea: ")
-    .replace(/^trade skip:\s*/gim, "\n\nNo trade: ");
+const EL5_FALLBACK_BODY_CHARS = 420;
+
+function glossEl5Jargon(text: string): string {
+  let out = text;
   for (const [pattern, gloss] of EL5_JARGON_GLOSS) {
-    text = text.replace(pattern, gloss);
+    out = out.replace(pattern, gloss);
   }
-  text = text.replace(/\n{3,}/g, "\n\n").trim();
-  if (!text) return "Nothing to explain yet.";
-  return [
-    "Here’s the simple version (jargon swapped for kid words):",
-    "",
-    text,
-  ].join("\n");
+  return out;
+}
+
+function clipEl5Fallback(text: string, maxChars: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+/** Pull title / overview / lead / trades into a short plain summary. */
+export function synthesizeEl5(source: string): string {
+  let title = "";
+  let overview = "";
+  let lead = "";
+  const trades: string[] = [];
+  let skip = "";
+
+  for (const block of source.split(/\n\n+/)) {
+    const line = block.trim();
+    if (!line) continue;
+    if (/^title:\s*/i.test(line)) {
+      title = line.replace(/^title:\s*/i, "").trim();
+    } else if (/^desk overview:\s*/i.test(line)) {
+      overview = line.replace(/^desk overview:\s*/i, "").trim();
+    } else if (/^assistant:\s*/i.test(line) && !lead) {
+      lead = line.replace(/^assistant:\s*/i, "").trim();
+    } else if (/^trade:\s*/i.test(line)) {
+      trades.push(line.replace(/^trade:\s*/i, "").trim());
+    } else if (/^trade skip:\s*/i.test(line)) {
+      skip = line.replace(/^trade skip:\s*/i, "").trim();
+    }
+  }
+
+  const parts: string[] = [];
+  if (title) parts.push(`**${title}**`);
+  const body = overview || lead;
+  if (body) parts.push(glossEl5Jargon(clipEl5Fallback(body, EL5_FALLBACK_BODY_CHARS)));
+  for (const trade of trades.slice(0, 3)) {
+    parts.push(`Trade idea: ${glossEl5Jargon(trade)}`);
+  }
+  if (!trades.length && skip) {
+    parts.push(`No trade: ${glossEl5Jargon(skip)}`);
+  }
+
+  const text = parts.join("\n\n").trim();
+  return text || "Nothing to summarize yet.";
 }
 
 export async function generateEl5Text(
@@ -223,12 +247,12 @@ export async function generateEl5Text(
       model,
       system: EL5_SYSTEM,
       prompt: [
-        "Rewrite this Copilot post in EL5 language. Keep the facts; teach the jargon.",
+        "Summarize this Copilot post in plain English for an adult with basic market knowledge. Be brief.",
         "",
         source,
       ].join("\n"),
       maxOutputTokens: EL5_MAX_OUTPUT_TOKENS,
-      temperature: 0.3,
+      temperature: 0.2,
       abortSignal: opts?.abortSignal,
     });
     const cleaned = cleanEl5Text(result.text);
@@ -291,7 +315,7 @@ export async function computeEl5FromLookup(
     } else {
       console.warn(JSON.stringify({
         el5: true,
-        fallback: "rules-v1",
+        fallback: "rules-v2",
         reason: generated.error ?? "empty",
       }));
     }
@@ -300,7 +324,7 @@ export async function computeEl5FromLookup(
   // OpenRouter is flaky on some envs — never hard-fail the button.
   if (!el5) {
     el5 = synthesizeEl5(looked.source);
-    modelName = "rules-v1";
+    modelName = "rules-v2";
   }
 
   const row: El5CachedRow = {
