@@ -23,6 +23,7 @@ import type {
   TickerEarningsIntel,
   TickerResearch,
 } from './api';
+import { El5JargonButton } from './El5JargonDialog';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
@@ -371,10 +372,13 @@ export function ResearchBriefView({
   return (
     <VStack className="research-brief" gap={3}>
       <VStack gap={1} className="research-hero">
-        <HStack gap={3} vAlign="end" className="research-title-row">
-          <Heading level={1}>{identity.ticker}</Heading>
-          {identity.name ? <Text type="supporting">{identity.name}</Text> : null}
-          {!research.computed_at ? <Spinner size="sm" /> : null}
+        <HStack gap={3} vAlign="center" className="research-title-row">
+          <HStack gap={3} vAlign="end">
+            <Heading level={1}>{identity.ticker}</Heading>
+            {identity.name ? <Text type="supporting">{identity.name}</Text> : null}
+            {!research.computed_at ? <Spinner size="sm" /> : null}
+          </HStack>
+          <El5JargonButton />
         </HStack>
         <HStack gap={3} vAlign="end" className="research-price-row">
           <Text className="research-spot">{fmtSpot(spot)}</Text>
