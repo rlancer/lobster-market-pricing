@@ -69,10 +69,11 @@
         "COPILOT_MAX_OUTPUT_TOKENS": "8192",
         "COPILOT_MAX_HISTORY_CHARS": "48000"
       },
+      // No cron on the preview Worker: it shares prod SCHEMA_DB with
+      // screener-api, so a second hourly tick was double-firing bot schedules
+      // (paired bot_runs ~10ms apart) and racing single-flight.
       "triggers": {
-        "crons": [
-          "5 * * * *"
-        ]
+        "crons": []
       },
       "durable_objects": {
         "bindings": [

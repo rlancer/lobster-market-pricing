@@ -1307,6 +1307,20 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         });
         writer.merge(result.toUIMessageStream<CopilotMessage>({
           sendReasoning: true,
+          // Default AI SDK onError masks the real provider/tool failure as
+          // "An error occurred." — that is what bot_runs have stored since the
+          // schedule outage began. Surface the message so schedule last_error
+          // and headless runs are diagnosable.
+          onError: (error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(JSON.stringify({
+              copilotStreamError: true,
+              botHandle: bot?.handle ?? null,
+              model: activeModel,
+              error: message,
+            }));
+            return message;
+          },
           messageMetadata: ({ part }) => {
             if (part.type !== "finish") return undefined;
             return {

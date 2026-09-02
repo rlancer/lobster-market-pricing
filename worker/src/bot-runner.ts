@@ -7,6 +7,7 @@
  */
 import {
   createBotRun,
+  expireStuckBotRuns,
   getBotProfile,
   updateBotRun,
   type BotEnv,
@@ -277,6 +278,10 @@ export async function runBotChatAndShare(
   if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) {
     return { ok: false, error: "Copilot is not configured" };
   }
+  // Expire abandoned queued/running rows before the single-flight check.
+  // createBotRun also expires, but that runs only after this gate — a stuck
+  // run would otherwise fail every cron tick with "already in progress".
+  await expireStuckBotRuns(env.SCHEMA_DB);
   if (await hasActiveBotRun(env.SCHEMA_DB, bot.handle)) {
     return { ok: false, error: "bot already has a run in progress" };
   }
@@ -406,6 +411,8 @@ export async function runDueBotSchedules(
   failed: number;
   results: Array<{ handle: string; status: string; detail?: string }>;
 }> {
+  // Clear timed-out runs up front so due schedules are not blocked by ghosts.
+  await expireStuckBotRuns(env.SCHEMA_DB);
   const due = await listDueBotSchedules(env.SCHEMA_DB);
   const results: Array<{ handle: string; status: string; detail?: string }> = [];
   let ran = 0;
