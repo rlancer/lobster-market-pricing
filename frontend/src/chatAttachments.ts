@@ -11,11 +11,20 @@ export type PortfolioSource = (typeof PORTFOLIO_SOURCES)[number];
 /**
  * Follow-up when a turn sealed after tools/reasoning with no prose (disconnect).
  * Keeps prior get_portfolio results in history — prefer this over regenerate.
+ * Do not demand publish_desk on the first token — forced stubs get rejected.
  */
 export const FINISH_INCOMPLETE_PROMPT =
-  'Finish the portfolio risk review you started — publish_desk now and close with the main risks and adjustments. Do not research every holding again.';
+  'Finish the portfolio risk review you started. Use the portfolio and research already in this chat — do not research every holding again. Write real specialist takes (fundamental/technical/options/risk as needed), call publish_desk with those takes (no placeholders), then close with the main risks and adjustments.';
+
+export function isFinishIncompletePrompt(text: string | null | undefined): boolean {
+  const trimmed = (text ?? '').trim();
+  if (!trimmed) return false;
+  return trimmed === FINISH_INCOMPLETE_PROMPT
+    || /^Finish the portfolio risk review you started\b/i.test(trimmed);
+}
 
 const ATTACHMENTS_STORAGE_PREFIX = 'lobster.chatAttachments:';
+const FINISH_AUTO_STORAGE_PREFIX = 'lobster.chatFinishAuto:';
 
 const PORTFOLIO_SOURCE_SET = new Set<string>(PORTFOLIO_SOURCES);
 
@@ -186,5 +195,24 @@ export function saveChatAttachments(chatId: string, attachments: readonly ChatAt
     sessionStorage.setItem(ATTACHMENTS_STORAGE_PREFIX + chatId, JSON.stringify(body));
   } catch {
     // sessionStorage full / private mode — continue without persistence.
+  }
+}
+
+/** One auto finish-follow-up per chat id (survives remount; refresh still allows manual Continue). */
+export function loadFinishAutoAttempted(chatId: string): boolean {
+  if (!chatId || typeof sessionStorage === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(FINISH_AUTO_STORAGE_PREFIX + chatId) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markFinishAutoAttempted(chatId: string): void {
+  if (!chatId || typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(FINISH_AUTO_STORAGE_PREFIX + chatId, '1');
+  } catch {
+    // ignore
   }
 }

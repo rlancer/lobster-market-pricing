@@ -3,10 +3,12 @@ import test from 'node:test';
 import {
   attachmentsForBody,
   hasPortfolioSource,
+  isFinishIncompletePrompt,
   isIncompleteAssistantTurn,
   portfolioAttachmentsFromTools,
   removePortfolioAttachment,
   togglePortfolioAttachment,
+  FINISH_INCOMPLETE_PROMPT,
 } from './chatAttachments.ts';
 
 test('togglePortfolioAttachment adds and removes by source', () => {
@@ -67,4 +69,10 @@ test('portfolioAttachmentsFromTools recovers schwab from args JSON', () => {
     ]),
     [{ kind: 'portfolio', source: 'schwab' }],
   );
+});
+
+test('isFinishIncompletePrompt matches finish follow-ups', () => {
+  assert.equal(isFinishIncompletePrompt(FINISH_INCOMPLETE_PROMPT), true);
+  assert.equal(isFinishIncompletePrompt('Finish the portfolio risk review you started — old copy'), true);
+  assert.equal(isFinishIncompletePrompt('Any risks you see in my portfolio?'), false);
 });

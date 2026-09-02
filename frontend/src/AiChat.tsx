@@ -32,8 +32,11 @@ import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChange
 import {
   attachmentsForBody,
   FINISH_INCOMPLETE_PROMPT,
+  isFinishIncompletePrompt,
   isIncompleteAssistantTurn,
   loadChatAttachments,
+  loadFinishAutoAttempted,
+  markFinishAutoAttempted,
   PORTFOLIO_SOURCE_LABELS,
   portfolioAttachmentsFromTools,
   removePortfolioAttachment,
@@ -1169,61 +1172,55 @@ function AiChatSession({
     return last;
   }, [projectedMessages, busy, paused, accessBlocked, scopeLocked]);
 
+  const mergeRecoveredAttachments = useCallback((tools: { name?: string; args?: string; ok?: boolean; summary?: string }[] | undefined) => {
+    const fromLast = portfolioAttachmentsFromTools(tools);
+    const fromHistory = projectedMessages.flatMap((message) => portfolioAttachmentsFromTools(message.tools));
+    const recovered = [...fromLast, ...fromHistory];
+    if (!recovered.length) return;
+    setAttachments((current) => {
+      const keys = new Set(current.map((a) => `${a.source}:${a.account_id ?? ''}`));
+      const merged = [...current];
+      for (const item of recovered) {
+        const key = `${item.source}:${item.account_id ?? ''}`;
+        if (!keys.has(key)) {
+          keys.add(key);
+          merged.push(item);
+        }
+      }
+      // body() reads the ref at send time — update before the finish follow-up.
+      attachmentsRef.current = merged;
+      return merged;
+    });
+  }, [projectedMessages]);
+
   const continueIncomplete = useCallback(() => {
     if (!incompleteAssistant || busy) return;
     incompleteContinueRef.current = incompleteAssistant.id;
-    const recovered = portfolioAttachmentsFromTools(incompleteAssistant.tools);
-    if (recovered.length) {
-      setAttachments((current) => {
-        const keys = new Set(current.map((a) => `${a.source}:${a.account_id ?? ''}`));
-        const merged = [...current];
-        for (const item of recovered) {
-          const key = `${item.source}:${item.account_id ?? ''}`;
-          if (!keys.has(key)) {
-            keys.add(key);
-            merged.push(item);
-          }
-        }
-        // body() reads the ref at send time — update before the finish follow-up.
-        attachmentsRef.current = merged;
-        return merged;
-      });
-    }
+    mergeRecoveredAttachments(incompleteAssistant.tools);
     // Follow-up keeps prior get_portfolio results in history — regenerate would drop them.
     window.setTimeout(() => {
       send(FINISH_INCOMPLETE_PROMPT);
     }, 0);
-  }, [incompleteAssistant, busy, send]);
+  }, [incompleteAssistant, busy, send, mergeRecoveredAttachments]);
 
   // After reconnect/refresh settles on an unfinished assistant (tools, no prose),
   // send one finish follow-up so the turn can complete without a manual Continue click.
+  // Do not auto-loop when a finish attempt already sealed empty again (share 1Wqv4a…).
   useEffect(() => {
     if (!incompleteAssistant || socketState !== 'open') return;
     if (incompleteContinueRef.current === incompleteAssistant.id) return;
-    if (incompleteAutoAttemptsRef.current >= 1) return;
+    if (incompleteAutoAttemptsRef.current >= 1 || loadFinishAutoAttempted(chatId)) return;
+    const priorUser = [...projectedMessages].reverse().find((message) => message.role === 'user');
+    if (isFinishIncompletePrompt(priorUser?.content)) return;
     incompleteContinueRef.current = incompleteAssistant.id;
     incompleteAutoAttemptsRef.current += 1;
-    const recovered = portfolioAttachmentsFromTools(incompleteAssistant.tools);
-    if (recovered.length) {
-      setAttachments((current) => {
-        const keys = new Set(current.map((a) => `${a.source}:${a.account_id ?? ''}`));
-        const merged = [...current];
-        for (const item of recovered) {
-          const key = `${item.source}:${item.account_id ?? ''}`;
-          if (!keys.has(key)) {
-            keys.add(key);
-            merged.push(item);
-          }
-        }
-        attachmentsRef.current = merged;
-        return merged;
-      });
-    }
+    markFinishAutoAttempted(chatId);
+    mergeRecoveredAttachments(incompleteAssistant.tools);
     const timer = window.setTimeout(() => {
       send(FINISH_INCOMPLETE_PROMPT);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [incompleteAssistant, socketState, send]);
+  }, [incompleteAssistant, socketState, send, chatId, projectedMessages, mergeRecoveredAttachments]);
 
   const pendingConsumedRef = useRef(false);
   useEffect(() => {
