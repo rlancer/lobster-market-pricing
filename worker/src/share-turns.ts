@@ -346,9 +346,9 @@ function toolPartName(part: { type?: unknown }): string {
 
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
 const REASONING_SCRATCH =
-  /^(?:plan of tool|batch\s*\d|tool calls?|actually[, ]|hmm[, ]|alternatively[, ]|wait[, ]|let me (?:first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup)|now[, ] the private|the private account|given the task|should i call|let me just write)/i;
+  /^(?:plan of tool|batch\s*\d|tool calls?|actually[, ]|hmm[, ]|alternatively[, ]|wait[, ]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup)|now[, ]|the private account|given the task|should i call)/i;
 const REASONING_UNFINISHED =
-  /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start)|i(?:'ll| will) (?:query|check|pull|run)|i need to)\b/i;
+  /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft)|i(?:'ll| will) (?:query|check|pull|run|write)|i need to)\b/i;
 
 export function isInterimToolNarration(text: string): boolean {
   const trimmed = text.trim();

@@ -87,7 +87,7 @@ test("promoteReasoningTakeaway lifts a conclusive reasoning paragraph into conte
   assert.doesNotMatch(turned.content, /Plan of tool/i);
 });
 
-test("promoteReasoningTakeaway replaces interim narration with substantive reasoning paragraphs", () => {
+test("promoteReasoningTakeaway replaces interim narration with substantive reasoning paragraphs and skips trailing scratch", () => {
   const turned = promoteReasoningTakeaway({
     role: "assistant",
     content: "SBNY is actually Signature Bank. Let me pull ETF holdings and rate context to finish the picture.",
@@ -97,10 +97,16 @@ test("promoteReasoningTakeaway replaces interim narration with substantive reaso
       "Book breakdown:\n- SBNY: stranded delisted bank equity\n- RSP: broad equal-weight beta",
       "",
       "Concentration flags:\n1. SBNY is unmarketable\n2. IGV is software sector concentration",
+      "",
+      "Actions:\n1. SBNY write-off\n2. Trim IGV into strength",
+      "",
+      "Let me write the private briefing in markdown. No publish_desk.",
     ].join("\n\n"),
   });
   assert.match(turned.content, /Book breakdown:/);
   assert.match(turned.content, /Concentration flags:/);
+  assert.match(turned.content, /Actions:/);
+  assert.doesNotMatch(turned.content, /Let me write the private briefing/);
   assert.doesNotMatch(turned.content, /Let me pull ETF holdings/);
 });
 
