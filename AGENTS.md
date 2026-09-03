@@ -179,7 +179,10 @@ site and SameSite=Lax will not send it.
   ```
   Only admin-allowlist emails can be assumed. The mint lasts 8 hours. Set the
   returned cookie on `Domain=lobster.mp` and open `https://dev.lobster.mp`
-  (not `pages.dev` — SameSite will not send the cookie there).
+  (not `pages.dev` — SameSite will not send the cookie there). If local
+  `.env` `ADMIN_TOKEN` 401s, it is stale vs the Worker secret — do not guess;
+  dispatch `Dev signed-in smoke` (`gh workflow run "Dev signed-in smoke"
+  --ref <branch> -f trigger_bot=true`) which uses the GitHub secret.
 - **Kalshi API keys (multi-line PEM):** interactive `wrangler secret put`
   mangles PEMs. From a machine with wrangler logged in and keys in root
   `.env` (`KALSHI_ACCESS_KEY_ID` + `KALSHI_PRIVATE_KEY_PEM` or
