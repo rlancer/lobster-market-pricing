@@ -820,6 +820,8 @@ export interface UserBot {
   portfolio_source: 'none' | 'paper' | 'schwab' | 'all';
   portfolio_account_id: string | null;
   portfolio_id: string;
+  portfolio_ids: string[];
+  portfolio_account_ids: string[];
   publish_to_timeline: boolean;
   email_alerts: boolean;
   enabled: boolean;
@@ -852,6 +854,7 @@ export type UserBotInput = Partial<{
   schedule_preset: string;
   attach_portfolio: boolean;
   portfolio_id: string;
+  portfolio_ids: string[];
   portfolio_source: 'none' | 'paper' | 'schwab' | 'all';
   portfolio_account_id: string | null;
   publish_to_timeline: boolean;
@@ -1888,6 +1891,7 @@ export const api = {
       presets: UserBotPreset[];
       templates: UserBotTemplate[];
       portfolios: UserBotPortfolioOption[];
+      books: UserBotPortfolioOption[];
     }>('/api/me/bots'),
   myBot: (botId: string) =>
     get<{ ok: true; bot: UserBot; runs: UserBotRun[] }>(`/api/me/bots/${encodeURIComponent(botId)}`),

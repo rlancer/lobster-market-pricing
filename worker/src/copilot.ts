@@ -46,6 +46,22 @@ import { stripLeakedToolMarkup } from "./tool-markup";
 
 export type { BotPromptProfile } from "./copilot-prompt";
 export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
+
+function parseBotSessionAccountFilter(raw: string | null | undefined): string | string[] | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+  if (value.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (!Array.isArray(parsed)) return null;
+      const ids = parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      return ids.length ? ids : null;
+    } catch {
+      return null;
+    }
+  }
+  return value;
+}
 export type { DeskBrief } from "./copilot-desk";
 export type { SuggestedTrades } from "./copilot-trades";
 
@@ -1268,7 +1284,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             });
           }
           const session = this.readBotSession();
-          const accountId = session?.portfolio_account_id || args.account || null;
+          const accountId = parseBotSessionAccountFilter(session?.portfolio_account_id)
+            || args.account
+            || null;
           const view = filterSchwabPortfolioView(result.view, accountId);
           if (accountId && view.accounts.length === 0) {
             return this.output(false, "That Schwab account is not on the linked book.", {

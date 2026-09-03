@@ -326,14 +326,17 @@ export function schwabAccountLabel(account: Pick<SchwabPortfolioAccount, "accoun
     : `Schwab · ${account.account_number_masked}`;
 }
 
-/** Scope a brokerage book to one linked account (recomputes totals). */
+/** Scope a brokerage book to one or more linked accounts (recomputes totals). */
 export function filterSchwabPortfolioView(
   view: SchwabPortfolioView,
-  accountId?: string | null,
+  accountId?: string | string[] | null,
 ): SchwabPortfolioView {
-  const id = typeof accountId === "string" ? accountId.trim() : "";
-  if (!id) return view;
-  const accounts = view.accounts.filter((account) => account.id === id);
+  const ids = (Array.isArray(accountId) ? accountId : accountId != null ? [accountId] : [])
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (ids.length === 0) return view;
+  const wanted = new Set(ids);
+  const accounts = view.accounts.filter((account) => wanted.has(account.id));
   let cash = 0;
   let equity = 0;
   let buying_power = 0;

@@ -38,6 +38,7 @@ test("validateUserBotInput rejects cron-like empty prompts and fills the default
   assert.equal(result.value.attach_portfolio, true);
   assert.equal(result.value.portfolio_source, "paper");
   assert.equal(result.value.portfolio_account_id, null);
+  assert.deepEqual(result.value.portfolio_ids, ["paper"]);
   assert.equal(result.value.publish_to_timeline, false);
   assert.equal(result.value.email_alerts, true);
 });
@@ -62,12 +63,26 @@ test("validateUserBotInput accepts a specific Schwab account", () => {
   if (!result.ok) return;
   assert.equal(result.value.portfolio_source, "schwab");
   assert.equal(result.value.portfolio_account_id, "acct-1");
+  assert.deepEqual(result.value.portfolio_ids, ["schwab:acct-1"]);
   assert.equal(result.value.attach_portfolio, true);
+});
+
+test("validateUserBotInput accepts several books on portfolio_ids", () => {
+  const result = validateUserBotInput({
+    name: "Both books",
+    prompt: "Review both books.",
+    portfolio_ids: ["paper", "schwab:acct-1", "schwab:acct-2"],
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.portfolio_source, "all");
+  assert.deepEqual(result.value.portfolio_ids, ["paper", "schwab:acct-1", "schwab:acct-2"]);
 });
 
 test("legacy attach_portfolio false still means no book", () => {
   const none = resolveUserBotPortfolio({ attach_portfolio: false });
-  assert.deepEqual(none, { source: "none", accountId: null });
+  assert.equal(none.source, "none");
+  assert.deepEqual(none.ids, []);
   assert.equal(parsePortfolioOptionId("schwab:abc-9")?.accountId, "abc-9");
 });
 
@@ -271,4 +286,7 @@ test("filterSchwabPortfolioView keeps one account and recomputes totals", () => 
   assert.equal(filtered.totals.cash, 100);
   assert.equal(filtered.totals.account_count, 1);
   assert.equal(filtered.totals.position_count, 1);
+  const both = filterSchwabPortfolioView(view, ["keep", "drop"]);
+  assert.equal(both.accounts.length, 2);
+  assert.equal(both.totals.account_count, 2);
 });

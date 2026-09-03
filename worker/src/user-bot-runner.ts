@@ -176,7 +176,11 @@ export async function runUserBotChat(
         audience: "private",
         attach_portfolio: bot.attach_portfolio,
         portfolio_source: bot.portfolio_source,
-        portfolio_account_id: bot.portfolio_account_id,
+        portfolio_account_id: bot.portfolio_account_ids.length === 1
+          ? bot.portfolio_account_ids[0]
+          : bot.portfolio_account_ids.length > 1
+            ? JSON.stringify(bot.portfolio_account_ids)
+            : bot.portfolio_account_id,
         publish_to_timeline: bot.publish_to_timeline,
       },
     });

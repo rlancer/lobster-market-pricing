@@ -178,6 +178,7 @@ import { handleSchwab } from "./schwab-http";
 import { schwabConfigured } from "./schwab";
 import { loadSchwabPortfolio as fetchSchwabPortfolio, schwabAccountLabel } from "./schwab-portfolio";
 import {
+  attachableBookOptions,
   attachablePortfolioOptions,
   createUserBot,
   deleteUserBot,
@@ -3610,6 +3611,7 @@ async function handleUserBots(
       presets: listUserBotPresets(),
       templates: listUserBotTemplates(),
       portfolios: attachablePortfolioOptions(schwabAccounts),
+      books: attachableBookOptions(schwabAccounts),
     }, 200, "private");
   }
 
