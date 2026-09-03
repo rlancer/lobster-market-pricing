@@ -1905,7 +1905,7 @@ export const api = {
     }),
   deleteMyBot: (botId: string) =>
     request<{ ok: true }>(`/api/me/bots/${encodeURIComponent(botId)}`, { method: 'DELETE' }),
-  triggerMyBot: (botId: string, force = false) =>
+  triggerMyBot: (botId: string) =>
     post<{
       ok: true;
       deferred?: boolean;
@@ -1914,7 +1914,7 @@ export const api = {
       run_id?: string;
       chat_id?: string;
       share_id?: string | null;
-    }>(`/api/me/bots/${encodeURIComponent(botId)}/trigger${force ? '?force=1' : ''}`, {}),
+    }>(`/api/me/bots/${encodeURIComponent(botId)}/trigger?force=1`, {}),
   bots: () => get<{ items: BotProfile[] }>('/api/bots'),
   botTrades: (
     handle: string,

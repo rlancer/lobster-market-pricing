@@ -166,7 +166,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/me/bots', desc: 'Signed-in personal bots — list (with friendly schedule presets) or create. Private by default; no timeline publish unless opted in.' },
   { method: 'GET/PUT/DELETE', path: '/api/me/bots/{id}', desc: 'Signed-in — read one bot plus recent runs, update, or delete' },
-  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (?force=1 bypasses market hours). Lands in Chat history; emails when enabled; timeline only if opted in.' },
+  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (ignores next_run_at and market hours). Lands in Chat history; emails when enabled; timeline only if opted in.' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/copilot/capabilities', desc: 'Admin — live Copilot system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },

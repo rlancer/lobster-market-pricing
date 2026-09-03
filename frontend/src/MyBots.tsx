@@ -251,13 +251,13 @@ export default function MyBotsPage() {
     }
   }
 
-  async function trigger(force: boolean) {
+  async function trigger() {
     if (!selected) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const result = await api.triggerMyBot(selected, force);
+      const result = await api.triggerMyBot(selected);
       if (result.deferred) {
         setNotice(`Market is closed (${result.reason}). Next run ${result.next_run_at ? new Date(result.next_run_at).toLocaleString() : 'later'}.`);
       } else if (result.chat_id) {
@@ -451,7 +451,7 @@ export default function MyBotsPage() {
                   variant="secondary"
                   label={busy ? 'Running…' : 'Run now'}
                   isDisabled={busy}
-                  onClick={() => { void trigger(false); }}
+                  onClick={() => { void trigger(); }}
                 />
                 <Button
                   variant="destructive"

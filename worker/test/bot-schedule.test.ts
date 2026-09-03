@@ -94,6 +94,30 @@ test("scheduleRunDecision defers when market closed", () => {
   assert.ok(decision.next_run_at > sunday);
 });
 
+test("scheduleRunDecision skips when next_run_at is still in the future", () => {
+  const wed = Date.parse("2026-08-19T15:00:00Z");
+  const decision = scheduleRunDecision(
+    {
+      handle: "nowlobster",
+      enabled: true,
+      cadence_seconds: 3600,
+      market_gated: true,
+      prompt: "overview",
+      next_run_at: wed + 60_000,
+      last_run_at: null,
+      last_run_id: null,
+      consecutive_failures: 0,
+      last_error: null,
+      created_at: 0,
+      updated_at: 0,
+    },
+    wed,
+  );
+  assert.equal(decision.action, "skip");
+  if (decision.action !== "skip") return;
+  assert.equal(decision.reason, "not due");
+});
+
 test("scheduleRunDecision runs when open and due", () => {
   const wed = Date.parse("2026-08-19T15:00:00Z");
   const decision = scheduleRunDecision(

@@ -437,7 +437,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Copilot reads the same book via `get_bot_trades`. |
 | `GET/POST /api/me/bots` | Signed-in personal bots — list (includes friendly schedule presets + templates) or create. Private by default (`publish_to_timeline` off). |
 | `GET/PUT/DELETE /api/me/bots/{id}` | Signed-in — read one bot plus recent runs, update, or delete. |
-| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (`?force=1` bypasses market hours). Lands in Chat history; emails when enabled; timeline only if opted in. |
+| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (ignores `next_run_at` and market hours). Lands in Chat history; emails when enabled; timeline only if opted in. The hourly cron still honors the schedule gate. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |

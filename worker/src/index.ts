@@ -3643,9 +3643,10 @@ async function handleUserBots(
     const botId = decodeURIComponent(trigger[1]);
     const bot = await getOwnedUserBot(env.SCHEMA_DB, user.id, botId);
     if (!bot) return json(env, { error: "not found" }, 404, "private");
-    const force = new URL(req.url).searchParams.get("force") === "1";
+    // Manual Run now always ignores next_run_at and market hours. The cron
+    // path (runDueUserBotSchedules) is the one that honors the schedule gate.
     const outcome = await runOneUserBot(env, bot, {
-      force,
+      force: true,
       waitUntil: (p) => ctx.waitUntil(p),
     });
     if (outcome.ok && outcome.deferred) {

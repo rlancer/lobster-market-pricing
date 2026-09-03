@@ -272,6 +272,7 @@ export async function runOneUserBot(
   | { ok: false; error: string }
 > {
   const now = Date.now();
+  // force=true is the HTTP "Run now" path — skip due/market gates. Cron omits force.
   if (!opts?.force) {
     const decision = scheduleRunDecision(bot, now, env);
     if (decision.action === "skip") return { ok: false, error: decision.reason };
