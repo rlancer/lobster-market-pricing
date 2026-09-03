@@ -8,6 +8,9 @@ const BUNDLED: string[] = Array.isArray(universe.symbols)
 
 const BUNDLED_SET = new Set(BUNDLED);
 
+export const ENROLLED_SECURITY_TYPES = ["equity", "etf", "fund"] as const;
+export type EnrolledSecurityType = (typeof ENROLLED_SECURITY_TYPES)[number];
+
 export interface EnrollOpts {
   source?: string;
   requestedBy?: string | null;
@@ -16,6 +19,8 @@ export interface EnrollOpts {
   now?: number;
   /** Base backoff seconds written into item stores. */
   backoffBaseSeconds?: number;
+  /** equity | etf | fund — drives etf-daily + instruments classification. */
+  securityType?: string | null;
 }
 
 export interface EnrollResult {
@@ -34,6 +39,7 @@ export interface EnrolledRow {
   enabled: number;
   last_error: string | null;
   notes: string | null;
+  security_type?: string | null;
   [key: string]: unknown;
 }
 
@@ -64,6 +70,17 @@ export function normalizeEnrollTicker(raw: string | null | undefined): string | 
   return String(raw).trim().toUpperCase();
 }
 
+/** Map enroll / Yahoo / Schwab type strings onto the enrolled_symbols column. */
+export function normalizeEnrolledSecurityType(
+  raw: string | null | undefined,
+): EnrolledSecurityType | null {
+  const t = String(raw || "").trim().toLowerCase();
+  if (t === "etf" || t === "collective_investment") return "etf";
+  if (t === "fund" || t === "mutualfund" || t === "mutual_fund") return "fund";
+  if (t === "equity") return "equity";
+  return null;
+}
+
 /** Enabled on-demand symbols from D1 (empty when the table is missing). */
 export async function listEnrolledSymbols(db: D1Database): Promise<string[]> {
   try {
@@ -81,6 +98,57 @@ export async function listEnrolledSymbols(db: D1Database): Promise<string[]> {
     // Migration not applied yet — behave as empty enrollment.
     return [];
   }
+}
+
+/** Enabled enrolled tickers whose security_type is one of `types`. */
+export async function listEnrolledSymbolsByType(
+  db: D1Database,
+  types: string | string[],
+): Promise<string[]> {
+  const wanted = new Set(
+    (Array.isArray(types) ? types : [types])
+      .map((t) => String(t).trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (!wanted.size) return [];
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT symbol, security_type FROM enrolled_symbols
+         WHERE enabled = 1
+         ORDER BY symbol ASC`,
+      )
+      .all<{ symbol: string; security_type?: string | null }>();
+    return (rows.results || [])
+      .filter((r) => wanted.has(String(r.security_type || "").trim().toLowerCase()))
+      .map((r) => String(r.symbol || "").toUpperCase())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Enabled enrolled tickers with a stored security_type (omits untyped rows). */
+export async function listEnrolledSecurityTypes(
+  db: D1Database,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT symbol, security_type FROM enrolled_symbols
+         WHERE enabled = 1`,
+      )
+      .all<{ symbol: string; security_type?: string | null }>();
+    for (const r of rows.results || []) {
+      const symbol = String(r.symbol || "").toUpperCase();
+      const type = String(r.security_type || "").trim().toLowerCase();
+      if (symbol && type) map.set(symbol, type);
+    }
+  } catch {
+    // Migration 0006 not applied yet.
+  }
+  return map;
 }
 
 export async function countEnrolledSymbols(db: D1Database): Promise<number> {
@@ -132,6 +200,7 @@ export async function enrollSymbol(
   const source = (opts.source || "on_demand").slice(0, 64);
   const requestedBy = opts.requestedBy ? String(opts.requestedBy).slice(0, 128) : null;
   const notes = opts.notes ? String(opts.notes).slice(0, 512) : null;
+  const securityType = normalizeEnrolledSecurityType(opts.securityType);
   const bundled = BUNDLED_SET.has(symbol);
 
   let already = false;
@@ -142,30 +211,29 @@ export async function enrollSymbol(
       .first();
     if (existing) {
       already = true;
-      if (Number(existing.enabled) !== 1) {
-        await db
-          .prepare(
-            `UPDATE enrolled_symbols
-               SET enabled = 1, source = ?, requested_by = COALESCE(?, requested_by),
-                   notes = COALESCE(?, notes), last_error = NULL
-             WHERE symbol = ?`,
-          )
-          .bind(source, requestedBy, notes, symbol)
-          .run();
-      }
+      await db
+        .prepare(
+          `UPDATE enrolled_symbols
+             SET enabled = 1, source = ?, requested_by = COALESCE(?, requested_by),
+                 notes = COALESCE(?, notes), last_error = NULL,
+                 security_type = COALESCE(?, security_type)
+           WHERE symbol = ?`,
+        )
+        .bind(source, requestedBy, notes, securityType, symbol)
+        .run();
     } else {
       await db
         .prepare(
           `INSERT INTO enrolled_symbols
-             (symbol, source, requested_by, requested_at, enabled, last_error, notes)
-           VALUES (?, ?, ?, ?, 1, NULL, ?)`,
+             (symbol, source, requested_by, requested_at, enabled, last_error, notes, security_type)
+           VALUES (?, ?, ?, ?, 1, NULL, ?, ?)`,
         )
-        .bind(symbol, source, requestedBy, now, notes)
+        .bind(symbol, source, requestedBy, now, notes, securityType)
         .run();
     }
   } catch (error) {
     throw new Error(
-      `enrolled_symbols write failed (is migration 0005 applied?): ${
+      `enrolled_symbols write failed (is migration 0005/0006 applied?): ${
         (error && (error as Error).message) || error
       }`,
     );
@@ -246,7 +314,7 @@ export async function listEnrolledRows(
   try {
     const rows = await db
       .prepare(
-        `SELECT symbol, source, requested_by, requested_at, enabled, last_error, notes
+        `SELECT symbol, source, requested_by, requested_at, enabled, last_error, notes, security_type
          FROM enrolled_symbols
          ORDER BY requested_at DESC
          LIMIT ? OFFSET ?`,

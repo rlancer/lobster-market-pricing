@@ -213,7 +213,7 @@ test("normalizeSchwabQuotes reads last/bid/ask/mark from a keyed payload", () =>
     AAPL: {
       symbol: "AAPL",
       delayed: false,
-      reference: { description: "Apple Inc" },
+      reference: { description: "Apple Inc", assetMainType: "EQUITY" },
       quote: {
         lastPrice: 227.5,
         bidPrice: 227.48,
@@ -233,7 +233,11 @@ test("normalizeSchwabQuotes reads last/bid/ask/mark from a keyed payload", () =>
   assert.equal(quotes[0]!.bid, 227.48);
   assert.equal(quotes[0]!.ask, 227.52);
   assert.equal(quotes[0]!.delayed, false);
+  assert.equal(quotes[0]!.description, "Apple Inc");
+  assert.equal(quotes[0]!.asset_type, "EQUITY");
   assert.match(formatSchwabQuotesSummary(quotes), /AAPL/);
+  assert.match(formatSchwabQuotesSummary(quotes), /equity/);
+  assert.match(formatSchwabQuotesSummary(quotes), /Apple Inc/);
   assert.match(formatSchwabQuotesSummary(quotes), /227\.5/);
 });
 

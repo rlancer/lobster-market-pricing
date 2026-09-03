@@ -57,7 +57,7 @@ export const DESK_SPECIALIST_SUMMARIES: Record<DeskViewpointId, string> = {
   options:
     "IV/skew, liquidity, DTE, and tradable defined-risk structures grounded in option_contracts quotes. Spot crypto has no OCC root — say so, then optionally compare via listed crypto ETF options (IBIT, …) or CME futures (BTC=F) when those help the ask.",
   risk:
-    "Downside, sizing, liquidity gaps, event/gap risk, and what breaks the thesis — hedges and max-pain framing without restating the options structure play-by-play.",
+    "Downside, sizing, liquidity gaps, event/gap risk, and what breaks the thesis — hedges and max-pain framing without restating the options structure play-by-play. Distinguish issuer/single-name concentration from ETF sleeve size (a 25% equal-weight index ETF is beta, not one stock). Use lookup_symbols top holdings and/or options.etf_holdings before naming an issuer inside a fund.",
   macro:
     "Rates, Fed/liquidity, factor/beta regime, USD, and cross-asset context that moves index/ETF beta names (SPY, TLT, …). Skip for single-name options microstructure unless the ask is explicitly macro-driven.",
 };
@@ -189,7 +189,7 @@ export function deskAnalystBlock(active?: readonly DeskViewpointId[]): string {
     `- Desk overview: ${DESK_OVERVIEW_SUMMARY}`,
     "",
     "Desk publishing:",
-    `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence.`,
+    `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence (private personal account bots answer directly in markdown).`,
     "- Omit inactive specialist fields entirely — do not send stub text (\"placeholder\", \"TBD\", \"N/A\") for specialists that are not active this turn.",
     "- Never put stub text (\"placeholder\", \"TBD\", \"TODO\") in publish_desk — incomplete desks are rejected and the turn stalls. Gather research_ticker / SQL / news first, then publish real takes.",
     "- Emit NO assistant prose (no status lines, no \"let me…\", no partial takes) until publish_desk has succeeded. Tool calls only until then.",

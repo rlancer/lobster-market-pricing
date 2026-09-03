@@ -5,6 +5,7 @@ import {
   isEnrollableEquityTicker,
   shouldEnrollForMissingLakeData,
   enrollTickerWithLoader,
+  maybeEnrollIdentifiedFund,
 } from "../src/enroll-symbol";
 import { emptyFundamentals, type TickerResearch } from "../src/research";
 
@@ -75,9 +76,11 @@ describe("enroll-symbol", () => {
   it("POSTs to the loader enroll endpoint when LOADER_TOKEN is set", async () => {
     let calledUrl = "";
     let auth = "";
+    let posted: Record<string, unknown> = {};
     const fetchImpl: typeof fetch = async (input, init) => {
       calledUrl = String(input);
       auth = String((init?.headers as Record<string, string>)?.Authorization || "");
+      posted = JSON.parse(String(init?.body || "{}")) as Record<string, unknown>;
       return new Response(
         JSON.stringify({
           symbol: "SOFI",
@@ -93,16 +96,52 @@ describe("enroll-symbol", () => {
     const result = await enrollTickerWithLoader(
       { LOADER_TOKEN: "sekrit", LOADER_BASE_URL: "https://loader.test" },
       "sofi",
-      { source: "test", fetchImpl },
+      { source: "test", fetchImpl, securityType: "etf" },
     );
     assert.equal(result?.symbol, "SOFI");
     assert.equal(result?.enrolled, true);
     assert.equal(calledUrl, "https://loader.test/symbols/enroll");
     assert.equal(auth, "Bearer sekrit");
+    assert.equal(posted.security_type, "etf");
   });
 
   it("returns null when LOADER_TOKEN is missing", async () => {
     const result = await enrollTickerWithLoader({}, "SOFI");
     assert.equal(result, null);
+  });
+
+  it("enrolls looked-up ETFs that are outside the bundled universe", async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      posts.push(JSON.parse(String(init?.body || "{}")) as Record<string, unknown>);
+      return new Response(JSON.stringify({
+        symbol: "RSP",
+        enrolled: true,
+        already: false,
+        bundled: false,
+        enabled: true,
+      }), { status: 200 });
+    };
+    const pending: Promise<unknown>[] = [];
+    const waitUntil = (p: Promise<unknown>) => { pending.push(p); };
+    maybeEnrollIdentifiedFund(
+      { LOADER_TOKEN: "sekrit", LOADER_BASE_URL: "https://loader.test" },
+      { symbol: "RSP", name: "Invesco S&P 500 Equal Weight ETF", kind: "etf", source: "yahoo" },
+      { source: "test", fetchImpl, waitUntil },
+    );
+    maybeEnrollIdentifiedFund(
+      { LOADER_TOKEN: "sekrit", LOADER_BASE_URL: "https://loader.test" },
+      { symbol: "SPY", name: "SPDR S&P 500", kind: "etf", source: "yahoo" },
+      { source: "test", fetchImpl, waitUntil },
+    );
+    maybeEnrollIdentifiedFund(
+      { LOADER_TOKEN: "sekrit", LOADER_BASE_URL: "https://loader.test" },
+      { symbol: "AAPL", name: "Apple", kind: "equity", source: "yahoo" },
+      { source: "test", fetchImpl, waitUntil },
+    );
+    await Promise.all(pending);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0]!.symbol, "RSP");
+    assert.equal(posts[0]!.security_type, "etf");
   });
 });

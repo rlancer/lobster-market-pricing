@@ -156,6 +156,20 @@ export const TOOLS: CatalogItem[] = [
     tools: ['suggest_trades'],
   },
   {
+    id: 'tool:lookup_symbols',
+    kind: 'tool',
+    title: 'lookup_symbols',
+    summary: 'Identify a ticker and, for funds, what it holds',
+    description:
+      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto), issuer/fund name, and for funds Yahoo top-10 holdings with weights. Lake coverage is incomplete — many funds have no etf_profiles row in the default manifest — so this uses the in-process catalog first, then Yahoo search + quoteSummary. Looked-up funds are enrolled into etf-daily so constituents persist on options.etf_holdings. Call before treating an unknown holding as a single-name stock, and read the weights before calling a fund concentrated. Copilot also prints Schwab asset kind + description on get_schwab_portfolio / get_schwab_quotes lines when the broker sent them.',
+    feeds: ['yahoo', 'yahoo-etf'],
+    tables: ['etf_profiles', 'etf_holdings'],
+    tools: ['get_schwab_portfolio', 'research_ticker', 'suggest_trades'],
+    params: [
+      { name: 'symbols', type: 'string[]', note: '1–20 tickers (e.g. SPY, AAPL, ^VIX, BTC-USD)' },
+    ],
+  },
+  {
     id: 'tool:suggest_trades',
     kind: 'tool',
     title: 'suggest_trades',
@@ -374,9 +388,9 @@ export const FEEDS: CatalogItem[] = [
     id: 'feed:yahoo-etf',
     kind: 'feed',
     title: 'Yahoo ETF profiles',
-    summary: 'Expense ratio, AUM, yield, and top-10 holdings',
+    summary: 'Expense ratio, AUM, yield, and top holdings (bundled + enrolled funds)',
     description:
-      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe (including VIX ETPs such as VXX, UVXY, SVXY and crypto ETFs such as IBIT, ETHA, SOLZ). Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
+      'Daily fund profile plus Yahoo top-10 holdings for the optionable ETF sleeve (including VIX ETPs such as VXX, UVXY, SVXY and crypto ETFs such as IBIT, ETHA, SOLZ) plus any fund Copilot looks up via on-demand enrollment. Chat uses this for “what’s inside SPY?”, expense-ratio screens, AUM/yield context, and book concentration — equal-weight index funds are not single-name stocks.',
     provider: 'Yahoo Finance',
     cadence: 'Daily (etf-daily job)',
     tables: ['etf_profiles', 'etf_holdings'],
@@ -581,7 +595,7 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   etf_holdings: {
     summary: 'Top holdings and weights per ETF',
     description:
-      'Ranked constituents (holding_symbol, holding_name, weight) for each ETF. Chat joins this to chains when concentration or “what does QQQ hold?” is part of the question.',
+      'Ranked constituents (holding_symbol, holding_name, weight) for each ETF. Yahoo top-10, not the full N-PORT book. Covers the curated optionable sleeve plus enrolled funds (lookup_symbols). Chat joins this to chains when concentration or “what does QQQ hold?” is part of the question — equal-weight names show fraction-of-a-percent top weights, which is sleeve size, not issuer concentration.',
     feeds: ['yahoo-etf'],
     tools: ['run_query'],
   },

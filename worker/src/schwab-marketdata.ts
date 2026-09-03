@@ -10,6 +10,7 @@
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
 import { SchwabApiError } from "./schwab-portfolio";
 import { dayBoundsIso, etDateString } from "./schwab-trader";
+import { kindFromSchwabAssetType } from "./symbol-identity";
 
 export const SCHWAB_MARKETDATA_BASE = "https://api.schwabapi.com/marketdata/v1";
 
@@ -217,6 +218,8 @@ export const SCHWAB_QUOTES_MAX = 20;
 export interface SchwabQuote {
   symbol: string;
   description: string | null;
+  /** Schwab `reference.assetMainType` (EQUITY, COLLECTIVE_INVESTMENT, …). */
+  asset_type: string | null;
   last: number | null;
   bid: number | null;
   ask: number | null;
@@ -277,7 +280,7 @@ function readQuoteRow(raw: unknown, fallbackSymbol: string): SchwabQuote | null 
   const row = raw as {
     symbol?: unknown;
     delayed?: unknown;
-    reference?: { description?: unknown };
+    reference?: { description?: unknown; assetMainType?: unknown; assetSubType?: unknown };
     quote?: {
       lastPrice?: unknown;
       bidPrice?: unknown;
@@ -306,9 +309,14 @@ function readQuoteRow(raw: unknown, fallbackSymbol: string): SchwabQuote | null 
   if (last == null && mark == null && close == null && num(q.bidPrice) == null && num(q.askPrice) == null) {
     return null;
   }
+  const assetType =
+    typeof row.reference?.assetMainType === "string" && row.reference.assetMainType.trim()
+      ? row.reference.assetMainType.trim()
+      : null;
   return {
     symbol,
     description: typeof row.reference?.description === "string" ? row.reference.description : null,
+    asset_type: assetType,
     last,
     bid: num(q.bidPrice),
     ask: num(q.askPrice),
@@ -357,9 +365,15 @@ export function formatSchwabQuotesSummary(quotes: SchwabQuote[]): string {
       : null;
     const move = [chg, pct].filter(Boolean).join(" ");
     const bidask = q.bid != null && q.ask != null ? `bid ${q.bid} / ask ${q.ask}` : null;
+    const kind = kindFromSchwabAssetType(q.asset_type);
+    const kindLabel = kind === "unknown" && q.asset_type
+      ? q.asset_type.toLowerCase()
+      : (kind !== "unknown" ? kind : null);
     lines.push(
       [
         q.symbol,
+        kindLabel,
+        q.description,
         last != null ? `last ${last}` : null,
         bidask,
         q.mark != null && q.mark !== last ? `mark ${q.mark}` : null,

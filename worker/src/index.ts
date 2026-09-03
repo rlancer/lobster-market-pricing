@@ -145,6 +145,7 @@ import {
   type ShortingBrief,
   type TickerResearch,
 } from "./research";
+import { applyLookupIdentity, lookupSymbolIdentities, lookupSymbolIdentity } from "./symbol-identity";
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import {
@@ -169,8 +170,11 @@ import { mergeSymbolUniverse, rankSymbolSuggestions } from "./catalog-symbols";
 import type { LakeSecurityRow } from "./figi";
 import {
   enrollTickerWithLoader,
+  maybeEnrollIdentifiedFund,
   maybeEnrollMissingTicker,
+  isBundledUniverseTicker,
   isEnrollableEquityTicker,
+  shouldEnrollForMissingLakeData,
 } from "./enroll-symbol";
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
@@ -2593,6 +2597,18 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
     return researchTickerForAgent(this.env, symbol, opts);
   }
 
+  protected override async lookupSymbols(symbols: string[]) {
+    const rows = await lookupSymbolIdentities(symbols);
+    for (const row of rows) {
+      maybeEnrollIdentifiedFund(this.env, row, {
+        source: "lookup_symbols",
+        requestedBy: typeof this.name === "string" ? this.name : null,
+        waitUntil: (p) => this.ctx.waitUntil(p),
+      });
+    }
+    return rows;
+  }
+
   /** Session user stamped on this DO — never a Schwab token, never another chat. */
   private readPaperSessionHint(): string | null {
     try {
@@ -3152,13 +3168,28 @@ async function researchTickerForAgent(
       source: "copilot_research",
       requestedBy: opts?.chatId || null,
     });
-    let summary = summarizeResearch(research);
-    if (research.price.spot == null && isEnrollableEquityTicker(research.identity.ticker)) {
+    let brief = research;
+    const ticker = research.identity.ticker;
+    const needsLookup =
+      !research.identity.name
+      || shouldEnrollForMissingLakeData(research)
+      || (!research.etf && isEnrollableEquityTicker(ticker) && !isBundledUniverseTicker(ticker))
+      || Boolean(research.etf && !(research.etf.holdings && research.etf.holdings.length));
+    if (needsLookup) {
+      const lookedUp = await lookupSymbolIdentity(ticker);
+      brief = applyLookupIdentity(research, lookedUp);
+      maybeEnrollIdentifiedFund(env, lookedUp, {
+        source: "copilot_research",
+        requestedBy: opts?.chatId || null,
+      });
+    }
+    let summary = summarizeResearch(brief);
+    if (brief.price.spot == null && isEnrollableEquityTicker(brief.identity.ticker)) {
       summary +=
         "\n\nLake data is thin for this ticker — it has been queued for on-demand " +
         "ingest (options chain, OHLC, fundamentals). Retry research shortly.";
     }
-    return { research, summary };
+    return { research: brief, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { summary: `Research failed: ${message}`, error: message };
@@ -3296,7 +3327,7 @@ async function handleSymbolsEnroll(
   ctx: ExecutionContext,
 ): Promise<Response> {
   if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401, "private");
-  let body: { symbol?: unknown; source?: unknown; notes?: unknown; load_now?: unknown } = {};
+  let body: { symbol?: unknown; source?: unknown; notes?: unknown; load_now?: unknown; security_type?: unknown } = {};
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -3313,6 +3344,7 @@ async function handleSymbolsEnroll(
     source: typeof body.source === "string" ? body.source : "admin",
     notes: typeof body.notes === "string" ? body.notes : null,
     loadNow: body.load_now !== false,
+    securityType: typeof body.security_type === "string" ? body.security_type : null,
   });
   if (!result) {
     return json(env, { error: "enroll unavailable" }, 503, "private");

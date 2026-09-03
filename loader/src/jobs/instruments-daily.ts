@@ -1,7 +1,7 @@
 import type { BatchJob, JobRunFailure, SchedulerEnv, D1Database } from "../scheduler.js";
 import type { InstrumentsEnv } from "../instruments.js";
 import { publishInstruments } from "../instruments.js";
-import { listEnrolledSymbols } from "../enrolled-universe.js";
+import { listEnrolledSecurityTypes, listEnrolledSymbols } from "../enrolled-universe.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
@@ -36,7 +36,8 @@ export function instrumentsDailyJob(env: SchedulerEnv): BatchJob {
       try {
         const db = e.LOADER_DB as D1Database | undefined;
         const enrolled = db ? await listEnrolledSymbols(db) : [];
-        await publishInstruments(instrumentsEnv, enrolled);
+        const enrolledTypes = db ? await listEnrolledSecurityTypes(db) : new Map<string, string>();
+        await publishInstruments(instrumentsEnv, enrolled, enrolledTypes);
       } catch (error) {
         failures.push({
           symbol: "catalog",

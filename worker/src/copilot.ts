@@ -38,6 +38,7 @@ import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades
 import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { formatBotTradesSummary } from "./bot-trades";
 import { formatSchwabQuotesSummary, sanitizeQuoteSymbols } from "./schwab-marketdata";
+import { formatSymbolIdentities, lookupSymbolIdentities, type SymbolIdentity } from "./symbol-identity";
 import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "./schwab-portfolio";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
@@ -263,6 +264,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected abstract searchWeb(query: string, limit: number): Promise<SearchResult>;
   protected abstract fetchEconomicCalendar(days: number): Promise<CalendarResult>;
   protected abstract researchTicker(symbol: string, opts?: { force?: boolean; chatId?: string }): Promise<ResearchToolResult>;
+
+  /** Identify tickers (ETF vs equity vs …) when lake coverage is missing. */
+  protected lookupSymbols(symbols: string[]): Promise<SymbolIdentity[]> {
+    return lookupSymbolIdentities(symbols);
+  }
 
   /**
    * Apply suggest_trades into the chat owner's paper portfolio (lake marks).
@@ -1185,6 +1191,15 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           });
         }),
       }),
+      lookup_symbols: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.lookup_symbols,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.lookup_symbols,
+        execute: async ({ symbols }) => runTool("lookup_symbols", TOOL_LABELS.lookup_symbols, { symbols }, async () => {
+          status("Identifying symbols and holdings…");
+          const rows = await this.lookupSymbols(symbols);
+          return this.output(true, formatSymbolIdentities(rows), { error: null });
+        }),
+      }),
       publish_desk: tool({
         description: COPILOT_TOOL_DESCRIPTIONS.publish_desk,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk,
@@ -1486,9 +1501,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
               // Bot thesis posts and interactive chat both publish the routed
-              // specialist personas via publish_desk. Structured trades stay
-              // interactive-only so a rates post is not forced into a flyer.
-              requireDesk: true,
+              // specialist personas via publish_desk. Private personal bots
+              // write directly to the owner unless opting into the timeline.
+              // Structured trades stay interactive-only so a rates post is
+              // not forced into a flyer.
+              requireDesk: Boolean(!bot || bot.audience !== "private" || bot.publish_to_timeline),
               deskPublished: Boolean(capture.desk),
               stepsAfterQuery: turn.stepsAfterQuery,
               failedDeskCount: turn.failedDeskCount,

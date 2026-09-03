@@ -7,6 +7,7 @@
  */
 
 import { getValidAccessToken, type SchwabEnv } from "./schwab";
+import { kindFromSchwabAssetType } from "./symbol-identity";
 
 export const SCHWAB_TRADER_BASE = "https://api.schwabapi.com/trader/v1";
 
@@ -310,8 +311,14 @@ export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string 
       shown += 1;
       if (shown > 40) break;
       const qty = Number.isFinite(position.quantity) ? String(position.quantity) : "—";
+      const kind = kindFromSchwabAssetType(position.asset_type);
+      const kindLabel = kind === "unknown" && position.asset_type
+        ? position.asset_type.toLowerCase()
+        : kind;
       lines.push(
-        `- ${position.symbol}${position.underlying ? ` (${position.underlying})` : ""} · qty ${qty} · mark ${money(position.market_value)} · day ${money(position.day_pnl)} · open ${money(position.open_pnl)}`,
+        `- ${position.symbol}${position.underlying ? ` (${position.underlying})` : ""} · ${kindLabel}`
+          + `${position.description ? ` · ${position.description}` : ""}`
+          + ` · qty ${qty} · mark ${money(position.market_value)} · day ${money(position.day_pnl)} · open ${money(position.open_pnl)}`,
       );
     }
     if (shown > 40) break;

@@ -472,13 +472,18 @@ export function userBotSystemAddon(opts: {
       "No portfolio is attached. Do not call get_paper_portfolio or get_schwab_portfolio unless the owner asks about a book in this prompt.",
     );
   }
+  if (source !== "none") {
+    lines.push(
+      "Identify every holding before flagging concentration: use the book's asset kind and description, and call lookup_symbols for any unlabeled ticker (it returns kind plus Yahoo top holdings/weights). Diversified ETFs/index funds are not single-name stocks — read those weights before recommending a trim. Overlap of the same issuer across funds is concentration; sleeve size in a broad index fund is not. Query options.etf_holdings when you need a lake-backed book.",
+    );
+  }
   if (opts.publish_to_timeline) {
     lines.push(
       "The owner opted to share this briefing on their public profile if it passes the quality gate. Still write it as a personal desk note, not a bot persona post. Call publish_desk after tools so the share can render specialist takes.",
     );
   } else {
     lines.push(
-      "Do not write for a public feed. Skip render_chart unless a figure clearly helps the owner. suggest_trades is optional and only when a concrete adjustment is tradable.",
+      "Do not write for a public feed. Write a comprehensive, direct personal briefing for the owner in plain markdown (headings, bullet points, and specific numbers). Do NOT call publish_desk — deliver the full analysis directly in markdown. Skip render_chart unless a figure clearly helps the owner. suggest_trades is optional and only when a concrete adjustment is tradable.",
     );
   }
   return lines.join("\n");
