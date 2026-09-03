@@ -605,7 +605,7 @@ export async function createUserBot(
   db: D1Database,
   userId: string,
   body: UserBotInput,
-  env?: MarketHoursEnv,
+  _env?: MarketHoursEnv,
 ): Promise<{ ok: true; bot: UserBot } | { ok: false; status: 400 | 409; error: string }> {
   const validated = validateUserBotInput(body);
   if (!validated.ok) return { ok: false, status: 400, error: validated.error };
@@ -621,10 +621,9 @@ export async function createUserBot(
   }
   const now = Date.now();
   const bot_id = crypto.randomUUID();
-  const next = nextScheduleWakeMs(now, validated.value.cadence_seconds, {
-    marketGated: validated.value.market_gated,
-    env,
-  });
+  // Due immediately so the next Worker cron (every 5m on prod) picks it up.
+  // Market-gated bots still defer to next open via scheduleRunDecision.
+  const next = now;
   await db.prepare(
     `INSERT INTO user_bots
        (bot_id, user_id, name, prompt, schedule_preset, cadence_seconds, market_gated,
@@ -660,7 +659,7 @@ export async function updateUserBot(
   userId: string,
   botId: string,
   body: UserBotInput,
-  env?: MarketHoursEnv,
+  _env?: MarketHoursEnv,
 ): Promise<{ ok: true; bot: UserBot } | { ok: false; status: 400 | 404; error: string }> {
   const existing = await getOwnedUserBot(db, userId, botId);
   if (!existing) return { ok: false, status: 404, error: "not found" };
@@ -677,12 +676,9 @@ export async function updateUserBot(
     validated.value.schedule_preset !== existing.schedule_preset
     || validated.value.cadence_seconds !== existing.cadence_seconds
     || validated.value.market_gated !== existing.market_gated;
-  const next = scheduleChanged
-    ? nextScheduleWakeMs(now, validated.value.cadence_seconds, {
-      marketGated: validated.value.market_gated,
-      env,
-    })
-    : existing.next_run_at;
+  const becameEnabled = validated.value.enabled && !existing.enabled;
+  // Schedule edits / re-enable become due on the next cron; market gate still defers.
+  const next = (scheduleChanged || becameEnabled) ? now : existing.next_run_at;
   await db.prepare(
     `UPDATE user_bots SET
        name = ?2, prompt = ?3, schedule_preset = ?4, cadence_seconds = ?5,
