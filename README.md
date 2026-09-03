@@ -447,6 +447,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `POST /api/admin/email/test` | Admin session — Cloudflare Email Service smoke test. Sends from `noreply@lobster.mp` to the signed-in admin's email (or `ADMIN_TOKEN` + `{ "to": "…" }`). Returns `{ ok, to, message_id }`. |
+| `POST /api/admin/dev-session` | **Preview only** (`api-dev.lobster.mp`, `ALLOW_DEV_IMPERSONATION=1`). `Bearer ADMIN_TOKEN` mints an 8-hour Better Auth cookie as `robert.lancer@gmail.com` (or another admin allowlist email in `{email}`). Production always 404s. Agents can also send `X-Dev-As: robert.lancer@gmail.com` with the same bearer on api-dev to call signed-in APIs without minting a cookie. |
 | `GET /api/admin/trades` | Admin session (or `ADMIN_TOKEN`) — flattened suggested trades from successful `suggest_trades` tool events (~30 day retention). Legs are formal (`instrument`: `option` \| `equity`, `side` buy/sell = long/short, optional `qty`; options also carry right/strike/expiry). Optional `limit` (default 100, max 500) and `before` (ISO `created_at` cursor). Enriches with newest `share_id` / `bot_handle` when the chat was shared. Powers `/trades`. |
 
 Inbound mail (Email Routing): `hello@lobster.mp` is routed to the production

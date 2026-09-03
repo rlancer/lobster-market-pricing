@@ -22,7 +22,7 @@
  *    CAST(expiration AS DATE) - CURRENT_DATE (returns integer days).
  */
 import { routeAgentRequest } from "agents";
-import { isAdminEmail } from "./admin";
+import { ADMIN_EMAILS, isAdminEmail } from "./admin";
 import {
   resolveEmailTestRecipient,
   sendAdminEmailTest,
@@ -31,7 +31,8 @@ import { handleInboundEmail, HELLO_FORWARD_TO } from "./inbound-email";
 import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
-import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
+import { createAuth, getSessionUser, googleConfigured, impersonationAllowed, isTrustedOrigin, type SessionUser } from "./auth";
+import { mintDevSession, resolveImpersonationEmail } from "./dev-session";
 import {
   inventBotPrompt,
   resolveBotGeneratePrompt,
@@ -205,6 +206,8 @@ export interface Env extends Cloudflare.Env {
   BETTER_AUTH_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  /** Preview Worker only. When "1", ADMIN_TOKEN can assume an admin account on api-dev. */
+  ALLOW_DEV_IMPERSONATION?: string;
   /** Optional; must match a Callback URL registered in the Schwab developer portal. */
   SCHWAB_REDIRECT_URI?: string;
   /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
@@ -3414,7 +3417,7 @@ function withCors(env: Env, req: Request, resp: Response): Response {
   }
   headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   // Agent HTTP responses have immutable headers, so clone rather than mutating in place.
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Dev-As");
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
@@ -4374,6 +4377,38 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const bots = await handleBots(env, req, path, ctx);
   if (bots) return bots;
+
+  // Preview-only: mint a Better Auth cookie as an admin account so agents can
+  // exercise signed-in UI. Production hostname + missing flag → 404.
+  if (path === "/api/admin/dev-session") {
+    if (!impersonationAllowed(env, new URL(req.url).hostname)) {
+      return json(env, { error: "not found" }, 404, "private");
+    }
+    if (req.method !== "POST") return json(env, { error: "method not allowed" }, 405, "private");
+    if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401, "private");
+    let bodyEmail: unknown;
+    try {
+      const raw = await req.text();
+      bodyEmail = raw ? (JSON.parse(raw) as { email?: unknown }).email : undefined;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const email = resolveImpersonationEmail(bodyEmail, ADMIN_EMAILS[0]);
+    if (!email) return json(env, { error: "email is not impersonable" }, 403, "private");
+    const minted = await mintDevSession(env, req, email);
+    if (!minted.ok) return json(env, { error: minted.error }, minted.status, "private");
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store",
+    });
+    headers.append("Set-Cookie", minted.cookie.header);
+    return new Response(JSON.stringify({
+      ok: true,
+      user: minted.user,
+      expires_at: minted.expires_at,
+      cookie: minted.cookie,
+    }), { status: 200, headers });
+  }
 
   // Signed-up users directory (session admin or ADMIN_TOKEN).
   if (path === "/api/admin/users" && req.method === "GET") {

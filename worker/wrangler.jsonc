@@ -74,7 +74,8 @@
         "COPILOT_MODEL": "deepseek/deepseek-v4-flash-0731",
         "COPILOT_REASONING_EFFORT": "high",
         "COPILOT_MAX_OUTPUT_TOKENS": "8192",
-        "COPILOT_MAX_HISTORY_CHARS": "48000"
+        "COPILOT_MAX_HISTORY_CHARS": "48000",
+        "ALLOW_DEV_IMPERSONATION": "1"
       },
       // No cron on the preview Worker: it shares prod SCHEMA_DB with
       // screener-api, so a second hourly tick was double-firing bot schedules
