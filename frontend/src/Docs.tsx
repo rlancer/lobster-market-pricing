@@ -162,16 +162,16 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
   { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (D1 book + lake marks with TTL; optional status/conviction; refresh=0 skips remake; backfill=1 recovers missed ideas)' },
-  { method: 'GET', path: '/api/reply-styles', desc: 'Canned Copilot reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
-  { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
+  { method: 'GET', path: '/api/reply-styles', desc: 'Canned Chat reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
+  { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Chat reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
-  { method: 'GET', path: '/api/admin/copilot/capabilities', desc: 'Admin — live Copilot system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
-  { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
+  { method: 'GET', path: '/api/admin/chat/capabilities', desc: 'Admin — live Chat system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
+  { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows timeline listing' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
-  { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all Copilot chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
+  { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
 
@@ -189,7 +189,7 @@ const SURFACES = [
   {
     route: '/share/<id>',
     title: 'Share',
-    body: 'Unlisted transcript for a shared Copilot chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Timeline, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts). Each assistant reply has a share control that copies `/share/<id>#m-N` (or opens the system share sheet). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
+    body: 'Unlisted transcript for a shared chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Timeline, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts). Each assistant reply has a share control that copies `/share/<id>#m-N` (or opens the system share sheet). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
   },
   {
     route: '/account',
@@ -204,12 +204,12 @@ const SURFACES = [
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history.',
+    body: 'Paper book ($100k starting cash) for signed-in Chat suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history.',
   },
   {
     route: '/data',
     title: 'Data',
-    body: 'Catalog of everything that can feed an answer: Copilot tools, upstream APIs (CBOE, FRED, Fed, Tavily, Yahoo OHLC + ETF profiles, Nasdaq, OpenFIGI), Iceberg lake tables, and a read-only SQL editor.',
+    body: 'Catalog of everything that can feed an answer: Chat tools, upstream APIs (CBOE, FRED, Fed, Tavily, Yahoo OHLC + ETF profiles, Nasdaq, OpenFIGI), Iceberg lake tables, and a read-only SQL editor.',
   },
   {
     route: '/monitor',
@@ -219,7 +219,7 @@ const SURFACES = [
   {
     route: '/admin',
     title: 'Admin',
-    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Copilot internals, brand, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
   },
 ];
 

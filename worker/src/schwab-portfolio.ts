@@ -360,7 +360,7 @@ export function filterSchwabPortfolioView(
   };
 }
 
-/** Compact text book for Copilot tool output / prompt grounding. */
+/** Compact text book for Chat tool output / prompt grounding. */
 export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string {
   const lines = [
     "Schwab portfolio (live brokerage)",

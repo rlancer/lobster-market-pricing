@@ -1,6 +1,6 @@
 /**
- * Admin-only explorer for Copilot system prompts and tool capabilities.
- * Source of truth is GET /api/admin/copilot/capabilities (Worker modules).
+ * Admin-only explorer for Chat system prompts and tool capabilities.
+ * Source of truth is GET /api/admin/chat/capabilities (Worker modules).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
@@ -8,22 +8,22 @@ import { Button, Heading, HStack, Tab, TabList, Text, Token, ToggleButton, VStac
 import { useIsAdmin } from './useAdmin';
 import {
   api,
-  type CopilotCapabilities,
-  type CopilotPromptCapability,
-  type CopilotToolCapability,
+  type ChatCapabilities,
+  type ChatPromptCapability,
+  type ChatToolCapability,
 } from './api';
-import './CopilotExplore.css';
+import './ChatExplore.css';
 
 type NavItem =
-  | { kind: 'prompt'; id: string; prompt: CopilotPromptCapability }
-  | { kind: 'tool'; id: string; tool: CopilotToolCapability };
+  | { kind: 'prompt'; id: string; prompt: ChatPromptCapability }
+  | { kind: 'tool'; id: string; tool: ChatToolCapability };
 
 function itemIdFromSearch(item: string | undefined): string | null {
   if (!item) return null;
   return item.trim() || null;
 }
 
-function promptKindLabel(kind: CopilotPromptCapability['kind']): string {
+function promptKindLabel(kind: ChatPromptCapability['kind']): string {
   if (kind === 'classifier') return 'Classifier';
   if (kind === 'meta') return 'Meta';
   if (kind === 'invent') return 'Invent';
@@ -31,11 +31,11 @@ function promptKindLabel(kind: CopilotPromptCapability['kind']): string {
   return 'System';
 }
 
-export default function CopilotExplorePage() {
+export default function ChatExplorePage() {
   const navigate = useNavigate();
   const { item: itemParam } = useSearch({ strict: false }) as { item?: string };
   const { isAdmin, isPending } = useIsAdmin();
-  const [data, setData] = useState<CopilotCapabilities | null>(null);
+  const [data, setData] = useState<ChatCapabilities | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [includeSamples, setIncludeSamples] = useState(false);
@@ -53,7 +53,7 @@ export default function CopilotExplorePage() {
     setLoading(true);
     setError(null);
     try {
-      const payload = await api.adminCopilotCapabilities({
+      const payload = await api.adminChatCapabilities({
         schema: schemaMode,
         samples: includeSamples,
       });
@@ -103,7 +103,7 @@ export default function CopilotExplorePage() {
     setSelectedId(id);
     setCopied(false);
     void navigate({
-      to: '/copilot',
+      to: '/chat-capabilities',
       search: { item: id },
       replace: true,
     });
@@ -121,16 +121,16 @@ export default function CopilotExplorePage() {
 
   if (isPending || !isAdmin) {
     return (
-      <VStack className="copilot-explore" gap={3} padding={5}>
+      <VStack className="chat-explore" gap={3} padding={5}>
         <Text color="secondary">Checking admin access…</Text>
       </VStack>
     );
   }
 
   return (
-    <VStack className="copilot-explore" gap={4} padding={5}>
-      <VStack className="copilot-explore-hero" gap={2}>
-        <Heading level={1}>Copilot internals</Heading>
+    <VStack className="chat-explore" gap={4} padding={5}>
+      <VStack className="chat-explore-hero" gap={2}>
+        <Heading level={1}>Chat capabilities</Heading>
         <Text color="secondary">
           Live system prompts and tool schemas from the Worker — what the model actually sees.
         </Text>
@@ -152,7 +152,7 @@ export default function CopilotExplorePage() {
         ) : null}
       </VStack>
 
-      <HStack className="copilot-explore-controls" gap={2} wrap="wrap" align="center">
+      <HStack className="chat-explore-controls" gap={2} wrap="wrap" align="center">
         <TabList
           size="sm"
           aria-label="Schema mode"
@@ -178,17 +178,17 @@ export default function CopilotExplorePage() {
         />
       </HStack>
 
-      {error ? <Text className="copilot-explore-err">{error}</Text> : null}
+      {error ? <Text className="chat-explore-err">{error}</Text> : null}
 
-      <HStack className="copilot-explore-layout" gap={4} align="start">
-        <VStack className="copilot-explore-sidebar" gap={3}>
+      <HStack className="chat-explore-layout" gap={4} align="start">
+        <VStack className="chat-explore-sidebar" gap={3}>
           <Text size="sm" color="secondary">Prompts</Text>
-          <ul className="copilot-explore-list">
+          <ul className="chat-explore-list">
             {items.filter((item) => item.kind === 'prompt').map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
-                  className={`copilot-explore-item${selectedId === item.id ? ' active' : ''}`}
+                  className={`chat-explore-item${selectedId === item.id ? ' active' : ''}`}
                   onClick={() => selectItem(item.id)}
                 >
                   <span>{item.prompt.title}</span>
@@ -198,12 +198,12 @@ export default function CopilotExplorePage() {
             ))}
           </ul>
           <Text size="sm" color="secondary">Tools</Text>
-          <ul className="copilot-explore-list">
+          <ul className="chat-explore-list">
             {items.filter((item) => item.kind === 'tool').map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
-                  className={`copilot-explore-item${selectedId === item.id ? ' active' : ''}`}
+                  className={`chat-explore-item${selectedId === item.id ? ' active' : ''}`}
                   onClick={() => selectItem(item.id)}
                 >
                   <span>{item.tool.name}</span>
@@ -214,7 +214,7 @@ export default function CopilotExplorePage() {
           </ul>
         </VStack>
 
-        <VStack className="copilot-explore-main" gap={3}>
+        <VStack className="chat-explore-main" gap={3}>
           {!selected && loading ? <Text color="secondary">Loading capabilities…</Text> : null}
           {selected?.kind === 'prompt' ? (
             <>
@@ -231,7 +231,7 @@ export default function CopilotExplorePage() {
                   onClick={() => void copyBody(selected.prompt.body)}
                 />
               </HStack>
-              <pre className="copilot-explore-body">{selected.prompt.body}</pre>
+              <pre className="chat-explore-body">{selected.prompt.body}</pre>
             </>
           ) : null}
           {selected?.kind === 'tool' ? (
@@ -250,7 +250,7 @@ export default function CopilotExplorePage() {
                 />
               </HStack>
               <Heading level={3}>Input schema</Heading>
-              <pre className="copilot-explore-body">
+              <pre className="chat-explore-body">
                 {JSON.stringify(selected.tool.input_schema, null, 2)}
               </pre>
             </>

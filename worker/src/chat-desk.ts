@@ -48,7 +48,7 @@ export const DESK_VIEWPOINT_LABELS: Record<DeskViewpointId, string> = {
   macro: "Macro",
 };
 
-/** Specialist briefs shown in admin Copilot explore. */
+/** Specialist briefs shown in admin Chat explore. */
 export const DESK_SPECIALIST_SUMMARIES: Record<DeskViewpointId, string> = {
   fundamental:
     "Business quality, earnings catalysts, filings, sector/peer context, and lake fundamentals — or for spot crypto/indexes, adoption/flow drivers instead of earnings — not chart patterns.",

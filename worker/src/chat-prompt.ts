@@ -1,12 +1,12 @@
 /**
- * Copilot system-prompt assembly (schema + rules + optional bot persona
+ * Chat system-prompt assembly (schema + rules + optional bot persona
  * or interactive reply voice).
  * Kept free of Agents runtime so admin explore + unit tests can import it.
  */
-import { deskAnalystBlock, type DeskViewpointId } from "./copilot-desk";
-import { QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
-import { tradesSuggestBlock } from "./copilot-trades";
-import type { LakeTable } from "./copilot-sql";
+import { deskAnalystBlock, type DeskViewpointId } from "./chat-desk";
+import { QUERY_FORCE_FAILURES_MAX } from "./chat-loop";
+import { tradesSuggestBlock } from "./chat-trades";
+import type { LakeTable } from "./chat-sql";
 import { DEFAULT_REPLY_STYLE, replyStyleAddon, type ReplyPref } from "./reply-style";
 import { attachmentsPromptAddon, type ChatAttachment } from "./chat-attachments";
 

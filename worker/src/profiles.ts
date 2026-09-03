@@ -35,7 +35,7 @@ const RESERVED_HANDLES = new Set([
   "chats",
   "comment",
   "comments",
-  "copilot",
+  "copilot", // historical product route / brand word — keep reserved
   "data",
   "docs",
   "feed",

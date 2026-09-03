@@ -1,8 +1,8 @@
 /**
- * Pure SQL validation for the Copilot run_query/check_schema tools.
+ * Pure SQL validation for the chat run_query/check_schema tools.
  *
  * Kept free of any Workers-runtime imports so it is unit-testable in plain
- * Node (copilot.ts pulls in @cloudflare/ai-chat + agents, which only run
+ * Node (chat-agent.ts pulls in @cloudflare/ai-chat + agents, which only run
  * inside the Workers runtime).
  */
 
@@ -104,7 +104,7 @@ function mapSqlOutsideLiterals(sql: string, transform: (chunk: string) => string
 /**
  * CTE names declared via `WITH name AS (` / `WITH name (cols) AS (`.
  * These are valid FROM/JOIN targets and must not be reported as unknown lake
- * tables (regression: Copilot burned whole turns flattening CTEs after a
+ * tables (regression: Chat burned whole turns flattening CTEs after a
  * false "Unknown table options.base" reject).
  */
 function declaredCteNames(sql: string): Set<string> {
@@ -157,7 +157,7 @@ function referencedLakeTables(sql: string, tables: LakeTable[]): LakeTable[] {
  *
  * The lake is inconsistent by design today: option_contracts / ohlc /
  * realized_vol / earnings use `symbol`; underlying_snapshots / securities /
- * fundamentals / ETF tables use `ticker`. Copilot (and humans) routinely
+ * fundamentals / ETF tables use `ticker`. Chat (and humans) routinely
  * write the wrong name; this normalizes against DESCRIBE before R2 SQL.
  */
 export function applyColumnSynonyms(sql: string, tables: LakeTable[]): SynonymRewriteResult {

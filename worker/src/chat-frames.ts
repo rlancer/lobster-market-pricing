@@ -1,10 +1,10 @@
 /**
  * Frame sketches, tool-result summaries, and parameterized SQLite compilation
  * for filter/reduce. Kept free of Workers-runtime imports so it is unit-testable
- * in plain Node (copilot.ts pulls in @cloudflare/ai-chat + agents).
+ * in plain Node (chat-agent.ts pulls in @cloudflare/ai-chat + agents).
  */
 
-import { FRAME_QUERY_LIMIT } from "./copilot-contract";
+import { FRAME_QUERY_LIMIT } from "./chat-contract";
 
 export const MAX_TOOL_SUMMARY_CHARS = 12_000;
 export const SAMPLE_HEAD_ROWS = 5;

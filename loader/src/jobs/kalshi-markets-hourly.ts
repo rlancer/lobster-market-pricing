@@ -9,7 +9,7 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 
 // Curated Kalshi event contracts: batch-scoped, ungated, hourly cadence.
 // Prediction markets trade nearly 24/7 — hourly snapshots keep Fed/CPI/index
-// odds fresh for Copilot event-vol context and future Kalshi trade suggestions
+// odds fresh for Chat event-vol context and future Kalshi trade suggestions
 // without ingesting the full sports/entertainment catalog.
 //
 // Each pass syncs one series_ticker from symbols/kalshi-series.json so a

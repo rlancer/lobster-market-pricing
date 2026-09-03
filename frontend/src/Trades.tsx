@@ -54,7 +54,7 @@ function matchesQuery(trade: AdminSuggestedTrade, query: string): boolean {
 }
 
 /**
- * Admin-only directory of Copilot suggested trades from suggest_trades events.
+ * Admin-only directory of Chat suggested trades from suggest_trades events.
  */
 export default function TradesPage() {
   const navigate = useNavigate();
@@ -107,7 +107,7 @@ export default function TradesPage() {
       <VStack gap={2}>
         <Heading level={1}>Suggested trades</Heading>
         <Text type="supporting">
-          Every successful suggest_trades idea from Copilot (~30 day retention).
+          Every successful suggest_trades idea from Chat (~30 day retention).
           Open a share when the chat was published.
         </Text>
       </VStack>

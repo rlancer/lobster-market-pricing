@@ -1,7 +1,7 @@
 /**
- * Durable Copilot tool-call events for debugging.
+ * Durable Chat tool-call events for debugging.
  *
- * CopilotAgent records every tool outcome (ok / error / args / sql) into D1
+ * CopilotAgent (historical DO class) records every tool outcome (ok / error / args / sql) into D1
  * `copilot_tool_events`. Lake `options.chat_history` deliberately strips tools;
  * this table is the only durable index of failed tool calls. The read path is
  * public (`GET /api/tool_calls`) — payloads are capped tool args/errors/SQL,
@@ -266,7 +266,7 @@ export async function insertToolEvent(db: D1Database, input: ToolEventInput): Pr
       row.created_at,
     ).run();
   } catch (e) {
-    console.error("copilot tool event insert failed", e);
+    console.error("chat tool event insert failed", e);
   }
 }
 
@@ -275,7 +275,7 @@ export async function purgeExpiredToolEvents(db: D1Database, now = Date.now()): 
     const cutoff = now - TOOL_EVENT_RETENTION_MS;
     await db.prepare("DELETE FROM copilot_tool_events WHERE created_at < ?1").bind(cutoff).run();
   } catch (e) {
-    console.error("copilot tool event purge failed", e);
+    console.error("chat tool event purge failed", e);
   }
 }
 

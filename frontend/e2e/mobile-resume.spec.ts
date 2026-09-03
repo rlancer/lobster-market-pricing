@@ -22,7 +22,7 @@ async function waitForAnswerText(page: Page, timeout = 300_000): Promise<string>
     return Boolean(last && last.textContent && last.textContent.trim().length > 20);
   }, undefined, { timeout });
   const error = page.locator('.ai-msg.ai-assistant .ai-err').last();
-  if (await error.count()) throw new Error(`Copilot failed: ${(await error.innerText()).trim()}`);
+  if (await error.count()) throw new Error(`Chat failed: ${(await error.innerText()).trim()}`);
   return (await page.locator('.ai-msg.ai-assistant .ai-text').last().innerText()).trim();
 }
 

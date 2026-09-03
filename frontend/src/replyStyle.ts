@@ -1,5 +1,5 @@
 /**
- * Canned Copilot reply voices. IDs / caps must match worker/src/reply-style.ts.
+ * Canned Chat reply voices. IDs / caps must match worker/src/reply-style.ts.
  * Prompt copy lives only on the Worker so the client cannot inflate context.
  */
 export const REPLY_STYLE_IDS = ['desk', 'fund', 'learner'] as const;

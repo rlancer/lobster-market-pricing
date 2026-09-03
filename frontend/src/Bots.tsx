@@ -121,7 +121,7 @@ function runStatusColor(status: BotRun['status']): 'green' | 'red' | 'blue' {
 }
 
 /**
- * Admin-only bot profiles — edit personas and trigger a Copilot chat that
+ * Admin-only bot profiles — edit personas and trigger a chat that
  * shares publicly under the bot handle (e.g. @yololobster).
  */
 export default function BotsPage() {
@@ -340,7 +340,7 @@ export default function BotsPage() {
           : response.prompt_source === 'seed'
             ? ' (next unused seed)'
             : '';
-      setNotice(`Opening Copilot as @${response.bot.handle}${sourceNote}…`);
+      setNotice(`Opening Chat as @${response.bot.handle}${sourceNote}…`);
       void navigate({ to: '/chat/$chatId', params: { chatId: response.chat_id } });
     } catch (err) {
       setError(String((err as Error)?.message ?? err));
@@ -373,7 +373,7 @@ export default function BotsPage() {
       <header className="bots-hero">
         <Heading level={1}>Bot profiles</Heading>
         <Text type="supporting">
-          Admin-only personas that chat with Copilot and publish under a public handle
+          Admin-only personas that chat with Lobster and publish under a public handle
           (e.g. @nowlobster for live market commentary, @macrolobster for rates / the
           curve, @yololobster for high risk / high reward). Generate opens Chat with the
           persona loaded — successful answers
@@ -447,7 +447,7 @@ export default function BotsPage() {
                 onChange={(value) => setForm((prev) => ({ ...prev, system_prompt_extra: value.slice(0, 1_000) }))}
                 isDisabled={busy}
                 rows={6}
-                description={`Appended to the base Copilot prompt — ${form.system_prompt_extra.length}/1000 characters.`}
+                description={`Appended to the base chat prompt — ${form.system_prompt_extra.length}/1000 characters.`}
               />
               <TextArea
                 label="Seed prompts"
@@ -491,7 +491,7 @@ export default function BotsPage() {
                 <section className="bots-generate" aria-label="Schedule">
                   <Heading level={3}>Schedule</Heading>
                   <Text type="supporting">
-                    Server-side Copilot runs on a cadence (cron wakes due rows). Market-gated
+                    Server-side chat runs on a cadence (cron wakes due rows). Market-gated
                     schedules only fire during the US session — use force to test after hours.
                     @nowlobster, @macrolobster, and @yololobster ship with hourly market-hours schedules.
                   </Text>
@@ -551,7 +551,7 @@ export default function BotsPage() {
                 <section className="bots-generate" aria-label="Generate chat">
                   <Heading level={3}>Generate chat</Heading>
                   <Text type="supporting">
-                    Opens Copilot as @{selected} with a prompt that has not already been used
+                    Opens Chat as @{selected} with a prompt that has not already been used
                     in a prior run. Leave blank to take the next unused seed or invent a new
                     question. Successful answers auto-share to the timeline as this bot.
                   </Text>
@@ -565,7 +565,7 @@ export default function BotsPage() {
                   />
                   <Button
                     variant="primary"
-                    label={busy ? 'Starting…' : 'Generate with Copilot'}
+                    label={busy ? 'Starting…' : 'Generate with Chat'}
                     isDisabled={busy}
                     onClick={() => { void generate(); }}
                   />

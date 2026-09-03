@@ -133,8 +133,8 @@ export function isAutoDerivedTitle(stored: string | null | undefined, firstUser:
   return false;
 }
 
-export function copilotAgentChatId(pathname: string): string | null {
-  const match = pathname.match(/^\/agents\/copilot-agent\/([^/]+)/);
+export function chatAgentChatId(pathname: string): string | null {
+  const match = pathname.match(/^\/agents\/copilot-agent\/([^/]+)/) /* historical Agents route */;
   if (!match) return null;
   try {
     return parseChatId(decodeURIComponent(match[1]));
@@ -237,15 +237,15 @@ function coerceTranscriptMessages(value: unknown): Record<string, unknown>[] {
 }
 
 /**
- * Gate CopilotAgent HTTP/WebSocket access. Returns a Response to send (401/403)
+ * Gate CopilotAgent HTTP/WebSocket access (historical DO class name). Returns a Response to send (401/403)
  * or null to allow the request through. Unowned chats are UUID-capability.
  * Session is loaded only after we know the chat is owned.
  */
-export async function authorizeCopilotAgent(
+export async function authorizeChatAgent(
   env: { SCHEMA_DB: D1Database; BETTER_AUTH_SECRET?: string; GOOGLE_CLIENT_ID?: string; GOOGLE_CLIENT_SECRET?: string },
   req: Request,
 ): Promise<Response | null> {
-  const chatId = copilotAgentChatId(new URL(req.url).pathname);
+  const chatId = chatAgentChatId(new URL(req.url).pathname);
   if (!chatId) return null;
   const owner = await ownerOf(env.SCHEMA_DB, chatId);
   if (!owner) return null;

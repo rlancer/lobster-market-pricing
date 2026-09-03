@@ -11,7 +11,7 @@ import {
   suggestionKey,
   unrealizedPnl,
 } from "../src/paper-portfolio.ts";
-import type { SuggestedTrade, TradeLeg } from "../src/copilot-trades.ts";
+import type { SuggestedTrade, TradeLeg } from "../src/chat-trades.ts";
 
 test("quoteMid prefers two-sided bid/ask", () => {
   assert.equal(quoteMid(1, 3, 9), 2);

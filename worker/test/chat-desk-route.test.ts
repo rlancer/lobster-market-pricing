@@ -5,7 +5,7 @@ import {
   questionWantsMacro,
   questionWantsRisk,
   selectDeskSpecialists,
-} from "../src/copilot-desk-route.ts";
+} from "../src/chat-desk-route.ts";
 
 test("extractMentionedSymbols finds $tickers and bare macro ETFs", () => {
   assert.ok(extractMentionedSymbols("look at $GME options").includes("GME"));

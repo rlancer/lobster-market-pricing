@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
-// Share-chat e2e: turn a real Copilot conversation into a public unlisted
+// Share-chat e2e: turn a real chat conversation into a public unlisted
 // link and read it back exactly as a recipient would.
 //   - Before any user message the Share button is disabled (aria-disabled).
 //   - After the first user message is submitted, Share enables (answer not
@@ -39,7 +39,7 @@ async function lastAnswer(page: Page, busyTimeout = 280_000): Promise<string> {
   await expect(page.locator('.ai-busy')).toBeHidden({ timeout: busyTimeout });
   const err = page.locator('.ai-msg.ai-assistant .ai-err').last();
   if (await err.count()) {
-    throw new Error(`Copilot returned an error instead of an answer: ${(await err.innerText()).trim()}`);
+    throw new Error(`Chat returned an error instead of an answer: ${(await err.innerText()).trim()}`);
   }
   const bubble = page.locator('.ai-msg.ai-assistant .ai-bubble .ai-text').last();
   await expect(bubble).toBeAttached();

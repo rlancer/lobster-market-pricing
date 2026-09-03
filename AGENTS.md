@@ -133,7 +133,7 @@ the branch redeploys the same URL.
 **Stable dev URL** — every dev build is also deployed to the project's
 production branch (`dev`), i.e. `https://robs-options-slop-dev.pages.dev/`.
 That URL is constant and gets clobbered by each deploy (no stable history).
-Anonymous Copilot works there. Optional Google login needs the shared parent
+Anonymous Chat works there. Optional Google login needs the shared parent
 domain (`https://dev.lobster.mp` → `https://api-dev.lobster.mp`) so the
 HttpOnly session cookie on `.lobster.mp` can ride; `pages.dev` is a different
 site and SameSite=Lax will not send it.
@@ -229,7 +229,7 @@ not leave stale ones around. The rule:
 
 ## Repo map
 
-- `frontend/` — Vite + React UI (Copilot, market screener, research, SQL lab,
+- `frontend/` — Vite + React UI (Chat, market screener, research, SQL lab,
   monitor, docs portal).
 - `worker/` — Cloudflare Worker backend: Iceberg lake over R2 SQL → JSON
   (`/api/*`), plus the `/loader/*` pass-through.

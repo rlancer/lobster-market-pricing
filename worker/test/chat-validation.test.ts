@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateSqlSchema, type LakeTable } from '../src/copilot-sql.ts';
+import { validateSqlSchema, type LakeTable } from '../src/chat-sql.ts';
 
 const tables: LakeTable[] = [
   {
@@ -110,7 +110,7 @@ test('real lake FROM still validates cleanly', () => {
 });
 
 test('applyColumnSynonyms rewrites symbol→ticker on underlying_snapshots', async () => {
-  const { applyColumnSynonyms } = await import('../src/copilot-sql.ts');
+  const { applyColumnSynonyms } = await import('../src/chat-sql.ts');
   const snapTables: LakeTable[] = [
     {
       name: 'underlying_snapshots',

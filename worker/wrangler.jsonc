@@ -19,6 +19,7 @@
       "5 * * * *"
     ]
   },
+  // CopilotAgent name is historical — live DO storage is keyed by this class name.
   "durable_objects": {
     "bindings": [
       { "name": "CopilotAgent", "class_name": "CopilotAgent" }
@@ -82,7 +83,8 @@
       "triggers": {
         "crons": []
       },
-      "durable_objects": {
+      // CopilotAgent name is historical — live DO storage is keyed by this class name.
+  "durable_objects": {
         "bindings": [
           { "name": "CopilotAgent", "class_name": "CopilotAgent" }
         ]

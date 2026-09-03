@@ -3,10 +3,10 @@
  * @yololobster. Separate from signed-in paper cash accounts (no user_id / cash).
  */
 
-import type { SuggestedTrades, TradeLeg } from "./copilot-trades";
-import { formatTradeLeg, normalizeSuggestedTrades } from "./copilot-trades";
+import type { SuggestedTrades, TradeLeg } from "./chat-trades";
+import { formatTradeLeg, normalizeSuggestedTrades } from "./chat-trades";
 import { tradesFromToolArgs } from "./admin-trades";
-import { parseToolArgsJson } from "./copilot-tool-events";
+import { parseToolArgsJson } from "./chat-tool-events";
 import {
   markIsFresh,
   markStructure,
@@ -647,7 +647,7 @@ function money(n: number | null | undefined): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 }
 
-/** Compact text for Copilot tool output. */
+/** Compact text for Chat tool output. */
 export function formatBotTradesSummary(book: BotTradesBook): string {
   const { summary, positions, bot_handle } = book;
   const lines = [

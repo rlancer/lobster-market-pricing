@@ -61,7 +61,7 @@ import {
   updateBotRun,
 } from "./bots";
 import { chartFitsResult, type ChartSpec } from "./chart-spec";
-import { createCopilotModel } from "./copilot-contract";
+import { createChatModel } from "./chat-contract";
 import { parseNotebookProbeBody, runNotebookProbe } from "./notebook-probe";
 import {
   EXPERIMENT_RUN_SCHEMA_VERSION,
@@ -73,12 +73,12 @@ import {
   saveExperimentRun,
 } from "./experiment-runs";
 
-import { describeCopilotCapabilities } from "./copilot-capabilities";
-import { CopilotAgentBase } from "./copilot";
-import { normalizeDeskBrief, type DeskBrief } from "./copilot-desk";
-import { normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+import { describeChatCapabilities } from "./chat-capabilities";
+import { CopilotAgentBase } from "./chat-agent";
+import { normalizeDeskBrief, type DeskBrief } from "./chat-desk";
+import { normalizeSuggestedTrades, type SuggestedTrades } from "./chat-trades";
 import { coalesceAssistantMessageRecords } from "./share-turns";
-import { applyColumnSynonyms } from "./copilot-sql";
+import { applyColumnSynonyms } from "./chat-sql";
 import { AVATAR_MAX_BYTES, clearAvatar, putAvatar, serveAvatar } from "./avatars";
 import { getHandle, getUserProfile, profilePublicFields, suggestHandle, updateProfile } from "./profiles";
 import {
@@ -95,7 +95,7 @@ import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
-  authorizeCopilotAgent,
+  authorizeChatAgent,
   applyGeneratedChatTitle,
   claimChat,
   deleteChat,
@@ -125,7 +125,7 @@ import {
   listToolEvents,
   parseToolEventListQuery,
   purgeExpiredToolEvents,
-} from "./copilot-tool-events";
+} from "./chat-tool-events";
 import { listChatTickers, listSecurityChats } from "./chat-tickers";
 import { loadChatRail } from "./timeline-rail";
 import {
@@ -752,7 +752,7 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
 // ---------------------------------------------------------------------------
 // The schema payload is expensive to compute: SHOW TABLES, then per table
 // DESCRIBE + COUNT(*) + a 3-row sample — several R2 SQL round trips against
-// the lake (~8s). The AI copilot loads it on every chat question and the SQL
+// the lake (~8s). Chat loads it on every chat question and the SQL
 // Lab sidebar on every mount, so users must NEVER block on that compute: fresh
 // rows serve immediately, stale rows serve the cached payload instantly while
 // a background refresh (ctx.waitUntil) recomputes, and a throttled background
@@ -777,7 +777,7 @@ interface LakeTable {
 }
 
 // Lake tables that must NEVER surface to users: options.chat_history holds
-// full Copilot transcripts (admin-only by design). Excluded here from the
+// full chat transcripts (admin-only by design). Excluded here from the
 // /api/tables payload AND from the background change-probe's name diff (both
 // sides must compare the same filtered set or the probe would see a permanent
 // mismatch and churn a refresh every interval). /api/query separately blocks
@@ -1027,7 +1027,7 @@ async function notebookPremium(env: Env, p: {
 // ---------------------------------------------------------------------------
 // News — /api/news (Tavily news search proxy)
 // ---------------------------------------------------------------------------
-// Narrative half of "why is this moving" for the AI copilot: per-ticker
+// Narrative half of "why is this moving" for Chat: per-ticker
 // headlines via Tavily's licensed news-search API. The worker holds the
 // TAVILY_API_KEY secret (server-side — never reaches the browser, unlike the
 // unofficial Yahoo/Bing RSS endpoints it replaces). Tavily returns
@@ -1266,7 +1266,7 @@ async function ivRank(env: Env, symbolIn: string | null, daysIn: number): Promis
 // Macro / economic calendar — /api/econ_calendar
 // ---------------------------------------------------------------------------
 // "Binary-event weeks" (FOMC, CPI, jobs, PCE) lift broad implied vol, so the
-// Copilot gets the upcoming scheduled releases. With FRED_API_KEY set, the
+// Chat gets the upcoming scheduled releases. With FRED_API_KEY set, the
 // endpoint matches the curated high-impact macro release names (exact —
 // see below) from FRED's releases/dates API and merges in FOMC/Beige events
 // from the Fed's keyless calendar JSON (FRED emits daily placeholders for
@@ -1423,7 +1423,7 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 
 
 // ---------------------------------------------------------------------------
-// Copilot chat history — capture + admin-only read
+// chat history — capture + admin-only read
 // ---------------------------------------------------------------------------
 // The browser posts each completed chat turn to POST /api/chat/history; the
 // worker normalizes it and publishes one record per turn to the
@@ -1435,7 +1435,7 @@ function sortedUnique(arr: string[]): string[] { return Array.from(new Set(arr))
 // Access control. The table is PRIVATE: it is excluded from /api/tables (see
 // PRIVATE_LAKE_TABLES above) and /api/query refuses any SQL referencing it
 // unless the request carries the admin token. The only lake read path is
-// GET /api/admin/chat_history (session admin or Bearer ADMIN_TOKEN). Failed Copilot tool calls
+// GET /api/admin/chat_history (session admin or Bearer ADMIN_TOKEN). Failed Chat tool calls
 // are NOT in the lake — they live in D1 `copilot_tool_events` and are read via
 // the public GET /api/tool_calls (capped args/errors/SQL only; no ip/user_id).
 // No admin UI; the endpoints are the admin/debug surface.
@@ -1676,7 +1676,7 @@ async function saveChatHistory(env: Env, ctx: ExecutionContext, req: Request): P
       await touchUserChat(env.SCHEMA_DB, user.id, chatId, titleFromMessages(messages));
       if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return;
       try {
-        const model = createCopilotModel(
+        const model = createChatModel(
           { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
           new URL(req.url).origin,
         );
@@ -1784,7 +1784,7 @@ async function adminChatHistory(
 
 
 // ---------------------------------------------------------------------------
-// Copilot chat shares — public unlisted transcripts in D1
+// chat shares — public unlisted transcripts in D1
 // ---------------------------------------------------------------------------
 // POST /api/share/chat snapshots a conversation (the same ChatHistoryRecord
 // shape the lake capture uses, normalized by the SAME pass-1 normalizer) into
@@ -2189,7 +2189,7 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
   // real title (clipTitle remains the fallback if OpenRouter is down).
   if (env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()) {
     try {
-      const model = createCopilotModel(
+      const model = createChatModel(
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
         new URL(req.url).origin,
       );
@@ -2231,7 +2231,7 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
   let botModerationReject: string | null = null;
   let pendingBotImprovement: {
     moderation: Awaited<ReturnType<typeof moderateTimelineShare>>;
-    model: ReturnType<typeof createCopilotModel> | null;
+    model: ReturnType<typeof createChatModel> | null;
     handle: string;
     publicOrigin: string;
   } | null = null;
@@ -2250,7 +2250,7 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
     // Bot shares auto-list on the timeline — run the same quality gate as
     // human publish / headless mint before stamping bot_handle.
     const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
-      ? createCopilotModel(
+      ? createChatModel(
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
         new URL(req.url).origin,
       )
@@ -2442,7 +2442,7 @@ async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): 
     && env.COPILOT_MODEL?.trim()
   ) {
     try {
-      const model = createCopilotModel(
+      const model = createChatModel(
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
         "https://lobster.mp",
       );
@@ -2507,7 +2507,7 @@ async function handleShareEl5Get(env: Env, req: Request, shareId: string): Promi
       modelName: env.COPILOT_MODEL ?? null,
       createModel: () => {
         if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
-        return createCopilotModel(
+        return createChatModel(
           { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
           origin,
         );
@@ -2522,6 +2522,7 @@ async function handleShareEl5Get(env: Env, req: Request, shareId: string): Promi
   }
 }
 
+/** Historical Durable Object class name — do not rename (live DO storage + wrangler binding). */
 export class CopilotAgent extends CopilotAgentBase<Env> {
   /**
    * Remember the signed-in user on this DO so suggest_trades can open paper
@@ -2576,7 +2577,7 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
     return researchTickerForAgent(this.env, symbol, opts);
   }
 
-  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
+  /** Open paper positions for the signed-in chat owner when Chat suggests trades. */
   protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
     const chatId = typeof this.name === "string" ? this.name : "";
     if (!chatId || !this.env.SCHEMA_DB) return null;
@@ -3350,7 +3351,7 @@ async function handleResearchCommentaryGet(env: Env, req: Request, tickerRaw: st
       ...researchDepsFor(env),
       createModel: () => {
         if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
-        return createCopilotModel(
+        return createChatModel(
           { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
           origin,
         );
@@ -3377,7 +3378,7 @@ async function handleResearchEarningsGet(env: Env, req: Request, tickerRaw: stri
       loadFilings: (t) => loadResearchFilings(env, t, 12),
       createModel: () => {
         if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
-        return createCopilotModel(
+        return createChatModel(
           { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
           origin,
         );
@@ -3605,7 +3606,7 @@ async function handleAvatarGet(env: Env, req: Request, path: string): Promise<Re
  *
  * Generate returns a fresh chat_id + a prompt that has not already been used
  * on a prior run for that bot (unused seed, or LLM invent). The admin UI opens
- * Copilot as that persona and auto-sends. Sharing with bot_handle stamps the
+ * Chat as that persona and auto-sends. Sharing with bot_handle stamps the
  * public timeline attribution.
  */
 async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionContext): Promise<Response | null> {
@@ -3764,7 +3765,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     return json(env, result, 200, "private");
   }
 
-  if (path === "/api/admin/copilot/capabilities" && req.method === "GET") {
+  if ((path === "/api/admin/chat/capabilities" || path === "/api/admin/copilot/capabilities") && req.method === "GET") {
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     const q = new URL(req.url).searchParams;
@@ -3775,7 +3776,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       : await schemaTables(env, ctx, false);
     return json(
       env,
-      describeCopilotCapabilities({
+      describeChatCapabilities({
         tables,
         includeSamples,
       }),
@@ -3851,11 +3852,11 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     if (!prompt) {
       if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) {
         return json(env, {
-          error: "all seed prompts were already used — add a new seed, pass a unique prompt, or configure Copilot to invent one",
+          error: "all seed prompts were already used — add a new seed, pass a unique prompt, or configure Chat to invent one",
         }, 400, "private");
       }
       const origin = new URL(req.url).origin;
-      const model = createCopilotModel(
+      const model = createChatModel(
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
         origin,
       );
@@ -4142,7 +4143,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   if (path === "/api/econ_calendar")
     return json(env, await econCalendar(env, q.get("days") ? num(q.get("days")) : ECON_DEFAULT_DAYS));
   if (path === "/api/tables") return json(env, await schemaTables(env, ctx, q.get("force") === "1"));
-  // Copilot chat is served exclusively by CopilotAgent at
+  // Chat is served exclusively by CopilotAgent (historical DO class name) at
   // /agents/copilot-agent/:conversation-id.
 
   if (path === "/api/notebook/premium")
@@ -4236,7 +4237,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
       return json(env, { error: "query references a private table" }, 403);
     }
     // Normalize ticker↔symbol against the live DESCRIBE cache so SQL Lab and
-    // hand-written queries hit the same synonym rewrite Copilot uses.
+    // hand-written queries hit the same synonym rewrite Chat uses.
     try {
       const tables = await schemaTables(env, ctx, false);
       sql = applyColumnSynonyms(sql, tables).sql;
@@ -4331,7 +4332,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     );
   }
 
-  // Copilot chat history: capture (open, best-effort) + admin-only read.
+  // chat history: capture (open, best-effort) + admin-only read.
   if (path === "/api/chat/history" && req.method === "POST")
     return await saveChatHistory(env, ctx, req);
   if (path === "/api/admin/chat_history" && req.method === "GET") {
@@ -4344,7 +4345,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
       "private",
     );
   }
-  // Copilot tool-call debug log (D1). Public — payloads are capped tool
+  // Chat tool-call debug log (D1). Public — payloads are capped tool
   // args/errors/SQL, not transcripts or abuse metadata. Omitting ok defaults
   // to failures; pass ok=all for every outcome. share_id resolves the
   // originating chat so a share URL is enough to debug.
@@ -4374,7 +4375,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     );
   }
 
-  // Copilot chat shares: create (open, user-requested) + public read. The id
+  // chat shares: create (open, user-requested) + public read. The id
   // IS the capability — no auth, and unknown ids 404 identically to expired.
   if (path === "/api/share/chat" && req.method === "POST")
     return await createShare(env, req, ctx);
@@ -4403,7 +4404,7 @@ export default {
       return withCors(env, req, await auth.handler(req));
     }
     try {
-      const denied = await authorizeCopilotAgent(env, req);
+      const denied = await authorizeChatAgent(env, req);
       if (denied) return withCors(env, req, denied);
       const agentResponse = await routeAgentRequest(req, env);
       if (agentResponse) return agentResponse.status === 101 ? agentResponse : withCors(env, req, agentResponse);

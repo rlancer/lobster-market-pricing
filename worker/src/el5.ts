@@ -1,5 +1,5 @@
 /**
- * EL5 — quick plain-English summary of a public shared Copilot post.
+ * EL5 — quick plain-English summary of a public shared chat post.
  *
  * First viewer pays for one OpenRouter call; later viewers read D1.
  * source_hash (SHA-256 of the compact transcript) invalidates the cache
@@ -9,7 +9,7 @@
 import { generateText, type LanguageModel } from "ai";
 
 export const EL5_SYSTEM = [
-  "You write a quick plain-English summary of one Lobster MP Copilot post.",
+  "You write a quick plain-English summary of one Lobster MP chat post.",
   "Audience: adults with basic market knowledge. Do not define well-known companies, tickers, or everyday finance words (e.g. do not say NVIDIA is a company, or explain what a stock is).",
   "Only gloss dense jargon when it actually appears (IV, DTE, delta, ATM/ITM/OTM, premium, short interest, Kalshi YES/NO, greeks) — one short clause, no kid analogies.",
   "Keep tickers, key numbers, dates, and the conclusion. Skip play-by-play, desk section dumps, and filler. Do not invent trades, fills, or news.",
@@ -247,7 +247,7 @@ export async function generateEl5Text(
       model,
       system: EL5_SYSTEM,
       prompt: [
-        "Summarize this Copilot post in plain English for an adult with basic market knowledge. Be brief.",
+        "Summarize this chat post in plain English for an adult with basic market knowledge. Be brief.",
         "",
         source,
       ].join("\n"),

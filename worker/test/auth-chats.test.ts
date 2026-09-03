@@ -3,7 +3,7 @@ import test from "node:test";
 import { cookieDomainFor, isTrustedOrigin, trustedOrigins } from "../src/auth.ts";
 import {
   clipTitle,
-  copilotAgentChatId,
+  chatAgentChatId,
   compareUserChats,
   historyTitle,
   parseChatId,
@@ -21,12 +21,12 @@ test("parseChatId accepts UUIDs and rejects junk", () => {
   assert.equal(parseChatId(null), null);
 });
 
-test("copilotAgentChatId reads the Agent instance name", () => {
+test("chatAgentChatId reads the Agent instance name", () => {
   const id = "3b1d0a2e-7c4f-4a11-9f2d-8e6c1b0a9d77";
-  assert.equal(copilotAgentChatId(`/agents/copilot-agent/${id}`), id);
-  assert.equal(copilotAgentChatId(`/agents/copilot-agent/${id}/get-messages`), id);
-  assert.equal(copilotAgentChatId("/api/chats"), null);
-  assert.equal(copilotAgentChatId("/agents/copilot-agent/nope"), null);
+  assert.equal(chatAgentChatId(`/agents/copilot-agent/${id}`), id);
+  assert.equal(chatAgentChatId(`/agents/copilot-agent/${id}/get-messages`), id);
+  assert.equal(chatAgentChatId("/api/chats"), null);
+  assert.equal(chatAgentChatId("/agents/copilot-agent/nope"), null);
 });
 
 test("historyTitle rejects blank titles so Untitled shells stay out of the list", () => {

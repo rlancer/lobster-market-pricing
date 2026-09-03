@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isStepCount, streamText, tool } from 'ai';
 import {
-  COPILOT_TOOL_INPUT_SCHEMAS,
-  createCopilotModel,
-} from '../src/copilot-contract.ts';
+  CHAT_TOOL_INPUT_SCHEMAS,
+  createChatModel,
+} from '../src/chat-contract.ts';
 
 function sse(events: unknown[]): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -71,7 +71,7 @@ function finalStep(): Response {
   ]);
 }
 
-test('OpenRouter request and UI stream preserve Copilot contracts', async () => {
+test('OpenRouter request and UI stream preserve Chat contracts', async () => {
   const requests: { url: string; headers: Headers; body: Record<string, unknown> }[] = [];
   let call = 0;
   const mockFetch: typeof fetch = async (input, init) => {
@@ -87,25 +87,25 @@ test('OpenRouter request and UI stream preserve Copilot contracts', async () => 
   const tools = {
     run_query: tool({
       description: 'Execute a lake query.',
-      inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
+      inputSchema: CHAT_TOOL_INPUT_SCHEMAS.run_query,
       execute: async ({ sql }) => ({ ok: true, sql, rows: [{ value: 1 }] }),
     }),
-    check_schema: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema, execute: async () => ({ ok: true }) }),
-    list_frames: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.list_frames, execute: async () => ({ ok: true }) }),
-    filter_frame: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame, execute: async () => ({ ok: true }) }),
-    refresh_frame: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.refresh_frame, execute: async () => ({ ok: true }) }),
-    render_chart: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart, execute: async () => ({ ok: true }) }),
-    get_news: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news, execute: async () => ({ ok: true }) }),
-    web_search: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search, execute: async () => ({ ok: true }) }),
-    eco_calendar: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar, execute: async () => ({ ok: true }) }),
-    research_ticker: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker, execute: async () => ({ ok: true }) }),
-    publish_desk: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk, execute: async () => ({ ok: true }) }),
-    suggest_trades: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.suggest_trades, execute: async () => ({ ok: true }) }),
-    get_paper_portfolio: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_paper_portfolio, execute: async () => ({ ok: true }) }),
-    get_portfolio: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_portfolio, execute: async () => ({ ok: true }) }),
-    get_bot_trades: tool({ inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_bot_trades, execute: async () => ({ ok: true }) }),
+    check_schema: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.check_schema, execute: async () => ({ ok: true }) }),
+    list_frames: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.list_frames, execute: async () => ({ ok: true }) }),
+    filter_frame: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.filter_frame, execute: async () => ({ ok: true }) }),
+    refresh_frame: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.refresh_frame, execute: async () => ({ ok: true }) }),
+    render_chart: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.render_chart, execute: async () => ({ ok: true }) }),
+    get_news: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_news, execute: async () => ({ ok: true }) }),
+    web_search: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.web_search, execute: async () => ({ ok: true }) }),
+    eco_calendar: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.eco_calendar, execute: async () => ({ ok: true }) }),
+    research_ticker: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.research_ticker, execute: async () => ({ ok: true }) }),
+    publish_desk: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.publish_desk, execute: async () => ({ ok: true }) }),
+    suggest_trades: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.suggest_trades, execute: async () => ({ ok: true }) }),
+    get_paper_portfolio: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_paper_portfolio, execute: async () => ({ ok: true }) }),
+    get_portfolio: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_portfolio, execute: async () => ({ ok: true }) }),
+    get_bot_trades: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_bot_trades, execute: async () => ({ ok: true }) }),
   };
-  const model = createCopilotModel(
+  const model = createChatModel(
     { OPEN_ROUTER_KEY: 'server-secret', COPILOT_MODEL: modelSlug },
     'https://example.pages.dev',
     mockFetch,
@@ -130,7 +130,7 @@ test('OpenRouter request and UI stream preserve Copilot contracts', async () => 
   assert.deepEqual(requests[0].body.reasoning, { effort: 'high' });
 
   const requestTools = requests[0].body.tools as Array<{ function: { name: string; parameters: unknown } }>;
-  assert.deepEqual(requestTools.map((entry) => entry.function.name).sort(), Object.keys(COPILOT_TOOL_INPUT_SCHEMAS).sort());
+  assert.deepEqual(requestTools.map((entry) => entry.function.name).sort(), Object.keys(CHAT_TOOL_INPUT_SCHEMAS).sort());
   assert.ok(requestTools.every((entry) => entry.function.parameters && typeof entry.function.parameters === 'object'));
 
   const types = chunks.map((chunk) => chunk.type);

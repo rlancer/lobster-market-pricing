@@ -1,8 +1,8 @@
 /**
- * Pure Copilot agent-loop policy (toolChoice / activeTools).
+ * Pure Chat agent-loop policy (toolChoice / activeTools).
  *
  * Kept free of Workers-runtime imports so it is unit-testable in plain Node.
- * Copilot historically forced `run_query` until one query succeeded; models
+ * Chat historically forced `run_query` until one query succeeded; models
  * then burned the whole 10-step budget on bare probes like `SELECT 1` /
  * `SELECT 'test' AS t` (chat c7d67546…, 2026-08-16). After a small number of
  * failures we stop forcing tools so the turn can close in prose.
@@ -41,7 +41,7 @@ export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 5;
  */
 export const AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK = 2;
 
-export type CopilotToolChoice =
+export type ChatToolChoice =
   | "auto"
   | "none"
   | {
@@ -54,7 +54,7 @@ export type CopilotToolChoice =
       | "get_portfolio";
   };
 
-export type CopilotActiveToolName =
+export type ChatActiveToolName =
   | "run_query"
   | "filter_frame"
   | "check_schema"
@@ -71,14 +71,14 @@ export type CopilotActiveToolName =
   | "get_portfolio"
   | "get_bot_trades";
 
-export interface CopilotStepPolicy {
-  toolChoice: CopilotToolChoice;
+export interface ChatStepPolicy {
+  toolChoice: ChatToolChoice;
   /** When set, restricts which tools the model may call this step. */
-  activeTools?: CopilotActiveToolName[];
+  activeTools?: ChatActiveToolName[];
   maxOutputTokens: number;
 }
 
-export function nextCopilotStepPolicy(opts: {
+export function nextChatStepPolicy(opts: {
   stepNumber: number;
   remainingTokens: number;
   successfulQuery: boolean;
@@ -110,7 +110,7 @@ export function nextCopilotStepPolicy(opts: {
   /** Failed suggest_trades attempts this turn (incomplete payload, etc.). */
   failedTradesCount?: number;
   tradesForceFailuresMax?: number;
-}): CopilotStepPolicy {
+}): ChatStepPolicy {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
   const portfolioForceFailuresMax = opts.portfolioForceFailuresMax ?? PORTFOLIO_FORCE_FAILURES_MAX;
@@ -119,7 +119,7 @@ export function nextCopilotStepPolicy(opts: {
   const autoBeforeDesk = opts.autoStepsBeforeDesk ?? AUTO_STEPS_AFTER_QUERY_BEFORE_DESK;
   const remaining = opts.remainingTokens;
   if (remaining < 256) {
-    throw new Error("Copilot output-token budget exhausted before a final answer");
+    throw new Error("Chat output-token budget exhausted before a final answer");
   }
 
   // Last step: always seal a prose answer (no tools).

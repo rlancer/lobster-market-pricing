@@ -10,7 +10,7 @@ import {
   type UIMessage,
 } from "ai";
 import { chartFitsResult, resolveColumn } from "./chart-spec";
-import { COPILOT_TOOL_DESCRIPTIONS, COPILOT_TOOL_INPUT_SCHEMAS, COPILOT_TOOL_LABELS, FRAME_QUERY_LIMIT, LAST_FRAME_NAME, createCopilotModel } from "./copilot-contract";
+import { CHAT_TOOL_DESCRIPTIONS, CHAT_TOOL_INPUT_SCHEMAS, CHAT_TOOL_LABELS, FRAME_QUERY_LIMIT, LAST_FRAME_NAME, createChatModel } from "./chat-contract";
 import {
   MAX_TOOL_SUMMARY_CHARS,
   buildFrameSummary,
@@ -19,27 +19,27 @@ import {
   summarizeResult,
   type FrameColumnSketch,
   type FrameQueryArgs,
-} from "./copilot-frames";
+} from "./chat-frames";
 import {
   SCOPE_REJECTED_ERROR,
   classifyFinanceScope,
   latestUserText,
-} from "./copilot-scope";
-import { insertToolEvent, purgeExpiredToolEvents } from "./copilot-tool-events";
+} from "./chat-scope";
+import { insertToolEvent, purgeExpiredToolEvents } from "./chat-tool-events";
 import {
   AGENT_ITERATIONS_MAX,
   AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK,
   AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
   QUERY_FORCE_FAILURES_MAX,
-  nextCopilotStepPolicy,
-} from "./copilot-loop";
-import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./copilot-sql";
-import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskBriefInput, type DeskViewpointId } from "./copilot-desk";
-import { selectDeskSpecialists } from "./copilot-desk-route";
-import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+  nextChatStepPolicy,
+} from "./chat-loop";
+import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./chat-sql";
+import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskBriefInput, type DeskViewpointId } from "./chat-desk";
+import { selectDeskSpecialists } from "./chat-desk-route";
+import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./chat-trades";
 import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { formatBotTradesSummary } from "./bot-trades";
-import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
+import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./chat-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { parseAttachmentsFromBody } from "./chat-attachments";
 import { interruptedPortfolioGrounding, finishPortfolioStepsAfterQuerySeed } from "./interrupted-portfolio";
@@ -52,12 +52,12 @@ import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type Sh
 import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
 import { stripLeakedToolMarkup } from "./tool-markup";
 
-export type { BotPromptProfile } from "./copilot-prompt";
-export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./copilot-prompt";
-export type { DeskBrief } from "./copilot-desk";
-export type { SuggestedTrades } from "./copilot-trades";
+export type { BotPromptProfile } from "./chat-prompt";
+export { SCHEMA_PLACEHOLDER, schemaToPrompt, systemPrompt } from "./chat-prompt";
+export type { DeskBrief } from "./chat-desk";
+export type { SuggestedTrades } from "./chat-trades";
 
-export interface CopilotEnv extends Cloudflare.Env {
+export interface ChatEnv extends Cloudflare.Env {
   SCHEMA_DB: D1Database;
 }
 
@@ -150,7 +150,7 @@ interface ToolOutput {
   trades?: SuggestedTrades | null;
 }
 
-interface CopilotMetadata {
+interface ChatMetadata {
   model: string;
   createdAt: number;
   /** True when this assistant turn is the finance-scope gate rejection (not model prose). */
@@ -163,12 +163,12 @@ interface CopilotMetadata {
   trades?: SuggestedTrades | null;
 }
 
-type CopilotData = Record<string, unknown> & {
+type ChatData = Record<string, unknown> & {
   status: { status: string };
   scope: { locked: boolean };
 };
 
-type CopilotMessage = UIMessage<CopilotMetadata, CopilotData>;
+type ChatMessage = UIMessage<ChatMetadata, ChatData>;
 type SqlValue = string | number | boolean | null;
 
 const QUESTION_MAX_CHARS = 4_000;
@@ -185,8 +185,8 @@ const MAX_FRAME_ROWS = 100_000;
 const RESULT_PERSIST_MAX_ROWS = 200;
 const CONVERSATION_RETENTION_DAYS = 30;
 
-/** @deprecated Prefer COPILOT_TOOL_LABELS from copilot-contract — kept for existing imports. */
-export const TOOL_LABELS: Record<string, string> = { ...COPILOT_TOOL_LABELS };
+/** @deprecated Prefer CHAT_TOOL_LABELS from chat-contract — kept for existing imports. */
+export const TOOL_LABELS: Record<string, string> = { ...CHAT_TOOL_LABELS };
 
 function positiveInt(value: string | undefined, fallback: number, max: number): number {
   const n = Number(value);
@@ -230,7 +230,8 @@ function normalizeReasoningEffort(value: string): "xhigh" | "high" | "medium" | 
  * Shared AIChatAgent implementation. The concrete Worker class supplies the
  * existing lake/news/search/calendar business helpers without HTTP self-calls.
  */
-export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent<E> {
+/** Base for CopilotAgent — class/route names are historical Cloudflare DO bindings. */
+export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E> {
   override messageConcurrency = "queue" as const;
   override maxPersistedMessages = 100;
   /**
@@ -317,7 +318,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     return Promise.resolve(null);
   }
 
-  private ensureCopilotSchema(): void {
+  private ensureChatSchema(): void {
     this.sql`CREATE TABLE IF NOT EXISTS frames (
       name TEXT PRIMARY KEY,
       columns_json TEXT NOT NULL,
@@ -333,7 +334,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       PRIMARY KEY(frame_name, row_index)
     ) WITHOUT ROWID`;
     this.sql`CREATE INDEX IF NOT EXISTS frame_rows_name_idx ON frame_rows(frame_name)`;
-    this.sql`CREATE TABLE IF NOT EXISTS copilot_turn_budget (
+    this.sql`CREATE TABLE IF NOT EXISTS copilot_turn_budget /* historical DO sqlite name */ (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       turn_id TEXT NOT NULL,
       used_output_tokens INTEGER NOT NULL,
@@ -369,7 +370,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private isScopeLocked(): boolean {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     const row = this.sql<{ locked: number }>`
       SELECT locked FROM copilot_scope_lock WHERE singleton = 1 LIMIT 1
     `[0];
@@ -377,20 +378,20 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private lockScope(): void {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     this.sql`
       INSERT OR REPLACE INTO copilot_scope_lock (singleton, locked, locked_at)
       VALUES (1, 1, ${Date.now()})
     `;
   }
 
-  private scopeRejectedResponse(originalMessages: CopilotMessage[]): Response {
+  private scopeRejectedResponse(originalMessages: ChatMessage[]): Response {
     // MUST complete a normal assistant turn (start → text → finish), never
     // `{ type: "error" }`. An error chunk leaves the leaf as the user message,
     // and chatRecovery treats that as a lost-partial turn and retries forever.
     const messageId = crypto.randomUUID();
     const textId = crypto.randomUUID();
-    const stream = createUIMessageStream<CopilotMessage>({
+    const stream = createUIMessageStream<ChatMessage>({
       originalMessages,
       execute: ({ writer }) => {
         writer.write({ type: "data-scope", data: { locked: true }, transient: true });
@@ -477,7 +478,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
 
   @callable()
   async getFrameMetadata(): Promise<FrameMetadata[]> {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     return this.frameMetadata();
   }
 
@@ -488,7 +489,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
    */
   @callable()
   async getTurnCapture(): Promise<ShareCapture | null> {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     try {
       const budget = this.readTurnBudget();
       const raw = JSON.parse(budget.capture_json) as ShareCapture;
@@ -516,7 +517,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     model?: string | null;
     reasoning_effort?: string | null;
   }): Promise<{ ok: true; handle: string }> {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     const handle = String(profile.handle ?? "").trim().toLowerCase();
     const display_name = String(profile.display_name ?? "").trim();
     const persona = String(profile.persona ?? "").trim();
@@ -641,7 +642,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   private readBotSession(): (BotPromptProfile & { model: string | null; reasoning_effort: string | null }) | null {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     const row = this.sql<{
       handle: string;
       display_name: string;
@@ -758,7 +759,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       SELECT turn_id, used_output_tokens, total_output_tokens, successful_query, failed_query_count, capture_json
       FROM copilot_turn_budget WHERE singleton = 1
     `[0];
-    if (!row) throw new Error("Copilot turn budget is unavailable.");
+    if (!row) throw new Error("Chat turn budget is unavailable.");
     return { ...row, failed_query_count: row.failed_query_count ?? 0 };
   }
 
@@ -920,8 +921,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     ) => this.safeTool(toolName, label, args, capture, operation, status);
     return {
       run_query: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.run_query,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.run_query,
+        description: CHAT_TOOL_DESCRIPTIONS.run_query,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.run_query,
         execute: async ({ sql, save_as }) => runTool("run_query", TOOL_LABELS.run_query, { sql, save_as }, async () => {
           const normalized = applyColumnSynonyms(sql, tables);
           const issues = validateSqlSchema(normalized.sql, tables);
@@ -951,8 +952,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       check_schema: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.check_schema,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.check_schema,
+        description: CHAT_TOOL_DESCRIPTIONS.check_schema,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.check_schema,
         execute: async ({ sql }) => runTool("check_schema", TOOL_LABELS.check_schema, { sql }, () => {
           const normalized = applyColumnSynonyms(sql, tables);
           const issues = validateSqlSchema(normalized.sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
@@ -963,13 +964,13 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       list_frames: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.list_frames,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.list_frames,
+        description: CHAT_TOOL_DESCRIPTIONS.list_frames,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.list_frames,
         execute: async () => runTool("list_frames", TOOL_LABELS.list_frames, {}, () => this.output(true, this.frameCatalog(), { error: null, frames: this.frameMetadata() })),
       }),
       filter_frame: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.filter_frame,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.filter_frame,
+        description: CHAT_TOOL_DESCRIPTIONS.filter_frame,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.filter_frame,
         execute: async (args) => runTool("filter_frame", TOOL_LABELS.filter_frame, args, () => {
           const frame = this.getFrame(args.frame);
           if (!frame) return this.output(false, `No cached frame '${args.frame}'.`, { error: `No frame '${args.frame}'.` });
@@ -990,8 +991,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       refresh_frame: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.refresh_frame,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.refresh_frame,
+        description: CHAT_TOOL_DESCRIPTIONS.refresh_frame,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.refresh_frame,
         execute: async ({ frame: name }) => runTool("refresh_frame", TOOL_LABELS.refresh_frame, { frame: name }, async () => {
           const frame = this.getFrame(name);
           if (!frame) return this.output(false, `No cached frame '${name}'.`, { error: `No frame '${name}'.` });
@@ -1011,8 +1012,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       render_chart: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.render_chart,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.render_chart,
+        description: CHAT_TOOL_DESCRIPTIONS.render_chart,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.render_chart,
         execute: async (args) => runTool("render_chart", TOOL_LABELS.render_chart, args, () => {
           const result = capture.result;
           if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
@@ -1046,8 +1047,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       get_news: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.get_news,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_news,
+        description: CHAT_TOOL_DESCRIPTIONS.get_news,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_news,
         execute: async ({ symbol, limit }) => runTool("get_news", TOOL_LABELS.get_news, { symbol, limit }, async () => {
           const result = await this.fetchNews(symbol.toUpperCase(), limit);
           if (result.error) return this.output(false, `News temporarily unavailable: ${result.error}`, { error: result.error });
@@ -1056,8 +1057,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       web_search: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.web_search,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.web_search,
+        description: CHAT_TOOL_DESCRIPTIONS.web_search,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.web_search,
         execute: async ({ query, max_results }) => runTool("web_search", TOOL_LABELS.web_search, { query, max_results }, async () => {
           const result = await this.searchWeb(query, max_results);
           if (result.error) return this.output(false, `Web search temporarily unavailable: ${result.error}`, { error: result.error });
@@ -1066,8 +1067,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       eco_calendar: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.eco_calendar,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.eco_calendar,
+        description: CHAT_TOOL_DESCRIPTIONS.eco_calendar,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.eco_calendar,
         execute: async ({ days }) => runTool("eco_calendar", TOOL_LABELS.eco_calendar, { days }, async () => {
           const result = await this.fetchEconomicCalendar(days);
           if (result.error) return this.output(false, `Macro calendar temporarily unavailable: ${result.error}`, { error: result.error });
@@ -1076,8 +1077,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       research_ticker: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.research_ticker,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.research_ticker,
+        description: CHAT_TOOL_DESCRIPTIONS.research_ticker,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.research_ticker,
         execute: async ({ symbol, force }) => runTool("research_ticker", TOOL_LABELS.research_ticker, { symbol, force }, async () => {
           const chatId = typeof this.name === "string" ? this.name : undefined;
           const result = await this.researchTicker(symbol, { force, chatId });
@@ -1091,8 +1092,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       publish_desk: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.publish_desk,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.publish_desk,
+        description: CHAT_TOOL_DESCRIPTIONS.publish_desk,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.publish_desk,
         execute: async (args) => runTool("publish_desk", TOOL_LABELS.publish_desk, args, () => {
           status("Publishing desk viewpoints…");
           const desk = normalizeDeskBrief(args, { required: deskSpecialists });
@@ -1111,8 +1112,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       suggest_trades: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.suggest_trades,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.suggest_trades,
+        description: CHAT_TOOL_DESCRIPTIONS.suggest_trades,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.suggest_trades,
         execute: async (args) => runTool("suggest_trades", TOOL_LABELS.suggest_trades, args, async () => {
           status("Publishing suggested trades…");
           const trades = normalizeSuggestedTrades(args);
@@ -1160,8 +1161,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       get_paper_portfolio: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.get_paper_portfolio,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_paper_portfolio,
+        description: CHAT_TOOL_DESCRIPTIONS.get_paper_portfolio,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_paper_portfolio,
         execute: async (args) => runTool("get_paper_portfolio", TOOL_LABELS.get_paper_portfolio, args, async () => {
           status("Loading paper portfolio…");
           const statusFilter = args.status ?? "open";
@@ -1178,8 +1179,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       get_portfolio: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.get_portfolio,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_portfolio,
+        description: CHAT_TOOL_DESCRIPTIONS.get_portfolio,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_portfolio,
         execute: async (args) => runTool("get_portfolio", TOOL_LABELS.get_portfolio, args, async () => {
           const source = args.source;
           if (source === "paper") {
@@ -1222,8 +1223,8 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         }),
       }),
       get_bot_trades: tool({
-        description: COPILOT_TOOL_DESCRIPTIONS.get_bot_trades,
-        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_bot_trades,
+        description: CHAT_TOOL_DESCRIPTIONS.get_bot_trades,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_bot_trades,
         execute: async (args) => runTool("get_bot_trades", TOOL_LABELS.get_bot_trades, args, async () => {
           status("Loading bot trade performance…");
           const handle = String(args.handle ?? "").trim();
@@ -1242,15 +1243,15 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   }
 
   override async onChatMessage(_onFinish: unknown, options: OnChatMessageOptions): Promise<Response> {
-    this.ensureCopilotSchema();
+    this.ensureChatSchema();
     this.cleanupRetention();
     if (this.env.SCHEMA_DB) {
       this.ctx.waitUntil(purgeExpiredToolEvents(this.env.SCHEMA_DB));
     }
     if (!this.env.COPILOT_MODEL?.trim()) return Response.json({ error: "COPILOT_MODEL is not configured" }, { status: 503 });
-    if (!this.env.OPEN_ROUTER_KEY?.trim()) return Response.json({ error: "Copilot is not configured" }, { status: 503 });
+    if (!this.env.OPEN_ROUTER_KEY?.trim()) return Response.json({ error: "Chat is not configured" }, { status: 503 });
 
-    const originalMessages = this.messages as CopilotMessage[];
+    const originalMessages = this.messages as ChatMessage[];
     if (this.isScopeLocked()) {
       return this.scopeRejectedResponse(originalMessages);
     }
@@ -1296,7 +1297,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       messages = boundedMessages(this.messages, historyCharsMax);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const errorStream = createUIMessageStream<CopilotMessage>({
+      const errorStream = createUIMessageStream<ChatMessage>({
         originalMessages,
         execute: ({ writer }) => writer.write({ type: "error", errorText: message }),
       });
@@ -1316,7 +1317,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const reasoningEffort = bot
       ? (bot.reasoning_effort || "medium")
       : this.env.COPILOT_REASONING_EFFORT;
-    const model = createCopilotModel(modelEnv, origin);
+    const model = createChatModel(modelEnv, origin);
 
     // Pre-agent finance gate: reject off-topic turns with a hard error (no
     // assistant prose) and lock the chat so jailbreak follow-ups cannot retry.
@@ -1326,7 +1327,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       if (!decision.inScope) {
         this.lockScope();
         console.log(JSON.stringify({
-          copilotScope: true,
+          chatScope: true,
           rejected: true,
           questionChars: question.length,
         }));
@@ -1347,7 +1348,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     let wroteAnswerStatus = false;
     const activeModel = bot?.model || this.env.COPILOT_MODEL;
 
-    const stream = createUIMessageStream<CopilotMessage>({
+    const stream = createUIMessageStream<ChatMessage>({
       originalMessages,
       onError: (error) => error instanceof Error ? error.message : String(error),
       execute: ({ writer }) => {
@@ -1366,7 +1367,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           },
           prepareStep: ({ stepNumber }) => {
             const requirePortfolio = attachments.some((a) => a.kind === "portfolio");
-            const policy = nextCopilotStepPolicy({
+            const policy = nextChatStepPolicy({
               stepNumber,
               remainingTokens: budget.total_output_tokens - turn.used,
               successfulQuery: turn.successfulQuery,
@@ -1414,7 +1415,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           },
           onFinish: () => {
             console.log(JSON.stringify({
-              copilotChat: true,
+              chatTurn: true,
               model: activeModel,
               botHandle: bot?.handle ?? null,
               outputTokens: turn.used,
@@ -1423,7 +1424,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             }));
           },
         });
-        writer.merge(result.toUIMessageStream<CopilotMessage>({
+        writer.merge(result.toUIMessageStream<ChatMessage>({
           sendReasoning: true,
           // Default AI SDK onError masks the real provider/tool failure as
           // "An error occurred." — that is what bot_runs have stored since the
@@ -1432,7 +1433,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
           onError: (error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(JSON.stringify({
-              copilotStreamError: true,
+              chatStreamError: true,
               botHandle: bot?.handle ?? null,
               model: activeModel,
               error: message,

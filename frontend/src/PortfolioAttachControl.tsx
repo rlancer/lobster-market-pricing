@@ -163,7 +163,7 @@ export function PortfolioAttachControl({
                 <CheckboxListItem
                   value="paper"
                   label={PORTFOLIO_SOURCE_LABELS.paper}
-                  description="Tracked Copilot suggestions and paper PnL"
+                  description="Tracked Chat suggestions and paper PnL"
                   aria-label={PORTFOLIO_SOURCE_LABELS.paper}
                 />
               </CheckboxList>

@@ -184,7 +184,7 @@ export default function BrandPage() {
 
         <Section id="identity" num="01" title="Identity">
           <p className="brand-lede">
-            Lobster MP is a free US equities &amp; ETF options Copilot on Cloudflare. The brand is
+            Lobster MP is a free US equities &amp; ETF options chat on Cloudflare. The brand is
             the mascot first: a rare blue lobster wearing smug sunglasses. Product copy leads with
             the lobster, not a generic “AI platform” frame.
           </p>
@@ -408,7 +408,7 @@ export default function BrandPage() {
           <blockquote className="brand-quote">
             ATM IV on SPY 30-delta calls is 14.2%, about 3 vols above 20-day realized. Next FOMC is
             in 11 days — the term structure is already pricing the event.
-            <footer>Example Copilot close — specific, sourced, short.</footer>
+            <footer>Example Chat close — specific, sourced, short.</footer>
           </blockquote>
           <HStack gap={2} wrap="wrap">
             <Token label="precise" color="teal" />

@@ -11,7 +11,7 @@ export const ADMIN_TOOL_PATHS = [
   '/users',
   '/chats',
   '/trades',
-  '/copilot',
+  '/chat-capabilities',
   '/brand',
 ] as const;
 

@@ -86,7 +86,7 @@ R2_SQL_TOKEN=cfat_...
 
 - `R2_SQL_ACCOUNT_ID` — Cloudflare account ID hosting the lake
 - `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (warehouse is `{ACCOUNT_ID}_{BUCKET}`)
-- `CORS_ORIGIN` — fallback `*` for untrusted origins. Credentialed Copilot login (including `/api/auth/*`) echoes a trusted `Origin` (lobster.mp and siblings) with `Access-Control-Allow-Credentials`. Better Auth itself does not set CORS headers.
+- `CORS_ORIGIN` — fallback `*` for untrusted origins. Credentialed Chat login (including `/api/auth/*`) echoes a trusted `Origin` (lobster.mp and siblings) with `Access-Control-Allow-Credentials`. Better Auth itself does not set CORS headers.
 
 ### Loader — `LOADER_TOKEN` (secret)
 
@@ -104,7 +104,7 @@ cd loader && npx wrangler secret put LOADER_TOKEN
 ```
 
 The **API Worker** (`screener-api` / `screener-api-dev`) needs the **same**
-value so Copilot/research can call `POST /symbols/enroll` when a ticker is
+value so Chat/research can call `POST /symbols/enroll` when a ticker is
 missing from the lake. `Deploy` (`.github/workflows/deploy.yml`) syncs
 `secrets.LOADER_TOKEN` onto both Workers on every deploy (same pattern as
 `ADMIN_TOKEN`). Until that lands, set it by hand:
@@ -122,12 +122,12 @@ subdomain IS the credential) — deployed via `wrangler secret put`, never in
 The root `.env` holds `WRANGLER_R2_SQL_AUTH_TOKEN` for local `wrangler r2 sql
 query` validation (gitignored; see `.env.example`).
 
-### Worker — `OPEN_ROUTER_KEY` (secret, Copilot)
+### Worker — `OPEN_ROUTER_KEY` (secret, Chat)
 
-The Worker's server-side Copilot loop uses the site's OpenRouter key. Store it
+The Worker's server-side chat loop uses the site's OpenRouter key. Store it
 as a Worker secret and mirror it in `worker/.dev.vars` for local development
 (gitignored); it is never sent to the browser or committed. Non-secret vars in
-`worker/wrangler.jsonc` select the single funded model (`COPILOT_MODEL`), its
+`worker/wrangler.jsonc` select the single funded chat model (wrangler vars `COPILOT_MODEL` — historical name), its
 reasoning effort (`COPILOT_REASONING_EFFORT`), and per-turn output/history caps
 (`COPILOT_MAX_OUTPUT_TOKENS`, `COPILOT_MAX_HISTORY_CHARS`).
 
@@ -156,12 +156,12 @@ cd worker && npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN
 # npx wrangler secret put IMPROVEMENT_ISSUE_REPO
 ```
 
-### Worker — Better Auth (optional Copilot login)
+### Worker — Better Auth (optional Chat login)
 
 Chat stays anonymous by default. Google OAuth is optional so a signed-in user
 can reopen past conversations from the left nav. Sign in / Sign out live in
 the app header so the account is available on every workspace page, not only
-Copilot. The first sign-in asks for a public **handle** — a unique, lowercase
+Chat. The first sign-in asks for a public **handle** — a unique, lowercase
 letters-and-numbers slug stored in D1 `user_profiles` (not on Better Auth's
 `user` row). From the **Account** page (`/account`, via the left-nav profile
 control) you can also set a **display name** and
@@ -390,26 +390,26 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/research/{ticker}/commentary` | Lobster commentary for the ticker detail page (LLM take when OpenRouter is configured, else a numbers-first synthesis from the brief). Markdown with short paragraphs and a **Trade** section — directional bias + concrete options structure when the brief has usable price/signal data. Thin briefs (no spot / no signals) return `source: "insufficient"` with a plain "Not enough data yet…" message instead of inventing a lean. Cached alongside the research payload. |
 | `GET /api/research/{ticker}/chats` | Shared, titled chats linked to this security (cross-ticker graph via `security_id`). Only public shares with a title — timeline posts or enabled bot shares. Each item includes `share_id` + `title` for `/share/{id}` links. |
 | `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
-| `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the AI Copilot's `get_news` tool — the narrative half of "why is vol high". |
+| `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the Chat's `get_news` tool — the narrative half of "why is vol high". |
 | `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
-| `/agents/copilot-agent/{conversation-id}` | The Copilot chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: fundamental / technical / options / risk always, plus macro when the ask warrants it — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
+| `/agents/copilot-agent/{conversation-id}` | The chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: fundamental / technical / options / risk always, plus macro when the ask warrants it — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
 | `GET/POST /api/auth/*` | Better Auth (Google OAuth). Session cookie is HttpOnly on `lobster.mp`. |
-| `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Copilot `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
+| `GET /api/me` | Signed-in profile: public `name` (product `display_name` or Google name), `display_name`, `avatar_url`, Google `image`, `handle` (null until claimed), `suggested_handle` (email/name slug, only when unset), `is_admin`, plus Chat `reply_style` (`desk` \| `fund` \| `learner`) and optional `reply_note` (≤240 chars). 401 if anonymous. |
 | `GET /api/schwab/status` | Schwab connect flag for the session (`configured` / `connected` / timestamps). No tokens. |
 | `GET /api/schwab/connect` | Start Schwab OAuth (302 → Schwab LMS). Session required. |
 | `GET /api/schwab/callback` | Schwab redirect; exchanges `code`, upserts D1 `schwab_connections`, 302 → `/account` or `/portfolio`. |
 | `POST /api/schwab/disconnect` | Delete stored Schwab tokens for the signed-in user. |
-| `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. Copilot loads the same book via `get_portfolio(source=schwab)` when the user attaches Schwab in chat controls. |
+| `GET /api/schwab/portfolio` | Signed-in Schwab book: linked accounts (masked numbers), cash / equity / buying power, and open positions from Trader API `GET /accounts?fields=positions`. Refreshes access tokens server-side. 409 if not connected; 401 if re-auth required. No tokens or account hashes in the response. Chat loads the same book via `get_portfolio(source=schwab)` when the user attaches Schwab in chat controls. |
 | `GET /api/schwab/trades` | Historical TRADE transactions for a linked account (`start`/`end` YYYY-MM-DD, optional `account` + `symbol`). `symbol` matches equity and options on that root locally (Schwab's query param is not used). Caps a single query at ≤366 days. |
 | `GET /api/schwab/pnl` | Realized trading PnL time series from TRADE history (`range=MTD\|YTD\|1M\|3M\|6M\|1Y`, optional `account` + `symbol`). FIFO lot matching on the America/New_York calendar; synthesizes option covers when Schwab posts assignment stock delivery without an option close (nearest expiry when several shorts share a strike); point sleeves for equity / option / fees / dividends; window `trades[]` plus closing-fill rows and `DIVIDEND_OR_INTEREST` distributions for the Portfolio Performance pane. Not an account-balance curve (excludes deposits/withdrawals). Ticker-scoped UI adds live open mark and daily paths from Schwab Market Data on the connected user token (`ohlc[]`; option legs are Black–Scholes on those stock closes, IV from the fill). Assignment moves delivered-stock intrinsic loss onto the short option so settlement does not shock net P&L. When the extended cost-basis lookback fails, `lookback_truncated: true` and the response uses the chart window only. User help: `/docs/schwab-pnl`. Matching rules: this README, Schwab Performance matching. |
 | `GET /api/admin/schwab/pnl` | Admin diagnostic (`Bearer ADMIN_TOKEN`): same PnL series for `user_id=` plus a sample of trades (`trade_start`/`trade_end`, `symbol`, `limit`, `trade_types`). Tokens never leave the Worker. |
-| `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Copilot also reads this book via `get_paper_portfolio` / `get_portfolio(source=paper)`. 401 if anonymous. |
-| `POST /api/portfolio/track` | Open a paper position from a Copilot suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
+| `GET /api/portfolio` | Signed-in paper book: cash, equity, open/realized PnL, and positions (live lake marks). Optional `status=open\|closed\|all` (default `all`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Auto-creates a $100k cash account on first use. Chat also reads this book via `get_paper_portfolio` / `get_portfolio(source=paper)`. 401 if anonymous. |
+| `POST /api/portfolio/track` | Open a paper position from a Chat suggested trade (`{trade, trade_index?, chat_id?, qty?}`). Snapshots legs, marks entry from lake mid/spot, debits cash. Idempotent on `(user, suggestion_key)`. 422 if legs cannot be marked (e.g. `strike_rel` only). Interactive chat also **auto-applies** markable `suggest_trades` into the signed-in chat owner's book when the tool succeeds. |
 | `POST /api/portfolio/positions/{id}/close` | Close an open position at current lake mark; credit cash and store realized PnL. |
 | `PATCH /api/me` | Update profile (`{handle?}`, `{display_name?}`, `{reply_style?}`, `{reply_note?}` — at least one). Handle: 3–24 chars, letter-led lowercase alphanumerics. Display name: 1–80 chars (blank clears to Google name). Reply style is a canned audience (desk trader / hedge fund / new to trading); `reply_note` is optional flavor, 240 chars max (blank clears). Reply prefs do not require a claimed handle. 400 if invalid/reserved, 409 if handle taken. |
-| `GET /api/reply-styles` | Public catalog of Copilot reply voices `{items:[{id,label,hint}], default, note_max}`. Prompt copy stays on the Worker. |
+| `GET /api/reply-styles` | Public catalog of Chat reply voices `{items:[{id,label,hint}], default, note_max}`. Prompt copy stays on the Worker. |
 | `POST /api/me/avatar` | Upload a custom avatar (`multipart/form-data` field `avatar`, or raw image body). JPEG/PNG/WebP/SVG, ≤2 MB. Client pan/zoom-crops rasters to a square (≤512px JPEG) before upload; SVG stays vector after script screening. Stored as a D1 blob on `user_avatars`. Requires a claimed handle. Returns `{ok, name, display_name, avatar_url}`. |
 | `DELETE /api/me/avatar` | Clear the custom avatar (falls back to the brand sunglasses mark). |
 | `GET /api/avatars/{user_id}` | Public avatar bytes from D1 (404 when unset). |
@@ -418,10 +418,10 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/chats/fork` | Fork a public share into a **new owned chat** (`{share_id, question}`). Requires a session with a claimed public handle. Seeds the new `CopilotAgent` from the share transcript (no LLM turn), claims it onto the user with `parent_share_id` lineage, and returns `{chat_id, …}` so the client can navigate to `/chat/{id}` and send the follow-up. Later shares of the fork stamp per-turn `author` so the timeline can show who asked each question. |
 | `PATCH /api/chats/{id}` | Rename a saved chat (`{title}`). |
 | `DELETE /api/chats/{id}` | Soft-delete a saved chat (hidden from the list; ownership remains so the Durable Object stays locked). |
-| `POST /api/chat/history` | Best-effort capture of a completed Copilot turn into the lake (`options.chat_history`). Fire-and-forget from the browser; never blocks chat. |
+| `POST /api/chat/history` | Best-effort capture of a completed Chat turn into the lake (`options.chat_history`). Fire-and-forget from the browser; never blocks chat. |
 | `GET /api/admin/chat_history` | Admin session (or `ADMIN_TOKEN`) — newest-first transcripts from the lake. Joins `user_id` to the signed-in profile when present; anonymous rows include a visitor fingerprint from server-stamped IP + User-Agent. Optional `limit` (default 100, max 500) and `before` (`fetched_at` cursor). Holds ip/user_id — keep gated. |
-| `GET /api/tool_calls` | Public Copilot tool-call debug log from D1 (no token). Defaults to failures (`ok=false`); filter with `chat_id`, `share_id`, `tool`, `ok=true\|false\|all`, `limit`, `before` (ISO). Each item has tool name, capped args, error, summary, sql, duration, turn/chat ids. `/api/admin/tool_calls` is an alias. |
-| `POST /api/share/chat` | Mint a public unlisted share of a Copilot conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
+| `GET /api/tool_calls` | Public Chat tool-call debug log from D1 (no token). Defaults to failures (`ok=false`); filter with `chat_id`, `share_id`, `tool`, `ok=true\|false\|all`, `limit`, `before` (ISO). Each item has tool name, capped args, error, summary, sql, duration, turn/chat ids. `/api/admin/tool_calls` is an alias. |
+| `POST /api/share/chat` | Mint a public unlisted share of a chat conversation (body: a full `ChatHistoryRecord`; snapshots into D1 `shared_chats`, returns `{share_id, url, can_publish, on_timeline}`). If the request has a session, the share is owned by that user so they can later list it on the timeline. |
 | `GET /api/share/{id}` | Public read-only transcript — no auth: the id IS the capability (base62 of 18 random bytes); unknown/expired ids 404. Abuse columns (`created_ip`/`created_ua`) are never returned. When the share is on the timeline, the response includes `on_timeline` and `author: {handle, name, avatar_url?}`. Bot shares also include `bot_handle` / `bot: {handle, display_name, persona}`. |
 | `GET /api/share/{id}/el5` | Public EL5 plain-English summary of that post (`{share_id, el5, cache_hit, computed_at, model}`). First viewer generates via OpenRouter and stores the Markdown in D1 keyed by `share_id` + source hash; later viewers are cache hits. `?force=1` regenerates. 20 generations / 10 min / IP. |
 | `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `name`, optional `avatar_url` (custom photo path, else null / brand face), `tickers`, and optional `is_bot`; when `handle` is set, `profile` includes `name`, `avatar_url`, `created_at`, and for bots `persona`/`bio`. 404 if `handle` is set and unknown. |
@@ -431,13 +431,13 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
-| `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Copilot reads the same book via `get_bot_trades`. |
+| `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Chat reads the same book via `get_bot_trades`. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
-| `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
+| `GET /api/admin/chat/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Chat system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the chat prompt schema block). Powers `/chat-capabilities`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
-| `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Copilot under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
+| `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Chat under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |
-| `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Copilot + auto-share to timeline. |
+| `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Chat + auto-share to timeline. |
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `POST /api/admin/email/test` | Admin session — Cloudflare Email Service smoke test. Sends from `noreply@lobster.mp` to the signed-in admin's email (or `ADMIN_TOKEN` + `{ "to": "…" }`). Returns `{ ok, to, message_id }`. |
@@ -482,7 +482,7 @@ Kalshi event markets (`related_symbol` join), and related chats settle on
 idle. Chat ticker chips (from `research_ticker`) link there.
 **Portfolio** (`/portfolio`) has three books: **Suggested trades** for public
 bot idea PnL (same book as `/u/{handle}` — no cash), the signed-in **paper
-book** (when Copilot `suggest_trades` lands concrete legs in a signed-in chat,
+book** (when Chat `suggest_trades` lands concrete legs in a signed-in chat,
 those ideas auto-open paper positions at lake mid; Close realizes against
 $100k starting cash), and **Schwab** when OAuth is configured — live linked
 brokerage accounts, balances, and positions via `GET /api/schwab/portfolio`
@@ -492,7 +492,7 @@ and conviction (high / medium / low). Share/timeline viewers can still
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
 (`GET /api/bots/{handle}/trades`).
-**Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
+**Bots** (`/bots`, admin-only, linked from `/admin`) edit Chat personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that
 has not already been used on a prior run (next unused seed, or an invented
@@ -503,12 +503,12 @@ auto-share without a browser; markable `suggest_trades` from those runs
 feed the bot trade book on the profile.
 **Admin** (`/admin`) is the left-nav hub for operator tools. **Users** (`/users`)
 and **Chats** (`/chats`) are admin directories — signed-up
-Google identities, and every lake Copilot conversation (profile when signed
+Google identities, and every lake chat conversation (profile when signed
 in, visitor fingerprint from IP + UA when anonymous).
 **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
-- Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
+- Chat tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
   Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)
@@ -519,10 +519,10 @@ Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted. Chat deep-links
 into Data with the SQL attached. Old `/lab` and `/market` URLs redirect to Data;
 `/symbol/{sym}` redirects to `/research/{sym}`.
 
-### AI Copilot
+### Chat
 
-An OpenRouter-powered Copilot implemented as a Cloudflare Agents SDK
-`AIChatAgent` (`CopilotAgent`, routed at `/agents/copilot-agent/{conversation-id}`).
+An OpenRouter-powered Chat implemented as a Cloudflare Agents SDK
+`AIChatAgent` (`CopilotAgent` — historical Durable Object class name, routed at `/agents/copilot-agent/{conversation-id}`).
 The browser connects via `useAgent`/`useAgentChat` over the standard Agent
 WebSocket and renders typed AI SDK UI-message parts: reasoning, tool feed
 (streamed inputs + outputs), SQL, up to 200 result rows, chart specification,
@@ -540,7 +540,7 @@ The UI renders only the published panels. Structured `suggest_trades`
 stays interactive-chat-only unless the bot actually has a tradable idea.
 Interactive chat (and the Account menu) also pick a **reply voice** — canned
 audiences `desk` (working trader), `fund` (hedge-fund / PM), or `learner`
-(new to trading), plus an optional 240-character note. Voice only: same Copilot
+(new to trading), plus an optional 240-character note. Voice only: same Chat
 tools and desk as everyone else. Chat controls can also **attach a portfolio**
 (Schwab brokerage and/or the paper book today): the client sends small
 `attachments` handles on the turn body; the agent loads live holdings via
@@ -581,12 +581,12 @@ forcing tools and seals a prose close-out so the model cannot burn the full
 10-step budget on the same rejected probe.
 
 **Trade liquidity.** There is no global "tradable names" filter. When the
-Copilot suggests a trade it must query `options.option_contracts` for the
+Chat suggests a trade it must query `options.option_contracts` for the
 candidate strikes and only recommend contracts with a two-sided quote, a
 tight-enough relative bid/ask, and demonstrated volume or open interest. Thin
 books get a "too illiquid" close-out, not an invented fill.
 
-**Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable
+**Transport & durability.** Each conversation UUID is one `CopilotAgent` Durable (historical class name)
 Object instance with its own embedded SQLite (`storage: "sqlite"`). Chat
 messages and the turn budget persist there. The live conversation is `/chat`
 with the UUID in `sessionStorage` only, so a reload reconnects

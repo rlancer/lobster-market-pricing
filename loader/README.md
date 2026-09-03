@@ -95,7 +95,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/jobs/earnings-daily/tr
 ```
 
 Once `options.earnings` exists it auto-appears in the Worker's `/api/tables`,
-so the AI Copilot can query it (and join it to chains) with no further wiring.
+so the Chat can query it (and join it to chains) with no further wiring.
 
 ### Reported EPS results (`earnings-results-daily`)
 
@@ -241,7 +241,7 @@ Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
 and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
 BTC/ETH ranges, WTI — each optionally linked to a lake `related_symbol`
-(SPY, TLT, BTC-USD, CL=F, …) for Copilot joins, `/research/{ticker}` event
+(SPY, TLT, BTC-USD, CL=F, …) for Chat joins, `/research/{ticker}` event
 markets (`GET /api/research/{ticker}/kalshi`), and Kalshi trade ideas.
 
 Public Trade API (no key): `GET /markets?series_ticker=…&status=open`. Each

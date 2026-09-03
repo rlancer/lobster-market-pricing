@@ -1,6 +1,6 @@
 /**
  * On-demand ticker enrollment — bridge from the API Worker to the loader's
- * `POST /symbols/enroll`. When Copilot/research hits a ticker outside the
+ * `POST /symbols/enroll`. When Chat/research hits a ticker outside the
  * bundled lake universe, we enroll it so ETL keeps refreshing it forever.
  */
 import universe from "../../loader/symbols/universe.json";

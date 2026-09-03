@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { SuggestedTrade } from "../src/copilot-trades.ts";
+import type { SuggestedTrade } from "../src/chat-trades.ts";
 
 const sampleTrade: SuggestedTrade = {
   ticker: "NVDA",

@@ -1,5 +1,5 @@
 /**
- * Shared Copilot reply voice — canned audience personas + a short optional
+ * Shared Chat reply voice — canned audience personas + a short optional
  * note. Used by interactive chat (any user) and documented next to bot
  * addons so bots do not get a separate, larger prompt surface.
  *

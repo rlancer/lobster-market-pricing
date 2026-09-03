@@ -21,7 +21,7 @@ const ADMIN_TOOLS: AdminTool[] = [
   {
     to: '/bots',
     label: 'Bots',
-    description: 'Copilot personas, generate runs, and headless schedules.',
+    description: 'Bot personas, generate runs, and headless schedules.',
     icon: Bot,
   },
   {
@@ -33,18 +33,18 @@ const ADMIN_TOOLS: AdminTool[] = [
   {
     to: '/chats',
     label: 'Chats',
-    description: 'Lake Copilot transcripts — profiles or visitor fingerprints.',
+    description: 'Lake chat transcripts — profiles or visitor fingerprints.',
     icon: MessagesSquare,
   },
   {
     to: '/trades',
     label: 'Suggested trades',
-    description: 'Every Copilot suggest_trades idea — ticker, structure, and legs.',
+    description: 'Every suggest_trades idea from chat — ticker, structure, and legs.',
     icon: TrendingUp,
   },
   {
-    to: '/copilot',
-    label: 'Copilot',
+    to: '/chat-capabilities',
+    label: 'Chat capabilities',
     description: 'Live system prompts and tool input schemas from the Worker.',
     icon: Terminal,
   },
@@ -91,8 +91,7 @@ export default function AdminPage() {
       <VStack gap={2}>
         <Heading level={1}>Admin</Heading>
         <Text type="supporting">
-          Operator tools for bots, users, chats, suggested trades, Copilot
-          internals, and brand. Open one from here instead of crowding the left nav.
+          Operator tools for bots, users, chats, suggested trades, Chat capabilities, and brand. Open one from here instead of crowding the left nav.
         </Text>
       </VStack>
 

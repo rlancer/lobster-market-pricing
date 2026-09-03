@@ -15,7 +15,7 @@ import { usePageMeta } from './usePageMeta';
 import { SITE_NAME } from './pageMeta';
 
 /**
- * Public share page (/share/:shareId) — renders a shared Copilot transcript
+ * Public share page (/share/:shareId) — renders a shared chat transcript
  * with an optional follow-up composer. The link is the capability (unlisted,
  * unguessable). Asking a follow-up requires sign-in + a public handle so the
  * forked chat can show who continued the thread.
@@ -34,8 +34,8 @@ function SharedChatRoute() {
       ? {
           title: `${shareTitle || 'Shared chat'} · ${SITE_NAME}`,
           description: share.author
-            ? `A Copilot chat shared by @${share.author.handle} on Lobster MP.`
-            : 'A shared Copilot transcript on Lobster MP.',
+            ? `A chat shared by @${share.author.handle} on Lobster MP.`
+            : 'A shared chat transcript on Lobster MP.',
         }
       : missing
         ? {

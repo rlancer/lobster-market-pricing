@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 // Constant-maturity H.15 curve + a few spreads / real yields / policy rates
 // that everything else is priced off of. Exact same ids the Worker docs and
-// Copilot prompt teach, so the lake and the chat agree.
+// Chat prompt teach, so the lake and the chat agree.
 export type YieldKind = "nominal" | "real" | "breakeven" | "forward" | "spread" | "policy";
 
 export interface YieldSeriesMeta {

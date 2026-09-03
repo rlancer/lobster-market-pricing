@@ -5,7 +5,7 @@
  */
 
 import { generateText, type LanguageModel } from "ai";
-import { createCopilotModel, type CopilotModelEnv } from "./copilot-contract";
+import { createChatModel, type ChatModelEnv } from "./chat-contract";
 
 export const DEFAULT_NOTEBOOK_MODEL = "openai/gpt-4o-mini";
 export const MAX_TEXT_CONTEXT_CHARS = 120_000;
@@ -126,7 +126,7 @@ function parseDataUrl(dataUrl: string): { mediaType: string; base64: string } | 
 }
 
 export async function runNotebookProbe(
-  env: CopilotModelEnv,
+  env: ChatModelEnv,
   origin: string,
   input: NotebookProbeInput,
 ): Promise<NotebookProbeSuccess | NotebookProbeFailure> {
@@ -135,7 +135,7 @@ export async function runNotebookProbe(
   }
 
   const modelId = input.model?.trim() || DEFAULT_NOTEBOOK_MODEL;
-  const model = createCopilotModel(
+  const model = createChatModel(
     { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: modelId },
     origin,
   ) as LanguageModel;

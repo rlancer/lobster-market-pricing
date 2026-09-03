@@ -8,7 +8,7 @@
  * desk has a downside / sizing / thesis-break take on every analysis turn.
  */
 
-import { DESK_VIEWPOINT_IDS, type DeskViewpointId } from "./copilot-desk";
+import { DESK_VIEWPOINT_IDS, type DeskViewpointId } from "./chat-desk";
 
 /** Broad-market / rates / factor ETFs and indexes that usually want a macro take. */
 export const MACRO_UNDERLYINGS = new Set([

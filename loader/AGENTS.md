@@ -73,7 +73,7 @@ Spot cryptocurrencies (`BTC-USD`, …) and CME continuous futures (`BTC=F`, …)
 are **not** in this option-chain universe; they land in `options.ohlc` via
 `crypto-spot-ohlc-daily` / `futures-ohlc-daily` from their own manifests.
 
-**On-demand enrollment.** Tickers outside that bundled manifest (e.g. a Copilot
+**On-demand enrollment.** Tickers outside that bundled manifest (e.g. a chat
 question about SOFI when it is not in the lake) are written to D1
 `enrolled_symbols` via `POST /symbols/enroll` (Bearer `LOADER_TOKEN`). The API
 Worker auto-calls this when research returns a thin brief for an out-of-universe

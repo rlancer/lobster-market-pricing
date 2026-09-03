@@ -1,5 +1,5 @@
 /**
- * Admin-editable Copilot bot profiles.
+ * Admin-editable Chat bot profiles.
  *
  * Bots claim public handles in the same namespace as user_profiles (e.g.
  * nowlobster, yololobster) and stamp shared_chats.bot_handle when their chats
@@ -492,7 +492,7 @@ export async function listBotRunPrompts(db: D1Database, handle: string, limit = 
     .filter(Boolean);
 }
 
-/** Persona block appended to the base Copilot system prompt. */
+/** Persona block appended to the base Chat system prompt. */
 export function botSystemAddon(profile: Pick<BotProfile, "handle" | "display_name" | "persona" | "system_prompt_extra">): string {
   const lines = [
     "",

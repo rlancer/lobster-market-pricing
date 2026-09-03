@@ -17,7 +17,7 @@ import { isAdminEmail } from "./admin";
 import { getSessionUser, type AuthEnv } from "./auth";
 import { backfillShareMeta, shareNeedsMetaBackfill, type ChatMetaEnv } from "./chat-meta";
 import { listTickersForChats } from "./chat-tickers";
-import { createCopilotModel } from "./copilot-contract";
+import { createChatModel } from "./chat-contract";
 import { coalesceAssistantMessageRecords } from "./share-turns";
 import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
@@ -351,7 +351,7 @@ async function healTimelineMeta(
   }
   if (!needing.length) return;
 
-  const model = createCopilotModel(
+  const model = createChatModel(
     { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
     origin,
   );
@@ -594,7 +594,7 @@ async function publishTimeline(
   // Quality gate — refuse cut-off / placeholder / unfinished tool-loop dumps.
   const requestOrigin = new URL(req.url).origin;
   const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
-    ? createCopilotModel(
+    ? createChatModel(
       { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
       requestOrigin,
     )
@@ -641,7 +641,7 @@ async function publishTimeline(
     && env.COPILOT_MODEL?.trim()
   ) {
     try {
-      const model = createCopilotModel(
+      const model = createChatModel(
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
         new URL(req.url).origin,
       );
