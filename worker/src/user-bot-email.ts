@@ -5,6 +5,7 @@
  * never fail the bot run — the chat already landed in the owner's history.
  */
 import { EMAIL_TEST_FROM, escapeEmailHtml, isLikelyEmail, type EmailSendBinding } from "./admin-email-test";
+import { markdownToEmailHtml } from "./email-markdown";
 
 export const USER_BOT_ALERT_EXCERPT_MAX = 800;
 
@@ -46,9 +47,10 @@ export function buildUserBotAlertEmail(args: {
     "",
     `Open the briefing: ${link}`,
   ].join("\n");
+  const briefingHtml = markdownToEmailHtml(excerpt) || `<p>${escapeEmailHtml(excerpt)}</p>`;
   const html = [
     `<p><strong>${escapeEmailHtml(name)}</strong> just finished a run.</p>`,
-    `<p>${escapeEmailHtml(excerpt).replace(/\n/g, "<br>")}</p>`,
+    briefingHtml,
     `<p><a href="${escapeEmailHtml(link)}">Open the briefing</a></p>`,
   ].join("");
   return { subject, text, html };

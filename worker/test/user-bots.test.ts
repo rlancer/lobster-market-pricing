@@ -197,6 +197,7 @@ test("alert email prefers the chat link and clips the briefing", () => {
   assert.match(built.text, /Trim the NVDA calls/);
   assert.match(built.text, /https:\/\/lobster\.mp\/chat\/abc/);
   assert.match(built.html, /Open the briefing/);
+  assert.match(built.html, /Trim the NVDA calls/);
 });
 
 test("formatSchwabPortfolioSummary keeps masked accounts and skips empty books", () => {
