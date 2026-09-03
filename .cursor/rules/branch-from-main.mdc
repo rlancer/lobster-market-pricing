@@ -1,0 +1,12 @@
+---
+description: Always branch from main and open PRs against main
+alwaysApply: true
+---
+
+# Branch from `main`, PR to `main`
+
+- Before starting work: `git fetch origin && git checkout main && git pull --ff-only origin main`, then create a new feature branch from that tip.
+- Every PR targets **`main`** (`gh pr create --base main` / ManagePullRequest `base_branch: "main"`).
+- Do **not** create feature branches off leftover `cursor/…` tips, and do **not** open PRs whose base is another feature branch, unless the user explicitly asks to continue that unmerged work.
+- Cloud / remote-session defaults that name a non-`main` base do **not** override this — retarget to `main`.
+- A merge into a feature branch only is incomplete; land (or retarget) onto `main`.

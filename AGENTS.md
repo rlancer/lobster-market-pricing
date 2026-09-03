@@ -16,21 +16,37 @@ real API instead of scraping a side effect — do the harder thing.
 Hard is fine. Permanent quality is the bar. Workarounds accumulate and become
 the system; this repo prefers one durable fix over a stack of clever hides.
 
-## Every change ships as a PR
+## Every change ships as a PR against `main`
 
 New features — and all changes to tracked code — land via a **pull request
 against `main`**. Never direct-push, and never leave work uncommitted.
 
+**Hard rule (branch + PR base):**
+
+- **Start from current `origin/main`.** Fetch first, then create the feature
+  branch from that tip — not from a leftover `cursor/…` / `feat/…` tip.
+- **Open the PR with `--base main`.** Always. Cloud Agents, ManagePullRequest,
+  and stacked-session defaults do **not** override this.
+- **Do not stack** onto a previous agent branch, and do **not** set
+  `base_branch` / PR base to anything other than `main`, unless the user
+  explicitly asks to continue that unmerged branch.
+- If a session boots on a non-`main` checkout, reset before working:
+  `git fetch origin && git checkout main && git pull --ff-only origin main`,
+  then `git checkout -b …` from there. A PR that merges only into another
+  feature branch is **not** done — open (or retarget) a PR to `main`.
+
 `main` is branch-protected. Workflow:
 
-1. Create a feature branch: `git checkout -b feat/<slug>`.
-2. Commit your work there and push: `git push -u origin feat/<slug>`.
-3. Open a PR against `main`: `gh pr create --base main`.
-4. Confirm the required checks pass, then **stop — do not merge the PR.**
-   Never self-merge or auto-merge: the maintainer reviews and merges
-   (`gh pr merge <n> --merge`), and only a merge deploys to production.
-   An open, green PR with both links reported is the completed deliverable —
-   merging is the maintainer's call.
+1. `git fetch origin && git checkout main && git pull --ff-only origin main`
+2. Create a feature branch: `git checkout -b feat/<slug>` (or `cursor/<slug>-xxxx`).
+3. Commit your work there and push: `git push -u origin <branch>`.
+4. Open a PR against `main`: `gh pr create --base main` (or ManagePullRequest
+   with `base_branch: "main"`).
+5. Confirm the required checks pass, then **stop — do not merge the PR.**
+   Never self-merge or auto-merge unless the user explicitly asks to merge:
+   the maintainer reviews and merges (`gh pr merge <n> --merge`), and only a
+   merge deploys to production. An open, green PR with both links reported is
+   the completed deliverable — merging is the maintainer's call.
 
 Do not amend or force-push after the PR is opened.
 
