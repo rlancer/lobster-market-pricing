@@ -962,6 +962,21 @@ function money(n: number | null | undefined): string {
 }
 
 /**
+ * Pick the single user whose paper/Schwab book this chat may touch.
+ * If the durable chat owner and the session hint disagree, refuse both —
+ * never fall back to the other user's id (or their Schwab token).
+ */
+export function resolveOwnedUserId(
+  chatOwnerId: string | null | undefined,
+  sessionUserId: string | null | undefined,
+): string | null {
+  const owner = typeof chatOwnerId === "string" ? chatOwnerId.trim() : "";
+  const session = typeof sessionUserId === "string" ? sessionUserId.trim() : "";
+  if (owner && session && owner !== session) return null;
+  return owner || session || null;
+}
+
+/**
  * Resolve the signed-in paper-book owner for a chat.
  * Prefers user_chats; falls back to a session hint (first-turn claim race).
  */
@@ -974,10 +989,9 @@ export async function resolvePaperOwnerUserId(
     `SELECT user_id, deleted_at FROM user_chats WHERE chat_id = ?1`,
   ).bind(chatId).first<{ user_id: string; deleted_at: number | null }>();
   if (owner && owner.deleted_at == null) {
-    if (sessionUserId && owner.user_id !== sessionUserId) return null;
-    return owner.user_id;
+    return resolveOwnedUserId(owner.user_id, sessionUserId);
   }
-  return sessionUserId?.trim() || null;
+  return resolveOwnedUserId(null, sessionUserId);
 }
 
 /** Compact text book for Chat tool output / prompt grounding. */

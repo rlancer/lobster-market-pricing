@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cookieDomainFor, isTrustedOrigin, trustedOrigins } from "../src/auth.ts";
+import {
+  cookieDomainFor,
+  impersonationAllowed,
+  isDevImpersonationHost,
+  isTrustedOrigin,
+  parseDevAsEmail,
+  trustedOrigins,
+} from "../src/auth.ts";
 import {
   clipTitle,
   chatAgentChatId,
@@ -11,6 +18,7 @@ import {
   sortUserChats,
   titleFromMessages,
 } from "../src/user-chats.ts";
+import { resolveImpersonationEmail } from "../src/dev-session.ts";
 
 test("parseChatId accepts UUIDs and rejects junk", () => {
   const id = "3b1d0a2e-7c4f-4a11-9f2d-8e6c1b0a9d77";
@@ -113,4 +121,23 @@ test("compareUserChats is updated_at DESC, then created_at DESC, then chat_id DE
   );
   assert.ok(compareUserChats(b, a) < 0);
   assert.equal(compareUserChats(a, a), 0);
+});
+
+test("dev impersonation is preview-only and admin-email-only", () => {
+  assert.equal(isDevImpersonationHost("api-dev.lobster.mp"), true);
+  assert.equal(isDevImpersonationHost("localhost"), true);
+  assert.equal(isDevImpersonationHost("screener-api-dev.robertlancer.workers.dev"), true);
+  assert.equal(isDevImpersonationHost("preview.screener-api-dev.workers.dev"), true);
+  assert.equal(isDevImpersonationHost("screener-api.robertlancer.workers.dev"), false);
+  assert.equal(isDevImpersonationHost("api.lobster.mp"), false);
+  assert.equal(isDevImpersonationHost("lobster.mp"), false);
+  assert.equal(impersonationAllowed({ ALLOW_DEV_IMPERSONATION: "1" }, "api-dev.lobster.mp"), true);
+  assert.equal(impersonationAllowed({ ALLOW_DEV_IMPERSONATION: "1" }, "api.lobster.mp"), false);
+  assert.equal(impersonationAllowed({}, "api-dev.lobster.mp"), false);
+  assert.equal(impersonationAllowed({ ALLOW_DEV_IMPERSONATION: "0" }, "api-dev.lobster.mp"), false);
+  assert.equal(parseDevAsEmail("robert.lancer@gmail.com"), "robert.lancer@gmail.com");
+  assert.equal(parseDevAsEmail("  Robert.Lancer@gmail.com  "), "robert.lancer@gmail.com");
+  assert.equal(parseDevAsEmail("stranger@example.com"), null);
+  assert.equal(resolveImpersonationEmail(undefined, "robert.lancer@gmail.com"), "robert.lancer@gmail.com");
+  assert.equal(resolveImpersonationEmail("stranger@example.com", "robert.lancer@gmail.com"), null);
 });

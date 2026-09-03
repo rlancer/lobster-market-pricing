@@ -22,10 +22,12 @@ export const CHAT_TOOL_LABELS = {
   eco_calendar: "Eco calendar",
   web_search: "Web search",
   research_ticker: "Ticker research",
+  lookup_symbols: "Identify symbols",
   publish_desk: "Desk viewpoints",
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
   get_portfolio: "Portfolio",
+  get_schwab_quotes: "Schwab quotes",
   get_bot_trades: "Bot trade performance",
 } as const;
 
@@ -41,6 +43,13 @@ export const CHAT_TOOL_DESCRIPTIONS = {
   render_chart:
     "Validate a chart specification for the most recent query result (or a named frame). Call after run_query or filter_frame when the user requested a chart. The UI only draws a chart from this tool.",
   get_news: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
+  lookup_symbols:
+    "Identify what tickers actually are (equity vs ETF vs fund vs index vs future vs crypto) " +
+    "plus the issuer/fund name and, for ETFs/funds, Yahoo top holdings with weights. " +
+    "Lake coverage is incomplete — use this before treating an unknown holding as a single-name " +
+    "stock, and read the constituent weights before calling a fund concentrated. Accepts 1–20 symbols. " +
+    "Prefers the in-process catalog, then Yahoo search + quoteSummary topHoldings. Looked-up funds " +
+    "are enrolled so options.etf_profiles / etf_holdings stay populated.",
   web_search: "Search for current market commentary or events and return up to five citable links.",
   eco_calendar: "Fetch scheduled macro events for the next 7 to 90 days.",
   research_ticker:
@@ -48,7 +57,9 @@ export const CHAT_TOOL_DESCRIPTIONS = {
     "(recent price/volume moves, consolidation/accumulation, lake fundamentals, earnings, news). " +
     "Accepts equities/ETFs, indexes (^VIX), continuous futures (ES=F, BTC=F), and spot crypto (BTC-USD). " +
     "For Bitcoin spot use BTC-USD — not IBIT unless the user asked for the ETF. " +
-    "Call whenever you suggest a trade or deep-dive a specific underlying.",
+    "Call whenever you suggest a trade or deep-dive a specific underlying. " +
+    "If you still don't know whether a holding is a single stock vs an ETF/fund/index, call lookup_symbols — " +
+    "the lake does not cover every ticker.",
   publish_desk:
     "Publish takes for the active desk specialists (subset of fundamental, technical, options, risk, macro) plus a weighed overview that shares the same tool evidence. " +
     "Fill only the specialists named as active for this turn; omit the rest. " +
@@ -68,10 +79,18 @@ export const CHAT_TOOL_DESCRIPTIONS = {
   get_portfolio:
     "Read a signed-in user's attached portfolio by source. " +
     "source=schwab loads the live Schwab brokerage book via the Worker Schwab token (balances + positions) — NEVER query the lake for private brokerage holdings. " +
+    "Each Schwab position includes asset kind (equity/etf/option/…) and the broker description (fund name). " +
     "source=paper loads the paper tracking book (same data as get_paper_portfolio). " +
     "Call when the user attached a portfolio in chat controls, or asks about their brokerage/Schwab holdings, hedges, or uncorrelated adds. " +
     "Optional account_id scopes Schwab to one linked account. " +
-    "Paper-only filters: status and conviction. Requires sign-in; Schwab also requires a connected Schwab link.",
+    "Paper-only filters: status and conviction. Requires sign-in; Schwab also requires a connected Schwab link. " +
+    "If a line is still unlabeled, call lookup_symbols before treating it as a single-name stock.",
+  get_schwab_quotes:
+    "Fetch live Charles Schwab market-data quotes (last, bid, ask, mark, change, volume) for 1–20 symbols " +
+    "using THIS chat owner's connected Schwab token only. Pass symbols only — never a user id or token. " +
+    "Call when a signed-in owner asks for a live print, bid/ask, or mark. " +
+    "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected or when " +
+    "the session does not match the chat owner. Do not invent prints.",
   get_bot_trades:
     "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
     "Call when the user asks how @yololobster / @nowlobster / another bot's ideas are doing. " +
@@ -111,6 +130,10 @@ export const CHAT_TOOL_INPUT_SCHEMAS = {
   research_ticker: z.object({
     symbol: z.string().trim().min(1).max(16),
     force: z.boolean().optional(),
+  }).strict(),
+  lookup_symbols: z.object({
+    symbols: z.array(z.string().trim().min(1).max(16)).min(1).max(20)
+      .describe("Tickers to identify (e.g. SPY, AAPL, ^VIX, BTC-USD). 1–20 symbols."),
   }).strict(),
   publish_desk: z.object({
     fundamental: deskViewpointText.optional().describe(
@@ -181,6 +204,10 @@ export const CHAT_TOOL_INPUT_SCHEMAS = {
       .describe("Paper only — which positions to include. Default open."),
     conviction: z.enum(["high", "medium", "low"]).optional()
       .describe("Paper only — optional conviction filter."),
+  }).strict(),
+  get_schwab_quotes: z.object({
+    symbols: z.array(z.string().trim().min(1).max(32)).min(1).max(20)
+      .describe("Tickers to quote (equities, $SPX, /ES, OCC options). Symbols only — never a user id."),
   }).strict(),
   get_bot_trades: z.object({
     handle: z.string().trim().min(1).max(32)

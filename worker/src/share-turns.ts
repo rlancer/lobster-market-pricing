@@ -287,6 +287,10 @@ function formatShareToolArgs(name: string, input: unknown): string {
     case "get_news":
     case "research_ticker":
       return String(o.symbol ?? "").toUpperCase();
+    case "lookup_symbols":
+      return Array.isArray(o.symbols)
+        ? o.symbols.map((s) => String(s ?? "").toUpperCase()).filter(Boolean).slice(0, 8).join(", ")
+        : "";
     case "web_search":
       return squeeze(o.query).slice(0, 120);
     case "eco_calendar":
@@ -342,34 +346,62 @@ function toolPartName(part: { type?: unknown }): string {
 
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
 const REASONING_SCRATCH =
-  /^(?:plan of tool|batch\s*\d|tool calls?|actually[, ]|hmm[, ]|alternatively[, ])/i;
+  /^(?:plan of tool|batch\s*\d|tool calls?|actually[, ]|hmm[, ]|alternatively[, ]|wait[, ]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup)|now[, ]|the private account|given the task|should i call)/i;
 const REASONING_UNFINISHED =
-  /\b(?:let me (?:query|check|look|pull|run|render|use|get|find)|i(?:'ll| will) (?:query|check|pull|run)|i need to)\b/i;
+  /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft)|i(?:'ll| will) (?:query|check|pull|run|write)|i need to)\b/i;
+
+export function isInterimToolNarration(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (PLACEHOLDER_SHARE_CONTENT.test(trimmed)) return true;
+  if (REASONING_UNFINISHED.test(trimmed)) return true;
+  if (/(?:let me|i'll|i will)\s+[a-z0-9_ -]+[.!?]?$/i.test(trimmed)) return true;
+  return false;
+}
 
 /**
  * DeepSeek bot turns often leave the visible text channel empty ("(see reasoning)")
- * while the desk takeaway lives only in the reasoning stream. When the text is a
- * placeholder, lift the last conclusive reasoning paragraph into content so the
- * timeline gate and share UI see a finished answer.
+ * or with only an interim transition ("Let me pull..."), while the real analysis
+ * lives in the reasoning stream. When the content is a placeholder or unfinished
+ * narration, lift the substantive reasoning block into content so the share UI
+ * sees a finished answer.
  */
 export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   const content = (turn.content ?? "").trim();
   const reasoning = (turn.reasoning ?? "").trim();
   if (!reasoning) return turn;
-  if (content && !PLACEHOLDER_SHARE_CONTENT.test(content) && content.length >= 40) return turn;
+  if (content && !isInterimToolNarration(content) && content.length >= 40) return turn;
 
   const paras = reasoning
     .split(/\n\s*\n/)
     .map((p) => stripLeakedToolMarkup(p))
     .filter(Boolean);
+
+  const substantive: string[] = [];
   for (let i = paras.length - 1; i >= 0; i--) {
     const para = paras[i]!;
-    if (para.length < 60) continue;
-    if (REASONING_SCRATCH.test(para)) continue;
-    if (REASONING_UNFINISHED.test(para)) continue;
-    if (!/[.!?…]["')\]]?\s*$/.test(para)) continue;
-    return { ...turn, content: para.slice(0, 5_000) };
+    if (para.length < 40) {
+      if (substantive.length > 0) break;
+      continue;
+    }
+    if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) {
+      if (substantive.length > 0) break;
+      continue;
+    }
+    if (substantive.length === 0 && !/[.!?…:\-)\]"'%a-z0-9]\s*$/i.test(para)) {
+      continue;
+    }
+    substantive.unshift(para);
+    if (substantive.join("\n\n").length >= 4_000) break;
   }
+
+  if (substantive.length > 0) {
+    const joined = substantive.join("\n\n").slice(0, 5_000).trim();
+    if (joined.length >= 40) {
+      return { ...turn, content: joined };
+    }
+  }
+
   return turn;
 }
 

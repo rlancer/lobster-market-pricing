@@ -71,3 +71,20 @@ test("research_ticker tool description prefers BTC-USD for Bitcoin spot", () => 
   assert.match(CHAT_TOOL_DESCRIPTIONS.research_ticker, /BTC-USD/);
   assert.match(CHAT_TOOL_DESCRIPTIONS.research_ticker, /not IBIT/i);
 });
+
+test("systemPrompt requires identifying holdings before single-name concentration", () => {
+  const body = systemPrompt("[schema]");
+  assert.match(body, /lookup_symbols/);
+  assert.match(body, /Single-name concentration/);
+  assert.match(body, /sleeve\/beta size/);
+  assert.match(body, /etf_holdings/);
+  assert.match(CHAT_TOOL_DESCRIPTIONS.lookup_symbols, /top holdings/);
+});
+
+test("systemPrompt and get_schwab_quotes require owner-only live prints", () => {
+  const body = systemPrompt("[schema]");
+  assert.match(body, /get_schwab_quotes/);
+  assert.match(body, /never pass a user id/);
+  assert.match(CHAT_TOOL_DESCRIPTIONS.get_schwab_quotes, /THIS chat owner's connected Schwab token only/);
+  assert.match(CHAT_TOOL_DESCRIPTIONS.get_schwab_quotes, /never a user id/);
+});

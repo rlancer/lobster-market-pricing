@@ -10,6 +10,7 @@ import AiChat from './AiChat';
 import TimelinePage from './Timeline';
 import ProfilePage from './Profile';
 import AccountPage from './Account';
+import MyBotsPage from './MyBots';
 import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
@@ -151,6 +152,12 @@ const accountRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/account',
   component: AccountPage,
+});
+
+const myBotsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/my-bots',
+  component: MyBotsPage,
 });
 
 const brandRoute = createRoute({
@@ -322,6 +329,7 @@ const routeTree = rootRoute.addChildren([
   chatRoute,
   profileRoute,
   accountRoute,
+  myBotsRoute,
   dataRoute,
   labRoute,
   marketRoute,

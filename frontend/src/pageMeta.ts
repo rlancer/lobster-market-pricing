@@ -221,7 +221,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Portfolio'),
       description:
-        'Public lobster suggested-trade performance and an optional signed-in paper book, filterable by conviction.',
+        'Your paper book and linked Schwab accounts. Sign in to track Copilot suggestions and live brokerage positions.',
       path: '/portfolio',
     };
   }
@@ -232,6 +232,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
       description:
         'Claim a public handle, set your display name and photo, choose how Lobster replies, and sign out.',
       path: '/account',
+    };
+  }
+
+  if (path === '/my-bots') {
+    return {
+      title: pageTitle('My bots'),
+      description:
+        'Schedule a private Copilot for your account — hourly during US market hours, with a paper or Schwab book you choose. Stays off the public timeline unless you opt in.',
+      path: '/my-bots',
     };
   }
 

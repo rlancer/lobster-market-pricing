@@ -28,10 +28,12 @@ const KNOWN_TOOLS = new Set([
   "web_search",
   "eco_calendar",
   "research_ticker",
+  "lookup_symbols",
   "publish_desk",
   "suggest_trades",
   "get_paper_portfolio",
   "get_portfolio",
+  "get_schwab_quotes",
   "get_bot_trades",
 ]);
 
