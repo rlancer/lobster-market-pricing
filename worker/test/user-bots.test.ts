@@ -4,9 +4,11 @@ import { systemPrompt } from "../src/copilot-prompt.ts";
 import {
   accountBotPublishDecision,
   attachablePortfolioOptions,
+  expireStaleActiveUserBotRun,
   parsePortfolioOptionId,
   resolveUserBotPortfolio,
   resolveUserBotPreset,
+  USER_BOT_FORCE_STALE_MS,
   userBotSystemAddon,
   validateUserBotInput,
 } from "../src/user-bots.ts";
@@ -16,7 +18,6 @@ import {
   buildUserBotAlertEmail,
   clipAlertExcerpt,
 } from "../src/user-bot-email.ts";
-import { publicChatOrigin } from "../src/user-bot-runner.ts";
 import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "../src/schwab-portfolio.ts";
 
 test("hourly_market is the friendly default schedule", () => {
@@ -297,4 +298,102 @@ test("filterSchwabPortfolioView keeps one account and recomputes totals", () => 
   const both = filterSchwabPortfolioView(view, ["keep", "drop"]);
   assert.equal(both.accounts.length, 2);
   assert.equal(both.totals.account_count, 2);
+});
+
+test("USER_BOT_FORCE_STALE_MS is two minutes so Run now can replace a hung row", () => {
+  assert.equal(USER_BOT_FORCE_STALE_MS, 2 * 60 * 1000);
+});
+
+type UserRunRow = {
+  run_id: string;
+  bot_id: string;
+  status: string;
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+function userBotRunsMemoryDb(runs: UserRunRow[]): D1Database {
+  return {
+    prepare(sql: string) {
+      let binds: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          binds = args;
+          return stmt;
+        },
+        async run() {
+          if (sql.includes("bot_id = ?3") && sql.includes("created_at < ?4")) {
+            const error = String(binds[0]);
+            const updatedAt = Number(binds[1]);
+            const botId = String(binds[2]);
+            const cutoff = Number(binds[3]);
+            let changes = 0;
+            for (const run of runs) {
+              if (
+                run.bot_id === botId
+                && (run.status === "queued" || run.status === "running")
+                && run.created_at < cutoff
+              ) {
+                run.status = "failed";
+                run.error = error;
+                run.updated_at = updatedAt;
+                changes += 1;
+              }
+            }
+            return { success: true, meta: { changes } };
+          }
+          return { success: true, meta: { changes: 0 } };
+        },
+        async first() {
+          return null;
+        },
+        async all() {
+          return { results: [] };
+        },
+      };
+      return stmt;
+    },
+  } as unknown as D1Database;
+}
+
+test("expireStaleActiveUserBotRun only drops this bot's old in-flight row", async () => {
+  const now = 1_700_000_000_000;
+  const runs: UserRunRow[] = [
+    {
+      run_id: "stale",
+      bot_id: "bot-a",
+      status: "running",
+      error: null,
+      created_at: now - USER_BOT_FORCE_STALE_MS - 1,
+      updated_at: now - USER_BOT_FORCE_STALE_MS - 1,
+    },
+    {
+      run_id: "fresh",
+      bot_id: "bot-a",
+      status: "running",
+      error: null,
+      created_at: now - 1_000,
+      updated_at: now - 1_000,
+    },
+    {
+      run_id: "other",
+      bot_id: "bot-b",
+      status: "running",
+      error: null,
+      created_at: now - USER_BOT_FORCE_STALE_MS - 1,
+      updated_at: now - USER_BOT_FORCE_STALE_MS - 1,
+    },
+  ];
+  const changes = await expireStaleActiveUserBotRun(
+    userBotRunsMemoryDb(runs),
+    "bot-a",
+    USER_BOT_FORCE_STALE_MS,
+    now,
+  );
+  assert.equal(changes, 1);
+  assert.equal(runs[0]?.status, "failed");
+  assert.equal(runs[0]?.error, "stale run replaced by Run now");
+  assert.equal(runs[1]?.status, "running");
+  assert.equal(runs[2]?.status, "running");
 });

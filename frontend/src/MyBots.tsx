@@ -268,7 +268,22 @@ export default function MyBotsPage() {
       const detail = await api.myBot(selected);
       setRuns(detail.runs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not run bot');
+      const raw = err instanceof Error ? err.message : 'Could not run bot';
+      const jsonStart = raw.indexOf('{');
+      if (jsonStart >= 0) {
+        try {
+          const body = JSON.parse(raw.slice(jsonStart)) as { error?: string };
+          if (typeof body.error === 'string' && body.error.includes('already has a run')) {
+            setError('A run is already in progress. Wait about two minutes, then try Run now again — do not open the chat while it is generating.');
+          } else {
+            setError(typeof body.error === 'string' ? body.error : raw);
+          }
+        } catch {
+          setError(raw);
+        }
+      } else {
+        setError(raw);
+      }
     } finally {
       setBusy(false);
     }

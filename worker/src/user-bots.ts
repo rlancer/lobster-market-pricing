@@ -12,6 +12,8 @@ export const USER_BOT_PROMPT_MAX = 4_000;
 export const USER_BOT_MAX_PER_USER = 10;
 export const USER_BOT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
 export const USER_BOT_RUN_TIMEOUT_ERROR = "timed out waiting for completion";
+/** Run now replaces a hung in-progress row after this age so a retry is not stuck. */
+export const USER_BOT_FORCE_STALE_MS = 2 * 60 * 1000;
 
 export const USER_BOT_PRESETS = [
   {
@@ -799,11 +801,34 @@ export async function expireStuckUserBotRuns(db: D1Database, nowMs = Date.now())
   return Number(result.meta?.changes ?? 0);
 }
 
+/** Manual Run now: drop this bot's in-flight row if it is older than maxAgeMs. */
+export async function expireStaleActiveUserBotRun(
+  db: D1Database,
+  botId: string,
+  maxAgeMs = USER_BOT_FORCE_STALE_MS,
+  nowMs = Date.now(),
+): Promise<number> {
+  const cutoff = nowMs - maxAgeMs;
+  const result = await db.prepare(
+    `UPDATE user_bot_runs
+     SET status = 'failed', error = ?1, updated_at = ?2
+     WHERE bot_id = ?3 AND status IN ('queued', 'running') AND created_at < ?4`,
+  ).bind("stale run replaced by Run now", nowMs, botId, cutoff).run();
+  return Number(result.meta?.changes ?? 0);
+}
+
 export async function hasActiveUserBotRun(db: D1Database, botId: string): Promise<boolean> {
+  return Boolean(await getActiveUserBotRun(db, botId));
+}
+
+export async function getActiveUserBotRun(db: D1Database, botId: string): Promise<UserBotRun | null> {
   const row = await db.prepare(
-    `SELECT 1 AS n FROM user_bot_runs WHERE bot_id = ?1 AND status IN ('queued', 'running') LIMIT 1`,
-  ).bind(botId).first();
-  return Boolean(row);
+    `SELECT * FROM user_bot_runs
+     WHERE bot_id = ?1 AND status IN ('queued', 'running')
+     ORDER BY created_at DESC
+     LIMIT 1`,
+  ).bind(botId).first<RunRow>();
+  return row ? rowToRun(row) : null;
 }
 
 export async function createUserBotRun(

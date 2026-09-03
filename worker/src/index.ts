@@ -3658,7 +3658,12 @@ async function handleUserBots(
         next_run_at: outcome.next_run_at,
       }, 200, "private");
     }
-    if (!outcome.ok) return json(env, { error: outcome.error }, 400, "private");
+    if (!outcome.ok) {
+      return json(env, {
+        error: outcome.error,
+        ...(outcome.chat_id ? { chat_id: outcome.chat_id } : {}),
+      }, 400, "private");
+    }
     return json(env, {
       ok: true,
       run_id: outcome.run.run_id,
