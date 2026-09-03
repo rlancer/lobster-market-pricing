@@ -483,24 +483,25 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News, filings, related
 Kalshi event markets (`related_symbol` join), and related chats settle on
 idle. Chat ticker chips (from `research_ticker`) link there.
-**Portfolio** (`/portfolio`) has three books: **Suggested trades** for public
-bot idea PnL (same book as `/u/{handle}` — no cash), the signed-in **paper
+**Portfolio** (`/portfolio`, left nav) is a signed-in page for your **paper
 book** (when Copilot `suggest_trades` lands concrete legs in a signed-in chat,
 those ideas auto-open paper positions at lake mid; Close realizes against
-$100k starting cash), and **Schwab** when OAuth is configured — live linked
+$100k starting cash) and **Schwab** when OAuth is configured — live linked
 brokerage accounts, balances, and positions via `GET /api/schwab/portfolio`
-(connect from Account or the Schwab tab). Paper + suggested filter by status
+(connect from Account or the Schwab tab). Anonymous visitors get a sign-in
+empty state. After sign-in, **Suggested trades** still shows public bot idea
+PnL (same book as `/u/{handle}` — no cash). Paper + suggested filter by status
 and conviction (high / medium / low). Share/timeline viewers can still
 **Add to portfolio**. Suggestions alone are not a book —
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
 (`GET /api/bots/{handle}/trades`).
-**My bots** (`/my-bots`, linked from Account and Portfolio) let a signed-in
-user schedule a private Copilot for their own account — friendly cadences
-such as “every hour during US market hours,” no cron syntax. Runs attach
-the owner’s paper book and linked Schwab portfolio when asked, land in Chat
-history, and email a briefing. They do **not** publish to the timeline
-unless the owner opts in (and has a public handle).
+**My bots** (`/my-bots`, left nav) let a signed-in user schedule a private
+Copilot for their own account — friendly cadences such as “every hour during
+US market hours,” no cron syntax. Anonymous visitors get a sign-in empty
+state. Runs attach the owner’s paper book and linked Schwab portfolio when
+asked, land in Chat history, and email a briefing. They do **not** publish
+to the timeline unless the owner opts in (and has a public handle).
 **Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that

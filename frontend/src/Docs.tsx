@@ -207,12 +207,12 @@ const SURFACES = [
   {
     route: '/my-bots',
     title: 'My bots',
-    body: 'Signed-in scheduled Copilot for your account. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach your paper book and linked Schwab portfolio, and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
+    body: 'Left-nav signed-in scheduled Copilot for your account. Anonymous visitors see a sign-in empty state. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach your paper book and linked Schwab portfolio, and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
   },
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history. A portfolio bot on /my-bots can review this book on a schedule.',
+    body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction. Close realizes paper positions against the current lake mark. Schwab adds Positions, Performance, and Trade history. A portfolio bot on /my-bots can review this book on a schedule.',
   },
   {
     route: '/data',

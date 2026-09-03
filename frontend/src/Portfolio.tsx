@@ -23,6 +23,7 @@ import {
   type SchwabStatus,
 } from './api';
 import { authClient } from './auth';
+import { SignInEmptyState } from './SignInEmptyState';
 import { BotTradesSection } from './BotTradesSection';
 import { SchwabPnlSection } from './SchwabPnlSection';
 import { SchwabTradesSection } from './SchwabTradesSection';
@@ -69,15 +70,14 @@ function convictionColor(conviction: string | null): 'green' | 'orange' | 'gray'
 }
 
 /**
- * Portfolio hub — public bot suggested-trade performance by default
- * (no sign-in), optional signed-in paper book, and linked Schwab
- * brokerage accounts when connected from Account.
+ * Signed-in portfolio hub — paper book, linked Schwab accounts, and
+ * public bot suggested-trade performance. Anonymous visitors get a
+ * sign-in empty state; public bot books stay on /u/{handle}.
  */
 export default function PortfolioPage() {
   const { data: session, isPending } = authClient.useSession();
   const signedIn = Boolean(session?.user);
-  // Public lobster books first — paper / Schwab are opt-in after Google.
-  const [bookMode, setBookMode] = useState<BookMode>('suggested');
+  const [bookMode, setBookMode] = useState<BookMode>('paper');
   const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +179,7 @@ export default function PortfolioPage() {
   }, [signedIn, schwabConfigured]);
 
   useEffect(() => {
+    if (!signedIn) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -196,7 +197,7 @@ export default function PortfolioPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [signedIn]);
 
   const close = async (id: string) => {
     setClosingId(id);
@@ -216,9 +217,6 @@ export default function PortfolioPage() {
       api.schwabConnectUrl(`${window.location.origin}/portfolio`),
     );
   };
-
-  // Suggested trades are public — do not gate the page on session resolve.
-  // Paper / Schwab wait on isPending inside their branches below.
 
   const account = portfolio?.account;
   const allRows = (portfolio?.positions ?? []) as PositionRow[];
@@ -281,14 +279,31 @@ export default function PortfolioPage() {
         }
       : null;
 
+  if (isPending) {
+    return (
+      <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5}>
+        <Spinner size="md" label="Loading session" />
+      </VStack>
+    );
+  }
+
+  if (!signedIn) {
+    return (
+      <SignInEmptyState title="Portfolio" className="portfolio-page">
+        Sign in to see your paper book and linked Schwab accounts, then
+        schedule a private bot to review risk on an interval.
+      </SignInEmptyState>
+    );
+  }
+
   return (
     <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5} maxWidth={1200}>
       <HStack gap={3} align="start" justify="between" wrap="wrap">
         <VStack gap={2}>
           <Heading level={1}>Portfolio</Heading>
           <Text type="supporting">
-            Public lobster suggested-trade performance — no sign-in required.
-            Signed-in books: paper tracking and linked Schwab accounts.
+            Your paper book and linked Schwab accounts. Public bot
+            suggested-trade books stay on the Suggested trades tab.
             Schedule a private{' '}
             <Link to="/my-bots" className="portfolio-link">portfolio bot</Link>
             {' '}to review risk on an interval.
@@ -595,7 +610,6 @@ export default function PortfolioPage() {
       ) : !signedIn ? (
         <Text type="supporting">
           Sign in with Google to open a personal paper book from your Copilot chats.
-          Suggested trades stay public — switch back above, no account needed.
         </Text>
       ) : (
         <>

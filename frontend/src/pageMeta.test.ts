@@ -78,7 +78,7 @@ test('chat, monitor, admin, brand, bots, users, chats, account, and share have r
   assert.equal(pageMetaForUrl('/chats').title, `Chats · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/chats').description ?? '', /visitor fingerprints/);
   assert.equal(pageMetaForUrl('/portfolio').title, `Portfolio · ${SITE_NAME}`);
-  assert.match(pageMetaForUrl('/portfolio').description ?? '', /lobster suggested-trade/);
+  assert.match(pageMetaForUrl('/portfolio').description ?? '', /paper book/);
   assert.equal(pageMetaForUrl('/account').title, `Account · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/account').description ?? '', /public handle/);
   assert.equal(pageMetaForUrl('/my-bots').title, `My bots · ${SITE_NAME}`);

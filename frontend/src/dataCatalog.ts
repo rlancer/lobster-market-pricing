@@ -200,7 +200,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'get_bot_trades',
     summary: 'Read a public bot’s suggested-trade PnL',
     description:
-      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /portfolio (Suggested trades) and /u/{handle}. Optional conviction filter scopes performance.',
+      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /u/{handle} and on /portfolio Suggested trades after sign-in. Optional conviction filter scopes performance.',
     endpoint: 'GET /api/bots/{handle}/trades',
     tools: ['suggest_trades'],
     params: [

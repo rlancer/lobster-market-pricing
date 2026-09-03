@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Button, Heading, HStack, Spinner, Text, TextArea, TextInput, Token, VStack } from '@astryxdesign/core';
 import { api, type UserBot, type UserBotPreset, type UserBotRun, type UserBotTemplate } from './api';
-import { authClient, signInWithGoogle } from './auth';
+import { authClient } from './auth';
+import { SignInEmptyState } from './SignInEmptyState';
 
 const EMPTY_FORM = {
   name: '',
@@ -42,7 +43,6 @@ export default function MyBotsPage() {
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
-  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [bots, setBots] = useState<UserBot[]>([]);
   const [presets, setPresets] = useState<UserBotPreset[]>([]);
   const [templates, setTemplates] = useState<UserBotTemplate[]>([]);
@@ -55,16 +55,6 @@ export default function MyBotsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    api.health().then((health) => {
-      if (active) setGoogleEnabled(Boolean(health.auth?.google));
-    }).catch(() => {
-      if (active) setGoogleEnabled(false);
-    });
-    return () => { active = false; };
-  }, []);
 
   const loadList = useCallback(async () => {
     const data = await api.myBots();
@@ -236,29 +226,11 @@ export default function MyBotsPage() {
 
   if (!user) {
     return (
-      <VStack gap={5} paddingBlock={6} paddingInline={5} maxWidth={560}>
-        <VStack gap={2}>
-          <Heading level={1}>My bots</Heading>
-          <Text type="supporting">
-            Sign in to schedule a private Copilot that watches your portfolio
-            — for example every hour during US market hours — and emails you
-            when something needs attention.
-          </Text>
-        </VStack>
-        {googleEnabled ? (
-          <Button
-            variant="primary"
-            label="Sign in with Google"
-            onClick={() => {
-              void signInWithGoogle().catch((err) => {
-                console.error('Google sign-in failed', err);
-              });
-            }}
-          />
-        ) : (
-          <Text type="supporting">Google sign-in is not configured on this deployment.</Text>
-        )}
-      </VStack>
+      <SignInEmptyState title="My bots">
+        Sign in to schedule a private Copilot that watches your portfolio
+        — for example every hour during US market hours — and emails you
+        when something needs attention.
+      </SignInEmptyState>
     );
   }
 

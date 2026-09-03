@@ -221,7 +221,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Portfolio'),
       description:
-        'Public lobster suggested-trade performance and an optional signed-in paper book, filterable by conviction.',
+        'Your paper book and linked Schwab accounts. Sign in to track Copilot suggestions and live brokerage positions.',
       path: '/portfolio',
     };
   }
