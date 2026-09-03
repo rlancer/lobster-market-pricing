@@ -512,6 +512,21 @@ export default function AccountPage() {
 
         <ReplyStylePicker />
 
+        <VStack gap={2}>
+          <Heading level={2}>My bots</Heading>
+          <Text type="supporting">
+            Schedule a private Copilot — for example every hour during US
+            market hours with your portfolio attached. Briefings stay off the
+            public timeline unless you opt in.
+          </Text>
+          <Button
+            variant="secondary"
+            size="sm"
+            label="Manage bots"
+            onClick={() => { void navigate({ to: '/my-bots' }); }}
+          />
+        </VStack>
+
         {schwabConfigured ? (
           <VStack gap={3} className="account-schwab">
             <VStack gap={1}>

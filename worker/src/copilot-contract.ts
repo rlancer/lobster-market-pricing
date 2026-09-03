@@ -25,6 +25,7 @@ export const COPILOT_TOOL_LABELS = {
   publish_desk: "Desk viewpoints",
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
+  get_schwab_portfolio: "Schwab portfolio",
   get_bot_trades: "Bot trade performance",
 } as const;
 
@@ -64,6 +65,10 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Call when the user asks about their book, paper PnL, tracked suggestions, or how suggested trades are doing. " +
     "Optional conviction filter (high|medium|low) scopes positions and PnL. " +
     "Requires a signed-in chat owner — returns a clear error when anonymous/bot.",
+  get_schwab_portfolio:
+    "Read this chat owner's linked Charles Schwab brokerage book: cash, equity, day/open PnL, and positions. " +
+    "Call when the user asks about their real brokerage account, Schwab balances, or live holdings. " +
+    "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected.",
   get_bot_trades:
     "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
     "Call when the user asks how @yololobster / @nowlobster / another bot's ideas are doing. " +
@@ -164,6 +169,7 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     conviction: z.enum(["high", "medium", "low"]).optional()
       .describe("Optional conviction filter for positions and PnL."),
   }).strict(),
+  get_schwab_portfolio: z.object({}).strict(),
   get_bot_trades: z.object({
     handle: z.string().trim().min(1).max(32)
       .describe("Bot handle without @, e.g. yololobster or nowlobster."),

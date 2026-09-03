@@ -432,6 +432,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Copilot reads the same book via `get_bot_trades`. |
+| `GET/POST /api/me/bots` | Signed-in personal bots — list (includes friendly schedule presets + templates) or create. Private by default (`publish_to_timeline` off). |
+| `GET/PUT/DELETE /api/me/bots/{id}` | Signed-in — read one bot plus recent runs, update, or delete. |
+| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (`?force=1` bypasses market hours). Lands in Chat history; emails when enabled; timeline only if opted in. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/copilot/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Copilot system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the Copilot prompt schema block). Powers `/copilot`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
@@ -492,6 +495,12 @@ and conviction (high / medium / low). Share/timeline viewers can still
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
 (`GET /api/bots/{handle}/trades`).
+**My bots** (`/my-bots`, linked from Account and Portfolio) let a signed-in
+user schedule a private Copilot for their own account — friendly cadences
+such as “every hour during US market hours,” no cron syntax. Runs attach
+the owner’s paper book and linked Schwab portfolio when asked, land in Chat
+history, and email a briefing. They do **not** publish to the timeline
+unless the owner opts in (and has a public handle).
 **Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that
@@ -508,7 +517,7 @@ in, visitor fingerprint from IP + UA when anonymous).
 **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
-- Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
+- Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, `get_paper_portfolio`, `get_schwab_portfolio`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
   Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)

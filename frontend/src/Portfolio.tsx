@@ -289,6 +289,9 @@ export default function PortfolioPage() {
           <Text type="supporting">
             Public lobster suggested-trade performance — no sign-in required.
             Signed-in books: paper tracking and linked Schwab accounts.
+            Schedule a private{' '}
+            <Link to="/my-bots" className="portfolio-link">portfolio bot</Link>
+            {' '}to review risk on an interval.
           </Text>
         </VStack>
         <TabList

@@ -163,7 +163,7 @@ export const TOOLS: CatalogItem[] = [
     description:
       'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity|kalshi, side buy|sell (long/short), optional qty, plus option right/strike/expiry or Kalshi market_ticker + contract_side (yes|no). The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute option strikes must come from option_contracts quote evidence; Kalshi legs must cite options.kalshi_markets quotes. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking. For public bots, the same suggestions are snapshotted into that bot’s trade book on /u/{handle}.',
     tables: ['option_contracts', 'kalshi_markets'],
-    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_bot_trades'],
+    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_schwab_portfolio', 'get_bot_trades'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
@@ -182,6 +182,17 @@ export const TOOLS: CatalogItem[] = [
       { name: 'status', type: 'open|closed|all?', note: 'Default open' },
       { name: 'conviction', type: 'high|medium|low?', note: 'Optional performance filter' },
     ],
+  },
+  {
+    id: 'tool:get_schwab_portfolio',
+    kind: 'tool',
+    title: 'get_schwab_portfolio',
+    summary: 'Read the signed-in Schwab brokerage book',
+    description:
+      'Returns cash, equity, day/open PnL, and positions from the chat owner’s linked Charles Schwab accounts. Call when the user asks about their real brokerage book. Requires a signed-in owner who has connected Schwab — disconnected chats get a clear error. Used by personal scheduled bots when the portfolio is attached.',
+    endpoint: 'GET /api/schwab/portfolio',
+    tools: ['get_paper_portfolio'],
+    params: [],
   },
   {
     id: 'tool:get_bot_trades',

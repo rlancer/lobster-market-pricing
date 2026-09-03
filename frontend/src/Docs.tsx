@@ -164,6 +164,9 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (D1 book + lake marks with TTL; optional status/conviction; refresh=0 skips remake; backfill=1 recovers missed ideas)' },
   { method: 'GET', path: '/api/reply-styles', desc: 'Canned Copilot reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Copilot reply_style / reply_note' },
+  { method: 'GET/POST', path: '/api/me/bots', desc: 'Signed-in personal bots — list (with friendly schedule presets) or create. Private by default; no timeline publish unless opted in.' },
+  { method: 'GET/PUT/DELETE', path: '/api/me/bots/{id}', desc: 'Signed-in — read one bot plus recent runs, update, or delete' },
+  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (?force=1 bypasses market hours). Lands in Chat history; emails when enabled; timeline only if opted in.' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/copilot/capabilities', desc: 'Admin — live Copilot system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a Copilot chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
@@ -194,7 +197,7 @@ const SURFACES = [
   {
     route: '/account',
     title: 'Account',
-    body: 'Signed-in settings page (left-nav profile control). Claim or change your public handle, set display name and avatar, choose how Lobster replies (Desk trader / Hedge fund / New to trading plus an optional note), and sign out. First sign-in still opens a claim-handle dialog; everything else lives here instead of a popover.',
+    body: 'Signed-in settings page (left-nav profile control). Claim or change your public handle, set display name and avatar, choose how Lobster replies (Desk trader / Hedge fund / New to trading plus an optional note), manage personal scheduled bots, and sign out. First sign-in still opens a claim-handle dialog; everything else lives here instead of a popover.',
   },
   {
     route: '/chat',
@@ -202,9 +205,14 @@ const SURFACES = [
     body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers or session frames, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. Share from the chat header or any settled reply (through that answer). From the share dialog, signed-in authors can post a chat onto the public timeline.',
   },
   {
+    route: '/my-bots',
+    title: 'My bots',
+    body: 'Signed-in scheduled Copilot for your account. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach your paper book and linked Schwab portfolio, and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
+  },
+  {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history.',
+    body: 'Paper book ($100k starting cash) for signed-in Copilot suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history. A portfolio bot on /my-bots can review this book on a schedule.',
   },
   {
     route: '/data',

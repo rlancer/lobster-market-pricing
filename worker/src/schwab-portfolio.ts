@@ -283,6 +283,43 @@ export type SchwabPortfolioResult =
   | { ok: false; reason: "not_connected" }
   | { ok: false; reason: "refresh_failed" | "upstream"; status: number; message: string };
 
+function money(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  const formatted = abs.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return value < 0 ? `-${formatted}` : formatted;
+}
+
+/** Compact tool summary for get_schwab_portfolio — no account hashes. */
+export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string {
+  const { totals, accounts } = view;
+  const lines = [
+    "Schwab brokerage",
+    `Cash ${money(totals.cash)} · Equity ${money(totals.equity)} · Buying power ${money(totals.buying_power)} · Day PnL ${money(totals.day_pnl)} · Open PnL ${money(totals.open_pnl)} · ${totals.position_count} positions across ${totals.account_count} account${totals.account_count === 1 ? "" : "s"}`,
+  ];
+  if (accounts.length === 0) {
+    lines.push("No linked accounts returned.");
+    return lines.join("\n");
+  }
+  let shown = 0;
+  for (const account of accounts) {
+    lines.push(
+      `${account.account_number_masked}${account.type ? ` · ${account.type}` : ""} · cash ${money(account.cash)} · equity ${money(account.equity)}`,
+    );
+    for (const position of account.positions.slice(0, 40)) {
+      shown += 1;
+      if (shown > 40) break;
+      const qty = Number.isFinite(position.quantity) ? String(position.quantity) : "—";
+      lines.push(
+        `- ${position.symbol}${position.underlying ? ` (${position.underlying})` : ""} · qty ${qty} · mark ${money(position.market_value)} · day ${money(position.day_pnl)} · open ${money(position.open_pnl)}`,
+      );
+    }
+    if (shown > 40) break;
+  }
+  if (totals.position_count > 40) lines.push(`…and ${totals.position_count - 40} more`);
+  return lines.join("\n");
+}
+
 export async function loadSchwabPortfolio(
   env: SchwabEnv,
   userId: string,
