@@ -35,7 +35,7 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 // ETF fund profile + top holdings: batch-scoped, ungated, daily cadence.
 // Universe is symbols/etfs.json (the 92 optionable ETFs) union enrolled
 // tickers with security_type etf|fund — Copilot lookup_symbols enrolls
-// names like RSP that are not CBOE-optionable. Equities have no fundProfile.
+// funds that are not CBOE-optionable. Equities have no fundProfile.
 // Yahoo quoteSummary needs a crumb session opened once per pass and reused.
 //
 // Dry-run: without either Pipeline URL the pass is a no-op.

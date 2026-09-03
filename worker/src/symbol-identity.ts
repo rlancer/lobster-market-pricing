@@ -2,11 +2,12 @@
  * Identify what a ticker actually is (equity vs ETF vs index vs …) and, for
  * funds, what it holds.
  *
- * Lake coverage is incomplete — RSP, VGSH, and other funds are often absent
- * from options.etf_profiles / etf_holdings. Yahoo search returns quoteType +
- * name without a crumb; quoteSummary (crumb session) returns the top-10 book
- * so this turn can see constituents before the lake flush. lookup_symbols
- * then enrolls the fund so etf-daily persists the same rows to the lake.
+ * Lake coverage is incomplete — many funds outside the curated optionable list
+ * are absent from options.etf_profiles / etf_holdings. Yahoo search returns
+ * quoteType + name without a crumb; quoteSummary (crumb session) returns the
+ * top-10 book so this turn can see constituents before the lake flush.
+ * lookup_symbols then enrolls the fund so etf-daily persists the same rows to
+ * the lake.
  */
 
 import { catalogLookup } from "./catalog-symbols";

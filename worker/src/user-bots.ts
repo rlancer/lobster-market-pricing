@@ -474,7 +474,7 @@ export function userBotSystemAddon(opts: {
   }
   if (source !== "none") {
     lines.push(
-      "Identify every holding before flagging concentration: use the book's asset kind and description, and call lookup_symbols for any unlabeled ticker (it returns kind plus Yahoo top holdings/weights). Diversified ETFs/index funds are not single-name stocks — read those weights before recommending a trim. Overlap of the same issuer across funds is concentration; sleeve size in RSP/SPY is not. Query options.etf_holdings when you need a lake-backed book.",
+      "Identify every holding before flagging concentration: use the book's asset kind and description, and call lookup_symbols for any unlabeled ticker (it returns kind plus Yahoo top holdings/weights). Diversified ETFs/index funds are not single-name stocks — read those weights before recommending a trim. Overlap of the same issuer across funds is concentration; sleeve size in a broad index fund is not. Query options.etf_holdings when you need a lake-backed book.",
     );
   }
   if (opts.publish_to_timeline) {

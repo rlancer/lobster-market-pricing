@@ -131,7 +131,7 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   }).strict(),
   lookup_symbols: z.object({
     symbols: z.array(z.string().trim().min(1).max(16)).min(1).max(20)
-      .describe("Tickers to identify (RSP, AAPL, ^VIX, BTC-USD). 1–20 symbols."),
+      .describe("Tickers to identify (e.g. SPY, AAPL, ^VIX, BTC-USD). 1–20 symbols."),
   }).strict(),
   publish_desk: z.object({
     fundamental: deskViewpointText.optional().describe(
