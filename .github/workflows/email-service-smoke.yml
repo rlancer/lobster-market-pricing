@@ -18,6 +18,10 @@ on:
           - api-dev
           - api
         default: api-dev
+      trigger_bot:
+        description: 'api-dev only — Run now the first enabled personal bot as robert.lancer@gmail.com'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -58,3 +62,99 @@ jobs:
           fi
           echo "$body" | grep -q '"ok":true'
           echo "$body" | grep -q '"message_id"'
+
+      - name: Assume admin account on api-dev
+        if: ${{ inputs.target != 'api' }}
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          TRIGGER_BOT: ${{ inputs.trigger_bot }}
+        run: |
+          set -euo pipefail
+          AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "X-Dev-As: robert.lancer@gmail.com" -H "Content-Type: application/json")
+
+          prod=$(curl -sS -o /tmp/prod.json -w '%{http_code}' -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"email":"robert.lancer@gmail.com"}' \
+            https://api.lobster.mp/api/admin/dev-session)
+          echo "prod /api/admin/dev-session HTTP $prod"
+          cat /tmp/prod.json; echo
+          if [ "$prod" != "404" ]; then
+            echo "::error::production impersonation must 404"
+            exit 1
+          fi
+
+          me=$(curl -sS -o /tmp/me.json -w '%{http_code}' "${AUTH[@]}" \
+            https://api-dev.lobster.mp/api/me)
+          echo "dev /api/me HTTP $me"
+          python3 - <<'PY'
+          import json
+          me = json.load(open("/tmp/me.json"))
+          print("email", me.get("email"), "ok", me.get("ok"))
+          if me.get("email") != "robert.lancer@gmail.com":
+              raise SystemExit("expected robert.lancer@gmail.com")
+          PY
+          if [ "$me" != "200" ]; then
+            echo "::error::api-dev /api/me rejected ADMIN_TOKEN impersonation"
+            exit 1
+          fi
+
+          bots=$(curl -sS -o /tmp/bots.json -w '%{http_code}' "${AUTH[@]}" \
+            https://api-dev.lobster.mp/api/me/bots)
+          echo "dev /api/me/bots HTTP $bots"
+          python3 - <<'PY'
+          import json
+          data = json.load(open("/tmp/bots.json"))
+          items = data.get("items") or []
+          print("bot_count", len(items))
+          for bot in items:
+              print("bot", bot.get("bot_id"), bot.get("name"), "enabled=" + str(bot.get("enabled")))
+          open("/tmp/bot_id.txt", "w").write(next((b["bot_id"] for b in items if b.get("enabled")), ""))
+          PY
+          if [ "$bots" != "200" ]; then
+            echo "::error::api-dev /api/me/bots failed"
+            exit 1
+          fi
+
+          mint=$(curl -sS -o /tmp/mint.json -w '%{http_code}' \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"robert.lancer@gmail.com"}' \
+            https://api-dev.lobster.mp/api/admin/dev-session)
+          echo "dev /api/admin/dev-session HTTP $mint"
+          python3 - <<'PY'
+          import json
+          minted = json.load(open("/tmp/mint.json"))
+          cookie = minted.get("cookie") or {}
+          print("mint_ok", minted.get("ok"), "email", (minted.get("user") or {}).get("email"), "cookie", cookie.get("name"))
+          if not minted.get("ok"):
+              raise SystemExit("mint failed")
+          PY
+          if [ "$mint" != "200" ]; then
+            echo "::error::dev-session mint failed"
+            exit 1
+          fi
+
+          if [ "$TRIGGER_BOT" != "true" ]; then
+            echo "Skipping Run now"
+            exit 0
+          fi
+          BOT_ID=$(cat /tmp/bot_id.txt)
+          if [ -z "$BOT_ID" ]; then
+            echo "::error::no enabled personal bot to trigger"
+            exit 1
+          fi
+          echo "POST /api/me/bots/$BOT_ID/trigger?force=1"
+          trig=$(curl -sS --max-time 300 -o /tmp/trig.json -w '%{http_code}' -X POST "${AUTH[@]}" \
+            "https://api-dev.lobster.mp/api/me/bots/${BOT_ID}/trigger?force=1")
+          echo "trigger HTTP $trig"
+          python3 - <<'PY'
+          import json
+          body = json.load(open("/tmp/trig.json"))
+          print("trigger", {k: body.get(k) for k in ("ok", "error", "chat_id", "run_id", "share_id", "deferred", "reason")})
+          if not body.get("ok"):
+              raise SystemExit(body.get("error") or "trigger failed")
+          PY
+          if [ "$trig" != "200" ]; then
+            echo "::error::bot trigger failed HTTP $trig"
+            exit 1
+          fi
