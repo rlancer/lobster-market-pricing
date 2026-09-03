@@ -1,19 +1,79 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Button, Heading, HStack, Spinner, Text, TextArea, TextInput, Token, VStack } from '@astryxdesign/core';
-import { api, type UserBot, type UserBotPreset, type UserBotRun, type UserBotTemplate } from './api';
+import { api, type UserBot, type UserBotPortfolioOption, type UserBotPreset, type UserBotRun, type UserBotTemplate } from './api';
 import { authClient } from './auth';
 import { SignInEmptyState } from './SignInEmptyState';
+
+const FALLBACK_PORTFOLIOS: UserBotPortfolioOption[] = [
+  { id: 'none', label: "Don't attach a portfolio", source: 'none', account_id: null },
+  { id: 'paper', label: 'Paper book', source: 'paper', account_id: null },
+];
 
 const EMPTY_FORM = {
   name: '',
   template_id: 'portfolio_risk' as string,
   prompt: '',
   schedule_preset: 'hourly_market',
-  attach_portfolio: true,
+  portfolio_id: 'paper',
   email_alerts: true,
   publish_to_timeline: false,
 };
+
+function portfolioHint(option: UserBotPortfolioOption | undefined): string {
+  if (!option || option.source === 'none') {
+    return 'The briefing runs without reading a book.';
+  }
+  if (option.source === 'paper') {
+    return 'Reads your paper book — tracked Copilot suggestions and cash.';
+  }
+  if (option.source === 'all') {
+    return 'Reads the paper book and every linked Schwab account.';
+  }
+  if (option.account_id) {
+    return `Reads only ${option.label}.`;
+  }
+  return 'Reads every linked Schwab account.';
+}
+
+const KNOWN_PORTFOLIO_LABELS: Record<string, string> = {
+  none: "Don't attach a portfolio",
+  paper: 'Paper book',
+  schwab: 'All Schwab accounts',
+  all: 'Paper book + Schwab',
+};
+
+function botPortfolioId(bot: Pick<UserBot, 'portfolio_id' | 'attach_portfolio'>): string {
+  return bot.portfolio_id ?? (bot.attach_portfolio ? 'all' : 'none');
+}
+
+function portfolioLabel(portfolios: UserBotPortfolioOption[], selectedId: string): string {
+  return withSelectedPortfolio(portfolios, selectedId).find((item) => item.id === selectedId)?.label
+    ?? KNOWN_PORTFOLIO_LABELS[selectedId]
+    ?? 'Paper book';
+}
+
+function withSelectedPortfolio(
+  portfolios: UserBotPortfolioOption[],
+  selectedId: string,
+): UserBotPortfolioOption[] {
+  if (portfolios.some((item) => item.id === selectedId)) return portfolios;
+  if (!selectedId) return portfolios;
+  const source = selectedId === 'none' || selectedId === 'paper' || selectedId === 'schwab' || selectedId === 'all'
+    ? selectedId
+    : selectedId.startsWith('schwab:') ? 'schwab' : 'paper';
+  return [
+    ...portfolios,
+    {
+      id: selectedId,
+      label: KNOWN_PORTFOLIO_LABELS[selectedId] ?? selectedId,
+      source,
+      account_id: source === 'schwab' && selectedId.startsWith('schwab:')
+        ? selectedId.slice('schwab:'.length)
+        : null,
+    },
+  ];
+}
 
 function formatRelativeAge(createdAtMs: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000));
@@ -46,6 +106,7 @@ export default function MyBotsPage() {
   const [bots, setBots] = useState<UserBot[]>([]);
   const [presets, setPresets] = useState<UserBotPreset[]>([]);
   const [templates, setTemplates] = useState<UserBotTemplate[]>([]);
+  const [portfolios, setPortfolios] = useState<UserBotPortfolioOption[]>(FALLBACK_PORTFOLIOS);
   const [selected, setSelected] = useState<string | null>(null);
   const [runs, setRuns] = useState<UserBotRun[]>([]);
   const [creating, setCreating] = useState(false);
@@ -61,6 +122,7 @@ export default function MyBotsPage() {
     setBots(data.items);
     setPresets(data.presets);
     setTemplates(data.templates);
+    setPortfolios(data.portfolios?.length ? data.portfolios : FALLBACK_PORTFOLIOS);
     return data;
   }, []);
 
@@ -95,7 +157,7 @@ export default function MyBotsPage() {
         template_id: 'custom',
         prompt: bot.prompt,
         schedule_preset: bot.schedule_preset,
-        attach_portfolio: bot.attach_portfolio,
+        portfolio_id: botPortfolioId(bot),
         email_alerts: bot.email_alerts,
         publish_to_timeline: bot.publish_to_timeline,
       });
@@ -142,7 +204,7 @@ export default function MyBotsPage() {
         prompt: form.prompt,
         template_id: form.template_id,
         schedule_preset: form.schedule_preset,
-        attach_portfolio: form.attach_portfolio,
+        portfolio_id: form.portfolio_id,
         email_alerts: form.email_alerts,
         publish_to_timeline: form.publish_to_timeline,
       };
@@ -243,8 +305,9 @@ export default function MyBotsPage() {
         <Heading level={1}>My bots</Heading>
         <Text type="supporting">
           Private scheduled briefings for your account. They stay off the
-          public timeline unless you opt in. Attach your paper book and linked
-          Schwab portfolio so the bot can flag risk and suggest adjustments.
+          public timeline unless you opt in. Pick which book to attach —
+          paper, a Schwab account, or none — so the bot reads that book
+          and flags risk.
         </Text>
       </VStack>
 
@@ -286,6 +349,7 @@ export default function MyBotsPage() {
               />
               <Token label={bot.enabled ? 'On' : 'Paused'} color={bot.enabled ? 'green' : 'red'} />
               <Text type="supporting">{presetLabel(presets, bot.schedule_preset)}</Text>
+              <Text type="supporting">{portfolioLabel(portfolios, botPortfolioId(bot))}</Text>
             </HStack>
           ))}
         </VStack>
@@ -349,17 +413,28 @@ export default function MyBotsPage() {
           </VStack>
 
           <VStack gap={2}>
-            <Button
-              variant={form.attach_portfolio ? 'primary' : 'secondary'}
-              size="sm"
-              label={form.attach_portfolio ? 'Portfolio attached' : 'Run without my portfolio'}
-              isDisabled={busy}
-              onClick={() => setForm((prev) => ({ ...prev, attach_portfolio: !prev.attach_portfolio }))}
-            />
+            <Text type="body" weight="semibold">Which portfolio?</Text>
+            {withSelectedPortfolio(portfolios, form.portfolio_id).map((option) => (
+              <Button
+                key={option.id}
+                variant={form.portfolio_id === option.id ? 'primary' : 'secondary'}
+                size="sm"
+                label={option.label}
+                isDisabled={busy}
+                onClick={() => setForm((prev) => ({ ...prev, portfolio_id: option.id }))}
+              />
+            ))}
             <Text type="supporting">
-              When attached, the bot reads your paper book and linked Schwab
-              accounts before it writes the briefing.
+              {portfolioHint(
+                withSelectedPortfolio(portfolios, form.portfolio_id)
+                  .find((item) => item.id === form.portfolio_id),
+              )}
             </Text>
+            {portfolios.every((item) => item.source !== 'schwab') ? (
+              <Link to="/portfolio">
+                <Text type="supporting">Connect Schwab on Portfolio to attach a brokerage account.</Text>
+              </Link>
+            ) : null}
             <Button
               variant={form.email_alerts ? 'primary' : 'secondary'}
               size="sm"

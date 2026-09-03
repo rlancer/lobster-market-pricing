@@ -207,7 +207,7 @@ const SURFACES = [
   {
     route: '/my-bots',
     title: 'My bots',
-    body: 'Left-nav signed-in scheduled Copilot for your account. Anonymous visitors see a sign-in empty state. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach your paper book and linked Schwab portfolio, and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
+    body: 'Left-nav signed-in scheduled Copilot for your account. Anonymous visitors see a sign-in empty state. Pick a friendly cadence (every hour during US market hours — no cron syntax), choose which book to attach (paper, a specific Schwab account, all Schwab, paper + Schwab, or none), and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
   },
   {
     route: '/portfolio',

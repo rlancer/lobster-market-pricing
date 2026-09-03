@@ -3,6 +3,9 @@ import test from "node:test";
 import { systemPrompt } from "../src/copilot-prompt.ts";
 import {
   accountBotPublishDecision,
+  attachablePortfolioOptions,
+  parsePortfolioOptionId,
+  resolveUserBotPortfolio,
   resolveUserBotPreset,
   userBotSystemAddon,
   validateUserBotInput,
@@ -12,7 +15,7 @@ import {
   buildUserBotAlertEmail,
   clipAlertExcerpt,
 } from "../src/user-bot-email.ts";
-import { formatSchwabPortfolioSummary } from "../src/schwab-portfolio.ts";
+import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "../src/schwab-portfolio.ts";
 
 test("hourly_market is the friendly default schedule", () => {
   const preset = resolveUserBotPreset("hourly_market");
@@ -33,6 +36,8 @@ test("validateUserBotInput rejects cron-like empty prompts and fills the default
   assert.equal(result.value.schedule_preset, "hourly_market");
   assert.equal(result.value.market_gated, true);
   assert.equal(result.value.attach_portfolio, true);
+  assert.equal(result.value.portfolio_source, "paper");
+  assert.equal(result.value.portfolio_account_id, null);
   assert.equal(result.value.publish_to_timeline, false);
   assert.equal(result.value.email_alerts, true);
 });
@@ -44,7 +49,41 @@ test("validateUserBotInput applies a template prompt when the body omits prompt"
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.match(result.value.prompt, /get_schwab_portfolio/);
+  assert.match(result.value.prompt, /attached book/);
+});
+
+test("validateUserBotInput accepts a specific Schwab account", () => {
+  const result = validateUserBotInput({
+    name: "Schwab desk",
+    prompt: "Review the margin book.",
+    portfolio_id: "schwab:acct-1",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.portfolio_source, "schwab");
+  assert.equal(result.value.portfolio_account_id, "acct-1");
+  assert.equal(result.value.attach_portfolio, true);
+});
+
+test("legacy attach_portfolio false still means no book", () => {
+  const none = resolveUserBotPortfolio({ attach_portfolio: false });
+  assert.deepEqual(none, { source: "none", accountId: null });
+  assert.equal(parsePortfolioOptionId("schwab:abc-9")?.accountId, "abc-9");
+});
+
+test("attachablePortfolioOptions lists paper, each Schwab account, then combined books", () => {
+  const options = attachablePortfolioOptions([
+    { id: "a1", label: "Schwab · ••••5678 · MARGIN" },
+    { id: "a2", label: "Schwab · ••••1234 · CASH" },
+  ]);
+  assert.deepEqual(options.map((item) => item.id), [
+    "none",
+    "paper",
+    "schwab:a1",
+    "schwab:a2",
+    "schwab",
+    "all",
+  ]);
 });
 
 test("private bots stay off the timeline unless the owner opted in and has a handle", () => {
@@ -65,14 +104,28 @@ test("private bots stay off the timeline unless the owner opted in and has a han
 test("userBotSystemAddon never asks for a public timeline post by default", () => {
   const body = userBotSystemAddon({
     name: "Portfolio risk",
-    attach_portfolio: true,
+    portfolio_source: "paper",
     publish_to_timeline: false,
   });
   assert.match(body, /Private account bot/);
   assert.match(body, /get_paper_portfolio/);
-  assert.match(body, /get_schwab_portfolio/);
+  assert.doesNotMatch(body, /MUST call get_schwab_portfolio/);
   assert.doesNotMatch(body, /generating a public post/);
   assert.doesNotMatch(body, /MUST still call publish_desk/);
+});
+
+test("userBotSystemAddon scopes a Schwab account and skips the paper tool", () => {
+  const body = userBotSystemAddon({
+    name: "Schwab risk",
+    portfolio_source: "schwab",
+    portfolio_account_id: "acct-1",
+    portfolio_label: "Schwab · ••••5678 · MARGIN",
+    publish_to_timeline: false,
+  });
+  assert.match(body, /Schwab · ••••5678/);
+  assert.match(body, /get_schwab_portfolio/);
+  assert.match(body, /account="acct-1"/);
+  assert.doesNotMatch(body, /MUST call get_paper_portfolio/);
 });
 
 test("systemPrompt uses the private addon instead of public bot timeline rules", () => {
@@ -82,6 +135,7 @@ test("systemPrompt uses the private addon instead of public bot timeline rules",
     persona: "Private account briefing",
     system_prompt_extra: "",
     audience: "private",
+    portfolio_source: "all",
     attach_portfolio: true,
     publish_to_timeline: false,
   });
@@ -159,4 +213,62 @@ test("formatSchwabPortfolioSummary keeps masked accounts and skips empty books",
   assert.match(summary, /••••5678/);
   assert.match(summary, /AAPL/);
   assert.doesNotMatch(summary, /12345678/);
+});
+
+test("filterSchwabPortfolioView keeps one account and recomputes totals", () => {
+  const view = {
+    connected: true as const,
+    fetched_at: "2026-09-02T15:00:00.000Z",
+    accounts: [
+      {
+        id: "keep",
+        account_number_masked: "••••1111",
+        type: "MARGIN",
+        cash: 100,
+        equity: 1_000,
+        buying_power: 500,
+        day_pnl: 10,
+        open_pnl: 20,
+        positions: [{
+          id: "p1",
+          symbol: "AAPL",
+          underlying: null,
+          description: null,
+          asset_type: "EQUITY",
+          quantity: 1,
+          average_price: 1,
+          market_value: 2,
+          day_pnl: 0,
+          open_pnl: 1,
+          cusip: null,
+        }],
+      },
+      {
+        id: "drop",
+        account_number_masked: "••••9999",
+        type: "CASH",
+        cash: 9_000,
+        equity: 9_000,
+        buying_power: 9_000,
+        day_pnl: 90,
+        open_pnl: 90,
+        positions: [],
+      },
+    ],
+    totals: {
+      cash: 9_100,
+      equity: 10_000,
+      buying_power: 9_500,
+      day_pnl: 100,
+      open_pnl: 110,
+      position_count: 1,
+      account_count: 2,
+    },
+  };
+  const filtered = filterSchwabPortfolioView(view, "keep");
+  assert.equal(filtered.accounts.length, 1);
+  assert.equal(filtered.accounts[0]?.id, "keep");
+  assert.equal(filtered.totals.cash, 100);
+  assert.equal(filtered.totals.account_count, 1);
+  assert.equal(filtered.totals.position_count, 1);
 });

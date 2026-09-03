@@ -239,7 +239,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('My bots'),
       description:
-        'Schedule a private Copilot for your account — hourly during US market hours, with your portfolio attached. Stays off the public timeline unless you opt in.',
+        'Schedule a private Copilot for your account — hourly during US market hours, with a paper or Schwab book you choose. Stays off the public timeline unless you opt in.',
       path: '/my-bots',
     };
   }

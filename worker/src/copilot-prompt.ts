@@ -18,6 +18,9 @@ export interface BotPromptProfile {
   /** Public admin personas vs signed-in account bots. Default public. */
   audience?: "public" | "private";
   attach_portfolio?: boolean;
+  portfolio_source?: "none" | "paper" | "schwab" | "all";
+  portfolio_account_id?: string | null;
+  portfolio_label?: string | null;
   publish_to_timeline?: boolean;
 }
 
@@ -114,6 +117,9 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
       lines.push(userBotSystemAddon({
         name: bot.display_name,
         attach_portfolio: Boolean(bot.attach_portfolio),
+        portfolio_source: bot.portfolio_source,
+        portfolio_account_id: bot.portfolio_account_id,
+        portfolio_label: bot.portfolio_label,
         publish_to_timeline: Boolean(bot.publish_to_timeline),
       }));
       if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());

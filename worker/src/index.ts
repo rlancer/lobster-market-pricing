@@ -176,8 +176,9 @@ import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio,
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
 import { handleSchwab } from "./schwab-http";
 import { schwabConfigured } from "./schwab";
-import { loadSchwabPortfolio as fetchSchwabPortfolio } from "./schwab-portfolio";
+import { loadSchwabPortfolio as fetchSchwabPortfolio, schwabAccountLabel } from "./schwab-portfolio";
 import {
+  attachablePortfolioOptions,
   createUserBot,
   deleteUserBot,
   getOwnedUserBot,
@@ -3591,11 +3592,24 @@ async function handleUserBots(
 
   if (path === "/api/me/bots" && req.method === "GET") {
     const items = await listUserBots(env.SCHEMA_DB, user.id);
+    let schwabAccounts: Array<{ id: string; label: string }> = [];
+    try {
+      const book = await fetchSchwabPortfolio(env, user.id);
+      if (book.ok) {
+        schwabAccounts = book.view.accounts.map((account) => ({
+          id: account.id,
+          label: schwabAccountLabel(account),
+        }));
+      }
+    } catch {
+      schwabAccounts = [];
+    }
     return json(env, {
       ok: true,
       items,
       presets: listUserBotPresets(),
       templates: listUserBotTemplates(),
+      portfolios: attachablePortfolioOptions(schwabAccounts),
     }, 200, "private");
   }
 

@@ -801,6 +801,13 @@ export interface UserBotTemplate {
   prompt: string;
 }
 
+export interface UserBotPortfolioOption {
+  id: string;
+  label: string;
+  source: 'none' | 'paper' | 'schwab' | 'all';
+  account_id: string | null;
+}
+
 export interface UserBot {
   bot_id: string;
   user_id: string;
@@ -810,6 +817,9 @@ export interface UserBot {
   cadence_seconds: number;
   market_gated: boolean;
   attach_portfolio: boolean;
+  portfolio_source: 'none' | 'paper' | 'schwab' | 'all';
+  portfolio_account_id: string | null;
+  portfolio_id: string;
   publish_to_timeline: boolean;
   email_alerts: boolean;
   enabled: boolean;
@@ -841,6 +851,9 @@ export type UserBotInput = Partial<{
   template_id: string;
   schedule_preset: string;
   attach_portfolio: boolean;
+  portfolio_id: string;
+  portfolio_source: 'none' | 'paper' | 'schwab' | 'all';
+  portfolio_account_id: string | null;
   publish_to_timeline: boolean;
   email_alerts: boolean;
   enabled: boolean;
@@ -1869,7 +1882,13 @@ export const api = {
     return `${API_BASE}/api/schwab/connect${q ? `?${q}` : ''}`;
   },
   myBots: () =>
-    get<{ ok: true; items: UserBot[]; presets: UserBotPreset[]; templates: UserBotTemplate[] }>('/api/me/bots'),
+    get<{
+      ok: true;
+      items: UserBot[];
+      presets: UserBotPreset[];
+      templates: UserBotTemplate[];
+      portfolios: UserBotPortfolioOption[];
+    }>('/api/me/bots'),
   myBot: (botId: string) =>
     get<{ ok: true; bot: UserBot; runs: UserBotRun[] }>(`/api/me/bots/${encodeURIComponent(botId)}`),
   createMyBot: (body: UserBotInput) =>

@@ -492,7 +492,7 @@ export default function AccountPage() {
           <Heading level={2}>My bots</Heading>
           <Text type="supporting">
             Schedule a private Copilot — for example every hour during US
-            market hours with your portfolio attached. Briefings stay off the
+            market hours with a paper or Schwab book you choose. Briefings stay off the
             public timeline unless you opt in.
           </Text>
           <Button

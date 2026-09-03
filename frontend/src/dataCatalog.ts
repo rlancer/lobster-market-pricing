@@ -189,10 +189,12 @@ export const TOOLS: CatalogItem[] = [
     title: 'get_schwab_portfolio',
     summary: 'Read the signed-in Schwab brokerage book',
     description:
-      'Returns cash, equity, day/open PnL, and positions from the chat owner’s linked Charles Schwab accounts. Call when the user asks about their real brokerage book. Requires a signed-in owner who has connected Schwab — disconnected chats get a clear error. Used by personal scheduled bots when the portfolio is attached.',
+      'Returns cash, equity, day/open PnL, and positions from the chat owner’s linked Charles Schwab accounts. Optional account id scopes to one linked account. Call when the user asks about their real brokerage book. Requires a signed-in owner who has connected Schwab — disconnected chats get a clear error. Used by personal scheduled bots when a Schwab book is attached.',
     endpoint: 'GET /api/schwab/portfolio',
     tools: ['get_paper_portfolio'],
-    params: [],
+    params: [
+      { name: 'account', type: 'string?', note: 'Optional linked Schwab account id' },
+    ],
   },
   {
     id: 'tool:get_bot_trades',

@@ -499,9 +499,10 @@ and conviction (high / medium / low). Share/timeline viewers can still
 **My bots** (`/my-bots`, left nav) let a signed-in user schedule a private
 Copilot for their own account — friendly cadences such as “every hour during
 US market hours,” no cron syntax. Anonymous visitors get a sign-in empty
-state. Runs attach the owner’s paper book and linked Schwab portfolio when
-asked, land in Chat history, and email a briefing. They do **not** publish
-to the timeline unless the owner opts in (and has a public handle).
+state. Each bot picks which book to attach — paper, a specific Schwab
+account, every Schwab account, paper + Schwab, or none. Runs land in Chat
+history and email a briefing. They do **not** publish to the timeline
+unless the owner opts in (and has a public handle).
 **Bots** (`/bots`, admin-only, linked from `/admin`) edit Copilot personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that

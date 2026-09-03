@@ -58,13 +58,13 @@ export const USER_BOT_TEMPLATES = [
     id: "portfolio_risk",
     label: "Portfolio risk check",
     prompt:
-      "Review my attached portfolio. Flag concentration, expiration risk, delta/gamma exposure, and any adjustments I should consider before the next session. Ground every claim in get_paper_portfolio and get_schwab_portfolio plus lake quotes. Close with a short list of actions I can take now, or say the book looks fine.",
+      "Review my attached portfolio. Flag concentration, expiration risk, delta/gamma exposure, and any adjustments I should consider before the next session. Ground every claim in the attached book plus lake quotes. Close with a short list of actions I can take now, or say the book looks fine.",
   },
   {
     id: "adjustments",
     label: "Adjustment ideas",
     prompt:
-      "Look at my attached portfolio and recommend specific adjustments — rolls, hedges, or trims — with tradable structures. Call get_paper_portfolio and get_schwab_portfolio first, then research_ticker and option_contracts for any recommended legs. Skip names that do not quote.",
+      "Look at my attached portfolio and recommend specific adjustments — rolls, hedges, or trims — with tradable structures. Read the attached book first, then research_ticker and option_contracts for any recommended legs. Skip names that do not quote.",
   },
   {
     id: "custom",
@@ -74,6 +74,16 @@ export const USER_BOT_TEMPLATES = [
 ] as const;
 
 export type UserBotTemplateId = (typeof USER_BOT_TEMPLATES)[number]["id"];
+
+export const USER_BOT_PORTFOLIO_SOURCES = ["none", "paper", "schwab", "all"] as const;
+export type UserBotPortfolioSource = (typeof USER_BOT_PORTFOLIO_SOURCES)[number];
+
+export interface UserBotPortfolioOption {
+  id: string;
+  label: string;
+  source: UserBotPortfolioSource;
+  account_id: string | null;
+}
 
 export type UserBotRunStatus = "queued" | "running" | "completed" | "shared" | "failed";
 
@@ -86,6 +96,9 @@ export interface UserBot {
   cadence_seconds: number;
   market_gated: boolean;
   attach_portfolio: boolean;
+  portfolio_source: UserBotPortfolioSource;
+  portfolio_account_id: string | null;
+  portfolio_id: string;
   publish_to_timeline: boolean;
   email_alerts: boolean;
   enabled: boolean;
@@ -117,6 +130,9 @@ export interface UserBotInput {
   template_id?: unknown;
   schedule_preset?: unknown;
   attach_portfolio?: unknown;
+  portfolio_id?: unknown;
+  portfolio_source?: unknown;
+  portfolio_account_id?: unknown;
   publish_to_timeline?: unknown;
   email_alerts?: unknown;
   enabled?: unknown;
@@ -131,6 +147,8 @@ type UserBotRow = {
   cadence_seconds: number;
   market_gated: number;
   attach_portfolio: number;
+  portfolio_source?: string | null;
+  portfolio_account_id?: string | null;
   publish_to_timeline: number;
   email_alerts: number;
   enabled: number;
@@ -159,6 +177,84 @@ type RunRow = {
 function boolish(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === null || value === "") return fallback;
   return !(value === false || value === 0 || value === "0" || value === "false");
+}
+
+export function isUserBotPortfolioSource(value: unknown): value is UserBotPortfolioSource {
+  return typeof value === "string" && (USER_BOT_PORTFOLIO_SOURCES as readonly string[]).includes(value);
+}
+
+export function portfolioOptionId(
+  source: UserBotPortfolioSource,
+  accountId?: string | null,
+): string {
+  if (source === "schwab" && accountId) return `schwab:${accountId}`;
+  return source;
+}
+
+export function parsePortfolioOptionId(raw: unknown): {
+  source: UserBotPortfolioSource;
+  accountId: string | null;
+} | null {
+  if (typeof raw !== "string") return null;
+  const id = raw.trim();
+  if (!id) return null;
+  if (id === "none" || id === "paper" || id === "all" || id === "schwab") {
+    return { source: id, accountId: null };
+  }
+  if (id.startsWith("schwab:")) {
+    const accountId = id.slice("schwab:".length).trim().slice(0, 80);
+    if (!accountId) return null;
+    return { source: "schwab", accountId };
+  }
+  return null;
+}
+
+export function resolveUserBotPortfolio(
+  body: UserBotInput,
+  existing?: UserBot | null,
+): { source: UserBotPortfolioSource; accountId: string | null } {
+  const fromId = parsePortfolioOptionId(body.portfolio_id);
+  if (fromId) return fromId;
+  if (isUserBotPortfolioSource(body.portfolio_source)) {
+    const accountRaw = typeof body.portfolio_account_id === "string"
+      ? body.portfolio_account_id.trim().slice(0, 80)
+      : "";
+    return {
+      source: body.portfolio_source,
+      accountId: body.portfolio_source === "schwab" && accountRaw ? accountRaw : null,
+    };
+  }
+  if (body.attach_portfolio !== undefined && body.attach_portfolio !== null && body.attach_portfolio !== "") {
+    return boolish(body.attach_portfolio, true) ? { source: "all", accountId: null } : { source: "none", accountId: null };
+  }
+  if (existing) {
+    return { source: existing.portfolio_source, accountId: existing.portfolio_account_id };
+  }
+  return { source: "paper", accountId: null };
+}
+
+export function attachablePortfolioOptions(
+  schwabAccounts: Array<{ id: string; label: string }>,
+): UserBotPortfolioOption[] {
+  const options: UserBotPortfolioOption[] = [
+    { id: "none", label: "Don't attach a portfolio", source: "none", account_id: null },
+    { id: "paper", label: "Paper book", source: "paper", account_id: null },
+  ];
+  for (const account of schwabAccounts) {
+    options.push({
+      id: portfolioOptionId("schwab", account.id),
+      label: account.label,
+      source: "schwab",
+      account_id: account.id,
+    });
+  }
+  if (schwabAccounts.length > 1) {
+    options.push({ id: "schwab", label: "All Schwab accounts", source: "schwab", account_id: null });
+  }
+  if (schwabAccounts.length > 0) {
+    options.push({ id: "all", label: "Paper book + Schwab", source: "all", account_id: null });
+  }
+  return options;
 }
 
 export function listUserBotPresets(): Array<{
@@ -202,6 +298,8 @@ export function validateUserBotInput(
       cadence_seconds: number;
       market_gated: boolean;
       attach_portfolio: boolean;
+      portfolio_source: UserBotPortfolioSource;
+      portfolio_account_id: string | null;
       publish_to_timeline: boolean;
       email_alerts: boolean;
       enabled: boolean;
@@ -227,6 +325,8 @@ export function validateUserBotInput(
     : (existing ? resolveUserBotPreset(existing.schedule_preset) : resolveUserBotPreset("hourly_market"));
   if (!preset) return { ok: false, error: "choose how often the bot should run" };
 
+  const portfolio = resolveUserBotPortfolio(body, existing);
+
   return {
     ok: true,
     value: {
@@ -235,7 +335,9 @@ export function validateUserBotInput(
       schedule_preset: preset.id,
       cadence_seconds: preset.cadence_seconds,
       market_gated: preset.market_gated,
-      attach_portfolio: boolish(body.attach_portfolio, existing?.attach_portfolio ?? true),
+      attach_portfolio: portfolio.source !== "none",
+      portfolio_source: portfolio.source,
+      portfolio_account_id: portfolio.accountId,
       publish_to_timeline: boolish(body.publish_to_timeline, existing?.publish_to_timeline ?? false),
       email_alerts: boolish(body.email_alerts, existing?.email_alerts ?? true),
       enabled: boolish(body.enabled, existing?.enabled ?? true),
@@ -246,18 +348,39 @@ export function validateUserBotInput(
 /** Private-bot system addon — never instructs a public timeline post. */
 export function userBotSystemAddon(opts: {
   name: string;
-  attach_portfolio: boolean;
+  attach_portfolio?: boolean;
+  portfolio_source?: UserBotPortfolioSource;
+  portfolio_account_id?: string | null;
+  portfolio_label?: string | null;
   publish_to_timeline: boolean;
 }): string {
+  const source = opts.portfolio_source
+    ?? (opts.attach_portfolio === false ? "none" : opts.attach_portfolio ? "all" : "none");
   const lines = [
     "",
     `Private account bot (${opts.name}):`,
     "You are writing a personal briefing for the signed-in owner of this chat — not a public timeline post.",
     "Stay grounded in tool results. Close with a sharp 1–3 sentence takeaway the owner can act on or dismiss.",
   ];
-  if (opts.attach_portfolio) {
+  if (source === "paper") {
     lines.push(
-      "This run has the owner's book attached. MUST call get_paper_portfolio and get_schwab_portfolio before recommending anything. If Schwab is not connected, say so and use the paper book. Do not invent positions, fills, or balances.",
+      "The owner attached their paper book. MUST call get_paper_portfolio before recommending anything. Do not call get_schwab_portfolio. Do not invent positions, fills, or balances.",
+    );
+  } else if (source === "schwab") {
+    const label = opts.portfolio_label?.trim()
+      || (opts.portfolio_account_id ? "the selected Schwab account" : "the linked Schwab accounts");
+    lines.push(
+      `The owner attached ${label}. MUST call get_schwab_portfolio before recommending anything`
+      + (opts.portfolio_account_id ? ` and pass account="${opts.portfolio_account_id}"` : "")
+      + ". Do not call get_paper_portfolio. If Schwab is not connected, say so. Do not invent positions, fills, or account numbers.",
+    );
+  } else if (source === "all") {
+    lines.push(
+      "The owner attached every book. MUST call get_paper_portfolio and get_schwab_portfolio before recommending anything. If Schwab is not connected, say so and use the paper book. Do not invent positions, fills, or balances.",
+    );
+  } else {
+    lines.push(
+      "No portfolio is attached. Do not call get_paper_portfolio or get_schwab_portfolio unless the owner asks about a book in this prompt.",
     );
   }
   if (opts.publish_to_timeline) {
@@ -285,6 +408,12 @@ export function accountBotPublishDecision(opts: {
 
 function rowToBot(row: UserBotRow): UserBot {
   const preset = resolveUserBotPreset(row.schedule_preset);
+  const source = isUserBotPortfolioSource(row.portfolio_source)
+    ? row.portfolio_source
+    : (row.attach_portfolio === 1 ? "all" : "none");
+  const accountId = source === "schwab" && typeof row.portfolio_account_id === "string"
+    ? row.portfolio_account_id.trim() || null
+    : null;
   return {
     bot_id: row.bot_id,
     user_id: row.user_id,
@@ -293,7 +422,10 @@ function rowToBot(row: UserBotRow): UserBot {
     schedule_preset: preset?.id ?? "hourly_market",
     cadence_seconds: row.cadence_seconds,
     market_gated: row.market_gated === 1,
-    attach_portfolio: row.attach_portfolio === 1,
+    attach_portfolio: source !== "none",
+    portfolio_source: source,
+    portfolio_account_id: accountId,
+    portfolio_id: portfolioOptionId(source, accountId),
     publish_to_timeline: row.publish_to_timeline === 1,
     email_alerts: row.email_alerts === 1,
     enabled: row.enabled === 1,
@@ -388,9 +520,10 @@ export async function createUserBot(
   await db.prepare(
     `INSERT INTO user_bots
        (bot_id, user_id, name, prompt, schedule_preset, cadence_seconds, market_gated,
-        attach_portfolio, publish_to_timeline, email_alerts, enabled, next_run_at,
+        attach_portfolio, portfolio_source, portfolio_account_id, publish_to_timeline,
+        email_alerts, enabled, next_run_at,
         last_run_at, last_run_id, consecutive_failures, last_error, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, NULL, 0, NULL, ?13, ?13)`,
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, NULL, 0, NULL, ?15, ?15)`,
   ).bind(
     bot_id,
     userId,
@@ -400,6 +533,8 @@ export async function createUserBot(
     validated.value.cadence_seconds,
     validated.value.market_gated ? 1 : 0,
     validated.value.attach_portfolio ? 1 : 0,
+    validated.value.portfolio_source,
+    validated.value.portfolio_account_id,
     validated.value.publish_to_timeline ? 1 : 0,
     validated.value.email_alerts ? 1 : 0,
     validated.value.enabled ? 1 : 0,
@@ -442,9 +577,10 @@ export async function updateUserBot(
   await db.prepare(
     `UPDATE user_bots SET
        name = ?2, prompt = ?3, schedule_preset = ?4, cadence_seconds = ?5,
-       market_gated = ?6, attach_portfolio = ?7, publish_to_timeline = ?8,
-       email_alerts = ?9, enabled = ?10, next_run_at = ?11, updated_at = ?12
-     WHERE bot_id = ?1 AND user_id = ?13`,
+       market_gated = ?6, attach_portfolio = ?7, portfolio_source = ?8,
+       portfolio_account_id = ?9, publish_to_timeline = ?10,
+       email_alerts = ?11, enabled = ?12, next_run_at = ?13, updated_at = ?14
+     WHERE bot_id = ?1 AND user_id = ?15`,
   ).bind(
     existing.bot_id,
     validated.value.name,
@@ -453,6 +589,8 @@ export async function updateUserBot(
     validated.value.cadence_seconds,
     validated.value.market_gated ? 1 : 0,
     validated.value.attach_portfolio ? 1 : 0,
+    validated.value.portfolio_source,
+    validated.value.portfolio_account_id,
     validated.value.publish_to_timeline ? 1 : 0,
     validated.value.email_alerts ? 1 : 0,
     validated.value.enabled ? 1 : 0,

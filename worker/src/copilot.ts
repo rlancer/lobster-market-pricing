@@ -37,7 +37,7 @@ import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { formatBotTradesSummary } from "./bot-trades";
-import { formatSchwabPortfolioSummary } from "./schwab-portfolio";
+import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "./schwab-portfolio";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
 import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
@@ -359,6 +359,15 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     if (!botSessionCols.includes("publish_to_timeline")) {
       this.sql`ALTER TABLE bot_session ADD COLUMN publish_to_timeline INTEGER NOT NULL DEFAULT 1`;
     }
+    if (!botSessionCols.includes("portfolio_source")) {
+      this.sql`ALTER TABLE bot_session ADD COLUMN portfolio_source TEXT`;
+    }
+    if (!botSessionCols.includes("portfolio_account_id")) {
+      this.sql`ALTER TABLE bot_session ADD COLUMN portfolio_account_id TEXT`;
+    }
+    if (!botSessionCols.includes("portfolio_label")) {
+      this.sql`ALTER TABLE bot_session ADD COLUMN portfolio_label TEXT`;
+    }
     this.sql`CREATE TABLE IF NOT EXISTS copilot_scope_lock (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       locked INTEGER NOT NULL,
@@ -515,6 +524,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     reasoning_effort?: string | null;
     audience?: "public" | "private";
     attach_portfolio?: boolean;
+    portfolio_source?: "none" | "paper" | "schwab" | "all";
+    portfolio_account_id?: string | null;
+    portfolio_label?: string | null;
     publish_to_timeline?: boolean;
   }): Promise<{ ok: true; handle: string }> {
     this.ensureCopilotSchema();
@@ -523,16 +535,23 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
     const persona = String(profile.persona ?? "").trim();
     if (!handle || !display_name || !persona) throw new Error("handle, display_name, and persona are required");
     const audience = profile.audience === "private" ? "private" : "public";
-    const attach = profile.attach_portfolio ? 1 : 0;
+    const source = profile.portfolio_source
+      ?? (profile.attach_portfolio ? "all" : (audience === "private" ? "none" : undefined));
+    const attach = source ? (source === "none" ? 0 : 1) : (profile.attach_portfolio ? 1 : 0);
     const publish = profile.publish_to_timeline === true
       ? 1
       : profile.publish_to_timeline === false
         ? 0
         : (audience === "private" ? 0 : 1);
+    const accountId = source === "schwab" && profile.portfolio_account_id
+      ? String(profile.portfolio_account_id).trim() || null
+      : null;
+    const label = profile.portfolio_label ? String(profile.portfolio_label).trim() || null : null;
     this.sql`
       INSERT OR REPLACE INTO bot_session
         (singleton, handle, display_name, persona, system_prompt_extra, model, reasoning_effort,
-         audience, attach_portfolio, publish_to_timeline, updated_at)
+         audience, attach_portfolio, portfolio_source, portfolio_account_id, portfolio_label,
+         publish_to_timeline, updated_at)
       VALUES (
         1,
         ${handle},
@@ -543,6 +562,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         ${profile.reasoning_effort ? String(profile.reasoning_effort) : null},
         ${audience},
         ${attach},
+        ${source ?? null},
+        ${accountId},
+        ${label},
         ${publish},
         ${Date.now()}
       )
@@ -616,6 +638,9 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       reasoning_effort?: string | null;
       audience?: "public" | "private";
       attach_portfolio?: boolean;
+      portfolio_source?: "none" | "paper" | "schwab" | "all";
+      portfolio_account_id?: string | null;
+      portfolio_label?: string | null;
       publish_to_timeline?: boolean;
     };
     ownerUserId?: string;
@@ -681,13 +706,23 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       reasoning_effort: string | null;
       audience: string | null;
       attach_portfolio: number | null;
+      portfolio_source: string | null;
+      portfolio_account_id: string | null;
+      portfolio_label: string | null;
       publish_to_timeline: number | null;
     }>`
       SELECT handle, display_name, persona, system_prompt_extra, model, reasoning_effort,
-             audience, attach_portfolio, publish_to_timeline
+             audience, attach_portfolio, portfolio_source, portfolio_account_id,
+             portfolio_label, publish_to_timeline
       FROM bot_session WHERE singleton = 1
     `[0];
     if (!row) return null;
+    const source = row.portfolio_source === "none"
+      || row.portfolio_source === "paper"
+      || row.portfolio_source === "schwab"
+      || row.portfolio_source === "all"
+      ? row.portfolio_source
+      : undefined;
     return {
       handle: row.handle,
       display_name: row.display_name,
@@ -696,7 +731,10 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
       model: row.model,
       reasoning_effort: row.reasoning_effort,
       audience: row.audience === "private" ? "private" : "public",
-      attach_portfolio: row.attach_portfolio === 1,
+      attach_portfolio: source ? source !== "none" : row.attach_portfolio === 1,
+      portfolio_source: source,
+      portfolio_account_id: row.portfolio_account_id,
+      portfolio_label: row.portfolio_label,
       publish_to_timeline: row.publish_to_timeline !== 0,
     };
   }
@@ -1229,7 +1267,15 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               error: result.reason,
             });
           }
-          return this.output(true, formatSchwabPortfolioSummary(result.view), { error: null });
+          const session = this.readBotSession();
+          const accountId = session?.portfolio_account_id || args.account || null;
+          const view = filterSchwabPortfolioView(result.view, accountId);
+          if (accountId && view.accounts.length === 0) {
+            return this.output(false, "That Schwab account is not on the linked book.", {
+              error: "account_not_found",
+            });
+          }
+          return this.output(true, formatSchwabPortfolioSummary(view), { error: null });
         }),
       }),
       get_bot_trades: tool({

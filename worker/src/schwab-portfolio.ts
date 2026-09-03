@@ -320,6 +320,49 @@ export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string 
   return lines.join("\n");
 }
 
+export function schwabAccountLabel(account: Pick<SchwabPortfolioAccount, "account_number_masked" | "type">): string {
+  return account.type
+    ? `Schwab · ${account.account_number_masked} · ${account.type}`
+    : `Schwab · ${account.account_number_masked}`;
+}
+
+/** Scope a brokerage book to one linked account (recomputes totals). */
+export function filterSchwabPortfolioView(
+  view: SchwabPortfolioView,
+  accountId?: string | null,
+): SchwabPortfolioView {
+  const id = typeof accountId === "string" ? accountId.trim() : "";
+  if (!id) return view;
+  const accounts = view.accounts.filter((account) => account.id === id);
+  let cash = 0;
+  let equity = 0;
+  let buying_power = 0;
+  let day_pnl = 0;
+  let open_pnl = 0;
+  let position_count = 0;
+  for (const account of accounts) {
+    cash += account.cash ?? 0;
+    equity += account.equity ?? 0;
+    buying_power += account.buying_power ?? 0;
+    day_pnl += account.day_pnl ?? 0;
+    open_pnl += account.open_pnl ?? 0;
+    position_count += account.positions.length;
+  }
+  return {
+    ...view,
+    accounts,
+    totals: {
+      cash,
+      equity,
+      buying_power,
+      day_pnl,
+      open_pnl,
+      position_count,
+      account_count: accounts.length,
+    },
+  };
+}
+
 export async function loadSchwabPortfolio(
   env: SchwabEnv,
   userId: string,

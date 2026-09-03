@@ -75,6 +75,9 @@ type HeadlessAgent = {
       reasoning_effort?: string | null;
       audience?: "public" | "private";
       attach_portfolio?: boolean;
+      portfolio_source?: "none" | "paper" | "schwab" | "all";
+      portfolio_account_id?: string | null;
+      portfolio_label?: string | null;
       publish_to_timeline?: boolean;
     };
     ownerUserId?: string;
@@ -172,6 +175,8 @@ export async function runUserBotChat(
         system_prompt_extra: "",
         audience: "private",
         attach_portfolio: bot.attach_portfolio,
+        portfolio_source: bot.portfolio_source,
+        portfolio_account_id: bot.portfolio_account_id,
         publish_to_timeline: bot.publish_to_timeline,
       },
     });

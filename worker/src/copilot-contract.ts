@@ -68,6 +68,7 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
   get_schwab_portfolio:
     "Read this chat owner's linked Charles Schwab brokerage book: cash, equity, day/open PnL, and positions. " +
     "Call when the user asks about their real brokerage account, Schwab balances, or live holdings. " +
+    "Optional account id scopes the book to one linked account (from /api/schwab/portfolio). " +
     "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected.",
   get_bot_trades:
     "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
@@ -169,7 +170,10 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
     conviction: z.enum(["high", "medium", "low"]).optional()
       .describe("Optional conviction filter for positions and PnL."),
   }).strict(),
-  get_schwab_portfolio: z.object({}).strict(),
+  get_schwab_portfolio: z.object({
+    account: z.string().trim().min(1).max(80).optional()
+      .describe("Optional linked Schwab account id to scope balances and positions."),
+  }).strict(),
   get_bot_trades: z.object({
     handle: z.string().trim().min(1).max(32)
       .describe("Bot handle without @, e.g. yololobster or nowlobster."),
