@@ -4646,7 +4646,7 @@ export default {
   },
 
   /**
-   * Hourly cron — process due bot schedules (market-gated hourly overviews).
+   * Every-5-minute cron — process due bot schedules (market-gated hourly overviews).
    * Actual cadence is per-row on bot_schedules; this tick just wakes the runner.
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {

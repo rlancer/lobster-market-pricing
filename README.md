@@ -437,14 +437,14 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Chat reads the same book via `get_bot_trades`. |
 | `GET/POST /api/me/bots` | Signed-in personal bots — list (includes friendly schedule presets + templates) or create. Private by default (`publish_to_timeline` off). |
 | `GET/PUT/DELETE /api/me/bots/{id}` | Signed-in — read one bot plus recent runs, update, or delete. |
-| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (ignores `next_run_at` and market hours). Lands in Chat history; emails when enabled; timeline only if opted in. The hourly cron still honors the schedule gate. |
+| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (ignores `next_run_at` and market hours). Lands in Chat history; emails when enabled; timeline only if opted in. The Worker schedule cron still honors the schedule gate. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/chat/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Chat system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the chat prompt schema block). Powers `/chat-capabilities`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
 | `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Chat under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |
 | `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Chat + auto-share to timeline. |
-| `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
+| `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the Worker cron, every 5 minutes on production). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `POST /api/admin/email/test` | Admin session — Cloudflare Email Service smoke test. Sends from `noreply@lobster.mp` to the signed-in admin's email (or `ADMIN_TOKEN` + `{ "to": "…" }`). Returns `{ ok, to, message_id }`. |
 | `POST /api/admin/dev-session` | **Preview only** (`api-dev.lobster.mp`, `ALLOW_DEV_IMPERSONATION=1`). `Bearer ADMIN_TOKEN` mints an 8-hour Better Auth cookie as `robert.lancer@gmail.com` (or another admin allowlist email in `{email}`). Production always 404s. Agents can also send `X-Dev-As: robert.lancer@gmail.com` with the same bearer on api-dev to call signed-in APIs without minting a cookie. |

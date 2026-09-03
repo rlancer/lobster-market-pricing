@@ -22,6 +22,10 @@ on:
         description: 'api-dev only — Run now the first enabled personal bot as robert.lancer@gmail.com'
         type: boolean
         default: false
+      tick_prod:
+        description: 'POST production /api/admin/bots/schedules/tick after dumping bot schedule state'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,6 +72,7 @@ jobs:
         env:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
           TRIGGER_BOT: ${{ inputs.trigger_bot }}
+          TICK_PROD: ${{ inputs.tick_prod }}
         run: |
           set -euo pipefail
           AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "X-Dev-As: robert.lancer@gmail.com" -H "Content-Type: application/json")
@@ -102,17 +107,72 @@ jobs:
             https://api-dev.lobster.mp/api/me/bots)
           echo "dev /api/me/bots HTTP $bots"
           python3 - <<'PY'
-          import json
+          import json, datetime
           data = json.load(open("/tmp/bots.json"))
           items = data.get("items") or []
           print("bot_count", len(items))
+          def ts(v):
+            if v is None:
+              return None
+            return datetime.datetime.utcfromtimestamp(v / 1000).isoformat() + "Z"
           for bot in items:
-              print("bot", bot.get("bot_id"), bot.get("name"), "enabled=" + str(bot.get("enabled")))
+              print(
+                "bot", bot.get("bot_id"), bot.get("name"),
+                "enabled=" + str(bot.get("enabled")),
+                "email_alerts=" + str(bot.get("email_alerts")),
+                "preset=" + str(bot.get("schedule_preset")),
+                "market_gated=" + str(bot.get("market_gated")),
+                "next=" + str(ts(bot.get("next_run_at"))),
+                "last=" + str(ts(bot.get("last_run_at"))),
+                "failures=" + str(bot.get("consecutive_failures")),
+                "err=" + str(bot.get("last_error")),
+              )
           open("/tmp/bot_id.txt", "w").write(next((b["bot_id"] for b in items if b.get("enabled")), ""))
           PY
           if [ "$bots" != "200" ]; then
             echo "::error::api-dev /api/me/bots failed"
             exit 1
+          fi
+
+          BOT_ID=$(cat /tmp/bot_id.txt)
+          if [ -n "$BOT_ID" ]; then
+            detail=$(curl -sS -o /tmp/bot_detail.json -w '%{http_code}' "${AUTH[@]}" \
+              "https://api-dev.lobster.mp/api/me/bots/${BOT_ID}")
+            echo "dev /api/me/bots/$BOT_ID HTTP $detail"
+            python3 - <<'PY'
+          import json, datetime
+          data = json.load(open("/tmp/bot_detail.json"))
+          bot = data.get("bot") or data
+          def ts(v):
+            if v is None:
+              return None
+            return datetime.datetime.utcfromtimestamp(v / 1000).isoformat() + "Z"
+          print(json.dumps({
+            "name": bot.get("name"),
+            "enabled": bot.get("enabled"),
+            "email_alerts": bot.get("email_alerts"),
+            "schedule_preset": bot.get("schedule_preset"),
+            "cadence_seconds": bot.get("cadence_seconds"),
+            "market_gated": bot.get("market_gated"),
+            "created_at_iso": ts(bot.get("created_at")),
+            "next_run_at_iso": ts(bot.get("next_run_at")),
+            "last_run_at_iso": ts(bot.get("last_run_at")),
+            "last_error": bot.get("last_error"),
+            "consecutive_failures": bot.get("consecutive_failures"),
+          }, indent=2))
+          runs = data.get("runs") or []
+          print("runs", len(runs))
+          for r in runs[:8]:
+            print(json.dumps({
+              "run_id": r.get("run_id"),
+              "status": r.get("status"),
+              "started_at": ts(r.get("started_at")),
+              "finished_at": ts(r.get("finished_at")),
+              "error": r.get("error"),
+              "chat_id": r.get("chat_id"),
+              "share_id": r.get("share_id"),
+            }, default=str))
+          PY
           fi
 
           mint=$(curl -sS -o /tmp/mint.json -w '%{http_code}' \
@@ -134,11 +194,39 @@ jobs:
             exit 1
           fi
 
+          if [ "${TICK_PROD:-false}" = "true" ]; then
+            echo "POST https://api.lobster.mp/api/admin/bots/schedules/tick"
+            tick=$(curl -sS --max-time 300 -o /tmp/tick.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              https://api.lobster.mp/api/admin/bots/schedules/tick)
+            echo "prod schedules/tick HTTP $tick"
+            python3 -m json.tool /tmp/tick.json
+            if [ -n "$BOT_ID" ]; then
+              curl -sS -o /tmp/bot_after_tick.json "${AUTH[@]}" \
+                "https://api-dev.lobster.mp/api/me/bots/${BOT_ID}"
+              python3 - <<'PY'
+          import json, datetime
+          data = json.load(open("/tmp/bot_after_tick.json"))
+          bot = data.get("bot") or data
+          def ts(v):
+            if v is None:
+              return None
+            return datetime.datetime.utcfromtimestamp(v / 1000).isoformat() + "Z"
+          print(json.dumps({
+            "after_tick_last_run_at_iso": ts(bot.get("last_run_at")),
+            "after_tick_next_run_at_iso": ts(bot.get("next_run_at")),
+            "after_tick_last_error": bot.get("last_error"),
+            "after_tick_failures": bot.get("consecutive_failures"),
+          }, indent=2))
+          PY
+            fi
+          fi
+
           if [ "$TRIGGER_BOT" != "true" ]; then
             echo "Skipping Run now"
             exit 0
           fi
-          BOT_ID=$(cat /tmp/bot_id.txt)
           if [ -z "$BOT_ID" ]; then
             echo "::error::no enabled personal bot to trigger"
             exit 1
