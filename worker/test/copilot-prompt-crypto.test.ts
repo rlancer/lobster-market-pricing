@@ -67,7 +67,8 @@ test("systemPrompt requires identifying holdings before single-name concentratio
   assert.match(body, /lookup_symbols/);
   assert.match(body, /Single-name concentration/);
   assert.match(body, /sleeve\/beta size/);
-  assert.match(COPILOT_TOOL_DESCRIPTIONS.lookup_symbols, /Yahoo search/);
+  assert.match(body, /etf_holdings/);
+  assert.match(COPILOT_TOOL_DESCRIPTIONS.lookup_symbols, /top holdings/);
 });
 
 test("systemPrompt and get_schwab_quotes require owner-only live prints", () => {

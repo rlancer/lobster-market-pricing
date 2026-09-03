@@ -1,6 +1,7 @@
 import { EtlScheduler, DRIVER_ID } from "./scheduler.js";
 import { runSymbols } from "./run-symbols.js";
 import { publishOhlc } from "./ohlc.js";
+import { publishEtf } from "./etf.js";
 import {
   enrollSymbol,
   listEnrolledRows,
@@ -74,9 +75,10 @@ async function handleRun(request, env) {
 
 /**
  * POST /symbols/enroll — durable on-demand enrollment.
- * Body: { symbol, source?, requested_by?, notes?, load_now? }
+ * Body: { symbol, source?, requested_by?, notes?, load_now?, security_type? }
  * Seeds enrolled_symbols + symbol_state / ohlc_backfill_state /
- * research_brief_state, optionally kicks an immediate CBOE+OHLC load.
+ * research_brief_state, optionally kicks an immediate CBOE+OHLC load
+ * (and ETF profile/holdings when security_type is etf|fund).
  */
 async function handleEnroll(request, env, ctx) {
   if (!env.LOADER_DB) {
@@ -94,12 +96,14 @@ async function handleEnroll(request, env, ctx) {
     return json({ error: `invalid enrollable ticker: ${raw || "(empty)"}` }, 400);
   }
   const loadNow = body.load_now !== false;
+  const securityType = typeof body.security_type === "string" ? body.security_type : null;
   try {
     const result = await enrollSymbol(env.LOADER_DB, symbol, {
       source: typeof body.source === "string" ? body.source : "on_demand",
       requestedBy: typeof body.requested_by === "string" ? body.requested_by : null,
       notes: typeof body.notes === "string" ? body.notes : null,
       backoffBaseSeconds: Number(env.LOADER_BACKOFF_BASE_SECONDS) || 60,
+      securityType,
     });
     armDriver(env, ctx);
     if (loadNow) {
@@ -125,10 +129,24 @@ async function handleEnroll(request, env, ctx) {
               error: String((error && error.message) || error),
             }));
           }
+          const type = String(securityType || "").trim().toLowerCase();
+          if (type === "etf" || type === "fund" || type === "mutualfund" || type === "mutual_fund") {
+            try {
+              if (env.PIPELINE_ETF_PROFILES_URL || env.PIPELINE_ETF_HOLDINGS_URL) {
+                await publishEtf(symbol, env, {});
+              }
+            } catch (error) {
+              console.log(JSON.stringify({
+                event: "enroll_publish_etf_error",
+                symbol,
+                error: String((error && error.message) || error),
+              }));
+            }
+          }
         })(),
       );
     }
-    return json({ ...result, load_now: loadNow });
+    return json({ ...result, load_now: loadNow, security_type: securityType });
   } catch (error) {
     return json({ error: (error && error.message) || String(error) }, 500);
   }

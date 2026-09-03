@@ -1195,7 +1195,7 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
         description: COPILOT_TOOL_DESCRIPTIONS.lookup_symbols,
         inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.lookup_symbols,
         execute: async ({ symbols }) => runTool("lookup_symbols", TOOL_LABELS.lookup_symbols, { symbols }, async () => {
-          status("Identifying symbols…");
+          status("Identifying symbols and holdings…");
           const rows = await this.lookupSymbols(symbols);
           return this.output(true, formatSymbolIdentities(rows), { error: null });
         }),

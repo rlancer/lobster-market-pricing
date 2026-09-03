@@ -311,9 +311,12 @@ facts that path does not carry:
 Source is Yahoo `quoteSummary` modules `fundProfile,topHoldings,summaryDetail,defaultKeyStatistics`,
 which needs a crumb+cookie session (chart v8 does not). The job opens one
 session per pass and reuses it across `symbols/etfs.json` (92 names, including
-VIX ETPs and crypto ETFs such as IBIT/ETHA). Batch,
+VIX ETPs and crypto ETFs such as IBIT/ETHA) **plus** any enrolled fund
+(`enrolled_symbols.security_type` etf|fund — Copilot `lookup_symbols` enrolls
+names like RSP that are not in the optionable sleeve). Batch,
 ungated, daily. Dry-run unless `PIPELINE_ETF_PROFILES_URL` or
-`PIPELINE_ETF_HOLDINGS_URL` is set.
+`PIPELINE_ETF_HOLDINGS_URL` is set. `load_now` enrollment of an ETF also
+calls `publishEtf` immediately (pipeline flush can still lag ~300s).
 
 ### Equity fundamentals (`fundamentals-daily`)
 

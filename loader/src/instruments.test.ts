@@ -65,6 +65,16 @@ describe("buildInstrumentCatalog", () => {
     });
     expect(bySymbol.get("SPY")?.security_type).toBe("etf");
   });
+
+  it("tags enrolled funds as etf", () => {
+    const catalog = buildInstrumentCatalog(["RSP", "SOFI"], { RSP: "etf", SOFI: "equity" });
+    const bySymbol = new Map(catalog.map((r) => [r.symbol, r]));
+    expect(bySymbol.get("RSP")).toMatchObject({
+      security_type: "etf",
+      source: "enrolled",
+    });
+    expect(bySymbol.get("SOFI")?.security_type).toBe("equity");
+  });
 });
 
 describe("normalizeInstrumentRecords", () => {

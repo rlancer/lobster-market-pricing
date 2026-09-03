@@ -47,6 +47,33 @@ describe("etfUniverse", () => {
     expect(symbols).not.toContain("BTC-USD");
     expect(symbols.length).toBe(92);
   });
+
+  it("unions enrolled ETFs into the daily universe without picking up equities", async () => {
+    const db = {
+      prepare() {
+        return {
+          bind() { return this; },
+          async all() {
+            return {
+              success: true,
+              results: [
+                { symbol: "RSP", security_type: "etf" },
+                { symbol: "VGSH", security_type: "etf" },
+                { symbol: "SOFI", security_type: "equity" },
+              ],
+            };
+          },
+        };
+      },
+    };
+    const job = etfDailyJob(env());
+    const uni = await job.universe(db as never);
+    expect(uni).toContain("SPY");
+    expect(uni).toContain("RSP");
+    expect(uni).toContain("VGSH");
+    expect(uni).not.toContain("SOFI");
+    expect(await job.universe()).toHaveLength(92);
+  });
 });
 
 describe("etf-daily job adapter", () => {

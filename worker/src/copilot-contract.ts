@@ -45,9 +45,11 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
   get_news: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
   lookup_symbols:
     "Identify what tickers actually are (equity vs ETF vs fund vs index vs future vs crypto) " +
-    "plus the issuer/fund name. Lake coverage is incomplete — use this before treating an " +
-    "unknown holding as a single-name stock. Accepts 1–20 symbols. Prefers the in-process " +
-    "catalog, then Yahoo search (quoteType + name) when the lake has no profile.",
+    "plus the issuer/fund name and, for ETFs/funds, Yahoo top holdings with weights. " +
+    "Lake coverage is incomplete — use this before treating an unknown holding as a single-name " +
+    "stock, and read the constituent weights before calling a fund concentrated. Accepts 1–20 symbols. " +
+    "Prefers the in-process catalog, then Yahoo search + quoteSummary topHoldings. Looked-up funds " +
+    "are enrolled so options.etf_profiles / etf_holdings stay populated.",
   web_search: "Search for current market commentary or events and return up to five citable links.",
   eco_calendar: "Fetch scheduled macro events for the next 7 to 90 days.",
   research_ticker:
