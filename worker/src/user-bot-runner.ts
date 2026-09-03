@@ -36,6 +36,15 @@ import { assistantExcerptFromTurns, sendUserBotAlert } from "./user-bot-email";
 const SHARE_ID_BYTES = 18;
 const SHARE_ROW_MAX_BYTES = 2_000_000;
 const PUBLIC_ORIGIN = "https://lobster.mp";
+const DEV_PUBLIC_ORIGIN = "https://dev.lobster.mp";
+
+/** Chat/share links in email. Dev Worker runs write to api-dev DOs; the UI is on dev.lobster.mp. */
+export function publicChatOrigin(requestOrigin?: string | null): string {
+  if (typeof requestOrigin === "string" && requestOrigin.includes("api-dev.")) {
+    return DEV_PUBLIC_ORIGIN;
+  }
+  return PUBLIC_ORIGIN;
+}
 
 export interface UserBotRunnerEnv extends MarketHoursEnv {
   SCHEMA_DB: D1Database;
@@ -142,7 +151,7 @@ async function mintHumanShare(
 export async function runUserBotChat(
   env: UserBotRunnerEnv,
   bot: UserBot,
-  opts?: { waitUntil?: (p: Promise<unknown>) => void },
+  opts?: { waitUntil?: (p: Promise<unknown>) => void; publicOrigin?: string },
 ): Promise<
   | { ok: true; run: UserBotRun; chat_id: string; share_id: string | null }
   | { ok: false; error: string; run?: UserBotRun }
@@ -208,22 +217,26 @@ export async function runUserBotChat(
       hasHandle: Boolean(handle),
     });
 
+    // Always persist an unlisted share so GET /api/chats/:id/transcript can
+    // restore the briefing. Preview and production share D1 but not CopilotAgent
+    // Durable Objects — without this backup, Chat opens empty even though the
+    // email already has the answer.
     let shareId: string | null = null;
     let listed = false;
-    if (publish.action === "publish") {
-      const share = await mintHumanShare(env, {
-        userId: bot.user_id,
-        chatId,
-        runId: run.run_id,
-        model: turn.model,
-        messages: turn.messages,
-        title: metaTitle,
-        listOnTimeline: true,
-      });
-      if (share.ok) {
-        shareId = share.share_id;
-        listed = share.listed;
-      }
+    const share = await mintHumanShare(env, {
+      userId: bot.user_id,
+      chatId,
+      runId: run.run_id,
+      model: turn.model,
+      messages: turn.messages,
+      title: metaTitle,
+      listOnTimeline: publish.action === "publish",
+    });
+    if (share.ok) {
+      shareId = share.share_id;
+      listed = share.listed;
+    } else {
+      console.warn("user-bot transcript backup failed", share.error);
     }
 
     const status = listed ? "shared" : "completed";
@@ -235,11 +248,12 @@ export async function runUserBotChat(
     if (bot.email_alerts) {
       const to = await getUserEmail(env.SCHEMA_DB, bot.user_id);
       if (to) {
+        const site = publicChatOrigin(opts?.publicOrigin);
         const send = sendUserBotAlert(env.EMAIL, to, {
           botName: bot.name,
           excerpt: assistantExcerptFromTurns(turn.messages),
-          chatUrl: `${PUBLIC_ORIGIN}/chat/${chatId}`,
-          shareUrl: shareId ? `${PUBLIC_ORIGIN}/share/${shareId}` : null,
+          chatUrl: `${site}/chat/${chatId}`,
+          shareUrl: shareId ? `${site}/share/${shareId}` : null,
         }).catch((error) => {
           console.warn("user-bot email failed", error);
           return { ok: false as const, error: String(error) };
@@ -265,7 +279,7 @@ export async function runUserBotChat(
 export async function runOneUserBot(
   env: UserBotRunnerEnv,
   bot: UserBot,
-  opts?: { force?: boolean; waitUntil?: (p: Promise<unknown>) => void },
+  opts?: { force?: boolean; waitUntil?: (p: Promise<unknown>) => void; publicOrigin?: string },
 ): Promise<
   | { ok: true; deferred?: false; run: UserBotRun; chat_id: string; share_id: string | null }
   | { ok: true; deferred: true; reason: string; next_run_at: number }
@@ -282,7 +296,10 @@ export async function runOneUserBot(
     }
   }
 
-  const result = await runUserBotChat(env, bot, { waitUntil: opts?.waitUntil });
+  const result = await runUserBotChat(env, bot, {
+    waitUntil: opts?.waitUntil,
+    publicOrigin: opts?.publicOrigin,
+  });
   if (!result.ok) {
     await markUserBotFailure(env.SCHEMA_DB, bot.bot_id, result.error, now, env);
     return { ok: false, error: result.error };

@@ -3648,6 +3648,7 @@ async function handleUserBots(
     const outcome = await runOneUserBot(env, bot, {
       force: true,
       waitUntil: (p) => ctx.waitUntil(p),
+      publicOrigin: new URL(req.url).origin,
     });
     if (outcome.ok && outcome.deferred) {
       return json(env, {

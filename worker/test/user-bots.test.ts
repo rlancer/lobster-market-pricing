@@ -10,11 +10,13 @@ import {
   userBotSystemAddon,
   validateUserBotInput,
 } from "../src/user-bots.ts";
+import { publicChatOrigin } from "../src/user-bot-runner.ts";
 import {
   assistantExcerptFromTurns,
   buildUserBotAlertEmail,
   clipAlertExcerpt,
 } from "../src/user-bot-email.ts";
+import { publicChatOrigin } from "../src/user-bot-runner.ts";
 import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "../src/schwab-portfolio.ts";
 
 test("hourly_market is the friendly default schedule", () => {
@@ -168,6 +170,12 @@ test("systemPrompt still requires publish_desk on public bot timeline posts", ()
     system_prompt_extra: "Lead with options.yields.",
   });
   assert.match(body, /MUST still call publish_desk/);
+});
+
+test("publicChatOrigin points email at the site that can restore the transcript", () => {
+  assert.equal(publicChatOrigin("https://api-dev.lobster.mp"), "https://dev.lobster.mp");
+  assert.equal(publicChatOrigin("https://api.lobster.mp"), "https://lobster.mp");
+  assert.equal(publicChatOrigin(undefined), "https://lobster.mp");
 });
 
 test("alert email prefers the chat link and clips the briefing", () => {
