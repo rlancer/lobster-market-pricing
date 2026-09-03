@@ -118,7 +118,7 @@ const JOBS = [
   ['cboe-options', 'Continuous, market-gated', 'The screener\u2019s core feed: CBOE option contracts, underlying snapshots, and refresh runs.'],
   ['ohlc-daily', 'Daily', 'Yahoo daily OHLC (1-year window) + realized volatility computed off split-adjusted closes.'],
   ['ohlc-backfill', 'On demand (POST /jobs/ohlc-backfill/trigger)', 'Item-scoped, resumable historical OHLC backfill; Yahoo dividend/split events land in corporate_actions.'],
-  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 92 optionable ETFs (incl. VIX ETPs + crypto ETFs).'],
+  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 92 optionable ETFs plus enrolled funds (on-demand looked-up ETFs).'],
   ['fundamentals-daily', 'Daily', 'Yahoo equity fundamentals (market cap, P/E, debt, margins) for the universe equity sleeve.'],
   ['indices-ohlc-daily', 'Daily', 'Yahoo OHLC for CBOE vol indexes (^VIX, ^VVIX, …) into options.ohlc / realized_vol.'],
   ['crypto-spot-ohlc-daily', 'Daily', 'Yahoo OHLC for major spot cryptocurrencies (BTC-USD, ETH-USD, …) into options.ohlc / realized_vol.'],
@@ -164,6 +164,9 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (D1 book + lake marks with TTL; optional status/conviction; refresh=0 skips remake; backfill=1 recovers missed ideas)' },
   { method: 'GET', path: '/api/reply-styles', desc: 'Canned Chat reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Chat reply_style / reply_note' },
+  { method: 'GET/POST', path: '/api/me/bots', desc: 'Signed-in personal bots — list (with friendly schedule presets) or create. Private by default; no timeline publish unless opted in.' },
+  { method: 'GET/PUT/DELETE', path: '/api/me/bots/{id}', desc: 'Signed-in — read one bot plus recent runs, update, or delete' },
+  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (ignores next_run_at and market hours). Lands in Chat history; emails when enabled; timeline only if opted in.' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/chat/capabilities', desc: 'Admin — live Chat system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
@@ -171,6 +174,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows timeline listing' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
+  { method: 'POST', path: '/api/admin/dev-session', desc: 'Preview only (api-dev) — ADMIN_TOKEN mints a Better Auth cookie as an admin email so agents can test signed-in Chat/Bots. Production 404s.' },
   { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/loader/status · /loader/symbols', desc: 'Live loader-loop proxy for the monitor (per-symbol state, backoff, market gate)' },
 ];
@@ -194,17 +198,22 @@ const SURFACES = [
   {
     route: '/account',
     title: 'Account',
-    body: 'Signed-in settings page (left-nav profile control). Claim or change your public handle, set display name and avatar, choose how Lobster replies (Desk trader / Hedge fund / New to trading plus an optional note), and sign out. First sign-in still opens a claim-handle dialog; everything else lives here instead of a popover.',
+    body: 'Signed-in settings page (left-nav profile control). Claim or change your public handle, set display name and avatar, choose how Lobster replies (Desk trader / Hedge fund / New to trading plus an optional note), manage personal scheduled bots, and sign out. First sign-in still opens a claim-handle dialog; everything else lives here instead of a popover.',
   },
   {
     route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. From chat controls you can attach your Schwab brokerage book (or paper book) so questions about adjustments and uncorrelated adds call get_portfolio against live holdings — more portfolio sources can plug into the same attach control later. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers, session frames, or a portfolio, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. Share from the chat header or any settled reply (through that answer). From the share dialog, signed-in authors can post a chat onto the public timeline.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. From chat controls you can attach your Schwab brokerage book (or paper book) so questions about adjustments and uncorrelated adds call get_portfolio against live holdings — more portfolio sources can plug into the same attach control later. A signed-in owner with Schwab connected can ask for a live print and chat calls get_schwab_quotes using that owner’s token only — never another user’s. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers, session frames, or a portfolio, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. Share from the chat header or any settled reply (through that answer). From the share dialog, signed-in authors can post a chat onto the public timeline.',
+  },
+  {
+    route: '/my-bots',
+    title: 'My bots',
+    body: 'Left-nav signed-in scheduled Chat for your account. Anonymous visitors see a sign-in empty state. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach one or more books (paper and/or specific Schwab accounts), and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
   },
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Paper book ($100k starting cash) for signed-in Chat suggestions, plus Suggested trades for public bot idea PnL. Filter either book by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. When Schwab is connected, a Schwab tab adds Positions, Performance, and Trade history.',
+    body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. Schwab adds Positions, Performance, and Trade history. A portfolio bot on /my-bots can review this book on a schedule.',
   },
   {
     route: '/data',

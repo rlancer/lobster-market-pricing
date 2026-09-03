@@ -3,10 +3,10 @@ import test from "node:test";
 import {
   maskAccountNumber,
   normalizeSchwabAccounts,
+  formatSchwabPortfolioSummary,
   SCHWAB_TRADER_BASE,
   fetchSchwabAccountsRaw,
   filterSchwabPortfolioView,
-  formatSchwabPortfolioSummary,
   SchwabApiError,
 } from "../src/schwab-portfolio.ts";
 
@@ -117,6 +117,8 @@ test("normalizeSchwabAccounts derives ETF open P&L from mark minus cost", () => 
   const tlt = view.accounts[0]!.positions[0]!;
   assert.equal(tlt.symbol, "TLT");
   assert.equal(tlt.open_pnl, 8900 - 87.26 * 100);
+  const summary = formatSchwabPortfolioSummary(view);
+  assert.match(summary, /TLT · etf · iShares 20\+ Year Treasury Bond ETF/);
 });
 
 test("normalizeSchwabAccounts applies the option contract multiplier", () => {
@@ -200,11 +202,11 @@ test("formatSchwabPortfolioSummary and filter are Chat-safe", () => {
     1_700_000_000_000,
   );
   const summary = formatSchwabPortfolioSummary(view);
-  assert.match(summary, /Schwab portfolio/);
+  assert.match(summary, /Schwab brokerage/);
   assert.match(summary, /AAPL/);
-  assert.match(summary, /Equity/);
+  assert.match(summary, /APPLE INC/);
   const scoped = filterSchwabPortfolioView(view, view.accounts[0]!.id);
   assert.equal(scoped.accounts.length, 1);
   assert.equal(scoped.totals.position_count, 1);
-  assert.equal(filterSchwabPortfolioView(view, "missing").accounts.length, 1);
+  assert.equal(filterSchwabPortfolioView(view, "missing").accounts.length, 0);
 });

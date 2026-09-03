@@ -99,10 +99,12 @@ test('OpenRouter request and UI stream preserve Chat contracts', async () => {
     web_search: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.web_search, execute: async () => ({ ok: true }) }),
     eco_calendar: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.eco_calendar, execute: async () => ({ ok: true }) }),
     research_ticker: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.research_ticker, execute: async () => ({ ok: true }) }),
+    lookup_symbols: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.lookup_symbols, execute: async () => ({ ok: true }) }),
     publish_desk: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.publish_desk, execute: async () => ({ ok: true }) }),
     suggest_trades: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.suggest_trades, execute: async () => ({ ok: true }) }),
     get_paper_portfolio: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_paper_portfolio, execute: async () => ({ ok: true }) }),
     get_portfolio: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_portfolio, execute: async () => ({ ok: true }) }),
+    get_schwab_quotes: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_schwab_quotes, execute: async () => ({ ok: true }) }),
     get_bot_trades: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_bot_trades, execute: async () => ({ ok: true }) }),
   };
   const model = createChatModel(

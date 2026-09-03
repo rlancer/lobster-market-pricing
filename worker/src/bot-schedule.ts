@@ -179,8 +179,11 @@ export async function listDueBotSchedules(db: D1Database, nowMs = Date.now()): P
  * Whether a due schedule should run now.
  * Market-gated + market closed → defer (not a failure).
  */
+/** Fields the market-hours gate needs — public and account bots share this. */
+export type ScheduleGate = Pick<BotSchedule, "enabled" | "cadence_seconds" | "market_gated" | "next_run_at">;
+
 export function scheduleRunDecision(
-  schedule: BotSchedule,
+  schedule: ScheduleGate,
   nowMs: number,
   env?: MarketHoursEnv,
 ):

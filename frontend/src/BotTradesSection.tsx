@@ -54,7 +54,7 @@ export type BotTradesSectionProps = {
 };
 
 /**
- * Public bot suggested-trade performance on /u/{handle} and /portfolio —
+ * Public bot suggested-trade performance on /u/{handle} and signed-in /portfolio —
  * lake-marked PnL for ideas from suggest_trades (separate from signed-in paper cash).
  */
 export function BotTradesSection({

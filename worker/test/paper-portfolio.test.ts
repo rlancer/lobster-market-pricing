@@ -7,6 +7,7 @@ import {
   MARK_TTL_MS,
   parseTrackBody,
   quoteMid,
+  resolveOwnedUserId,
   structureNetValue,
   suggestionKey,
   unrealizedPnl,
@@ -216,4 +217,13 @@ test("markStructures shares one spot query across positions", async () => {
   // Option-only book: no spot round-trip; one option query per underlying.
   assert.equal(sqls.filter((s) => s.includes("underlying_snapshots")).length, 0);
   assert.equal(sqls.filter((s) => s.includes("option_contracts")).length, 2);
+});
+
+test("resolveOwnedUserId refuses a session/owner mismatch so tokens cannot cross", () => {
+  assert.equal(resolveOwnedUserId("owner-a", "owner-a"), "owner-a");
+  assert.equal(resolveOwnedUserId("owner-a", null), "owner-a");
+  assert.equal(resolveOwnedUserId(null, "session-b"), "session-b");
+  assert.equal(resolveOwnedUserId(null, null), null);
+  assert.equal(resolveOwnedUserId("owner-a", "session-b"), null);
+  assert.equal(resolveOwnedUserId("  owner-a  ", "owner-a"), "owner-a");
 });

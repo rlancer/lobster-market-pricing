@@ -210,8 +210,11 @@ Authorized JavaScript origins: `https://lobster.mp`, `https://dev.lobster.mp`,
 
 Signed-in users can link a Schwab brokerage OAuth grant from **Account →
 Connect Schwab**. Tokens stay in D1 (`schwab_connections`) and are never
-returned to the browser. Implementation: `worker/src/schwab.ts` +
-`worker/src/schwab-http.ts` (migration `0030_schwab_connections.sql`).
+returned to the browser. Interactive chat uses that owner's token only for
+`get_schwab_portfolio` and `get_schwab_quotes` — a session/owner mismatch
+refuses both rather than falling back to another user. Implementation:
+`worker/src/schwab.ts` + `worker/src/schwab-http.ts` (migration
+`0030_schwab_connections.sql`).
 
 Store app credentials as Worker + GitHub secrets (`deploy.yml` reinjects):
 
@@ -432,6 +435,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
 | `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Chat reads the same book via `get_bot_trades`. |
+| `GET/POST /api/me/bots` | Signed-in personal bots — list (includes friendly schedule presets + templates) or create. Private by default (`publish_to_timeline` off). |
+| `GET/PUT/DELETE /api/me/bots/{id}` | Signed-in — read one bot plus recent runs, update, or delete. |
+| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (ignores `next_run_at` and market hours). Lands in Chat history; emails when enabled; timeline only if opted in. The hourly cron still honors the schedule gate. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/chat/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Chat system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the chat prompt schema block). Powers `/chat-capabilities`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
@@ -441,6 +447,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the hourly Worker cron). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `POST /api/admin/email/test` | Admin session — Cloudflare Email Service smoke test. Sends from `noreply@lobster.mp` to the signed-in admin's email (or `ADMIN_TOKEN` + `{ "to": "…" }`). Returns `{ ok, to, message_id }`. |
+| `POST /api/admin/dev-session` | **Preview only** (`api-dev.lobster.mp`, `ALLOW_DEV_IMPERSONATION=1`). `Bearer ADMIN_TOKEN` mints an 8-hour Better Auth cookie as `robert.lancer@gmail.com` (or another admin allowlist email in `{email}`). Production always 404s. Agents can also send `X-Dev-As: robert.lancer@gmail.com` with the same bearer on api-dev to call signed-in APIs without minting a cookie. |
 | `GET /api/admin/trades` | Admin session (or `ADMIN_TOKEN`) — flattened suggested trades from successful `suggest_trades` tool events (~30 day retention). Legs are formal (`instrument`: `option` \| `equity`, `side` buy/sell = long/short, optional `qty`; options also carry right/strike/expiry). Optional `limit` (default 100, max 500) and `before` (ISO `created_at` cursor). Enriches with newest `share_id` / `bot_handle` when the chat was shared. Powers `/trades`. |
 
 Inbound mail (Email Routing): `hello@lobster.mp` is routed to the production
@@ -480,18 +487,27 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News, filings, related
 Kalshi event markets (`related_symbol` join), and related chats settle on
 idle. Chat ticker chips (from `research_ticker`) link there.
-**Portfolio** (`/portfolio`) has three books: **Suggested trades** for public
+**Portfolio** (`/portfolio`, left nav) has three books: **Suggested trades** for public
 bot idea PnL (same book as `/u/{handle}` — no cash), the signed-in **paper
 book** (when Chat `suggest_trades` lands concrete legs in a signed-in chat,
 those ideas auto-open paper positions at lake mid; Close realizes against
-$100k starting cash), and **Schwab** when OAuth is configured — live linked
+$100k starting cash) and **Schwab** when OAuth is configured — live linked
 brokerage accounts, balances, and positions via `GET /api/schwab/portfolio`
-(connect from Account or the Schwab tab). Paper + suggested filter by status
+(connect from Account or the Schwab tab). Anonymous visitors get a sign-in
+empty state. After sign-in, **Suggested trades** still shows public bot idea
+PnL (same book as `/u/{handle}` — no cash). Paper + suggested filter by status
 and conviction (high / medium / low). Share/timeline viewers can still
 **Add to portfolio**. Suggestions alone are not a book —
 `copilot_tool_events` stays ~30d admin debug. Public bot ideas (e.g.
 `@yololobster`) also remain on `/u/{handle}`
 (`GET /api/bots/{handle}/trades`).
+**My bots** (`/my-bots`, left nav) let a signed-in user schedule a private
+Chat for their own account — friendly cadences such as “every hour during
+US market hours,” no cron syntax. Anonymous visitors get a sign-in empty
+state. Each bot attaches one or more books — paper and/or specific Schwab
+accounts, or none. Runs land in Chat
+history and email a briefing. They do **not** publish to the timeline
+unless the owner opts in (and has a public handle).
 **Bots** (`/bots`, admin-only, linked from `/admin`) edit Chat personas (handles like
 `nowlobster` for live market commentary, `yololobster` for high-risk ideas)
 and trigger a chat from the UI; generate picks a prompt that
@@ -508,7 +524,7 @@ in, visitor fingerprint from IP + UA when anonymous).
 **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
-- Chat tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, frames, charts)
+- Chat tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, `get_paper_portfolio`, `get_portfolio`, `get_schwab_quotes`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
   Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)

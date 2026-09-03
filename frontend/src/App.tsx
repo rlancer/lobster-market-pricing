@@ -19,7 +19,7 @@ import {
   useFocusTrap,
   useScrollLock,
 } from '@astryxdesign/core';
-import { BookOpen, Briefcase, ChevronDown, ChevronRight, Database, FlaskConical, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, Briefcase, ChevronDown, ChevronRight, Database, FlaskConical, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath, isExperimentsNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -56,6 +56,7 @@ const SECTIONS: Section[] = [
   { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
   { to: '/portfolio', label: 'Portfolio', heading: 'Portfolio', icon: Briefcase },
+  { to: '/my-bots', label: 'Bots', heading: 'My bots', icon: Bot },
 ];
 
 // Data, Experiments, Docs, Admin, and account sit under a divider at the
@@ -234,6 +235,14 @@ function WorkspaceNavItems({
         label="Portfolio"
         icon={Briefcase}
         isSelected={activeTo === '/portfolio'}
+        onClick={closeMobileNav}
+      />
+      <SideNavItem
+        as={RouterLink}
+        href="/my-bots"
+        label="Bots"
+        icon={Bot}
+        isSelected={activeTo === '/my-bots'}
         onClick={closeMobileNav}
       />
       {history.length > 0 ? (

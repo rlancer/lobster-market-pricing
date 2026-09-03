@@ -7,7 +7,9 @@ import {
   isBundledSymbol,
   isEnrollableTicker,
   listEnrolledSymbols,
+  listEnrolledSymbolsByType,
   normalizeEnrollTicker,
+  normalizeEnrolledSecurityType,
 } from "./enrolled-universe.js";
 import type { D1Database, D1PreparedStatement } from "./scheduler.js";
 
@@ -46,7 +48,10 @@ class MemoryDb implements D1Database {
             success: true,
             results: Array.from(self.enrolled.values())
               .filter((r) => Number(r.enabled) === 1)
-              .map((r) => ({ symbol: String(r.symbol) }) as unknown as T)
+              .map((r) => ({
+                symbol: String(r.symbol),
+                security_type: r.security_type ?? null,
+              }) as unknown as T)
               .sort((a, b) => String(a.symbol).localeCompare(String(b.symbol))),
           };
         }
@@ -60,7 +65,7 @@ class MemoryDb implements D1Database {
       },
       async run() {
         if (query.startsWith("INSERT INTO enrolled_symbols")) {
-          const [symbol, source, requested_by, requested_at, notes] = binds;
+          const [symbol, source, requested_by, requested_at, notes, security_type] = binds;
           const sym = String(symbol).toUpperCase();
           self.enrolled.set(sym, {
             symbol: sym,
@@ -70,6 +75,7 @@ class MemoryDb implements D1Database {
             enabled: 1,
             last_error: null,
             notes,
+            security_type: security_type ?? null,
           });
         } else if (query.startsWith("UPDATE enrolled_symbols")) {
           const symbol = String(binds[binds.length - 1]).toUpperCase();
@@ -79,6 +85,7 @@ class MemoryDb implements D1Database {
             row.source = binds[0];
             if (binds[1] != null) row.requested_by = binds[1];
             if (binds[2] != null) row.notes = binds[2];
+            if (binds.length >= 5 && binds[3] != null) row.security_type = binds[3];
             row.last_error = null;
           }
         } else if (query.includes("INSERT OR IGNORE INTO symbol_state")) {
@@ -168,5 +175,26 @@ describe("enrolled-universe helpers", () => {
     const db = new MemoryDb();
     await enrollSymbol(db, "AAPL", { source: "test" });
     expect(await expectedUniverseSize(db)).toBe(bundledUniverse().length);
+  });
+
+  it("persists security_type and lists enrolled ETFs separately from equities", async () => {
+    expect(normalizeEnrolledSecurityType("COLLECTIVE_INVESTMENT")).toBe("etf");
+    expect(normalizeEnrolledSecurityType("mutualfund")).toBe("fund");
+    expect(normalizeEnrolledSecurityType("stock")).toBeNull();
+
+    const db = new MemoryDb();
+    await enrollSymbol(db, "SOFI", { source: "test", securityType: "equity" });
+    await enrollSymbol(db, "RSP", { source: "test", securityType: "etf" });
+    await enrollSymbol(db, "VGSH", { source: "lookup", securityType: "ETF" });
+
+    expect(db.enrolled.get("RSP")?.security_type).toBe("etf");
+    expect(await listEnrolledSymbolsByType(db, "etf")).toEqual(["RSP", "VGSH"]);
+    expect(await listEnrolledSymbolsByType(db, ["etf", "fund"])).toEqual(["RSP", "VGSH"]);
+    expect(await listEnrolledSymbolsByType(db, "equity")).toEqual(["SOFI"]);
+
+    const upgraded = await enrollSymbol(db, "SOFI", { source: "lookup", securityType: "etf" });
+    expect(upgraded.already).toBe(true);
+    expect(db.enrolled.get("SOFI")?.security_type).toBe("etf");
+    expect(await listEnrolledSymbolsByType(db, "etf")).toEqual(["RSP", "SOFI", "VGSH"]);
   });
 });

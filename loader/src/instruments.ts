@@ -162,11 +162,20 @@ export function securityTypeFromUniverseSource(source: string | null | undefined
 
 /**
  * Build the full instrument catalog from loader manifests (+ optional enrolled
- * equity tickers). Later sources win on symbol collision so dedicated
- * manifests (indices / futures / crypto) override the equity/ETF universe.
+ * tickers). Later sources win on symbol collision so dedicated manifests
+ * (indices / futures / crypto) override the equity/ETF universe. Enrolled
+ * funds (security_type etf|fund) are tagged etf; untyped enrolled names stay
+ * equity for back-compat.
  */
-export function buildInstrumentCatalog(enrolled: string[] = []): InstrumentSpec[] {
+export function buildInstrumentCatalog(
+  enrolled: string[] = [],
+  enrolledTypes: Record<string, string> | Map<string, string> = {},
+): InstrumentSpec[] {
   const bySymbol = new Map<string, InstrumentSpec>();
+  const typeOf = (symbol: string): string | undefined => {
+    if (enrolledTypes instanceof Map) return enrolledTypes.get(symbol);
+    return enrolledTypes[symbol];
+  };
 
   const upsert = (spec: InstrumentSpec) => {
     const symbol = String(spec.symbol || "").trim().toUpperCase();
@@ -215,10 +224,12 @@ export function buildInstrumentCatalog(enrolled: string[] = []): InstrumentSpec[
   for (const symbol of enrolled) {
     const sym = String(symbol || "").trim().toUpperCase();
     if (!sym || bySymbol.has(sym)) continue;
+    const enrolledType = String(typeOf(sym) || "").trim().toLowerCase();
+    const isFund = enrolledType === "etf" || enrolledType === "fund";
     upsert({
       symbol: sym,
       name: sym,
-      security_type: SECURITY_TYPES.equity,
+      security_type: isFund ? SECURITY_TYPES.etf : SECURITY_TYPES.equity,
       asset_class: null,
       source: "enrolled",
     });
@@ -332,6 +343,7 @@ async function requestJson(
 export async function publishInstruments(
   env: InstrumentsEnv = {},
   enrolled: string[] = [],
+  enrolledTypes: Record<string, string> | Map<string, string> = {},
 ): Promise<InstrumentsPublishResult> {
   const url = env.PIPELINE_INSTRUMENTS_URL || "";
   if (!url) {
@@ -339,7 +351,11 @@ export async function publishInstruments(
   }
   const runId = env.runId?.() ?? crypto.randomUUID();
   const fetchedAt = new Date(env.now ? env.now() : Date.now()).toISOString();
-  const rows = normalizeInstrumentRecords(buildInstrumentCatalog(enrolled), runId, fetchedAt);
+  const rows = normalizeInstrumentRecords(
+    buildInstrumentCatalog(enrolled, enrolledTypes),
+    runId,
+    fetchedAt,
+  );
   if (rows.length === 0) {
     return { row_count: 0, published: false, run_id: runId, fetched_at: fetchedAt };
   }

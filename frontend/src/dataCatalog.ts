@@ -156,6 +156,20 @@ export const TOOLS: CatalogItem[] = [
     tools: ['suggest_trades'],
   },
   {
+    id: 'tool:lookup_symbols',
+    kind: 'tool',
+    title: 'lookup_symbols',
+    summary: 'Identify a ticker and, for funds, what it holds',
+    description:
+      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto), issuer/fund name, and for funds Yahoo top-10 holdings with weights. Lake coverage is incomplete — many funds have no etf_profiles row in the default manifest — so this uses the in-process catalog first, then Yahoo search + quoteSummary. Looked-up funds are enrolled into etf-daily so constituents persist on options.etf_holdings. Call before treating an unknown holding as a single-name stock, and read the weights before calling a fund concentrated. Chat also prints Schwab asset kind + description on get_portfolio / get_schwab_quotes lines when the broker sent them.',
+    feeds: ['yahoo', 'yahoo-etf'],
+    tables: ['etf_profiles', 'etf_holdings'],
+    tools: ['get_portfolio', 'research_ticker', 'suggest_trades'],
+    params: [
+      { name: 'symbols', type: 'string[]', note: '1–20 tickers (e.g. SPY, AAPL, ^VIX, BTC-USD)' },
+    ],
+  },
+  {
     id: 'tool:suggest_trades',
     kind: 'tool',
     title: 'suggest_trades',
@@ -163,7 +177,7 @@ export const TOOLS: CatalogItem[] = [
     description:
       'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity|kalshi, side buy|sell (long/short), optional qty, plus option right/strike/expiry or Kalshi market_ticker + contract_side (yes|no). The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute option strikes must come from option_contracts quote evidence; Kalshi legs must cite options.kalshi_markets quotes. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking. For public bots, the same suggestions are snapshotted into that bot’s trade book on /u/{handle}.',
     tables: ['option_contracts', 'kalshi_markets'],
-    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_portfolio', 'get_bot_trades'],
+    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_portfolio', 'get_schwab_quotes', 'get_bot_trades'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
@@ -189,7 +203,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'get_portfolio',
     summary: 'Read an attached portfolio by source (Schwab / paper)',
     description:
-      'Loads a signed-in user’s portfolio by source. source=schwab reads the live Schwab brokerage book (balances + positions via the Worker’s Schwab token). source=paper reads the paper tracking book. Call when the user attached a portfolio in chat controls, or asks about brokerage holdings, hedges, adjustments, or uncorrelated adds. Optional account_id scopes Schwab to one linked account. Paper-only filters: status and conviction. New brokers add another source value — the chat attach menu stays the same.',
+      'Loads a signed-in user’s portfolio by source. source=schwab reads the live Schwab brokerage book (balances + positions via the Worker’s Schwab token). source=paper reads the paper tracking book. Call when the user attached a portfolio in chat controls, or asks about brokerage holdings, hedges, adjustments, or uncorrelated adds. Optional account_id scopes Schwab to one linked account. Paper-only filters: status and conviction. New brokers add another source value — the chat attach menu stays the same. Personal scheduled bots use the same tool when a book is attached.',
     endpoint: 'GET /api/schwab/portfolio · GET /api/portfolio',
     tools: ['get_paper_portfolio'],
     params: [
@@ -200,12 +214,25 @@ export const TOOLS: CatalogItem[] = [
     ],
   },
   {
+    id: 'tool:get_schwab_quotes',
+    kind: 'tool',
+    title: 'get_schwab_quotes',
+    summary: 'Live quotes from the chat owner’s connected Schwab account',
+    description:
+      'Fetches last, bid, ask, mark, change, and volume from Charles Schwab Market Data using the signed-in chat owner’s connected OAuth token. The model passes symbols only — never a user id. The Worker looks up schwab_connections for that owner alone; a session/owner mismatch returns no_owner so another user’s token cannot be used. Requires a signed-in owner who has connected Schwab. Used automatically when that user asks for a live print.',
+    endpoint: 'Schwab Market Data GET /quotes (owner token)',
+    tools: ['get_portfolio'],
+    params: [
+      { name: 'symbols', type: 'string[]', note: '1–20 tickers (AAPL, $SPX, /ES, OCC options)' },
+    ],
+  },
+  {
     id: 'tool:get_bot_trades',
     kind: 'tool',
     title: 'get_bot_trades',
     summary: 'Read a public bot’s suggested-trade PnL',
     description:
-      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /portfolio (Suggested trades) and /u/{handle}. Optional conviction filter scopes performance.',
+      'Returns open/realized PnL and positions for a bot handle (e.g. yololobster) from auto-tracked suggest_trades. Separate from the signed-in paper cash book. Shown on /u/{handle} and on /portfolio Suggested trades after sign-in. Optional conviction filter scopes performance.',
     endpoint: 'GET /api/bots/{handle}/trades',
     tools: ['suggest_trades'],
     params: [
@@ -364,9 +391,9 @@ export const FEEDS: CatalogItem[] = [
     id: 'feed:yahoo-etf',
     kind: 'feed',
     title: 'Yahoo ETF profiles',
-    summary: 'Expense ratio, AUM, yield, and top-10 holdings',
+    summary: 'Expense ratio, AUM, yield, and top holdings (bundled + enrolled funds)',
     description:
-      'Daily fund profile plus top holdings for the optionable ETF sleeve of the universe (including VIX ETPs such as VXX, UVXY, SVXY and crypto ETFs such as IBIT, ETHA, SOLZ). Chat uses this for “what’s inside SPY?”, expense-ratio screens, and AUM/yield context next to the option chain.',
+      'Daily fund profile plus Yahoo top-10 holdings for the optionable ETF sleeve (including VIX ETPs such as VXX, UVXY, SVXY and crypto ETFs such as IBIT, ETHA, SOLZ) plus any fund Copilot looks up via on-demand enrollment. Chat uses this for “what’s inside SPY?”, expense-ratio screens, AUM/yield context, and book concentration — equal-weight index funds are not single-name stocks.',
     provider: 'Yahoo Finance',
     cadence: 'Daily (etf-daily job)',
     tables: ['etf_profiles', 'etf_holdings'],
@@ -571,7 +598,7 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   etf_holdings: {
     summary: 'Top holdings and weights per ETF',
     description:
-      'Ranked constituents (holding_symbol, holding_name, weight) for each ETF. Chat joins this to chains when concentration or “what does QQQ hold?” is part of the question.',
+      'Ranked constituents (holding_symbol, holding_name, weight) for each ETF. Yahoo top-10, not the full N-PORT book. Covers the curated optionable sleeve plus enrolled funds (lookup_symbols). Chat joins this to chains when concentration or “what does QQQ hold?” is part of the question — equal-weight names show fraction-of-a-percent top weights, which is sleeve size, not issuer concentration.',
     feeds: ['yahoo-etf'],
     tools: ['run_query'],
   },

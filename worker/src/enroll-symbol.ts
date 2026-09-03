@@ -6,6 +6,7 @@
 import universe from "../../loader/symbols/universe.json";
 import { isThinBrief } from "./research-commentary";
 import type { TickerResearch } from "./research";
+import type { SymbolIdentity } from "./symbol-identity";
 
 const BUNDLED = new Set(
   (Array.isArray(universe.symbols) ? universe.symbols : []).map((s: string) =>
@@ -26,6 +27,8 @@ export interface EnrollRequestOpts {
   notes?: string | null;
   /** Default true — kick an immediate CBOE + OHLC load after enrollment. */
   loadNow?: boolean;
+  /** equity | etf | fund — persisted on enrolled_symbols for etf-daily. */
+  securityType?: string | null;
   fetchImpl?: typeof fetch;
 }
 
@@ -92,6 +95,7 @@ export async function enrollTickerWithLoader(
       requested_by: opts.requestedBy || null,
       notes: opts.notes || null,
       load_now: opts.loadNow !== false,
+      security_type: opts.securityType || undefined,
     }),
   });
   const text = await res.text();
@@ -148,6 +152,50 @@ export function maybeEnrollMissingTicker(
     }
   }).catch((e) => {
     console.error("ticker enroll error", ticker, e);
+  });
+  if (opts.waitUntil) opts.waitUntil(task);
+}
+
+/**
+ * Enroll a looked-up ETF/fund so etf-daily writes profile + top holdings
+ * to the lake. Bundled optionable ETFs are already in etfs.json. Never throws.
+ */
+export function maybeEnrollIdentifiedFund(
+  env: EnrollEnv,
+  identity: SymbolIdentity,
+  opts: {
+    source?: string;
+    requestedBy?: string | null;
+    waitUntil?: (p: Promise<unknown>) => void;
+    fetchImpl?: typeof fetch;
+  } = {},
+): void {
+  if (identity.kind !== "etf" && identity.kind !== "fund") return;
+  if (!isEnrollableEquityTicker(identity.symbol)) return;
+  if (isBundledUniverseTicker(identity.symbol)) return;
+  const ticker = identity.symbol;
+  const name = identity.name ? ` (${identity.name})` : "";
+  const task = enrollTickerWithLoader(env, ticker, {
+    source: opts.source || "lookup_symbols",
+    requestedBy: opts.requestedBy || null,
+    notes: `auto-enrolled: ${identity.kind}${name} holdings ingest`.slice(0, 512),
+    securityType: "etf",
+    loadNow: true,
+    fetchImpl: opts.fetchImpl,
+  }).then((result) => {
+    if (result?.error) {
+      console.error("fund enroll failed", ticker, result.error);
+    } else if (result) {
+      console.log(JSON.stringify({
+        event: "ticker_enrolled",
+        symbol: result.symbol,
+        already: result.already,
+        security_type: "etf",
+        source: opts.source || "lookup_symbols",
+      }));
+    }
+  }).catch((e) => {
+    console.error("fund enroll error", ticker, e);
   });
   if (opts.waitUntil) opts.waitUntil(task);
 }

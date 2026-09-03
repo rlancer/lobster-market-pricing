@@ -22,10 +22,12 @@ const TOOL_LABELS: Record<string, string> = {
   eco_calendar: 'Eco calendar',
   web_search: 'Web search',
   research_ticker: 'Ticker research',
+  lookup_symbols: 'Identify symbols',
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
   get_paper_portfolio: 'Paper portfolio',
   get_portfolio: 'Portfolio',
+  get_schwab_quotes: 'Schwab quotes',
   get_bot_trades: 'Bot trade performance',
 };
 

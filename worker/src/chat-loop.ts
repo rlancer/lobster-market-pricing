@@ -65,6 +65,7 @@ export type ChatActiveToolName =
   | "web_search"
   | "eco_calendar"
   | "research_ticker"
+  | "lookup_symbols"
   | "publish_desk"
   | "suggest_trades"
   | "get_paper_portfolio"

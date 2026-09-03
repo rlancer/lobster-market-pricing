@@ -39,7 +39,7 @@ import { companyFactsDailyJob } from "./company-facts-daily.js";
 //   - company-facts-daily — batch, ungated, daily; SEC companyfacts XBRL
 //     (SBC, debt, NI, OCF, …) → options.company_facts.
 //   - etf-daily       — batch, ungated, daily cadence; Yahoo fundProfile +
-//     topHoldings for symbols/etfs.json → options.etf_profiles / etf_holdings.
+//     topHoldings for symbols/etfs.json ∪ enrolled ETFs → options.etf_profiles / etf_holdings.
 //   - fundamentals-daily — batch, ungated, daily cadence; Yahoo quoteSummary
 //     equity fundamentals → options.fundamentals (latest-wins by ticker).
 //   - futures-ohlc-daily — batch, ungated, daily; Yahoo continuous futures

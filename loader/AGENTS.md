@@ -10,9 +10,10 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   registry (`src/jobs/registry.ts`) — `cboe-options` (item-scoped, market-gated,
   item store `symbol_state`), `ohlc-daily` (batch, daily, ungated),
   `ohlc-backfill` (item-scoped, resumable, manual), `earnings-daily` (batch,
-  daily), `fred-econ-daily` (batch, daily), `etf-daily` (batch, daily;
+  daily), `fred-econ-daily` (batch, daily),   `etf-daily` (batch, daily;
   Yahoo fund profile + top holdings → `options.etf_profiles` /
-  `options.etf_holdings`), `fundamentals-daily` (batch, daily; Yahoo
+  `options.etf_holdings`; universe is `symbols/etfs.json` ∪ enrolled
+  `security_type=etf|fund`), `fundamentals-daily` (batch, daily; Yahoo
   equity quoteSummary → `options.fundamentals`), `earnings-results-daily`
   (batch, daily; Yahoo earningsHistory → `options.earnings_results`),
   `company-facts-daily` (batch, daily; SEC companyfacts XBRL →
@@ -77,13 +78,17 @@ are **not** in this option-chain universe; they land in `options.ohlc` via
 question about SOFI when it is not in the lake) are written to D1
 `enrolled_symbols` via `POST /symbols/enroll` (Bearer `LOADER_TOKEN`). The API
 Worker auto-calls this when research returns a thin brief for an out-of-universe
-equity. Enrollment also seeds `symbol_state`, `ohlc_backfill_state`, and
-`research_brief_state`, and optionally kicks an immediate CBOE + OHLC load.
+equity, and when `lookup_symbols` identifies an ETF/fund (with `security_type=etf`)
+so holdings land in the lake. Enrollment also seeds `symbol_state`,
+`ohlc_backfill_state`, and `research_brief_state`, and optionally kicks an
+immediate CBOE + OHLC load (plus `publishEtf` for funds).
 ETL jobs (`cboe-options`, `ohlc-daily`, `ohlc-backfill`, `earnings-daily`,
 `fundamentals-daily`, `research-briefs-daily`, `sec-filings-daily`) use the **effective universe** =
-bundled manifest ∪ enabled `enrolled_symbols`. List enrollments with
-`GET /symbols/enrolled`. Admin proxy: `POST /api/symbols/enroll` on the API
-Worker (Bearer `ADMIN_TOKEN`; requires `LOADER_TOKEN` on that Worker too).
+bundled manifest ∪ enabled `enrolled_symbols`. `etf-daily` uses the bundled
+optionable ETF list ∪ enrolled rows with `security_type` etf|fund.
+List enrollments with `GET /symbols/enrolled`. Admin proxy: `POST /api/symbols/enroll`
+on the API Worker (Bearer `ADMIN_TOKEN`; requires `LOADER_TOKEN` on that Worker too;
+optional `security_type`).
 
 The Dow Jones 30 is deliberately excluded: every Dow member is already an S&P
 500 constituent, so it adds zero symbols. Russell 1000/3000 are excluded per
