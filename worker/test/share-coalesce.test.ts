@@ -87,6 +87,23 @@ test("promoteReasoningTakeaway lifts a conclusive reasoning paragraph into conte
   assert.doesNotMatch(turned.content, /Plan of tool/i);
 });
 
+test("promoteReasoningTakeaway replaces interim narration with substantive reasoning paragraphs", () => {
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: "SBNY is actually Signature Bank. Let me pull ETF holdings and rate context to finish the picture.",
+    reasoning: [
+      "Let me review the portfolio.",
+      "",
+      "Book breakdown:\n- SBNY: stranded delisted bank equity\n- RSP: broad equal-weight beta",
+      "",
+      "Concentration flags:\n1. SBNY is unmarketable\n2. IGV is software sector concentration",
+    ].join("\n\n"),
+  });
+  assert.match(turned.content, /Book breakdown:/);
+  assert.match(turned.content, /Concentration flags:/);
+  assert.doesNotMatch(turned.content, /Let me pull ETF holdings/);
+});
+
 test("promoteReasoningTakeaway skips unfinished let-me narration", () => {
   const turned = promoteReasoningTakeaway({
     role: "assistant",

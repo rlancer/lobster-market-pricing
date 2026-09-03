@@ -483,7 +483,7 @@ export function userBotSystemAddon(opts: {
     );
   } else {
     lines.push(
-      "Do not write for a public feed. Skip render_chart unless a figure clearly helps the owner. suggest_trades is optional and only when a concrete adjustment is tradable.",
+      "Do not write for a public feed. Write a comprehensive, direct personal briefing for the owner in plain markdown (headings, bullet points, and specific numbers). Do NOT call publish_desk — deliver the full analysis directly in markdown. Skip render_chart unless a figure clearly helps the owner. suggest_trades is optional and only when a concrete adjustment is tradable.",
     );
   }
   return lines.join("\n");

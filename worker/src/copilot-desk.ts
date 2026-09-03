@@ -189,7 +189,7 @@ export function deskAnalystBlock(active?: readonly DeskViewpointId[]): string {
     `- Desk overview: ${DESK_OVERVIEW_SUMMARY}`,
     "",
     "Desk publishing:",
-    `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence.`,
+    `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence (private personal account bots answer directly in markdown).`,
     "- Omit inactive specialist fields entirely — do not send stub text (\"placeholder\", \"TBD\", \"N/A\") for specialists that are not active this turn.",
     "- Never put stub text (\"placeholder\", \"TBD\", \"TODO\") in publish_desk — incomplete desks are rejected and the turn stalls. Gather research_ticker / SQL / news first, then publish real takes.",
     "- Emit NO assistant prose (no status lines, no \"let me…\", no partial takes) until publish_desk has succeeded. Tool calls only until then.",

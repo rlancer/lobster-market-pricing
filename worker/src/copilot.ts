@@ -1501,9 +1501,11 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
               toolRoundTokensMax: TOOL_ROUND_TOKENS_MAX,
               finalTokenReserve: FINAL_TOKEN_RESERVE,
               // Bot thesis posts and interactive chat both publish the routed
-              // specialist personas via publish_desk. Structured trades stay
-              // interactive-only so a rates post is not forced into a flyer.
-              requireDesk: true,
+              // specialist personas via publish_desk. Private personal bots
+              // write directly to the owner unless opting into the timeline.
+              // Structured trades stay interactive-only so a rates post is
+              // not forced into a flyer.
+              requireDesk: Boolean(!bot || bot.audience !== "private" || bot.publish_to_timeline),
               deskPublished: Boolean(capture.desk),
               stepsAfterQuery: turn.stepsAfterQuery,
               failedDeskCount: turn.failedDeskCount,
