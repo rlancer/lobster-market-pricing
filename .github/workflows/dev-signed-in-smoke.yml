@@ -1,25 +1,13 @@
-name: Email Service smoke test
+name: Dev signed-in smoke
 
-# Operator lever to prove the Worker EMAIL binding can send from
-# noreply@lobster.mp. Uses ADMIN_TOKEN (never printed) against api-dev by
-# default. The Admin hub button remains the primary UX for signed-in admins.
+# Agents cannot Google-sign-in. Preview impersonation uses ADMIN_TOKEN
+# (never printed) plus X-Dev-As against api-dev. Production must 404.
 
 on:
   workflow_dispatch:
     inputs:
-      to:
-        description: 'Recipient email (defaults to robert.lancer@gmail.com)'
-        type: string
-        default: robert.lancer@gmail.com
-      target:
-        description: 'API host'
-        type: choice
-        options:
-          - api-dev
-          - api
-        default: api-dev
       trigger_bot:
-        description: 'api-dev only — Run now the first enabled personal bot as robert.lancer@gmail.com'
+        description: 'After listing bots, Run now on the first enabled personal bot'
         type: boolean
         default: false
 
@@ -30,46 +18,16 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Email Service smoke test
+      - name: Assume admin account on api-dev
         env:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          TO: ${{ inputs.to }}
-          TARGET: ${{ inputs.target }}
+          TRIGGER_BOT: ${{ inputs.trigger_bot }}
         run: |
           set -euo pipefail
           if [ -z "${ADMIN_TOKEN:-}" ]; then
             echo "::error::ADMIN_TOKEN secret is not set on this repository"
             exit 1
           fi
-          if [ "$TARGET" = "api" ]; then
-            BASE="https://api.lobster.mp"
-          else
-            BASE="https://api-dev.lobster.mp"
-          fi
-          echo "POST $BASE/api/admin/email/test → $TO"
-          resp=$(curl -sS -X POST \
-            -H "Authorization: Bearer $ADMIN_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -nc --arg to "$TO" '{to:$to}')" \
-            -w '\n__HTTP_%{http_code}' \
-            "$BASE/api/admin/email/test")
-          body="${resp%__HTTP_*}"
-          code="${resp##*__HTTP_}"
-          echo "$body"
-          if [ "$code" != "200" ]; then
-            echo "::error::email smoke returned HTTP $code"
-            exit 1
-          fi
-          echo "$body" | grep -q '"ok":true'
-          echo "$body" | grep -q '"message_id"'
-
-      - name: Assume admin account on api-dev
-        if: ${{ inputs.target != 'api' }}
-        env:
-          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-          TRIGGER_BOT: ${{ inputs.trigger_bot }}
-        run: |
-          set -euo pipefail
           AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "X-Dev-As: robert.lancer@gmail.com" -H "Content-Type: application/json")
 
           prod=$(curl -sS -o /tmp/prod.json -w '%{http_code}' -X POST \
@@ -102,12 +60,12 @@ jobs:
             https://api-dev.lobster.mp/api/me/bots)
           echo "dev /api/me/bots HTTP $bots"
           python3 - <<'PY'
-          import json
+          import json, os
           data = json.load(open("/tmp/bots.json"))
           items = data.get("items") or []
           print("bot_count", len(items))
           for bot in items:
-              print("bot", bot.get("bot_id"), bot.get("name"), "enabled=" + str(bot.get("enabled")))
+              print("bot", bot.get("bot_id"), bot.get("name"), "enabled=" + str(bot.get("enabled")), "email_alerts=" + str(bot.get("email_alerts")))
           open("/tmp/bot_id.txt", "w").write(next((b["bot_id"] for b in items if b.get("enabled")), ""))
           PY
           if [ "$bots" != "200" ]; then

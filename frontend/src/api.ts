@@ -787,6 +787,81 @@ export interface BotSchedule {
   updated_at: number;
 }
 
+export interface UserBotPreset {
+  id: string;
+  label: string;
+  description: string;
+  cadence_seconds: number;
+  market_gated: boolean;
+}
+
+export interface UserBotTemplate {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+export interface UserBotPortfolioOption {
+  id: string;
+  label: string;
+  source: 'none' | 'paper' | 'schwab' | 'all';
+  account_id: string | null;
+}
+
+export interface UserBot {
+  bot_id: string;
+  user_id: string;
+  name: string;
+  prompt: string;
+  schedule_preset: string;
+  cadence_seconds: number;
+  market_gated: boolean;
+  attach_portfolio: boolean;
+  portfolio_source: 'none' | 'paper' | 'schwab' | 'all';
+  portfolio_account_id: string | null;
+  portfolio_id: string;
+  portfolio_ids: string[];
+  portfolio_account_ids: string[];
+  publish_to_timeline: boolean;
+  email_alerts: boolean;
+  enabled: boolean;
+  next_run_at: number;
+  last_run_at: number | null;
+  last_run_id: string | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UserBotRun {
+  run_id: string;
+  bot_id: string;
+  user_id: string;
+  chat_id: string;
+  share_id: string | null;
+  prompt: string;
+  status: 'queued' | 'running' | 'completed' | 'shared' | 'failed';
+  error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export type UserBotInput = Partial<{
+  name: string;
+  prompt: string;
+  template_id: string;
+  schedule_preset: string;
+  attach_portfolio: boolean;
+  portfolio_id: string;
+  portfolio_ids: string[];
+  portfolio_source: 'none' | 'paper' | 'schwab' | 'all';
+  portfolio_account_id: string | null;
+  publish_to_timeline: boolean;
+  email_alerts: boolean;
+  enabled: boolean;
+}>;
+
 export interface CopilotPromptCapability {
   id: string;
   kind: 'system' | 'classifier' | 'meta' | 'invent' | 'addon';
@@ -1809,6 +1884,37 @@ export const api = {
     const q = params.toString();
     return `${API_BASE}/api/schwab/connect${q ? `?${q}` : ''}`;
   },
+  myBots: () =>
+    get<{
+      ok: true;
+      items: UserBot[];
+      presets: UserBotPreset[];
+      templates: UserBotTemplate[];
+      portfolios: UserBotPortfolioOption[];
+      books: UserBotPortfolioOption[];
+    }>('/api/me/bots'),
+  myBot: (botId: string) =>
+    get<{ ok: true; bot: UserBot; runs: UserBotRun[] }>(`/api/me/bots/${encodeURIComponent(botId)}`),
+  createMyBot: (body: UserBotInput) =>
+    post<{ ok: true; bot: UserBot }>('/api/me/bots', body),
+  updateMyBot: (botId: string, body: UserBotInput) =>
+    request<{ ok: true; bot: UserBot }>(`/api/me/bots/${encodeURIComponent(botId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteMyBot: (botId: string) =>
+    request<{ ok: true }>(`/api/me/bots/${encodeURIComponent(botId)}`, { method: 'DELETE' }),
+  triggerMyBot: (botId: string) =>
+    post<{
+      ok: true;
+      deferred?: boolean;
+      reason?: string;
+      next_run_at?: number;
+      run_id?: string;
+      chat_id?: string;
+      share_id?: string | null;
+    }>(`/api/me/bots/${encodeURIComponent(botId)}/trigger?force=1`, {}),
   bots: () => get<{ items: BotProfile[] }>('/api/bots'),
   botTrades: (
     handle: string,

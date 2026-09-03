@@ -8,12 +8,20 @@ import { QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
 import { tradesSuggestBlock } from "./copilot-trades";
 import type { LakeTable } from "./copilot-sql";
 import { DEFAULT_REPLY_STYLE, replyStyleAddon, type ReplyPref } from "./reply-style";
+import { userBotSystemAddon } from "./user-bots";
 
 export interface BotPromptProfile {
   handle: string;
   display_name: string;
   persona: string;
   system_prompt_extra: string;
+  /** Public admin personas vs signed-in account bots. Default public. */
+  audience?: "public" | "private";
+  attach_portfolio?: boolean;
+  portfolio_source?: "none" | "paper" | "schwab" | "all";
+  portfolio_account_id?: string | null;
+  portfolio_label?: string | null;
+  publish_to_timeline?: boolean;
 }
 
 export interface SystemPromptOptions {
@@ -88,6 +96,8 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- If research_ticker reports thin/missing lake data for a ticker, the system auto-enrolls it into the continuous ETL so options, OHLC, and fundamentals start landing. Tell the user data is being loaded and they can retry shortly — do not invent chain or OHLC numbers.",
     "- Suggested trades MUST be actually tradable and MUST go through suggest_trades (never prose-only). After research_ticker, query options.option_contracts for the candidate strikes before recommending them: require a two-sided quote (bid>0 and ask>=bid), a relative bid-ask spread that is not wide (prefer <=15%), and demonstrated interest (volume >= 10 or open interest >= 100). Prefer names with several near-ATM listed contracts that actually quote. Skip one-sided/empty books and wide markets — a pretty structure on an untradeable name is a bad answer. If liquidity is too thin, call suggest_trades with trades: [] (skip_reason optional) — do not invent a fill. Markable suggestions auto-open in the signed-in user's paper portfolio (and in a bot's public trade book when this chat is a bot).",
     "- When the user asks about their paper book, tracked suggestions, portfolio PnL, or how prior ideas are doing, MUST call get_paper_portfolio and ground the answer in that tool output — do not invent positions or fills.",
+    "- When the user asks about their Schwab / brokerage book, live positions, or linked-account balances, MUST call get_schwab_portfolio and ground the answer in that tool output — do not invent fills or account numbers.",
+    "- When a signed-in owner asks for a live Schwab quote, print, bid/ask, or mark, MUST call get_schwab_quotes with symbols only and ground the answer in that tool output — do not invent prints. The Worker uses that owner's connected token only; never pass a user id. If Schwab is not connected or the tool returns no_owner / not_connected, say so.",
     "- When the user asks how a public bot's ideas are doing (e.g. @yololobster trades / PnL), MUST call get_bot_trades with that handle and ground the answer in the tool output.",
     "- If the user asks about upcoming Fed meetings, macro reports, or broad event risk, MUST call eco_calendar even if options.econ_calendar is also queried; the tool merges the freshest calendar sources.",
     "- Do not explain SQL mechanics. Mention specific symbols, sectors, dates, and numbers where useful.",
@@ -103,19 +113,32 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- The final message is shown verbatim. Do not repeat chain-of-thought or tool narration; close with a 1-3 sentence takeaway.",
   ];
   if (bot) {
-    lines.push(
-      "",
-      `Bot persona (@${bot.handle} — ${bot.display_name}):`,
-      bot.persona,
-    );
-    if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());
-    lines.push(
-      "Write in this persona's voice while still following every SQL/tool rule above.",
-      "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
-      "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
-      "Timeline posts MUST still call publish_desk after tools so the feed can render the specialist personas (fundamental / technical / options / risk, plus macro when routed) and a weighed overview. Write each specialist take AND the overview in this bot's voice — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
-      "After render_chart returns, do not open another tool round of narration ('Now I need to publish…', 'Let me also render…'). Write the closing takeaway immediately — sector leadership, options-flow read, and the desk view in prose.",
-    );
+    const privateAudience = bot.audience === "private";
+    if (privateAudience) {
+      lines.push(userBotSystemAddon({
+        name: bot.display_name,
+        attach_portfolio: Boolean(bot.attach_portfolio),
+        portfolio_source: bot.portfolio_source,
+        portfolio_account_id: bot.portfolio_account_id,
+        portfolio_label: bot.portfolio_label,
+        publish_to_timeline: Boolean(bot.publish_to_timeline),
+      }));
+      if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());
+    } else {
+      lines.push(
+        "",
+        `Bot persona (@${bot.handle} — ${bot.display_name}):`,
+        bot.persona,
+      );
+      if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());
+      lines.push(
+        "Write in this persona's voice while still following every SQL/tool rule above.",
+        "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+        "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
+        "Timeline posts MUST still call publish_desk after tools so the feed can render the specialist personas (fundamental / technical / options / risk, plus macro when routed) and a weighed overview. Write each specialist take AND the overview in this bot's voice — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
+        "After render_chart returns, do not open another tool round of narration ('Now I need to publish…', 'Let me also render…'). Write the closing takeaway immediately — sector leadership, options-flow read, and the desk view in prose.",
+      );
+    }
   } else if (reply) {
     lines.push(replyStyleAddon(reply));
   }

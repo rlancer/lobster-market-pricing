@@ -22,7 +22,7 @@
  *    CAST(expiration AS DATE) - CURRENT_DATE (returns integer days).
  */
 import { routeAgentRequest } from "agents";
-import { isAdminEmail } from "./admin";
+import { ADMIN_EMAILS, isAdminEmail } from "./admin";
 import {
   resolveEmailTestRecipient,
   sendAdminEmailTest,
@@ -31,7 +31,8 @@ import { handleInboundEmail, HELLO_FORWARD_TO } from "./inbound-email";
 import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
-import { createAuth, getSessionUser, googleConfigured, isTrustedOrigin, type SessionUser } from "./auth";
+import { createAuth, getSessionUser, googleConfigured, impersonationAllowed, isTrustedOrigin, type SessionUser } from "./auth";
+import { mintDevSession, resolveImpersonationEmail } from "./dev-session";
 import {
   inventBotPrompt,
   resolveBotGeneratePrompt,
@@ -176,6 +177,21 @@ import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio,
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
 import { handleSchwab } from "./schwab-http";
 import { schwabConfigured } from "./schwab";
+import { loadSchwabQuotesForUser } from "./schwab-marketdata";
+import { loadSchwabPortfolio as fetchSchwabPortfolio, schwabAccountLabel } from "./schwab-portfolio";
+import {
+  attachableBookOptions,
+  attachablePortfolioOptions,
+  createUserBot,
+  deleteUserBot,
+  getOwnedUserBot,
+  listUserBotPresets,
+  listUserBotRuns,
+  listUserBotTemplates,
+  listUserBots,
+  updateUserBot,
+} from "./user-bots";
+import { runDueUserBotSchedules, runOneUserBot } from "./user-bot-runner";
 
 
 // ---------------------------------------------------------------------------
@@ -190,6 +206,8 @@ export interface Env extends Cloudflare.Env {
   BETTER_AUTH_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  /** Preview Worker only. When "1", ADMIN_TOKEN can assume an admin account on api-dev. */
+  ALLOW_DEV_IMPERSONATION?: string;
   /** Optional; must match a Callback URL registered in the Schwab developer portal. */
   SCHWAB_REDIRECT_URI?: string;
   /** OpenFIGI Mapping API key — live ticker normalize for research / chat links. */
@@ -2575,12 +2593,8 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
     return researchTickerForAgent(this.env, symbol, opts);
   }
 
-  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
-  protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
-    const chatId = typeof this.name === "string" ? this.name : "";
-    if (!chatId || !this.env.SCHEMA_DB) return null;
-
-    let userId: string | null = null;
+  /** Session user stamped on this DO — never a Schwab token, never another chat. */
+  private readPaperSessionHint(): string | null {
     try {
       this.sql`
         CREATE TABLE IF NOT EXISTS paper_session_hint (
@@ -2592,10 +2606,28 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       const hint = this.sql<{ user_id: string }>`
         SELECT user_id FROM paper_session_hint WHERE singleton = 1
       `[0];
-      userId = hint?.user_id ?? null;
+      return hint?.user_id ?? null;
     } catch {
-      userId = null;
+      return null;
     }
+  }
+
+  /**
+   * Single owner for paper + Schwab tools. Mismatch between user_chats and
+   * the session hint returns null so we never use another user's token.
+   */
+  private async resolveInteractiveOwnerUserId(): Promise<string | null> {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+    return resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, this.readPaperSessionHint());
+  }
+
+  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
+  protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    const userId = this.readPaperSessionHint();
 
     const title = firstUserContent(this.messages);
 
@@ -2615,9 +2647,10 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
 
     let handle: string | null = null;
     try {
-      const row = this.sql<{ handle: string }>`
-        SELECT handle FROM bot_session WHERE singleton = 1
+      const row = this.sql<{ handle: string; audience: string | null }>`
+        SELECT handle, audience FROM bot_session WHERE singleton = 1
       `[0];
+      if (row?.audience === "private") return null;
       handle = row?.handle?.trim() || null;
     } catch {
       handle = null;
@@ -2661,28 +2694,8 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
     status: "open" | "closed" | "all",
     conviction?: "high" | "medium" | "low" | null,
   ) {
-    const chatId = typeof this.name === "string" ? this.name : "";
-    if (!chatId || !this.env.SCHEMA_DB) return null;
-
-    let sessionUserId: string | null = null;
-    try {
-      this.sql`
-        CREATE TABLE IF NOT EXISTS paper_session_hint (
-          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-          user_id TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
-      `;
-      const hint = this.sql<{ user_id: string }>`
-        SELECT user_id FROM paper_session_hint WHERE singleton = 1
-      `[0];
-      sessionUserId = hint?.user_id ?? null;
-    } catch {
-      sessionUserId = null;
-    }
-
-    const userId = await resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, sessionUserId);
-    if (!userId) return null;
+    const userId = await this.resolveInteractiveOwnerUserId();
+    if (!userId || !this.env.SCHEMA_DB) return null;
 
     return listPortfolio(
       this.env.SCHEMA_DB,
@@ -2707,6 +2720,29 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       bot.handle,
       { status, conviction: conviction ?? null, refreshMarks: true },
     );
+  }
+
+  /** Linked Schwab book for get_schwab_portfolio (same owner as paper). */
+  protected override async loadSchwabPortfolio() {
+    const userId = await this.resolveInteractiveOwnerUserId();
+    if (!userId) return { ok: false as const, reason: "no_owner" as const };
+
+    const result = await fetchSchwabPortfolio(this.env, userId);
+    if (result.ok) return { ok: true as const, view: result.view };
+    if (result.reason === "not_connected") return { ok: false as const, reason: "not_connected" as const };
+    return {
+      ok: false as const,
+      reason: result.reason,
+      message: result.message,
+    };
+  }
+
+  /** Live Schwab quotes for get_schwab_quotes — owner's token only. */
+  protected override async loadSchwabQuotes(symbols: string[]) {
+    const userId = await this.resolveInteractiveOwnerUserId();
+    if (!userId) return { ok: false as const, reason: "no_owner" as const };
+
+    return loadSchwabQuotesForUser(this.env, userId, symbols);
   }
 }
 
@@ -3381,7 +3417,7 @@ function withCors(env: Env, req: Request, resp: Response): Response {
   }
   headers.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   // Agent HTTP responses have immutable headers, so clone rather than mutating in place.
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Dev-As");
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
@@ -3529,6 +3565,117 @@ async function handleMe(env: Env, req: Request, path: string): Promise<Response 
     }, 200, "private");
   }
   return json(env, { error: "method not allowed" }, 405, "private");
+}
+
+async function handleUserBots(
+  env: Env,
+  req: Request,
+  path: string,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
+  if (!path.startsWith("/api/me/bots")) return null;
+  const user = await requireUser(env, req);
+  if (user instanceof Response) return user;
+
+  if (path === "/api/me/bots" && req.method === "GET") {
+    const items = await listUserBots(env.SCHEMA_DB, user.id);
+    let schwabAccounts: Array<{ id: string; label: string }> = [];
+    try {
+      const book = await fetchSchwabPortfolio(env, user.id);
+      if (book.ok) {
+        schwabAccounts = book.view.accounts.map((account) => ({
+          id: account.id,
+          label: schwabAccountLabel(account),
+        }));
+      }
+    } catch {
+      schwabAccounts = [];
+    }
+    return json(env, {
+      ok: true,
+      items,
+      presets: listUserBotPresets(),
+      templates: listUserBotTemplates(),
+      portfolios: attachablePortfolioOptions(schwabAccounts),
+      books: attachableBookOptions(schwabAccounts),
+    }, 200, "private");
+  }
+
+  if (path === "/api/me/bots" && req.method === "POST") {
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json() as Record<string, unknown>;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const created = await createUserBot(env.SCHEMA_DB, user.id, body, env);
+    if (!created.ok) return json(env, { error: created.error }, created.status, "private");
+    return json(env, { ok: true, bot: created.bot }, 200, "private");
+  }
+
+  const one = path.match(/^\/api\/me\/bots\/([^/]+)$/);
+  if (one) {
+    const botId = decodeURIComponent(one[1]);
+    if (req.method === "GET") {
+      const bot = await getOwnedUserBot(env.SCHEMA_DB, user.id, botId);
+      if (!bot) return json(env, { error: "not found" }, 404, "private");
+      const runs = await listUserBotRuns(env.SCHEMA_DB, bot.bot_id);
+      return json(env, { ok: true, bot, runs }, 200, "private");
+    }
+    if (req.method === "PUT") {
+      let body: Record<string, unknown>;
+      try {
+        body = await req.json() as Record<string, unknown>;
+      } catch {
+        return json(env, { error: "invalid JSON body" }, 400, "private");
+      }
+      const updated = await updateUserBot(env.SCHEMA_DB, user.id, botId, body, env);
+      if (!updated.ok) return json(env, { error: updated.error }, updated.status, "private");
+      return json(env, { ok: true, bot: updated.bot }, 200, "private");
+    }
+    if (req.method === "DELETE") {
+      const removed = await deleteUserBot(env.SCHEMA_DB, user.id, botId);
+      if (!removed) return json(env, { error: "not found" }, 404, "private");
+      return json(env, { ok: true }, 200, "private");
+    }
+    return json(env, { error: "method not allowed" }, 405, "private");
+  }
+
+  const trigger = path.match(/^\/api\/me\/bots\/([^/]+)\/trigger$/);
+  if (trigger && req.method === "POST") {
+    const botId = decodeURIComponent(trigger[1]);
+    const bot = await getOwnedUserBot(env.SCHEMA_DB, user.id, botId);
+    if (!bot) return json(env, { error: "not found" }, 404, "private");
+    // Manual Run now always ignores next_run_at and market hours. The cron
+    // path (runDueUserBotSchedules) is the one that honors the schedule gate.
+    const outcome = await runOneUserBot(env, bot, {
+      force: true,
+      waitUntil: (p) => ctx.waitUntil(p),
+      publicOrigin: new URL(req.url).origin,
+    });
+    if (outcome.ok && outcome.deferred) {
+      return json(env, {
+        ok: true,
+        deferred: true,
+        reason: outcome.reason,
+        next_run_at: outcome.next_run_at,
+      }, 200, "private");
+    }
+    if (!outcome.ok) {
+      return json(env, {
+        error: outcome.error,
+        ...(outcome.chat_id ? { chat_id: outcome.chat_id } : {}),
+      }, 400, "private");
+    }
+    return json(env, {
+      ok: true,
+      run_id: outcome.run.run_id,
+      chat_id: outcome.chat_id,
+      share_id: outcome.share_id,
+    }, 200, "private");
+  }
+
+  return json(env, { error: "not found" }, 404, "private");
 }
 
 async function handleReplyStyles(env: Env, req: Request, path: string): Promise<Response | null> {
@@ -3907,7 +4054,10 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       waitUntil: (p) => ctx.waitUntil(p),
       lake: (sql, key) => r2sql(env, sql, key),
     });
-    return json(env, { ok: true, ...summary }, 200, "private");
+    const userSummary = await runDueUserBotSchedules(env, {
+      waitUntil: (p) => ctx.waitUntil(p),
+    });
+    return json(env, { ok: true, ...summary, user_bots: userSummary }, 200, "private");
   }
 
   const runPath = path.match(/^\/api\/admin\/bots\/runs\/([^/]+)$/);
@@ -4199,6 +4349,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   const replyStyles = await handleReplyStyles(env, req, path);
   if (replyStyles) return replyStyles;
 
+  const userBots = await handleUserBots(env, req, path, ctx);
+  if (userBots) return userBots;
+
   const me = await handleMe(env, req, path);
   if (me) return me;
 
@@ -4224,6 +4377,38 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const bots = await handleBots(env, req, path, ctx);
   if (bots) return bots;
+
+  // Preview-only: mint a Better Auth cookie as an admin account so agents can
+  // exercise signed-in UI. Production hostname + missing flag → 404.
+  if (path === "/api/admin/dev-session") {
+    if (!impersonationAllowed(env, new URL(req.url).hostname)) {
+      return json(env, { error: "not found" }, 404, "private");
+    }
+    if (req.method !== "POST") return json(env, { error: "method not allowed" }, 405, "private");
+    if (!adminAuthorized(req, env)) return json(env, { error: "unauthorized" }, 401, "private");
+    let bodyEmail: unknown;
+    try {
+      const raw = await req.text();
+      bodyEmail = raw ? (JSON.parse(raw) as { email?: unknown }).email : undefined;
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const email = resolveImpersonationEmail(bodyEmail, ADMIN_EMAILS[0]);
+    if (!email) return json(env, { error: "email is not impersonable" }, 403, "private");
+    const minted = await mintDevSession(env, req, email);
+    if (!minted.ok) return json(env, { error: minted.error }, minted.status, "private");
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store",
+    });
+    headers.append("Set-Cookie", minted.cookie.header);
+    return new Response(JSON.stringify({
+      ok: true,
+      user: minted.user,
+      expires_at: minted.expires_at,
+      cookie: minted.cookie,
+    }), { status: 200, headers });
+  }
 
   // Signed-up users directory (session admin or ADMIN_TOKEN).
   if (path === "/api/admin/users" && req.method === "GET") {
@@ -4399,12 +4584,19 @@ export default {
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
-      runDueBotSchedules(env, {
-        waitUntil: (p) => ctx.waitUntil(p),
-        lake: (sql, key) => r2sql(env, sql, key),
-      }).then((summary) => {
-        console.log(JSON.stringify({ botSchedules: true, ...summary }));
-      }).catch((error) => {
+      Promise.all([
+        runDueBotSchedules(env, {
+          waitUntil: (p) => ctx.waitUntil(p),
+          lake: (sql, key) => r2sql(env, sql, key),
+        }).then((summary) => {
+          console.log(JSON.stringify({ botSchedules: true, ...summary }));
+        }),
+        runDueUserBotSchedules(env, {
+          waitUntil: (p) => ctx.waitUntil(p),
+        }).then((summary) => {
+          console.log(JSON.stringify({ userBotSchedules: true, ...summary }));
+        }),
+      ]).catch((error) => {
         console.error("bot schedules tick failed", error);
       }),
     );

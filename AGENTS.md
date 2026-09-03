@@ -161,6 +161,28 @@ site and SameSite=Lax will not send it.
     (`.github/workflows/provision-kalshi-markets.yml`). It uses `LOADER_TOKEN`
     from secrets, triggers with `?force=1&async=1`, and polls until the paced
     pass finishes. Sync `?force=1` alone can hang past Action/curl limits.
+- **Dev impersonation (signed-in UI on api-dev).** Google OAuth is not
+  available to agents. Preview Worker only (`ALLOW_DEV_IMPERSONATION=1` on
+  `screener-api-dev`; production omits it and `api.lobster.mp` 404s):
+  ```bash
+  # Never print ADMIN_TOKEN. It is in root `.env` (same secret as the Worker).
+  set -a && source .env && set +a   # bash; on PowerShell: Get-Content .env
+  # API as robert.lancer@gmail.com (no cookie)
+  curl https://api-dev.lobster.mp/api/me \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "X-Dev-As: robert.lancer@gmail.com"
+  # Mint a real session cookie for browser tests on https://dev.lobster.mp
+  curl -X POST https://api-dev.lobster.mp/api/admin/dev-session \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"robert.lancer@gmail.com"}'
+  ```
+  Only admin-allowlist emails can be assumed. The mint lasts 8 hours. Set the
+  returned cookie on `Domain=lobster.mp` and open `https://dev.lobster.mp`
+  (not `pages.dev` — SameSite will not send the cookie there). If local
+  `.env` `ADMIN_TOKEN` 401s, it is stale vs the Worker secret — do not guess;
+  dispatch `Dev signed-in smoke` (`gh workflow run "Dev signed-in smoke"
+  --ref <branch> -f trigger_bot=true`) which uses the GitHub secret.
 - **Kalshi API keys (multi-line PEM):** interactive `wrangler secret put`
   mangles PEMs. From a machine with wrangler logged in and keys in root
   `.env` (`KALSHI_ACCESS_KEY_ID` + `KALSHI_PRIVATE_KEY_PEM` or

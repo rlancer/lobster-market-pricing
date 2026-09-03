@@ -12,7 +12,8 @@ import {
 } from '@astryxdesign/core';
 import { LogOut, UserRound } from 'lucide-react';
 import { api, type ProfileMe, type SchwabStatus } from './api';
-import { authClient, signInWithGoogle, signOut } from './auth';
+import { authClient, signOut } from './auth';
+import { SignInEmptyState } from './SignInEmptyState';
 import { AvatarCropDialog } from './AvatarCropDialog';
 import { HandleField } from './HandleField';
 import { handleInputError, normalizeHandleInput } from './handle';
@@ -62,7 +63,6 @@ export default function AccountPage() {
   const navigate = useNavigate();
   const { data: session, isPending } = authClient.useSession();
   const user = session?.user ?? null;
-  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [schwabConfigured, setSchwabConfigured] = useState(false);
   const [schwab, setSchwab] = useState<SchwabStatus | null>(null);
   const [schwabBusy, setSchwabBusy] = useState(false);
@@ -84,15 +84,9 @@ export default function AccountPage() {
   useEffect(() => {
     let active = true;
     api.health().then((health) => {
-      if (active) {
-        setGoogleEnabled(Boolean(health.auth?.google));
-        setSchwabConfigured(Boolean(health.auth?.schwab));
-      }
+      if (active) setSchwabConfigured(Boolean(health.auth?.schwab));
     }).catch(() => {
-      if (active) {
-        setGoogleEnabled(false);
-        setSchwabConfigured(false);
-      }
+      if (active) setSchwabConfigured(false);
     });
     return () => { active = false; };
   }, []);
@@ -175,28 +169,10 @@ export default function AccountPage() {
 
   if (!user) {
     return (
-      <VStack className="account-page" gap={5} paddingBlock={6} paddingInline={5} maxWidth={480}>
-        <VStack gap={2}>
-          <Heading level={1}>Account</Heading>
-          <Text type="supporting">
-            Sign in with Google to claim a public handle, set your display name and photo,
-            and save how Lobster replies across devices.
-          </Text>
-        </VStack>
-        {googleEnabled ? (
-          <Button
-            variant="primary"
-            label="Sign in with Google"
-            onClick={() => {
-              void signInWithGoogle().catch((err) => {
-                console.error('Google sign-in failed', err);
-              });
-            }}
-          />
-        ) : (
-          <Text type="supporting">Google sign-in is not configured on this deployment.</Text>
-        )}
-      </VStack>
+      <SignInEmptyState title="Account" className="account-page">
+        Sign in with Google to claim a public handle, set your display name and photo,
+        and save how Lobster replies across devices.
+      </SignInEmptyState>
     );
   }
 
@@ -511,6 +487,21 @@ export default function AccountPage() {
         </VStack>
 
         <ReplyStylePicker />
+
+        <VStack gap={2}>
+          <Heading level={2}>My bots</Heading>
+          <Text type="supporting">
+            Schedule a private Copilot — for example every hour during US
+            market hours with a paper or Schwab book you choose. Briefings stay off the
+            public timeline unless you opt in.
+          </Text>
+          <Button
+            variant="secondary"
+            size="sm"
+            label="Manage bots"
+            onClick={() => { void navigate({ to: '/my-bots' }); }}
+          />
+        </VStack>
 
         {schwabConfigured ? (
           <VStack gap={3} className="account-schwab">
