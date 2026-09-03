@@ -33,7 +33,7 @@ test("markdownToEmailHtml escapes raw HTML and blocks unsafe links", () => {
 test("alert email HTML renders briefing markdown instead of raw markers", () => {
   const built = buildUserBotAlertEmail({
     botName: "Portfolio risk",
-    excerpt: "## Action\n\nSell the **SPY** puts.",
+    briefing: "## Action\n\nSell the **SPY** puts.",
     chatUrl: "https://lobster.mp/chat/abc",
   });
   assert.match(built.html, /<h2[^>]*>Action<\/h2>/);
