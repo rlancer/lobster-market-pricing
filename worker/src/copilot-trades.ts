@@ -353,6 +353,7 @@ export function tradesSuggestBlock(): string {
     "- Kalshi legs: instrument=kalshi + market_ticker from options.kalshi_markets (curated Fed/CPI/index/crypto/oil series only) + optional contract_side yes|no (default yes). buy/sell is the Kalshi contract side. Prefer two-sided yes_bid/yes_ask with demonstrated volume. Trade ticker may be the related_symbol (SPY, TLT, BTC-USD) or the series_ticker (KXFED).",
     "- Optional qty on option/Kalshi legs = contract count. Prefer sized legs when the idea implies a unit.",
     "- If nothing is tradable, pass trades: [] (skip_reason optional). Never invent fills or far-OTM lottery tickets.",
+    "- Do not publish a \"trim single-holding / single-name concentration\" equity sell on a diversified ETF or index fund. Identify the ticker (book description or lookup_symbols) first; sleeve size is not issuer concentration.",
     "- After suggest_trades, final message text stays the desk overview only (1–4 sentences). Do not re-list the trades in prose.",
   ].join("\n");
 }

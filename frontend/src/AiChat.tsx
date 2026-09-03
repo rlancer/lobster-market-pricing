@@ -76,6 +76,7 @@ const TOOL_LABELS: Record<string, string> = {
   eco_calendar: 'Eco calendar',
   web_search: 'Web search',
   research_ticker: 'Ticker research',
+  lookup_symbols: 'Identify symbols',
   publish_desk: 'Desk viewpoints',
   suggest_trades: 'Suggested trades',
   get_paper_portfolio: 'Paper portfolio',
@@ -219,6 +220,10 @@ function formatToolArgs(name: string, input: unknown): string {
       return String(o.symbol ?? '').toUpperCase();
     case 'research_ticker':
       return String(o.symbol ?? '').toUpperCase();
+    case 'lookup_symbols':
+      return Array.isArray(o.symbols)
+        ? o.symbols.map((s) => String(s ?? '').toUpperCase()).filter(Boolean).slice(0, 8).join(', ')
+        : '';
     case 'publish_desk': {
       const keys = ['fundamental', 'technical', 'options', 'risk', 'macro', 'overview'] as const;
       const present = keys.filter((key) => {

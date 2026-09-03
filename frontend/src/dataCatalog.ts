@@ -156,6 +156,19 @@ export const TOOLS: CatalogItem[] = [
     tools: ['suggest_trades'],
   },
   {
+    id: 'tool:lookup_symbols',
+    kind: 'tool',
+    title: 'lookup_symbols',
+    summary: 'Identify what a ticker actually is',
+    description:
+      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto) plus issuer/fund name for 1–20 symbols. Lake coverage is incomplete — RSP and other funds may have no etf_profiles row — so this uses the in-process catalog first, then Yahoo search (quoteType + name). Call before treating an unknown holding as a single-name stock. Copilot also prints Schwab asset kind + description on get_schwab_portfolio / get_schwab_quotes lines when the broker sent them.',
+    feeds: ['yahoo'],
+    tools: ['get_schwab_portfolio', 'research_ticker', 'suggest_trades'],
+    params: [
+      { name: 'symbols', type: 'string[]', note: '1–20 tickers (RSP, AAPL, ^VIX, BTC-USD)' },
+    ],
+  },
+  {
     id: 'tool:suggest_trades',
     kind: 'tool',
     title: 'suggest_trades',

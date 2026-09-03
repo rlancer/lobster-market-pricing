@@ -287,6 +287,10 @@ function formatShareToolArgs(name: string, input: unknown): string {
     case "get_news":
     case "research_ticker":
       return String(o.symbol ?? "").toUpperCase();
+    case "lookup_symbols":
+      return Array.isArray(o.symbols)
+        ? o.symbols.map((s) => String(s ?? "").toUpperCase()).filter(Boolean).slice(0, 8).join(", ")
+        : "";
     case "web_search":
       return squeeze(o.query).slice(0, 120);
     case "eco_calendar":

@@ -145,6 +145,7 @@ import {
   type ShortingBrief,
   type TickerResearch,
 } from "./research";
+import { applyLookupIdentity, lookupSymbolIdentity } from "./symbol-identity";
 import { securityIdForTicker } from "./symbology";
 import { getOrComputeCommentary, sanitizeResearchCommentary } from "./research-commentary";
 import {
@@ -3152,13 +3153,18 @@ async function researchTickerForAgent(
       source: "copilot_research",
       requestedBy: opts?.chatId || null,
     });
-    let summary = summarizeResearch(research);
-    if (research.price.spot == null && isEnrollableEquityTicker(research.identity.ticker)) {
+    let brief = research;
+    if (!research.identity.name) {
+      const lookedUp = await lookupSymbolIdentity(research.identity.ticker);
+      brief = applyLookupIdentity(research, lookedUp);
+    }
+    let summary = summarizeResearch(brief);
+    if (brief.price.spot == null && isEnrollableEquityTicker(brief.identity.ticker)) {
       summary +=
         "\n\nLake data is thin for this ticker — it has been queued for on-demand " +
         "ingest (options chain, OHLC, fundamentals). Retry research shortly.";
     }
-    return { research, summary };
+    return { research: brief, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { summary: `Research failed: ${message}`, error: message };

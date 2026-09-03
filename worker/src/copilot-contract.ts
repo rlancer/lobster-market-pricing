@@ -22,6 +22,7 @@ export const COPILOT_TOOL_LABELS = {
   eco_calendar: "Eco calendar",
   web_search: "Web search",
   research_ticker: "Ticker research",
+  lookup_symbols: "Identify symbols",
   publish_desk: "Desk viewpoints",
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
@@ -42,6 +43,11 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
   render_chart:
     "Validate a chart specification for the most recent query result (or a named frame). Call after run_query or filter_frame when the user requested a chart. The UI only draws a chart from this tool.",
   get_news: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
+  lookup_symbols:
+    "Identify what tickers actually are (equity vs ETF vs fund vs index vs future vs crypto) " +
+    "plus the issuer/fund name. Lake coverage is incomplete — use this before treating an " +
+    "unknown holding as a single-name stock. Accepts 1–20 symbols. Prefers the in-process " +
+    "catalog, then Yahoo search (quoteType + name) when the lake has no profile.",
   web_search: "Search for current market commentary or events and return up to five citable links.",
   eco_calendar: "Fetch scheduled macro events for the next 7 to 90 days.",
   research_ticker:
@@ -49,7 +55,9 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "(recent price/volume moves, consolidation/accumulation, lake fundamentals, earnings, news). " +
     "Accepts equities/ETFs, indexes (^VIX), continuous futures (ES=F, BTC=F), and spot crypto (BTC-USD). " +
     "For Bitcoin spot use BTC-USD — not IBIT unless the user asked for the ETF. " +
-    "Call whenever you suggest a trade or deep-dive a specific underlying.",
+    "Call whenever you suggest a trade or deep-dive a specific underlying. " +
+    "If you still don't know whether a holding is a single stock vs an ETF/fund/index, call lookup_symbols — " +
+    "the lake does not cover every ticker.",
   publish_desk:
     "Publish takes for the active desk specialists (subset of fundamental, technical, options, risk, macro) plus a weighed overview that shares the same tool evidence. " +
     "Fill only the specialists named as active for this turn; omit the rest. " +
@@ -68,9 +76,11 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Requires a signed-in chat owner — returns a clear error when anonymous/bot.",
   get_schwab_portfolio:
     "Read this chat owner's linked Charles Schwab brokerage book: cash, equity, day/open PnL, and positions. " +
+    "Each position includes asset kind (equity/etf/option/…) and the broker description (fund name). " +
     "Call when the user asks about their real brokerage account, Schwab balances, or live holdings. " +
     "Optional account id scopes the book to one linked account (from /api/schwab/portfolio). " +
-    "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected.",
+    "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected. " +
+    "If a line is still unlabeled, call lookup_symbols before treating it as a single-name stock.",
   get_schwab_quotes:
     "Fetch live Charles Schwab market-data quotes (last, bid, ask, mark, change, volume) for 1–20 symbols " +
     "using THIS chat owner's connected Schwab token only. Pass symbols only — never a user id or token. " +
@@ -116,6 +126,10 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   research_ticker: z.object({
     symbol: z.string().trim().min(1).max(16),
     force: z.boolean().optional(),
+  }).strict(),
+  lookup_symbols: z.object({
+    symbols: z.array(z.string().trim().min(1).max(16)).min(1).max(20)
+      .describe("Tickers to identify (RSP, AAPL, ^VIX, BTC-USD). 1–20 symbols."),
   }).strict(),
   publish_desk: z.object({
     fundamental: deskViewpointText.optional().describe(

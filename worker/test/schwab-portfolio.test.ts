@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   maskAccountNumber,
   normalizeSchwabAccounts,
+  formatSchwabPortfolioSummary,
   SCHWAB_TRADER_BASE,
   fetchSchwabAccountsRaw,
   SchwabApiError,
@@ -115,6 +116,8 @@ test("normalizeSchwabAccounts derives ETF open P&L from mark minus cost", () => 
   const tlt = view.accounts[0]!.positions[0]!;
   assert.equal(tlt.symbol, "TLT");
   assert.equal(tlt.open_pnl, 8900 - 87.26 * 100);
+  const summary = formatSchwabPortfolioSummary(view);
+  assert.match(summary, /TLT · etf · iShares 20\+ Year Treasury Bond ETF/);
 });
 
 test("normalizeSchwabAccounts applies the option contract multiplier", () => {

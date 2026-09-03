@@ -127,6 +127,8 @@ test("userBotSystemAddon never asks for a public timeline post by default", () =
   });
   assert.match(body, /Private account bot/);
   assert.match(body, /get_paper_portfolio/);
+  assert.match(body, /lookup_symbols/);
+  assert.match(body, /not single-name stocks/);
   assert.doesNotMatch(body, /MUST call get_schwab_portfolio/);
   assert.doesNotMatch(body, /generating a public post/);
   assert.doesNotMatch(body, /MUST still call publish_desk/);
@@ -236,6 +238,8 @@ test("formatSchwabPortfolioSummary keeps masked accounts and skips empty books",
   });
   assert.match(summary, /••••5678/);
   assert.match(summary, /AAPL/);
+  assert.match(summary, /equity/);
+  assert.match(summary, /APPLE INC/);
   assert.doesNotMatch(summary, /12345678/);
 });
 

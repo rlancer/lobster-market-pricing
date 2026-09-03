@@ -262,4 +262,6 @@ test("tradesSuggestBlock requires suggest_trades after desk and documents equity
   assert.match(block, /equity/);
   assert.match(block, /kalshi/);
   assert.match(block, /kalshi_markets/);
+  assert.match(block, /lookup_symbols/);
+  assert.match(block, /issuer concentration/);
 });

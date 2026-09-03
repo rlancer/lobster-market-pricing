@@ -472,6 +472,11 @@ export function userBotSystemAddon(opts: {
       "No portfolio is attached. Do not call get_paper_portfolio or get_schwab_portfolio unless the owner asks about a book in this prompt.",
     );
   }
+  if (source !== "none") {
+    lines.push(
+      "Identify every holding before flagging concentration: use the book's asset kind and description, and call lookup_symbols for any unlabeled ticker. Diversified ETFs/index funds are not single-name stocks — do not recommend trimming them as issuer concentration.",
+    );
+  }
   if (opts.publish_to_timeline) {
     lines.push(
       "The owner opted to share this briefing on their public profile if it passes the quality gate. Still write it as a personal desk note, not a bot persona post. Call publish_desk after tools so the share can render specialist takes.",
