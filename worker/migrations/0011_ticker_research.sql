@@ -1,6 +1,6 @@
 -- Ticker identity + research cache + chat ↔ security graph.
 --
--- When Copilot discusses or suggests a trade, it resolves the ticker through
+-- When Chat discusses or suggests a trade, it resolves the ticker through
 -- OpenFIGI (with lake fallback), stores the normalized identity, links the
 -- chat to that security_id, and caches a research brief for the UI widget
 -- and /research/:ticker route. Chats that span the same security can be

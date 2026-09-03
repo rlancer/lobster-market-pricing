@@ -1,6 +1,6 @@
 -- Paper portfolio + tracked trade ideas.
 --
--- Suggested trades from Copilot are ephemeral (tool events ~30d). When a
+-- Suggested trades from Chat are ephemeral (tool events ~30d). When a
 -- signed-in user tracks an idea, we snapshot the structure into
 -- paper_positions with lake entry marks and keep marking for PnL. One paper
 -- cash account per user (auto-created on first track). User state lives in

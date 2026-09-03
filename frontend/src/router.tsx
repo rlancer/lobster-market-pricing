@@ -193,7 +193,7 @@ const copilotRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/copilot',
   beforeLoad: () => {
-    throw redirect({ to: '/chat-capabilities' });
+    throw redirect({ to: '/chat-capabilities', search: { item: undefined } });
   },
 });
 

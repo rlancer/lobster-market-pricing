@@ -1,6 +1,6 @@
 -- Shared chats (0003) for the screener-api Worker.
 --
--- POST /api/share/chat snapshots a Copilot conversation into D1 as a public,
+-- POST /api/share/chat snapshots a Chat conversation into D1 as a public,
 -- unlisted, read-only artifact; GET /api/share/:id serves it (the share_id is
 -- the implicit capability — base62 of ~18 random bytes, no auth, like a
 -- GitHub gist id). The schema is the anchor a future scheduled_alerts table
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS shared_chats (
   share_id    TEXT PRIMARY KEY,   -- base62 ~18-byte entropy: the URL slug (implicit capability)
   chat_id     TEXT NOT NULL,      -- originating conversation id (matches options.chat_history)
   title       TEXT,               -- auto-derived (first user question) / user-editable later
-  mode        TEXT NOT NULL,      -- 'funded' (site-key, server-side Copilot)
+  mode        TEXT NOT NULL,      -- 'funded' (site-key, server-side Chat)
   model       TEXT,               -- model id that answered
   messages    TEXT NOT NULL,      -- JSON array [{role, content, sql?, tools?, ts?}] — the transcript
   source_sql  TEXT,               -- the "money" query (last assistant sql) denormalized for alert wiring

@@ -1,4 +1,4 @@
--- Completed Copilot results kept for resume (0004) for the screener-api Worker.
+-- Completed Chat results kept for resume (0004) for the screener-api Worker.
 --
 -- On mobile, backgrounding the tab tears down the in-flight SSE stream before
 -- the final `result` event arrives, and there is no second chance to fetch it:

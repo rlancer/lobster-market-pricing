@@ -1,6 +1,6 @@
 -- Bot profiles (0012).
 --
--- Admin-editable Copilot personas that post public chats under a handle
+-- Admin-editable Chat personas that post public chats under a handle
 -- (e.g. yololobster = high risk / high reward). Handles share the /u/{handle}
 -- URL space with user_profiles — claim checks both tables. Bot shares stamp
 -- shared_chats.bot_handle and appear on the public timeline automatically

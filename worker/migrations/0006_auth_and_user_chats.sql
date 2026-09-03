@@ -1,11 +1,11 @@
--- Better Auth core tables + the user-facing Copilot chat catalog.
+-- Better Auth core tables + the user-facing Chat catalog.
 --
 -- Identity lives in this same D1 (SCHEMA_DB / screener-schema-cache) via
 -- Better Auth's native D1 dialect (pass the binding; no paid Better Auth
 -- infra, no email/password). Google OAuth is the only sign-in method.
 -- Column names are Better Auth's default camelCase — do not rename them.
 --
--- user_chats is the catalog the Copilot UI lists ("my chats"). The live
+-- user_chats is the catalog the Chat UI lists ("my chats"). The live
 -- transcript stays in the CopilotAgent Durable Object. options.chat_history
 -- remains admin/analytics capture only — never serve it as "my chats".
 -- Soft-delete (deleted_at) keeps ownership so an owned DO never becomes
