@@ -163,7 +163,7 @@ export const TOOLS: CatalogItem[] = [
     description:
       'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity|kalshi, side buy|sell (long/short), optional qty, plus option right/strike/expiry or Kalshi market_ticker + contract_side (yes|no). The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute option strikes must come from option_contracts quote evidence; Kalshi legs must cite options.kalshi_markets quotes. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking. For public bots, the same suggestions are snapshotted into that bot’s trade book on /u/{handle}.',
     tables: ['option_contracts', 'kalshi_markets'],
-    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_schwab_portfolio', 'get_bot_trades'],
+    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_schwab_portfolio', 'get_schwab_quotes', 'get_bot_trades'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
@@ -194,6 +194,19 @@ export const TOOLS: CatalogItem[] = [
     tools: ['get_paper_portfolio'],
     params: [
       { name: 'account', type: 'string?', note: 'Optional linked Schwab account id' },
+    ],
+  },
+  {
+    id: 'tool:get_schwab_quotes',
+    kind: 'tool',
+    title: 'get_schwab_quotes',
+    summary: 'Live quotes from the chat owner’s connected Schwab account',
+    description:
+      'Fetches last, bid, ask, mark, change, and volume from Charles Schwab Market Data using the signed-in chat owner’s connected OAuth token. The model passes symbols only — never a user id. The Worker looks up schwab_connections for that owner alone; a session/owner mismatch returns no_owner so another user’s token cannot be used. Requires a signed-in owner who has connected Schwab. Used automatically when that user asks for a live print.',
+    endpoint: 'Schwab Market Data GET /quotes (owner token)',
+    tools: ['get_schwab_portfolio'],
+    params: [
+      { name: 'symbols', type: 'string[]', note: '1–20 tickers (AAPL, $SPX, /ES, OCC options)' },
     ],
   },
   {

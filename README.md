@@ -210,8 +210,11 @@ Authorized JavaScript origins: `https://lobster.mp`, `https://dev.lobster.mp`,
 
 Signed-in users can link a Schwab brokerage OAuth grant from **Account →
 Connect Schwab**. Tokens stay in D1 (`schwab_connections`) and are never
-returned to the browser. Implementation: `worker/src/schwab.ts` +
-`worker/src/schwab-http.ts` (migration `0030_schwab_connections.sql`).
+returned to the browser. Interactive chat uses that owner's token only for
+`get_schwab_portfolio` and `get_schwab_quotes` — a session/owner mismatch
+refuses both rather than falling back to another user. Implementation:
+`worker/src/schwab.ts` + `worker/src/schwab-http.ts` (migration
+`0030_schwab_connections.sql`).
 
 Store app credentials as Worker + GitHub secrets (`deploy.yml` reinjects):
 
@@ -519,7 +522,7 @@ in, visitor fingerprint from IP + UA when anonymous).
 **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
-- Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, `get_paper_portfolio`, `get_schwab_portfolio`, frames, charts)
+- Copilot tools (`run_query`, `research_ticker`, `get_news`, `web_search`, `eco_calendar`, `get_paper_portfolio`, `get_schwab_portfolio`, `get_schwab_quotes`, frames, charts)
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
   Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)

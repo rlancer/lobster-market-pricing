@@ -26,6 +26,7 @@ export const COPILOT_TOOL_LABELS = {
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
   get_schwab_portfolio: "Schwab portfolio",
+  get_schwab_quotes: "Schwab quotes",
   get_bot_trades: "Bot trade performance",
 } as const;
 
@@ -70,6 +71,12 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
     "Call when the user asks about their real brokerage account, Schwab balances, or live holdings. " +
     "Optional account id scopes the book to one linked account (from /api/schwab/portfolio). " +
     "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected.",
+  get_schwab_quotes:
+    "Fetch live Charles Schwab market-data quotes (last, bid, ask, mark, change, volume) for 1–20 symbols " +
+    "using THIS chat owner's connected Schwab token only. Pass symbols only — never a user id or token. " +
+    "Call when a signed-in owner asks for a live print, bid/ask, or mark. " +
+    "Requires a signed-in owner who has connected Schwab — returns a clear error when disconnected or when " +
+    "the session does not match the chat owner. Do not invent prints.",
   get_bot_trades:
     "Read a public bot's suggested-trade performance book (open/realized PnL and positions from auto-tracked suggest_trades). " +
     "Call when the user asks how @yololobster / @nowlobster / another bot's ideas are doing. " +
@@ -173,6 +180,10 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   get_schwab_portfolio: z.object({
     account: z.string().trim().min(1).max(80).optional()
       .describe("Optional linked Schwab account id to scope balances and positions."),
+  }).strict(),
+  get_schwab_quotes: z.object({
+    symbols: z.array(z.string().trim().min(1).max(32)).min(1).max(20)
+      .describe("Tickers to quote (equities, $SPX, /ES, OCC options). Symbols only — never a user id."),
   }).strict(),
   get_bot_trades: z.object({
     handle: z.string().trim().min(1).max(32)

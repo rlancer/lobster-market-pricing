@@ -37,6 +37,7 @@ import { selectDeskSpecialists } from "./copilot-desk-route";
 import { formatTradesToolSummary, normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
 import { formatPaperPortfolioSummary } from "./paper-portfolio";
 import { formatBotTradesSummary } from "./bot-trades";
+import { formatSchwabQuotesSummary, sanitizeQuoteSymbols } from "./schwab-marketdata";
 import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "./schwab-portfolio";
 import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./copilot-prompt";
 import { parseReplyPrefFromBody } from "./reply-style";
@@ -313,6 +314,18 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
   protected loadSchwabPortfolio(): Promise<
     | { ok: true; view: import("./schwab-portfolio").SchwabPortfolioView }
     | { ok: false; reason: "not_connected" | "no_owner" | "refresh_failed" | "upstream"; message?: string }
+    | null
+  > {
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Live Schwab quotes for get_schwab_quotes. Owner is resolved by the
+   * subclass — this hook never receives a user id from the model.
+   */
+  protected loadSchwabQuotes(_symbols: string[]): Promise<
+    | { ok: true; quotes: import("./schwab-marketdata").SchwabQuote[] }
+    | { ok: false; reason: "not_connected" | "no_owner" | "refresh_failed" | "upstream" | "no_symbols"; message?: string }
     | null
   > {
     return Promise.resolve(null);
@@ -1294,6 +1307,46 @@ export abstract class CopilotAgentBase<E extends CopilotEnv> extends AIChatAgent
             });
           }
           return this.output(true, formatSchwabPortfolioSummary(view), { error: null });
+        }),
+      }),
+      get_schwab_quotes: tool({
+        description: COPILOT_TOOL_DESCRIPTIONS.get_schwab_quotes,
+        inputSchema: COPILOT_TOOL_INPUT_SCHEMAS.get_schwab_quotes,
+        execute: async (args) => runTool("get_schwab_quotes", TOOL_LABELS.get_schwab_quotes, args, async () => {
+          status("Loading Schwab quotes…");
+          const symbols = sanitizeQuoteSymbols(args.symbols);
+          if (symbols.length === 0) {
+            return this.output(false, "Pass 1–20 ticker symbols (e.g. AAPL, $SPX). Symbols only — never a user id.", {
+              error: "no_symbols",
+            });
+          }
+          const result = await this.loadSchwabQuotes(symbols);
+          if (!result) {
+            return this.output(false, "Sign in and connect Schwab to pull live quotes from your account.", {
+              error: "unavailable",
+            });
+          }
+          if (!result.ok) {
+            if (result.reason === "not_connected") {
+              return this.output(false, "Schwab is not connected on this account. Connect it from Account settings.", {
+                error: "not_connected",
+              });
+            }
+            if (result.reason === "no_owner") {
+              return this.output(false, "Sign in to pull live Schwab quotes from your connected account.", {
+                error: "no_owner",
+              });
+            }
+            if (result.reason === "no_symbols") {
+              return this.output(false, result.message || "No valid symbols to quote.", {
+                error: "no_symbols",
+              });
+            }
+            return this.output(false, result.message || "Could not load Schwab quotes.", {
+              error: result.reason,
+            });
+          }
+          return this.output(true, formatSchwabQuotesSummary(result.quotes), { error: null });
         }),
       }),
       get_bot_trades: tool({

@@ -32,6 +32,7 @@ const KNOWN_TOOLS = new Set([
   "suggest_trades",
   "get_paper_portfolio",
   "get_schwab_portfolio",
+  "get_schwab_quotes",
   "get_bot_trades",
 ]);
 

@@ -176,6 +176,7 @@ import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio,
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
 import { handleSchwab } from "./schwab-http";
 import { schwabConfigured } from "./schwab";
+import { loadSchwabQuotesForUser } from "./schwab-marketdata";
 import { loadSchwabPortfolio as fetchSchwabPortfolio, schwabAccountLabel } from "./schwab-portfolio";
 import {
   attachableBookOptions,
@@ -2589,12 +2590,8 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
     return researchTickerForAgent(this.env, symbol, opts);
   }
 
-  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
-  protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
-    const chatId = typeof this.name === "string" ? this.name : "";
-    if (!chatId || !this.env.SCHEMA_DB) return null;
-
-    let userId: string | null = null;
+  /** Session user stamped on this DO — never a Schwab token, never another chat. */
+  private readPaperSessionHint(): string | null {
     try {
       this.sql`
         CREATE TABLE IF NOT EXISTS paper_session_hint (
@@ -2606,10 +2603,28 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       const hint = this.sql<{ user_id: string }>`
         SELECT user_id FROM paper_session_hint WHERE singleton = 1
       `[0];
-      userId = hint?.user_id ?? null;
+      return hint?.user_id ?? null;
     } catch {
-      userId = null;
+      return null;
     }
+  }
+
+  /**
+   * Single owner for paper + Schwab tools. Mismatch between user_chats and
+   * the session hint returns null so we never use another user's token.
+   */
+  private async resolveInteractiveOwnerUserId(): Promise<string | null> {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+    return resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, this.readPaperSessionHint());
+  }
+
+  /** Open paper positions for the signed-in chat owner when Copilot suggests trades. */
+  protected override async autoTrackSuggestedTrades(trades: SuggestedTrades) {
+    const chatId = typeof this.name === "string" ? this.name : "";
+    if (!chatId || !this.env.SCHEMA_DB) return null;
+
+    const userId = this.readPaperSessionHint();
 
     const title = firstUserContent(this.messages);
 
@@ -2676,28 +2691,8 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
     status: "open" | "closed" | "all",
     conviction?: "high" | "medium" | "low" | null,
   ) {
-    const chatId = typeof this.name === "string" ? this.name : "";
-    if (!chatId || !this.env.SCHEMA_DB) return null;
-
-    let sessionUserId: string | null = null;
-    try {
-      this.sql`
-        CREATE TABLE IF NOT EXISTS paper_session_hint (
-          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-          user_id TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
-      `;
-      const hint = this.sql<{ user_id: string }>`
-        SELECT user_id FROM paper_session_hint WHERE singleton = 1
-      `[0];
-      sessionUserId = hint?.user_id ?? null;
-    } catch {
-      sessionUserId = null;
-    }
-
-    const userId = await resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, sessionUserId);
-    if (!userId) return null;
+    const userId = await this.resolveInteractiveOwnerUserId();
+    if (!userId || !this.env.SCHEMA_DB) return null;
 
     return listPortfolio(
       this.env.SCHEMA_DB,
@@ -2726,27 +2721,7 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
 
   /** Linked Schwab book for get_schwab_portfolio (same owner as paper). */
   protected override async loadSchwabPortfolio() {
-    const chatId = typeof this.name === "string" ? this.name : "";
-    if (!chatId || !this.env.SCHEMA_DB) return { ok: false as const, reason: "no_owner" as const };
-
-    let sessionUserId: string | null = null;
-    try {
-      this.sql`
-        CREATE TABLE IF NOT EXISTS paper_session_hint (
-          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-          user_id TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
-      `;
-      const hint = this.sql<{ user_id: string }>`
-        SELECT user_id FROM paper_session_hint WHERE singleton = 1
-      `[0];
-      sessionUserId = hint?.user_id ?? null;
-    } catch {
-      sessionUserId = null;
-    }
-
-    const userId = await resolvePaperOwnerUserId(this.env.SCHEMA_DB, chatId, sessionUserId);
+    const userId = await this.resolveInteractiveOwnerUserId();
     if (!userId) return { ok: false as const, reason: "no_owner" as const };
 
     const result = await fetchSchwabPortfolio(this.env, userId);
@@ -2757,6 +2732,14 @@ export class CopilotAgent extends CopilotAgentBase<Env> {
       reason: result.reason,
       message: result.message,
     };
+  }
+
+  /** Live Schwab quotes for get_schwab_quotes — owner's token only. */
+  protected override async loadSchwabQuotes(symbols: string[]) {
+    const userId = await this.resolveInteractiveOwnerUserId();
+    if (!userId) return { ok: false as const, reason: "no_owner" as const };
+
+    return loadSchwabQuotesForUser(this.env, userId, symbols);
   }
 }
 

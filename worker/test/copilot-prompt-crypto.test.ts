@@ -61,3 +61,11 @@ test("research_ticker tool description prefers BTC-USD for Bitcoin spot", () => 
   assert.match(COPILOT_TOOL_DESCRIPTIONS.research_ticker, /BTC-USD/);
   assert.match(COPILOT_TOOL_DESCRIPTIONS.research_ticker, /not IBIT/i);
 });
+
+test("systemPrompt and get_schwab_quotes require owner-only live prints", () => {
+  const body = systemPrompt("[schema]");
+  assert.match(body, /get_schwab_quotes/);
+  assert.match(body, /never pass a user id/);
+  assert.match(COPILOT_TOOL_DESCRIPTIONS.get_schwab_quotes, /THIS chat owner's connected Schwab token only/);
+  assert.match(COPILOT_TOOL_DESCRIPTIONS.get_schwab_quotes, /never a user id/);
+});

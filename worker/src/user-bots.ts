@@ -454,7 +454,7 @@ export function userBotSystemAddon(opts: {
         : "";
     lines.push(
       `The owner attached ${label}. MUST call get_schwab_portfolio before recommending anything${accountClause}`
-      + ". Do not call get_paper_portfolio. If Schwab is not connected, say so. Do not invent positions, fills, or account numbers.",
+      + ". Do not call get_paper_portfolio. If you need a live print, call get_schwab_quotes with symbols only — the owner's connected token is used automatically. If Schwab is not connected, say so. Do not invent positions, fills, or account numbers.",
     );
   } else if (source === "all") {
     const schwabClause = accountIds.length === 1
@@ -463,7 +463,7 @@ export function userBotSystemAddon(opts: {
         ? ` get_schwab_portfolio scoped to accounts ${accountIds.map((id) => `"${id}"`).join(", ")}`
         : " get_schwab_portfolio";
     lines.push(
-      `The owner attached the paper book and Schwab. MUST call get_paper_portfolio and${schwabClause} before recommending anything. If Schwab is not connected, say so and use the paper book. Do not invent positions, fills, or balances.`,
+      `The owner attached the paper book and Schwab. MUST call get_paper_portfolio and${schwabClause} before recommending anything. Live prints: get_schwab_quotes with symbols only (owner token). If Schwab is not connected, say so and use the paper book. Do not invent positions, fills, or balances.`,
     );
   } else {
     lines.push(
