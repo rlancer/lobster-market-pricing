@@ -7,7 +7,7 @@
 # LOADER_TOKEN protects the loader Worker /run, /symbols/enroll, /loop/trigger
 # and /jobs/*/trigger endpoints. Deploy once with:
 #   cd loader && npx wrangler secret put LOADER_TOKEN
-# Mirror the same value on the API Worker for Copilot auto-enrollment:
+# Mirror the same value on the API Worker for Chat auto-enrollment:
 #   cd worker && npx wrangler secret put LOADER_TOKEN
 #
 # Pipeline ingest URLs (PIPELINE_*_URL) are write-capable endpoints for the R2

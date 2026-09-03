@@ -129,7 +129,7 @@ export default function ChatsPage() {
       <VStack gap={2}>
         <Heading level={1}>Chats</Heading>
         <Text type="supporting">
-          Every Copilot conversation in the lake. Signed-in chats show the profile;
+          Every chat conversation in the lake. Signed-in chats show the profile;
           anonymous ones show a visitor fingerprint from IP and browser.
         </Text>
       </VStack>

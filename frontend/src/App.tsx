@@ -590,7 +590,7 @@ function WorkspaceLayout() {
           s.exact ? location.pathname === s.to : location.pathname.startsWith(s.to),
         );
   const activeChatId = parseChatId(location.pathname.match(/^\/chat\/([^/]+)$/)?.[1]);
-  const isCopilot = Boolean(activeChatId) || location.pathname === '/chat' || location.pathname === '/ai';
+  const isChatPage = Boolean(activeChatId) || location.pathname === '/chat' || location.pathname === '/ai';
 
   if (!db.ready) {
     return (
@@ -608,7 +608,7 @@ function WorkspaceLayout() {
   const navProps = {
     activeTo: active?.to,
     pathname: location.pathname,
-    isChat: isCopilot,
+    isChat: isChatPage,
     activeChatId,
   };
 
@@ -646,7 +646,7 @@ function WorkspaceLayout() {
         }}
       >
         <Layout className="workspace-main" height={isMobileShell ? 'auto' : 'fill'} padding={0}>
-          <section className={isCopilot ? 'content content-copilot' : 'content'}>
+          <section className={isChatPage ? 'content content-chat' : 'content'}>
             <Outlet />
           </section>
         </Layout>

@@ -3,8 +3,8 @@
  */
 import type { UIMessage } from "ai";
 import { chartFitsResult, inferChartSpec, wantsChart, type ChartSpec } from "./chart-spec";
-import { normalizeDeskBrief, type DeskBrief, type DeskBriefInput } from "./copilot-desk";
-import { normalizeSuggestedTrades, type SuggestedTrades } from "./copilot-trades";
+import { normalizeDeskBrief, type DeskBrief, type DeskBriefInput } from "./chat-desk";
+import { normalizeSuggestedTrades, type SuggestedTrades } from "./chat-trades";
 import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
 import { stripLeakedToolMarkup } from "./tool-markup";
 

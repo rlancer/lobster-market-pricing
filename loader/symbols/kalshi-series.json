@@ -1,7 +1,7 @@
 {
   "source": "curated Kalshi series for investing-relevant event contracts (kalshi-markets-hourly)",
   "updated": "2026-08-22",
-  "note": "Kalshi has thousands of markets (sports, entertainment, politics). This allowlist is deliberately small and investing-focused: Fed/rates, inflation, growth, equity-index levels, crypto levels, oil, and Treasury yields. Each entry maps to a Kalshi series_ticker; the loader fetches open markets only and caps per series. related_symbol links the series to a lake instrument when one exists (SPY, BTC-USD, CL=F, …) for Copilot joins and future Kalshi trade suggestions. Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
+  "note": "Kalshi has thousands of markets (sports, entertainment, politics). This allowlist is deliberately small and investing-focused: Fed/rates, inflation, growth, equity-index levels, crypto levels, oil, and Treasury yields. Each entry maps to a Kalshi series_ticker; the loader fetches open markets only and caps per series. related_symbol links the series to a lake instrument when one exists (SPY, BTC-USD, CL=F, …) for Chat joins and future Kalshi trade suggestions. Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
   "api_base": "https://api.elections.kalshi.com/trade-api/v2",
   "max_markets_per_series_default": 80,
   "series": [

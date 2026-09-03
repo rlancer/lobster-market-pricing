@@ -1,5 +1,5 @@
 /**
- * Admin directory of Copilot suggested trades.
+ * Admin directory of Chat suggested trades.
  *
  * Source of truth: successful `suggest_trades` rows in `copilot_tool_events`
  * (same 30-day retention as tool-call debug). Lake chat_history strips tools;
@@ -12,8 +12,8 @@ import {
   type TradeBias,
   type TradeConviction,
   type TradeLeg,
-} from "./copilot-trades";
-import { parseToolArgsJson, TOOL_EVENT_ADMIN_LIMIT_MAX } from "./copilot-tool-events";
+} from "./chat-trades";
+import { parseToolArgsJson, TOOL_EVENT_ADMIN_LIMIT_MAX } from "./chat-tool-events";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = TOOL_EVENT_ADMIN_LIMIT_MAX;

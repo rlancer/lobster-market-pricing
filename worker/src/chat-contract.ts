@@ -10,8 +10,8 @@ const frameAggregation = z.object({
   as: z.string().trim().min(1).max(80).optional(),
 }).strict();
 
-/** Human labels shown in the Copilot UI / tool-call chips. */
-export const COPILOT_TOOL_LABELS = {
+/** Human labels shown in the chat UI / tool-call chips. */
+export const CHAT_TOOL_LABELS = {
   run_query: "SQL query",
   check_schema: "Check schema",
   list_frames: "List frames",
@@ -30,7 +30,7 @@ export const COPILOT_TOOL_LABELS = {
 } as const;
 
 /** Model-facing tool descriptions — single source for createTools + admin explore. */
-export const COPILOT_TOOL_DESCRIPTIONS = {
+export const CHAT_TOOL_DESCRIPTIONS = {
   run_query:
     "Execute one read-only DataFusion SQL SELECT/WITH query against the options Iceberg lake. SQL is validated against the real schema first. Every successful result is cached as frame 'last' (up to 5000 rows) for local filter/reduce follow-ups. Pass save_as for a named alias.",
   check_schema: "Validate proposed SQL against the real options table and column names without executing it.",
@@ -81,7 +81,7 @@ export const COPILOT_TOOL_DESCRIPTIONS = {
 
 const deskViewpointText = z.string().trim().min(40).max(2_400);
 
-export const COPILOT_TOOL_INPUT_SCHEMAS = {
+export const CHAT_TOOL_INPUT_SCHEMAS = {
   run_query: z.object({ sql: z.string().min(1), save_as: z.string().trim().min(1).max(80).optional() }).strict(),
   check_schema: z.object({ sql: z.string().min(1) }).strict(),
   list_frames: z.object({}).strict(),
@@ -192,14 +192,14 @@ export const COPILOT_TOOL_INPUT_SCHEMAS = {
   }).strict(),
 } as const;
 
-export type CopilotToolName = keyof typeof COPILOT_TOOL_INPUT_SCHEMAS;
+export type ChatToolName = keyof typeof CHAT_TOOL_INPUT_SCHEMAS;
 
-export interface CopilotModelEnv {
+export interface ChatModelEnv {
   OPEN_ROUTER_KEY: string;
   COPILOT_MODEL: string;
 }
 
-export function createCopilotModel(env: CopilotModelEnv, origin: string, fetchImpl?: typeof fetch) {
+export function createChatModel(env: ChatModelEnv, origin: string, fetchImpl?: typeof fetch) {
   const openrouter = createOpenRouter({
     apiKey: env.OPEN_ROUTER_KEY,
     appName: "Open Interest Options Workspace",

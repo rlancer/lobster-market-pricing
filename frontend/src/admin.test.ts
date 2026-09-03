@@ -26,9 +26,11 @@ test('isAdminNavPath covers the admin hub and tool routes', () => {
   assert.equal(isAdminNavPath('/users'), true);
   assert.equal(isAdminNavPath('/chats'), true);
   assert.equal(isAdminNavPath('/trades'), true);
-  assert.equal(isAdminNavPath('/copilot'), true);
+  assert.equal(isAdminNavPath('/chat-capabilities'), true);
   assert.equal(isAdminNavPath('/brand'), true);
-  assert.equal(isAdminNavPath('/copilot/extra'), true);
+  assert.equal(isAdminNavPath('/chat-capabilities/extra'), true);
+  // Legacy /copilot bookmarks redirect; path itself is no longer an admin tool.
+  assert.equal(isAdminNavPath('/copilot'), false);
   assert.equal(isAdminNavPath('/chat'), false);
   assert.equal(isAdminNavPath('/docs'), false);
   assert.equal(isAdminNavPath('/'), false);

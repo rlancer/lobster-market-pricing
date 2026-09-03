@@ -8,7 +8,7 @@ import {
   isOptionLeg,
   normalizeSuggestedTrades,
   tradesSuggestBlock,
-} from "../src/copilot-trades.ts";
+} from "../src/chat-trades.ts";
 
 test("normalizeSuggestedTrades accepts a concrete multi-leg idea", () => {
   const payload = normalizeSuggestedTrades({

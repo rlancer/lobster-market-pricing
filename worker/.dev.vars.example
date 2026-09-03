@@ -4,14 +4,14 @@
 
 R2_SQL_TOKEN=
 
-# OpenRouter site key used only by the Worker's server-side Copilot loop.
+# OpenRouter site key used only by the Worker's server-side chat loop.
 # Mirror the value from the root `.env` OPEN_ROUTER_KEY. Deployed as a Worker
 # secret (`wrangler secret put OPEN_ROUTER_KEY`) + a GitHub secret for redeploys.
 # Never commit the value or expose it to browser code.
 OPEN_ROUTER_KEY=
 
 # OpenFIGI Mapping API key — live ticker normalize for /api/research and the
-# Copilot research_ticker tool (same key as loader figi_map). Optional: without
+# Chat research_ticker tool (same key as loader figi_map). Optional: without
 # it, resolution falls back to lake options.securities then ticker-derived ids.
 OPEN_FIGI=
 
@@ -19,7 +19,7 @@ OPEN_FIGI=
 LOADER_BASE_URL=https://cboe-to-r2.robertlancer.workers.dev
 
 # Same bearer as loader LOADER_TOKEN — required for on-demand ticker enrollment
-# (Copilot/research auto-enroll + POST /api/symbols/enroll). Deploy with:
+# (Chat/research auto-enroll + POST /api/symbols/enroll). Deploy with:
 #   cd worker && npx wrangler secret put LOADER_TOKEN
 LOADER_TOKEN=
 
@@ -42,7 +42,7 @@ IMPROVEMENT_ISSUE_TOKEN=
 # Optional owner/repo override (default rlancer/lobster-market-pricing).
 # IMPROVEMENT_ISSUE_REPO=rlancer/lobster-market-pricing
 
-# Better Auth (optional Copilot login — Google OAuth only, no passwords).
+# Better Auth (optional Chat login — Google OAuth only, no passwords).
 # BETTER_AUTH_SECRET must be a long random string. Cookie domain is derived
 # from the request host (lobster.mp siblings vs localhost). Mirror the same
 # three values as Worker / GitHub secrets. Leave blank to keep chat anonymous.
@@ -64,7 +64,7 @@ SCHWAB_CLIENT_ID=
 SCHWAB_CLIENT_SECRET=
 # SCHWAB_REDIRECT_URI=https://api.lobster.mp/api/schwab/callback
 
-# Pipeline stream ingest for Copilot chat history (cboe_chat_history_v2) —
+# Pipeline stream ingest for chat history (cboe_chat_history_v2) —
 # POST /api/chat/history publishes one record per chat turn to
 # options.chat_history. The URL subdomain is the credential: set as a Worker
 # secret, never commit. Posting without a value is a silent no-op (dev).

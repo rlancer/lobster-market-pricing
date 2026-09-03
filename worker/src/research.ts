@@ -383,9 +383,9 @@ export interface ResearchEnv {
 export interface GetResearchOpts {
   force?: boolean;
   chatId?: string;
-  /** Tavily headlines. Off on the HTTP brief path; on for the Copilot tool. */
+  /** Tavily headlines. Off on the HTTP brief path; on for the Chat tool. */
   includeNews?: boolean;
-  /** Realized vol + earnings + ETF profile/holdings. On for HTTP brief + Copilot. */
+  /** Realized vol + earnings + ETF profile/holdings. On for HTTP brief + Chat. */
   includeSecondary?: boolean;
   /** OpenFIGI on the identity miss path. Off for the HTTP brief. */
   liveFigi?: boolean;
@@ -524,7 +524,7 @@ async function computeAndStoreResearch(
   return research;
 }
 
-/** Compact text summary for the Copilot tool / model context. */
+/** Compact text summary for the Chat tool / model context. */
 export function summarizeResearch(r: TickerResearch): string {
   const id = r.identity;
   const lines: string[] = [

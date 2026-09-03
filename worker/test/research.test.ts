@@ -458,7 +458,7 @@ describe("getOrComputeResearch", () => {
     await refreshPromise;
   });
 
-  it("loads news when includeNews is set (Copilot tool path)", async () => {
+  it("loads news when includeNews is set (Chat tool path)", async () => {
     const deps = trackingDeps();
     const research = await getOrComputeResearch(
       { SCHEMA_DB: memoryDb() },

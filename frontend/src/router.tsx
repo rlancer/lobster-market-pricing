@@ -21,7 +21,7 @@ import UsersPage from './Users';
 import ChatsPage from './Chats';
 import TradesPage from './Trades';
 import PortfolioPage from './Portfolio';
-import CopilotExplorePage from './CopilotExplore';
+import ChatExplorePage from './ChatExplore';
 import AdminPage from './AdminPage';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
@@ -189,13 +189,21 @@ const portfolioRoute = createRoute({
   component: PortfolioPage,
 });
 
-const copilotExploreRoute = createRoute({
+const copilotRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/copilot',
+  beforeLoad: () => {
+    throw redirect({ to: '/chat-capabilities', search: { item: undefined } });
+  },
+});
+
+const chatExploreRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat-capabilities',
   validateSearch: (search: Record<string, unknown>) => ({
     item: typeof search.item === 'string' ? search.item : undefined,
   }),
-  component: CopilotExplorePage,
+  component: ChatExplorePage,
 });
 
 const adminRoute = createRoute({
@@ -329,7 +337,8 @@ const routeTree = rootRoute.addChildren([
   chatsRoute,
   tradesRoute,
   portfolioRoute,
-  copilotExploreRoute,
+  chatExploreRoute,
+  copilotRedirectRoute,
   adminRoute,
   experimentsRoute,
   textVsImageExperimentRoute,

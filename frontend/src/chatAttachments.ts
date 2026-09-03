@@ -1,5 +1,5 @@
 /**
- * User-opted chat context attachments (portfolio handles for Copilot).
+ * User-opted chat context attachments (portfolio handles for Chat).
  *
  * Body sends handles only — the Worker loads live positions via get_portfolio.
  * Add a new PortfolioSource here + UI row + Worker branch when another broker lands.
@@ -83,7 +83,7 @@ export function removePortfolioAttachment(
   );
 }
 
-/** Serialize for the Copilot turn body (handles only). */
+/** Serialize for the chat turn body (handles only). */
 export function attachmentsForBody(attachments: readonly ChatAttachment[]): ChatAttachment[] {
   return attachments.slice(0, 8).map((a) => (
     a.account_id

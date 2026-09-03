@@ -94,7 +94,7 @@ export default function UsersPage() {
         <Heading level={1}>Users</Heading>
         <Text type="supporting">
           Everyone who signed in with Google. Handles are claimed after the first
-          login; chats count only non-deleted Copilot history.
+          login; chats count only non-deleted Chat history.
         </Text>
       </VStack>
 

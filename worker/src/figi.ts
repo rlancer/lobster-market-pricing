@@ -1,5 +1,5 @@
 /**
- * Ticker identity for Copilot trade suggestions / research.
+ * Ticker identity for Chat trade suggestions / research.
  *
  * Resolution order (request path — lake first, no live Yahoo):
  *   1. D1 `ticker_identities` row (served even if TTL-stale)

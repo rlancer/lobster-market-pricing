@@ -1,4 +1,4 @@
-/** Static catalog of everything Chat can draw on: Copilot tools, upstream
+/** Static catalog of everything Chat can draw on: Chat tools, upstream
  *  APIs/feeds, and Iceberg lake tables. Live row counts and columns come from
  *  `/api/tables`; this file is the human-readable map of what each source is
  *  and how it lands in an answer. */
@@ -301,7 +301,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Kalshi event contracts',
     summary: 'Curated Fed/CPI/index/crypto/oil prediction markets',
     description:
-      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI. Not the full Kalshi catalog (sports/entertainment excluded). Each row carries yes/no bids, last, volume/OI, close_time, theme, and optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Powers /research/{ticker} event-market rails via GET /api/research/{ticker}/kalshi, Copilot event-vol joins, and Kalshi trade suggestions.',
+      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI. Not the full Kalshi catalog (sports/entertainment excluded). Each row carries yes/no bids, last, volume/OI, close_time, theme, and optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Powers /research/{ticker} event-market rails via GET /api/research/{ticker}/kalshi, Chat event-vol joins, and Kalshi trade suggestions.',
     provider: 'Kalshi',
     cadence: 'Hourly (kalshi-markets-hourly job)',
     tables: ['kalshi_markets'],

@@ -14,7 +14,7 @@ import { parseTickerParam } from "./research";
 import { clipTitle, firstUserContent, isAutoDerivedTitle, TITLE_MAX } from "./user-chats";
 
 export const CHAT_META_SYSTEM = [
-  "You label one Lobster MP Copilot transcript (US equities, ETFs, options, indexes, futures, spot crypto).",
+  "You label one Lobster MP chat transcript (US equities, ETFs, options, indexes, futures, spot crypto).",
   "Return a JSON object with keys title and tickers.",
   'Example: {"title":"TLT leads as SPY chops into FOMC minutes","tickers":["TLT","SPY","HYG"]}',
   "title: a short display headline (max 80 characters). Capture the topic or desk takeaway — not prompt instructions, not a verbatim paste of the user message.",

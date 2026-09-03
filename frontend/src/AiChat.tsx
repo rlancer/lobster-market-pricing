@@ -79,8 +79,9 @@ const EXAMPLES = [
   'Chart the IV smile for NVDA',
   'What underlyings have the most open interest?',
 ];
+/** Historical sessionStorage prefix — renaming would drop in-flight client state. */
 const CAPTURED_IDS_PREFIX = 'openinterest_copilot_captured_';
-/** Must match worker/src/copilot-scope.ts SCOPE_REJECTED_ERROR. */
+/** Must match worker/src/chat-scope.ts SCOPE_REJECTED_ERROR. */
 const SCOPE_REJECTED_ERROR = 'No data to answer.';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -111,7 +112,7 @@ interface Presentation {
   trades: SuggestedTrades | null;
 }
 
-interface CopilotMetadata {
+interface ChatMetadata {
   model: string;
   createdAt: number;
   /** Restored from D1 history/share when the preview Durable Object is empty. */
@@ -124,12 +125,12 @@ interface CopilotMetadata {
   scopeRejected?: boolean;
 }
 
-type CopilotData = Record<string, unknown> & {
+type ChatData = Record<string, unknown> & {
   status: { status: string };
   scope: { locked: boolean };
 };
 
-type CopilotMessage = UIMessage<CopilotMetadata, CopilotData>;
+type ChatMessage = UIMessage<ChatMetadata, ChatData>;
 
 interface Msg {
   id: string;
@@ -169,7 +170,7 @@ interface ToolRow {
   summary: string;
 }
 
-function presentationFromMessage(message: CopilotMessage): Presentation | null {
+function presentationFromMessage(message: ChatMessage): Presentation | null {
   const model = message.metadata?.model ?? '';
   let sql: string | null = null;
   let result: QueryResult | null = null;
@@ -270,7 +271,7 @@ function formatToolArgs(name: string, input: unknown): string {
   }
 }
 
-function isScopeRejectedMessage(message: Pick<Msg, 'role' | 'content'> | CopilotMessage): boolean {
+function isScopeRejectedMessage(message: Pick<Msg, 'role' | 'content'> | ChatMessage): boolean {
   if ('parts' in message) {
     if (message.role !== 'assistant') return false;
     if (message.metadata?.scopeRejected) return true;
@@ -280,7 +281,7 @@ function isScopeRejectedMessage(message: Pick<Msg, 'role' | 'content'> | Copilot
   return message.role === 'assistant' && message.content.trim() === SCOPE_REJECTED_ERROR;
 }
 
-function projectMessage(message: CopilotMessage): Msg | null {
+function projectMessage(message: ChatMessage): Msg | null {
   if (message.role !== 'user' && message.role !== 'assistant') return null;
   const rawContent = message.parts.filter((part) => part.type === 'text').map((part) => part.text).join('');
   const reasoning = message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('');
@@ -325,7 +326,7 @@ function projectMessage(message: CopilotMessage): Msg | null {
   };
 }
 
-function backupToCopilotMessages(rows: ShareChatMessage[]): CopilotMessage[] {
+function backupToChatMessages(rows: ShareChatMessage[]): ChatMessage[] {
   return rows.map((row, index) => ({
     id: `backup-${index}-${row.ts ?? index}`,
     role: row.role,
@@ -345,7 +346,7 @@ function backupToCopilotMessages(rows: ShareChatMessage[]): CopilotMessage[] {
   }));
 }
 
-function projectTools(message: CopilotMessage | undefined): ToolRow[] {
+function projectTools(message: ChatMessage | undefined): ToolRow[] {
   if (!message) return [];
   return message.parts.flatMap((part): ToolRow[] => {
     if (!isToolUIPart(part)) return [];
@@ -380,9 +381,9 @@ type TurnCapture = {
  * assistant message. Returns null when nothing changed.
  */
 function mergeCaptureIntoLastAssistant(
-  messages: CopilotMessage[],
+  messages: ChatMessage[],
   capture: TurnCapture | null | undefined,
-): CopilotMessage[] | null {
+): ChatMessage[] | null {
   if (!capture || messages.length === 0) return null;
   const desk = isDeskBrief(capture.desk) ? capture.desk : null;
   const trades = isSuggestedTrades(capture.trades) ? capture.trades : null;
@@ -413,7 +414,7 @@ function mergeCaptureIntoLastAssistant(
   const needsChart = Boolean(chart && !presentation?.chart && !meta.chart);
   if (!needsDesk && !needsTrades && !needsSql && !needsResult && !needsChart) return null;
 
-  const nextMeta: CopilotMetadata = {
+  const nextMeta: ChatMetadata = {
     ...meta,
     ...(needsDesk && desk ? { desk } : {}),
     ...(needsTrades && trades ? { trades } : {}),
@@ -636,6 +637,7 @@ function AiChatSession({
   const isPreviewApi = host === 'api-dev.lobster.mp' || host.startsWith('api-dev.');
   const prodChatUrl = `https://lobster.mp/chat/${chatId}`;
   const agent = useAgent({
+    // Must match wrangler durable_objects class_name / agents binding (historical).
     agent: 'CopilotAgent',
     name: chatId,
     host,
@@ -656,7 +658,7 @@ function AiChatSession({
     isRecovering,
     isToolContinuation,
     connectionError,
-  } = useAgentChat<unknown, CopilotMessage>({
+  } = useAgentChat<unknown, ChatMessage>({
     agent,
     // Batch the message-store updates the agent stream pushes per part. Without
     // this, a tool-heavy turn streams many parts in quick succession and each
@@ -738,7 +740,7 @@ function AiChatSession({
     };
   }, [isSavedChat, agent, chatId, user?.id]);
 
-  // Preview and production share D1 ownership but not CopilotAgent Durable
+  // Preview and production share D1 ownership but not CopilotAgent Durable (class name is historical)
   // Object storage. When this environment's DO is empty for an owned chat,
   // restore from shared D1 history/share backups when available.
   useEffect(() => {
@@ -758,7 +760,7 @@ function AiChatSession({
           setBackupState('missing');
           return;
         }
-        setMessages(backupToCopilotMessages(backup.messages));
+        setMessages(backupToChatMessages(backup.messages));
         setBackupState('restored');
       })
       .catch(() => {
@@ -1126,7 +1128,7 @@ function AiChatSession({
     }
   }, [buildSharePayload, agent, projectedMessages.length]);
 
-  // Bot generate flow: when Copilot finishes a successful answer, auto-share to
+  // Bot generate flow: when Chat finishes a successful answer, auto-share to
   // the public timeline as the bot (same payload as the Share button). Full
   // server-side agent execution is out of scope — this is client-side only.
   useEffect(() => {

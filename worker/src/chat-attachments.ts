@@ -1,5 +1,5 @@
 /**
- * Chat context attachments — user-opted handles passed on each Copilot turn.
+ * Chat context attachments — user-opted handles passed on each Chat turn.
  *
  * Keep body payloads as small handles (kind + source), never full positions.
  * The agent loads live data via get_portfolio. New portfolio brokers add a

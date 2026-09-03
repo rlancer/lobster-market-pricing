@@ -1,7 +1,7 @@
 /**
  * Server-side bot chat runner — schedule / admin trigger without a browser.
  *
- * Mints a bot_run + CopilotAgent DO, runs one headless turn, then inserts a
+ * Mints a bot_run + CopilotAgent DO (historical class name), runs one headless turn, then inserts a
  * shared_chats row. Finished answers stamp bot_handle (timeline); the quality
  * gate holds incomplete runs as unlisted shares and marks the run failed.
  */
@@ -26,7 +26,7 @@ import {
 } from "./bot-schedule";
 import type { MarketHoursEnv } from "./market-hours";
 import { enrichChatMeta } from "./chat-meta";
-import { createCopilotModel } from "./copilot-contract";
+import { createChatModel } from "./chat-contract";
 import type { ShareTurn } from "./share-turns";
 import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
@@ -133,7 +133,7 @@ async function mintBotShare(
   // the public feed. Mint an unlisted share (no bot_handle) for audit, and
   // mark the run failed so schedules do not treat junk as a successful post.
   const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
-    ? createCopilotModel(
+    ? createChatModel(
       { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
       "https://lobster.mp",
     )
@@ -258,7 +258,7 @@ type HeadlessAgent = {
 };
 
 /**
- * Run one bot chat end-to-end (Copilot DO + timeline share).
+ * Run one bot chat end-to-end (Chat DO + timeline share).
  * Prompt is used as-is (scheduled repeats allowed).
  */
 export async function runBotChatAndShare(
@@ -276,7 +276,7 @@ export async function runBotChatAndShare(
 > {
   if (!bot.enabled) return { ok: false, error: "bot is disabled" };
   if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) {
-    return { ok: false, error: "Copilot is not configured" };
+    return { ok: false, error: "Chat is not configured" };
   }
   // Expire abandoned queued/running rows before the single-flight check.
   // createBotRun also expires, but that runs only after this gate — a stuck
@@ -314,7 +314,7 @@ export async function runBotChatAndShare(
     // Cheap title + ticker NER after the desk turn — clipTitle remains the fallback.
     let metaTitle: string | null = null;
     try {
-      const model = createCopilotModel(
+      const model = createChatModel(
         { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY!, COPILOT_MODEL: env.COPILOT_MODEL! },
         "https://lobster.mp",
       );

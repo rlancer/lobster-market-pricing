@@ -1,7 +1,7 @@
 -- Fork lineage for timeline follow-ups.
 --
 -- A signed-in user with a public handle can fork a shared chat into a new
--- owned Copilot conversation (seeded from the share transcript). parent_share_id
+-- owned Chat conversation (seeded from the share transcript). parent_share_id
 -- points at the public share they continued from; fork_seed_count is how many
 -- messages were copied into the new Durable Object so later shares can stamp
 -- per-turn authors (original asker vs follow-up asker).

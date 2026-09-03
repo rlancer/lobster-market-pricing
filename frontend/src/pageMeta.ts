@@ -5,7 +5,7 @@ import { handleInputError } from './handle.ts';
 export const SITE_NAME = 'Lobster MP';
 export const DEFAULT_TITLE = 'Lobster MP – Ask the Lobster';
 export const DEFAULT_DESCRIPTION =
-  'Ask the Lobster — live US equities & ETF options chains, implied vol, greeks, news, and SQL. Free options Copilot on Cloudflare.';
+  'Ask the Lobster — live US equities & ETF options chains, implied vol, greeks, news, and SQL. Free options chat on Cloudflare.';
 export const DEFAULT_OG_DESCRIPTION =
   'A crustacean who\'s seen every cycle, chat stocks, options, greeks, and news.';
 export const OG_IMAGE_PATH = '/og.png';
@@ -104,7 +104,7 @@ function dataMeta(pathname: string, params: URLSearchParams): PageMeta {
     return {
       title: pageTitle('Data catalog'),
       description:
-        'Catalog of Copilot tools, live APIs, Iceberg lake tables, and a read-only SQL editor.',
+        'Catalog of Chat tools, live APIs, Iceberg lake tables, and a read-only SQL editor.',
       path: pathname,
     };
   }
@@ -194,7 +194,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Admin'),
       description:
-        'Admin hub for bots, users, chats, Copilot internals, brand, and an Email Service smoke test — operator tools behind one left-nav entry.',
+        'Admin hub for bots, users, chats, Chat capabilities, brand, and an Email Service smoke test — operator tools behind one left-nav entry.',
       path: '/admin',
     };
   }
@@ -212,7 +212,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Bots'),
       description:
-        'Admin-only Copilot personas — edit handles like nowlobster / yololobster and generate public timeline chats.',
+        'Admin-only Chat personas — edit handles like nowlobster / yololobster and generate public timeline chats.',
       path: '/bots',
     };
   }
@@ -248,17 +248,17 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Chats'),
       description:
-        'Admin-only directory of Copilot conversations — signed-in profiles or anonymous visitor fingerprints from IP and browser.',
+        'Admin-only directory of chat conversations — signed-in profiles or anonymous visitor fingerprints from IP and browser.',
       path: '/chats',
     };
   }
 
-  if (path === '/copilot') {
+  if (path === '/chat-capabilities') {
     return {
-      title: pageTitle('Copilot internals'),
+      title: pageTitle('Chat capabilities'),
       description:
-        'Admin-only explorer for live Copilot system prompts and tool input schemas from the Worker.',
-      path: '/copilot',
+        'Admin-only explorer for live Chat system prompts and tool input schemas from the Worker.',
+      path: '/chat-capabilities',
     };
   }
 
@@ -293,7 +293,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
   if (segments[0] === 'share' && segments.length === 2) {
     return {
       title: pageTitle('Shared chat'),
-      description: 'A shared Copilot transcript on Lobster MP.',
+      description: 'A shared chat transcript on Lobster MP.',
       path,
     };
   }

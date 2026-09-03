@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
-// Copilot e2e exercises the real server-funded chat against the local stack:
+// Chat e2e exercises the real server-funded chat against the local stack:
 //   - Worker: `wrangler dev` on 127.0.0.1:8787 (needs worker/.dev.vars with
 //     OPEN_ROUTER_KEY, TAVILY_API_KEY / FRED_API_KEY / R2_SQL_TOKEN)
 //   - Frontend: `vite` on 127.0.0.1:5173 with VITE_API_BASE pinned to the

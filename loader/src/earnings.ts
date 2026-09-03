@@ -15,7 +15,7 @@
 // count, last year's actuals) as JSON. Requires a browser-ish User-Agent.
 // Verified live 2026-08-08 (200, ~200 rows/date). Unofficial and
 // undocumented: the job treats failures as recorded per-date errors (the rest
-// of the window still syncs) and the Copilot queries degrade to empty if the
+// of the window still syncs) and the chat queries degrade to empty if the
 // table is missing — same best-effort posture as the Yahoo OHLC path.
 export const DEFAULT_EARNINGS_API_TEMPLATE =
   "https://api.nasdaq.com/api/calendar/earnings?date={date}";

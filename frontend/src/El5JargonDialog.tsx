@@ -27,7 +27,7 @@ type JargonGroup = {
   terms: JargonTerm[];
 };
 
-/** Terms that show up across Research, options chain, Copilot, and Kalshi. */
+/** Terms that show up across Research, options chain, Chat, and Kalshi. */
 const JARGON_GROUPS: JargonGroup[] = [
   {
     title: 'Price basics',
@@ -128,7 +128,7 @@ function JargonBody() {
     <VStack gap={5}>
       <Text type="supporting">
         Plain-English cheat sheet for the words you’ll see on Research, the options
-        chain, and Copilot. Read a term, then spot it in the UI.
+        chain, and Chat. Read a term, then spot it in the UI.
       </Text>
       {JARGON_GROUPS.map((group) => (
         <List

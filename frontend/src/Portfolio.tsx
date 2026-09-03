@@ -591,7 +591,7 @@ export default function PortfolioPage() {
         </HStack>
       ) : !signedIn ? (
         <Text type="supporting">
-          Sign in with Google to open a personal paper book from your Copilot chats.
+          Sign in with Google to open a personal paper book from your chats.
           Suggested trades stay public — switch back above, no account needed.
         </Text>
       ) : (

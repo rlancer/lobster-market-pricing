@@ -1,5 +1,5 @@
 /**
- * Structured suggested trades for Copilot.
+ * Structured suggested trades for Chat.
  *
  * Emitted via the suggest_trades tool so the UI can render concrete legs
  * without parsing freeform markdown. Legs are a formal discriminant:

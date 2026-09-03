@@ -134,7 +134,7 @@ jobs:
           fi
         working-directory: worker
 
-      # OpenRouter site key used only by the Worker's server-side Copilot loop.
+      # OpenRouter site key used only by the Worker's server-side chat loop.
       # Guarded sync leaves any existing deployed secret intact when GitHub has
       # not been configured with a replacement.
       - name: Set OPEN_ROUTER_KEY secret on Worker (if configured)
@@ -145,7 +145,7 @@ jobs:
           if [ -n "${{ secrets.OPEN_ROUTER_KEY }}" ]; then
             echo "${{ secrets.OPEN_ROUTER_KEY }}" | npx wrangler secret put OPEN_ROUTER_KEY --name screener-api
           else
-            echo "OPEN_ROUTER_KEY not set — skipping (Copilot remains unavailable without an existing secret)"
+            echo "OPEN_ROUTER_KEY not set — skipping (Chat remains unavailable without an existing secret)"
           fi
         working-directory: worker
 
@@ -168,7 +168,7 @@ jobs:
         working-directory: worker
 
       # Same LOADER_TOKEN the cboe-to-r2 Worker uses for /run and /symbols/enroll.
-      # Copilot/research auto-enroll missing tickers via POST /symbols/enroll;
+      # Chat/research auto-enroll missing tickers via POST /symbols/enroll;
       # without this secret on screener-api enrollment is a soft no-op.
       - name: Set LOADER_TOKEN secret on Worker (if configured)
         env:
@@ -207,7 +207,7 @@ jobs:
           if [ -n "${{ secrets.BETTER_AUTH_SECRET }}" ]; then
             echo "${{ secrets.BETTER_AUTH_SECRET }}" | npx wrangler secret put BETTER_AUTH_SECRET --name screener-api
           else
-            echo "BETTER_AUTH_SECRET not set — skipping (optional Copilot login stays off)"
+            echo "BETTER_AUTH_SECRET not set — skipping (optional Chat login stays off)"
           fi
         working-directory: worker
 
@@ -219,7 +219,7 @@ jobs:
           if [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ]; then
             echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID --name screener-api
           else
-            echo "GOOGLE_CLIENT_ID not set — skipping (optional Copilot login stays off)"
+            echo "GOOGLE_CLIENT_ID not set — skipping (optional Chat login stays off)"
           fi
         working-directory: worker
 
@@ -231,7 +231,7 @@ jobs:
           if [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ]; then
             echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name screener-api
           else
-            echo "GOOGLE_CLIENT_SECRET not set — skipping (optional Copilot login stays off)"
+            echo "GOOGLE_CLIENT_SECRET not set — skipping (optional Chat login stays off)"
           fi
         working-directory: worker
 
@@ -307,7 +307,7 @@ jobs:
       # parent domain (dev.lobster.mp → api-dev.lobster.mp) without waiting
       # for a main deploy. ADMIN_TOKEN too — preview agents debug via
       # api-dev.lobster.mp/api/admin/chat_history. LOADER_TOKEN enables
-      # on-demand ticker enrollment against cboe-to-r2 from preview Copilot.
+      # on-demand ticker enrollment against cboe-to-r2 from preview Chat.
       - name: Set ADMIN_TOKEN secret on screener-api-dev (if configured)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -344,7 +344,7 @@ jobs:
           fi
         working-directory: worker
 
-      # Preview Copilot + share title/NER tags need the same OpenRouter key as
+      # Preview Chat + share title/NER tags need the same OpenRouter key as
       # production. Guarded so a missing GitHub secret never clobbers a seeded value.
       - name: Set OPEN_ROUTER_KEY secret on screener-api-dev (if configured)
         env:
@@ -354,7 +354,7 @@ jobs:
           if [ -n "${{ secrets.OPEN_ROUTER_KEY }}" ]; then
             echo "${{ secrets.OPEN_ROUTER_KEY }}" | npx wrangler secret put OPEN_ROUTER_KEY --name screener-api-dev
           else
-            echo "OPEN_ROUTER_KEY not set — skipping (share NER / preview Copilot stay off without an existing secret)"
+            echo "OPEN_ROUTER_KEY not set — skipping (share NER / preview Chat stay off without an existing secret)"
           fi
         working-directory: worker
 
@@ -366,7 +366,7 @@ jobs:
           if [ -n "${{ secrets.BETTER_AUTH_SECRET }}" ]; then
             echo "${{ secrets.BETTER_AUTH_SECRET }}" | npx wrangler secret put BETTER_AUTH_SECRET --name screener-api-dev
           else
-            echo "BETTER_AUTH_SECRET not set — skipping (optional Copilot login stays off on preview)"
+            echo "BETTER_AUTH_SECRET not set — skipping (optional Chat login stays off on preview)"
           fi
         working-directory: worker
 

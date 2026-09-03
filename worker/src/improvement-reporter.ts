@@ -13,10 +13,11 @@ import { generateText, type LanguageModel } from "ai";
 import { formatTimelineModerationTranscript, type TimelineModerationDecision } from "./timeline-moderation";
 
 export const DEFAULT_IMPROVEMENT_REPO = "rlancer/lobster-market-pricing";
+/** Existing GitHub label — keep accepting this historical name. */
 export const IMPROVEMENT_LABEL = "copilot-improvement";
 
 export const IMPROVEMENT_REVIEW_SYSTEM = [
-  "You review one Lobster MP Copilot transcript after the public-timeline quality gate.",
+  "You review one Lobster MP chat transcript after the public-timeline quality gate.",
   "Goal: file zero or one GitHub issue that helps engineers improve the product — prompts, tools, truncation, desk/trades sealing, data quality, bot behavior.",
   "Return ONLY a JSON object:",
   '{"improvements":[{"fingerprint":"kebab-slug","title":"short imperative title","category":"prompt|tool-use|truncation|hallucination|ux|data-quality|bot-behavior|other","body":"markdown: what went wrong, why it matters, concrete fix idea"}]}',
@@ -60,7 +61,7 @@ export type ImprovementContext = {
   botHandle?: string | null;
   /** Origin for /share/{id} links in the issue body. */
   publicOrigin?: string | null;
-  /** Copilot model id when known — used to skip synthetic test/* fixtures. */
+  /** Chat model id when known — used to skip synthetic test/* fixtures. */
   model?: string | null;
 };
 
@@ -235,7 +236,7 @@ export function buildIssueBody(
     ? `- Share: ${origin}/share/${context.shareId}`
     : "- Share: (none yet)";
   const lines = [
-    "> Auto-filed by the Copilot timeline moderation improvement reporter.",
+    "> Auto-filed by the chat timeline moderation improvement reporter.",
     "",
     `**Category:** \`${suggestion.category}\``,
     `**Fingerprint:** \`${suggestion.fingerprint}\``,

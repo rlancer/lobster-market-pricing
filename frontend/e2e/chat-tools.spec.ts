@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
-// Copilot tool-usage e2e: prove the Worker-side AI loop fires news,
+// Chat tool-usage e2e: prove the Worker-side AI loop fires news,
 // web_search, and eco_calendar and grounds the answer in their outputs. The
 // standard AI SDK tool parts rendered in the progress feed are the
 // deterministic signal that a tool ran; direct endpoint reads provide source material.
@@ -44,13 +44,13 @@ async function lastAnswer(page: Page, busyTimeout = 280_000): Promise<string> {
   await expect(page.locator('.ai-busy')).toBeHidden({ timeout: busyTimeout });
   const err = page.locator('.ai-msg.ai-assistant .ai-err').last();
   if (await err.count()) {
-    throw new Error(`Copilot returned an error instead of an answer: ${(await err.innerText()).trim()}`);
+    throw new Error(`Chat returned an error instead of an answer: ${(await err.innerText()).trim()}`);
   }
   const bubble = page.locator('.ai-msg.ai-assistant .ai-bubble .ai-text').last();
   if (!(await bubble.count())) {
     // Bubble rendered with only metadata (timestamp/model) — the model ended
     // its turn with an empty final message. Retry (config retries:1) handles it.
-    throw new Error('Copilot finished with an empty answer (model returned no content).');
+    throw new Error('Chat finished with an empty answer (model returned no content).');
   }
   await expect(bubble).toBeAttached();
   const text = (await bubble.innerText()).trim();
@@ -82,7 +82,7 @@ async function contentOverlap(page: Page, items: { title?: string; snippet?: str
   return [...tokens].filter((w) => text.includes(w)).length;
 }
 
-test.describe('Copilot tool usage (chat → worker → upstream)', () => {
+test.describe('Chat tool usage (chat → worker → upstream)', () => {
   test('worker endpoints respond (backend sanity, no LLM)', async ({ request }) => {
     for (const [name, url, body] of [
       ['news', `${LOCAL_WORKER}/api/news?symbol=NVDA&limit=3`, 'items'],

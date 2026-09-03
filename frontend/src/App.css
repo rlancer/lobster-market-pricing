@@ -178,7 +178,7 @@ button, select { cursor: pointer; }
   min-height: 100%;
   padding: var(--spacing-6) var(--spacing-7);
 }
-.content-copilot {
+.content-chat {
   /* Grow with the transcript so AppShell's content pane is the one scrollbar
      (same model as the timeline). Do not trap scroll inside .ai-messages. */
   min-height: 100%;
@@ -516,7 +516,7 @@ button, select { cursor: pointer; }
     padding: var(--spacing-4) var(--spacing-3)
       calc(var(--mobile-bottom-nav-height) + var(--spacing-4));
   }
-  .content-copilot {
+  .content-chat {
     padding: var(--spacing-0) var(--spacing-0) var(--mobile-bottom-nav-height);
   }
 }

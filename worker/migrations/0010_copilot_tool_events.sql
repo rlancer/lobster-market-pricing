@@ -1,4 +1,4 @@
--- Copilot tool-call debug log (0010).
+-- Chat tool-call debug log (table name historical) (0010).
 --
 -- Every CopilotAgent tool execution (success or failure) appends one row here
 -- from the Durable Object — server-authoritative, never trusted from the

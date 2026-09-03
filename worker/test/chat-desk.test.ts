@@ -6,8 +6,8 @@ import {
   deskViewpointsFromBrief,
   formatDeskToolSummary,
   normalizeDeskBrief,
-} from "../src/copilot-desk.ts";
-import { selectDeskSpecialists } from "../src/copilot-desk-route.ts";
+} from "../src/chat-desk.ts";
+import { selectDeskSpecialists } from "../src/chat-desk-route.ts";
 
 test("normalizeDeskBrief requires core fields when required is set", () => {
   assert.equal(normalizeDeskBrief({

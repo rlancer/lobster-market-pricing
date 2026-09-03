@@ -81,8 +81,8 @@ test('chat, monitor, admin, brand, bots, users, chats, account, and share have r
   assert.match(pageMetaForUrl('/portfolio').description ?? '', /lobster suggested-trade/);
   assert.equal(pageMetaForUrl('/account').title, `Account · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/account').description ?? '', /public handle/);
-  assert.equal(pageMetaForUrl('/copilot').title, `Copilot internals · ${SITE_NAME}`);
-  assert.match(pageMetaForUrl('/copilot').description ?? '', /system prompts/);
+  assert.equal(pageMetaForUrl('/chat-capabilities').title, `Chat capabilities · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/chat-capabilities').description ?? '', /system prompts/);
   assert.equal(pageMetaForUrl('/share/abc').title, `Shared chat · ${SITE_NAME}`);
 });
 
@@ -120,5 +120,5 @@ test('experiments routes have titles', () => {
   const experiment = pageMetaForUrl('/experiments/text-vs-image');
   assert.equal(experiment.title, `Text vs image experiment · ${SITE_NAME}`);
   assert.match(experiment.description ?? '', /AI-style text/);
-  assert.doesNotMatch(experiment.description ?? '', /Copilot-style/);
+  assert.doesNotMatch(experiment.description ?? '', /Chat-style/);
 });

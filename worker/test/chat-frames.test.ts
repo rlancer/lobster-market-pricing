@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { COPILOT_TOOL_INPUT_SCHEMAS, LAST_FRAME_NAME } from "../src/copilot-contract.ts";
+import { CHAT_TOOL_INPUT_SCHEMAS, LAST_FRAME_NAME } from "../src/chat-contract.ts";
 import {
   MAX_TOOL_SUMMARY_CHARS,
   buildFrameSummary,
@@ -8,7 +8,7 @@ import {
   compileFrameQuery,
   jsonPath,
   summarizeResult,
-} from "../src/copilot-frames.ts";
+} from "../src/chat-frames.ts";
 
 function placeholders(sql: string): number {
   return [...sql.matchAll(/\?/g)].length;
@@ -203,7 +203,7 @@ test("compileFrameQuery rejects group_by without aggregations and unknown column
 });
 
 test("filter_frame schema accepts aggregations on a cached frame", () => {
-  const parsed = COPILOT_TOOL_INPUT_SCHEMAS.filter_frame.parse({
+  const parsed = CHAT_TOOL_INPUT_SCHEMAS.filter_frame.parse({
     frame: LAST_FRAME_NAME,
     where: "type == 'call'",
     group_by: ["expiration"],

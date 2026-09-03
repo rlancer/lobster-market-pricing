@@ -5,7 +5,7 @@ import {
   normalizeToolEvent,
   parseToolEventListQuery,
   serializeToolArgs,
-} from "../src/copilot-tool-events.ts";
+} from "../src/chat-tool-events.ts";
 
 test("serializeToolArgs keeps small payloads intact", () => {
   assert.equal(serializeToolArgs({ sql: "SELECT 1" }), '{"sql":"SELECT 1"}');

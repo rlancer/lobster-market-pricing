@@ -1,6 +1,6 @@
 -- Bot chat schedules (0020).
 --
--- Enables server-side recurring Copilot runs (e.g. @nowlobster hourly market
+-- Enables server-side recurring Chat runs (e.g. @nowlobster hourly market
 -- overview during US session). Cron on the API Worker picks due rows; market
 -- gated schedules sleep while the market is closed.
 

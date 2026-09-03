@@ -392,7 +392,7 @@ export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.r
 
 
 // ---------------------------------------------------------------------------
-// Copilot chat history (Worker POST /api/chat/history → options.chat_history)
+// chat history (Worker POST /api/chat/history → options.chat_history)
 // ---------------------------------------------------------------------------
 /** One message in a recorded transcript — stripped of bulky UI state (query result tables, chart specs, error stacks). */
 export interface ChatHistoryMessage {
@@ -407,7 +407,7 @@ export interface ChatHistoryMessage {
 export interface ChatHistoryRecord {
   /** Per-conversation id (stable across turns; one row per turn records the full conversation so far). */
   chat_id: string;
-  /** Site-funded server-side Copilot. */
+  /** Site-funded server-side chat. */
   mode: 'funded';
   model?: string;
   started_at: string;
@@ -423,7 +423,7 @@ export interface ChatHistorySaveResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Copilot chat shares (Worker POST /api/share/chat → D1 shared_chats)
+// chat shares (Worker POST /api/share/chat → D1 shared_chats)
 import type { SuggestedTrade, SuggestedTrades, TradeLeg } from './SuggestedTrades';
 
 // ---------------------------------------------------------------------------
@@ -787,7 +787,7 @@ export interface BotSchedule {
   updated_at: number;
 }
 
-export interface CopilotPromptCapability {
+export interface ChatPromptCapability {
   id: string;
   kind: 'system' | 'classifier' | 'meta' | 'invent' | 'addon';
   title: string;
@@ -796,16 +796,16 @@ export interface CopilotPromptCapability {
   used_by: string;
 }
 
-export interface CopilotToolCapability {
+export interface ChatToolCapability {
   name: string;
   label: string;
   description: string;
   input_schema: Record<string, unknown>;
 }
 
-export interface CopilotCapabilities {
-  prompts: CopilotPromptCapability[];
-  tools: CopilotToolCapability[];
+export interface ChatCapabilities {
+  prompts: ChatPromptCapability[];
+  tools: ChatToolCapability[];
   meta: {
     agent_iterations_max: number;
     query_force_failures_max: number;
@@ -1064,7 +1064,7 @@ export interface ProfileMe {
   suggested_handle: string | null;
   /** True when the signed-in email is on the product admin allowlist. */
   is_admin: boolean;
-  /** Canned Copilot audience. Default `desk`. */
+  /** Canned chat audience. Default `desk`. */
   reply_style?: 'desk' | 'fund' | 'learner';
   /** Optional ≤240-char flavor note. */
   reply_note?: string | null;
@@ -1508,7 +1508,7 @@ export const api = {
     sort?: 'symbol' | 'last_success_at' | 'consecutive_failures';
     order?: 'asc' | 'desc';
   }) => get<LoaderSymbolsResponse>(`/loader/symbols${qs(params ?? {})}`),
-  // Save a completed Copilot chat turn to the lake (options.chat_history).
+  // Save a completed chat turn to the lake (options.chat_history).
   // Best-effort: the Worker buffers into D1 when the pipeline hiccups, and
   // failures are swallowed by the caller — a chat is never blocked by history
   // persistence. The table itself is admin-only (see /api/admin/chat_history).
@@ -1556,9 +1556,9 @@ export const api = {
       `/api/admin/trades${qs({ limit: opts?.limit, before: opts?.before })}`,
     ),
   adminBots: () => get<{ items: BotProfile[] }>('/api/admin/bots'),
-  adminCopilotCapabilities: (opts?: { schema?: 'live' | 'placeholder'; samples?: boolean }) =>
-    get<CopilotCapabilities>(
-      `/api/admin/copilot/capabilities${qs({
+  adminChatCapabilities: (opts?: { schema?: 'live' | 'placeholder'; samples?: boolean }) =>
+    get<ChatCapabilities>(
+      `/api/admin/chat/capabilities${qs({
         schema: opts?.schema,
         samples: opts?.samples ? '1' : undefined,
       })}`,

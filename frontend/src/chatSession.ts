@@ -1,4 +1,6 @@
-/** Live Copilot conversation UUID — sessionStorage. Saved chats use `/chat/$chatId`; the live session is `/chat`. */
+/** sessionStorage keys keep the historical `openinterest_copilot_*` prefix (compat). */
+/** Live chat conversation UUID — sessionStorage.
+ * Keys keep the historical `openinterest_copilot_*` prefix so in-flight client state is not lost. Saved chats use `/chat/$chatId`; the live session is `/chat`. */
 
 const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -1,5 +1,5 @@
 /**
- * Fork a public shared chat into a new owned Copilot conversation.
+ * Fork a public shared chat into a new owned chat conversation.
  *
  * The share snapshot is the source of truth (immutable). We mint a fresh chat
  * UUID, seed its Durable Object via persistMessages (no LLM turn), claim it

@@ -25,7 +25,7 @@ async function earningsKeepSet(db: D1Database): Promise<Set<string>> {
 // the Nasdaq calendar for the next EARNINGS_LOOKAHEAD_DAYS dates (one request
 // per date), filters to the effective universe (bundled ∪ enrolled), and
 // publishes to options.earnings via the PIPELINE_EARNINGS_URL stream. The lake
-// is append-only, so the Copilot/worker keep the newest run per (symbol,
+// is append-only, so the chat/worker keep the newest run per (symbol,
 // earnings_date) with QUALIFY — exactly the ohlc pattern.
 //
 // Dry-run: without PIPELINE_EARNINGS_URL the pass is a no-op (no source

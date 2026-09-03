@@ -1,13 +1,13 @@
 /**
- * Paper portfolio — track Copilot suggested trades with entry/mark PnL.
+ * Paper portfolio — track Chat suggested trades with entry/mark PnL.
  *
  * Suggestions alone are not a book (copilot_tool_events is ~30d debug).
  * Tracking snapshots legs into D1, marks against the lake (spot / option mid),
  * and maintains one cash account per signed-in user.
  */
 
-import type { TradeLeg, SuggestedTrade, SuggestedTrades } from "./copilot-trades";
-import { formatTradeLeg, normalizeSuggestedTrades } from "./copilot-trades";
+import type { TradeLeg, SuggestedTrade, SuggestedTrades } from "./chat-trades";
+import { formatTradeLeg, normalizeSuggestedTrades } from "./chat-trades";
 
 export const DEFAULT_STARTING_CASH_CENTS = 100_000_00; // $100,000.00
 export const OPTION_MULTIPLIER = 100;
@@ -980,7 +980,7 @@ export async function resolvePaperOwnerUserId(
   return sessionUserId?.trim() || null;
 }
 
-/** Compact text book for Copilot tool output / prompt grounding. */
+/** Compact text book for Chat tool output / prompt grounding. */
 export function formatPaperPortfolioSummary(view: PaperPortfolioView): string {
   const { account, positions } = view;
   const lines = [

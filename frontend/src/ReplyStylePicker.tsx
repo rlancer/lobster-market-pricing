@@ -18,7 +18,7 @@ import {
 import { useReplyStyle } from './useReplyStyle';
 
 /**
- * Copilot voice + optional context.
+ * Chat voice + optional context.
  * Compact keeps the composer lean with a preferences popover; full uses
  * descriptive radio rows on Account so the choices are easier to compare.
  */

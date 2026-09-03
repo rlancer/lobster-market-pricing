@@ -12,7 +12,7 @@ async function ask(page: Page, question: string): Promise<void> {
 async function lastAnswer(page: Page, busyTimeout = 300_000): Promise<string> {
   await expect(page.locator('.ai-busy')).toBeHidden({ timeout: busyTimeout });
   const error = page.locator('.ai-msg.ai-assistant .ai-err').last();
-  if (await error.count()) throw new Error(`Copilot failed: ${(await error.innerText()).trim()}`);
+  if (await error.count()) throw new Error(`Chat failed: ${(await error.innerText()).trim()}`);
   const answer = page.locator('.ai-msg.ai-assistant .ai-bubble .ai-text').last();
   await expect(answer).toBeAttached();
   const text = (await answer.innerText()).trim();
@@ -20,7 +20,7 @@ async function lastAnswer(page: Page, busyTimeout = 300_000): Promise<string> {
   return text;
 }
 
-test.describe('Server-funded Copilot Agent', () => {
+test.describe('Server-funded Chat Agent', () => {
   test('uses the Agent WebSocket and receives progress, prose, and SQL', async ({ page }) => {
     test.skip(!READY, 'No OPEN_ROUTER_KEY in worker/.dev.vars');
     const websocketUrls: string[] = [];

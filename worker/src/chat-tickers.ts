@@ -1,5 +1,5 @@
 /**
- * Chat ↔ security graph. Links Copilot conversations to OpenFIGI-normalized
+ * Chat ↔ security graph. Links chat conversations to OpenFIGI-normalized
  * securities so chats that discuss the same underlying can be joined.
  */
 

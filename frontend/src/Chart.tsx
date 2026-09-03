@@ -1,4 +1,4 @@
-// Chart renderer for the Copilot. The model returns a `render_chart` tool call
+// Chart renderer for the chat. The model returns a `render_chart` tool call
 // with a ChartSpec describing how to plot the most recent query result; this
 // component turns that (spec + captured rows) into a Recharts chart inside the
 // chat bubble. Line/area/scatter/bar, plus multi-series grouping (series

@@ -1,5 +1,5 @@
 /**
- * Admin explore payload for Copilot system prompts + tool capabilities.
+ * Admin explore payload for Chat system prompts + tool capabilities.
  *
  * Assembled from the same modules the runtime uses — not a stale frontend mirror.
  */
@@ -8,52 +8,52 @@ import { BOT_PROMPT_INVENT_SYSTEM } from "./bot-prompt";
 import { botSystemAddon } from "./bots";
 import { CHAT_META_SYSTEM } from "./chat-meta";
 import {
-  COPILOT_TOOL_DESCRIPTIONS,
-  COPILOT_TOOL_INPUT_SCHEMAS,
-  COPILOT_TOOL_LABELS,
-  type CopilotToolName,
-} from "./copilot-contract";
-import { AGENT_ITERATIONS_MAX, QUERY_FORCE_FAILURES_MAX } from "./copilot-loop";
-import { SCOPE_CLASSIFIER_SYSTEM } from "./copilot-scope";
-import type { LakeTable } from "./copilot-sql";
+  CHAT_TOOL_DESCRIPTIONS,
+  CHAT_TOOL_INPUT_SCHEMAS,
+  CHAT_TOOL_LABELS,
+  type ChatToolName,
+} from "./chat-contract";
+import { AGENT_ITERATIONS_MAX, QUERY_FORCE_FAILURES_MAX } from "./chat-loop";
+import { SCOPE_CLASSIFIER_SYSTEM } from "./chat-scope";
+import type { LakeTable } from "./chat-sql";
 import {
   SCHEMA_PLACEHOLDER,
   schemaToPrompt,
   systemPrompt,
   type BotPromptProfile,
-} from "./copilot-prompt";
+} from "./chat-prompt";
 import {
   DESK_OVERVIEW_SUMMARY,
   DESK_SPECIALIST_SUMMARIES,
   deskAnalystBlock,
-} from "./copilot-desk";
-import { tradesSuggestBlock } from "./copilot-trades";
+} from "./chat-desk";
+import { tradesSuggestBlock } from "./chat-trades";
 import { COMMENTARY_SYSTEM } from "./research-commentary";
 import { EL5_SYSTEM } from "./el5";
 import { DEFAULT_REPLY_STYLE, replyStyleAddon } from "./reply-style";
 import { attachmentsPromptAddon } from "./chat-attachments";
 
-export type CopilotPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
+export type ChatPromptKind = "system" | "classifier" | "meta" | "invent" | "addon";
 
-export interface CopilotPromptCapability {
+export interface ChatPromptCapability {
   id: string;
-  kind: CopilotPromptKind;
+  kind: ChatPromptKind;
   title: string;
   summary: string;
   body: string;
   used_by: string;
 }
 
-export interface CopilotToolCapability {
-  name: CopilotToolName;
+export interface ChatToolCapability {
+  name: ChatToolName;
   label: string;
   description: string;
   input_schema: Record<string, unknown>;
 }
 
-export interface CopilotCapabilities {
-  prompts: CopilotPromptCapability[];
-  tools: CopilotToolCapability[];
+export interface ChatCapabilities {
+  prompts: ChatPromptCapability[];
+  tools: ChatToolCapability[];
   meta: {
     agent_iterations_max: number;
     query_force_failures_max: number;
@@ -63,10 +63,10 @@ export interface CopilotCapabilities {
   };
 }
 
-const TOOL_ORDER = Object.keys(COPILOT_TOOL_INPUT_SCHEMAS) as CopilotToolName[];
+const TOOL_ORDER = Object.keys(CHAT_TOOL_INPUT_SCHEMAS) as ChatToolName[];
 
-function toolInputSchema(name: CopilotToolName): Record<string, unknown> {
-  const schema = z.toJSONSchema(COPILOT_TOOL_INPUT_SCHEMAS[name]);
+function toolInputSchema(name: ChatToolName): Record<string, unknown> {
+  const schema = z.toJSONSchema(CHAT_TOOL_INPUT_SCHEMAS[name]);
   // Drop the draft meta — UI only needs the shape the model sees.
   const { $schema: _schema, ...rest } = schema as Record<string, unknown>;
   return rest;
@@ -84,15 +84,15 @@ function exampleBotAddon(): string {
 /**
  * Build the admin capabilities catalog.
  *
- * When `tables` is provided, the main Copilot prompt embeds the live lake
+ * When `tables` is provided, the main Chat prompt embeds the live lake
  * schema (optionally without sample rows). Otherwise a placeholder marks where
  * schema text is injected at chat time.
  */
-export function describeCopilotCapabilities(opts?: {
+export function describeChatCapabilities(opts?: {
   tables?: LakeTable[];
   includeSamples?: boolean;
   bot?: BotPromptProfile | null;
-}): CopilotCapabilities {
+}): ChatCapabilities {
   const includeSamples = opts?.includeSamples === true;
   const tables = opts?.tables ?? [];
   const schemaMode = tables.length > 0 ? "live" : "placeholder";
@@ -100,12 +100,12 @@ export function describeCopilotCapabilities(opts?: {
     ? schemaToPrompt(tables, { includeSamples })
     : SCHEMA_PLACEHOLDER;
 
-  const prompts: CopilotPromptCapability[] = [
+  const prompts: ChatPromptCapability[] = [
     {
-      id: "copilot",
+      id: "chat",
       kind: "system",
-      title: "Copilot chat",
-      summary: "Main desk system prompt on every Copilot turn (routed specialists + overview, plus optional bot persona addon).",
+      title: "Chat",
+      summary: "Main desk system prompt on every Chat turn (routed specialists + overview, plus optional bot persona addon).",
       body: systemPrompt(schemaText, opts?.bot ?? null),
       used_by: "CopilotAgentBase.onChatMessage → streamText/generate ({ system })",
     },
@@ -139,7 +139,7 @@ export function describeCopilotCapabilities(opts?: {
       id: "bot-addon",
       kind: "addon",
       title: "Bot persona addon",
-      summary: "Appended to the Copilot system prompt when a bot profile runs (generate / schedule).",
+      summary: "Appended to the chat system prompt when a bot profile runs (generate / schedule).",
       body: exampleBotAddon(),
       used_by: "systemPrompt(..., bot) / botSystemAddon()",
     },
@@ -147,7 +147,7 @@ export function describeCopilotCapabilities(opts?: {
       id: "reply-style",
       kind: "addon",
       title: "User reply voice",
-      summary: "Canned audience (desk / hedge fund / new to trading) plus an optional 240-char note. Same Copilot tools as bots; voice only.",
+      summary: "Canned audience (desk / hedge fund / new to trading) plus an optional 240-char note. Same Chat tools as bots; voice only.",
       body: replyStyleAddon({ style: DEFAULT_REPLY_STYLE, note: "<optional reply_note, max 240 chars>" }),
       used_by: "systemPrompt(..., { reply }) / parseReplyPrefFromBody()",
     },
@@ -198,16 +198,16 @@ export function describeCopilotCapabilities(opts?: {
       id: "el5-post",
       kind: "system",
       title: "EL5 post translation",
-      summary: "Quick plain-English summary of a public shared Copilot post for adults with basic market knowledge. Cached in D1 per share_id + source hash.",
+      summary: "Quick plain-English summary of a public shared chat post for adults with basic market knowledge. Cached in D1 per share_id + source hash.",
       body: EL5_SYSTEM,
       used_by: "generateEl5Text() / GET /api/share/{id}/el5",
     },
   ];
 
-  const tools: CopilotToolCapability[] = TOOL_ORDER.map((name) => ({
+  const tools: ChatToolCapability[] = TOOL_ORDER.map((name) => ({
     name,
-    label: COPILOT_TOOL_LABELS[name],
-    description: COPILOT_TOOL_DESCRIPTIONS[name],
+    label: CHAT_TOOL_LABELS[name],
+    description: CHAT_TOOL_DESCRIPTIONS[name],
     input_schema: toolInputSchema(name),
   }));
 

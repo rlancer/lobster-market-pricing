@@ -1,7 +1,7 @@
 -- On-demand symbol enrollment (0005).
 --
 -- Tickers requested outside the bundled symbols/universe.json manifest
--- (Copilot / research / admin) land here so ETL keeps refreshing them forever
+-- (Chat / research / admin) land here so ETL keeps refreshing them forever
 -- without a git deploy. The scheduler unions this table with the bundled
 -- manifest for cboe-options, ohlc-daily, ohlc-backfill, earnings, fundamentals,
 -- and research-briefs.

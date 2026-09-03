@@ -167,7 +167,7 @@ test("fetchSchwabAccountsRaw throws SchwabApiError on failure", async () => {
   );
 });
 
-test("formatSchwabPortfolioSummary and filter are Copilot-safe", () => {
+test("formatSchwabPortfolioSummary and filter are Chat-safe", () => {
   const view = normalizeSchwabAccounts(
     [
       {

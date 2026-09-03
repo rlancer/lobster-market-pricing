@@ -1,4 +1,4 @@
--- Private Copilot reply voice. Independent of the public handle so a signed-in
+-- Private Chat reply voice. Independent of the public handle so a signed-in
 -- user can set desk/fund/learner (+ optional short note) before claiming /u/.
 
 CREATE TABLE IF NOT EXISTS user_reply_prefs (
