@@ -389,7 +389,9 @@ function asQueryResult(value: unknown): { columns: string[]; rows: Record<string
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
 /** Leading voice of tool-loop / planning scratch — not a reader-facing takeaway. */
 const REASONING_SCRATCH =
-  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need)\b/i;
+  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need|compute (?:weights|allocation)|recompute|recalc(?:ulate)?)\b/i;
+/** Trailing seal-intent crumbs that are too short to trip REASONING_SCRATCH. */
+const REASONING_SHORT_SCRATCH = /^(?:good\.?\s*)?write it\.?$|^(?:ok\.?\s*)?(?:done|enough)\.?$/i;
 const REASONING_UNFINISHED =
   /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft|verify|also)|i(?:'ll| will) (?:query|check|pull|run|write|keep|skip)|i need to|now write the|deliver the actions|briefing is the deliver)\b/i;
 /** Mid-reasoning meta that sometimes leaks into the visible content channel. */
@@ -419,8 +421,10 @@ export function isInterimToolNarration(text: string, reasoning = ""): boolean {
   if (/(?:let me|i'll|i will)\s+[a-z0-9_ -]+[.!?]?$/i.test(trimmed)) return true;
   // Content channel sometimes gets a verbatim reasoning paragraph (share gpAJwLq…).
   const reason = reasoning.trim();
-  if (reason.length >= 200 && trimmed.length < reason.length && reason.includes(trimmed)) {
-    return true;
+  if (reason.length >= 200 && trimmed.length < reason.length) {
+    if (reason.includes(trimmed) || collapseWs(reason).includes(collapseWs(trimmed))) {
+      return true;
+    }
   }
   return false;
 }
@@ -428,7 +432,21 @@ export function isInterimToolNarration(text: string, reasoning = ""): boolean {
 function isReasoningScratchPara(para: string): boolean {
   if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) return true;
   if (TOOL_SKIP_META.test(para) || REASONING_PLANNING_META.test(para)) return true;
+  if (REASONING_SHORT_SCRATCH.test(para.trim())) return true;
   return false;
+}
+
+function collapseWs(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** True when a reasoning paragraph is the visible-channel leak, not a new takeaway. */
+function isLeakedContentPara(para: string, leaked: string): boolean {
+  if (!leaked) return false;
+  const p = collapseWs(para);
+  const l = collapseWs(leaked);
+  if (!p || p.length < 12) return false;
+  return l.includes(p);
 }
 
 /**
@@ -444,6 +462,13 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   if (!reasoning) return turn;
   if (content && !isInterimToolNarration(content, reasoning) && content.length >= 40) return turn;
 
+  // When the visible channel is a verbatim suffix of reasoning (share
+  // S2xd3YVSuwjYaByfdF1cw0HL), skip those paragraphs so we lift the
+  // earlier sealed briefing instead of re-promoting the leak.
+  const leaked = content && (
+    reasoning.includes(content) || collapseWs(reasoning).includes(collapseWs(content))
+  ) ? content : "";
+
   const paras = reasoning
     .split(/\n\s*\n/)
     .map((p) => stripLeakedToolMarkup(p))
@@ -452,7 +477,10 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   const substantive: string[] = [];
   for (let i = paras.length - 1; i >= 0; i--) {
     const para = paras[i]!;
+    if (isLeakedContentPara(para, leaked)) continue;
     if (para.length < 40) {
+      // Short scratch ("Good. Write it.") is a separator, not a section wall.
+      if (isReasoningScratchPara(para) || REASONING_SHORT_SCRATCH.test(para.trim())) continue;
       if (substantive.length > 0) break;
       continue;
     }
