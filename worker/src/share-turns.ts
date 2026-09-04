@@ -389,7 +389,7 @@ function asQueryResult(value: unknown): { columns: string[]; rows: Record<string
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
 /** Leading voice of tool-loop / planning scratch — not a reader-facing takeaway. */
 const REASONING_SCRATCH =
-  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need)\b/i;
+  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need|compute\b|recompute\b|good[,.]?\s*write it)\b/i;
 const REASONING_UNFINISHED =
   /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft|verify|also)|i(?:'ll| will) (?:query|check|pull|run|write|keep|skip)|i need to|now write the|deliver the actions|briefing is the deliver)\b/i;
 /** Mid-reasoning meta that sometimes leaks into the visible content channel. */
@@ -428,7 +428,38 @@ export function isInterimToolNarration(text: string, reasoning = ""): boolean {
 function isReasoningScratchPara(para: string): boolean {
   if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) return true;
   if (TOOL_SKIP_META.test(para) || REASONING_PLANNING_META.test(para)) return true;
+  return looksLikeAllocationScratch(para);
+}
+
+/**
+ * Trailing weight-recompute pads (share S2xd3YVSuwjYaByfdF1cw0HL). DeepSeek
+ * recopies sleeve math into the text channel, then seals — the real briefing
+ * is earlier in reasoning. Skip these so the walker can keep going.
+ */
+function looksLikeAllocationScratch(para: string): boolean {
+  const text = para.trim();
+  if (!text) return false;
+  if (/\b(?:action|trim|reduce|hedge|roll|takeaway|recommend|next session|adjustment)\b/i.test(text)) {
+    return false;
+  }
+  const pctLines = (text.match(/^\s*[-*•]\s+[A-Z]{1,5}\b.*\d/gm) || []).length;
+  if (pctLines >= 3 && text.length < 600) return true;
+  if (
+    text.length < 400
+    && /%\b/.test(text)
+    && /\b(?:equity total|beta concentration|of equity|risk assets|allocation percentages)\b/i.test(text)
+  ) {
+    return true;
+  }
   return false;
+}
+
+/** Paragraph is a slice of the interim visible dump (weight table, meta leak). */
+function paraIsInterimContentExcerpt(para: string, content: string): boolean {
+  const p = para.trim();
+  const c = content.trim();
+  if (p.length < 40 || c.length < 40) return false;
+  return c.includes(p) || (p.includes(c) && c.length * 2 > p.length);
 }
 
 /**
@@ -456,7 +487,7 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
       if (substantive.length > 0) break;
       continue;
     }
-    if (isReasoningScratchPara(para)) {
+    if (isReasoningScratchPara(para) || paraIsInterimContentExcerpt(para, content)) {
       if (substantive.length > 0) break;
       continue;
     }
