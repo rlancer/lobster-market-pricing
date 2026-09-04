@@ -73,7 +73,8 @@
 }
 
 .timeline-post-tags .post-share,
-.timeline-post-tags .el5-post {
+.timeline-post-tags .el5-post,
+.timeline-post-tags .timeline-reply {
   flex-shrink: 0;
 }
 
@@ -292,6 +293,30 @@
 .timeline-followup {
   width: 100%;
   padding-block-start: var(--spacing-1);
+}
+
+/* Follow-up modal: same scrollport pattern as EL5 — Dialog is height:fit-content. */
+.timeline-followup-dialog-shell {
+  max-height: 85vh;
+  min-height: 0;
+}
+
+.timeline-followup-dialog-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  max-height: calc(85vh - (var(--spacing-10) + var(--spacing-10) + var(--spacing-12)));
+  min-height: 0;
+  padding-bottom: var(--spacing-2);
+}
+
+.timeline-followup-dialog-body {
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-followup-dialog-composer {
+  width: 100%;
+  min-width: 0;
 }
 
 .timeline-author-link:hover {

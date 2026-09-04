@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
@@ -14,8 +14,10 @@ import {
   VStack,
 } from '@astryxdesign/core';
 import { ChatComposerInput } from '@astryxdesign/core/Chat';
-import { api, type ProfileMe } from './api';
+import { MessageCircleReply } from 'lucide-react';
+import { api, type ProfileMe, type SharedChatMessage } from './api';
 import { authClient, signInWithGoogle } from './auth';
+import { TranscriptMessage } from './ChatTranscript';
 import {
   clearPendingFork,
   notifyChatsChanged,
@@ -29,19 +31,30 @@ import { HandleField } from './HandleField';
 import { handleInputError, normalizeHandleInput } from './handle';
 
 /**
- * Compact ChatComposer follow-up — send lives inside the field, same as /chat.
- * Sign-in / handle claim only open after submit.
+ * Follow-up composer that forks a public share into the reader’s own chat.
+ * Floor posts use `variant="modal"` (reply icon beside EL5 opens the full
+ * conversation + composer); /share keeps the inline composer. Sign-in /
+ * handle claim only open after submit.
  */
 export function TimelineFollowUp({
   shareId,
   postHandle,
   continuePrompt = null,
+  variant = 'inline',
+  title,
+  messages = [],
 }: {
   shareId: string;
   /** Timeline post author — used only for copy; fork attribution comes from the API. */
   postHandle?: string;
   /** When the shared answer sealed empty after tools, offer Continue with this finish prompt. */
   continuePrompt?: string | null;
+  /** Floor feed: icon + conversation modal. Share page: always-visible composer. */
+  variant?: 'inline' | 'modal';
+  /** Post title shown in the modal header. */
+  title?: string;
+  /** Full transcript shown in the modal so the follow-up stays in context. */
+  messages?: SharedChatMessage[];
 }) {
   const navigate = useNavigate();
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -56,6 +69,7 @@ export function TimelineFollowUp({
   const [handleDraft, setHandleDraft] = useState('');
   const [handleError, setHandleError] = useState<string | null>(null);
   const [handleSaving, setHandleSaving] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const resumeTriedRef = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
 
@@ -104,6 +118,7 @@ export function TimelineFollowUp({
       setValue('');
       setSignInOpen(false);
       setHandleOpen(false);
+      setModalOpen(false);
       void navigate({
         to: '/chat/$chatId',
         params: { chatId: result.chat_id },
@@ -124,6 +139,7 @@ export function TimelineFollowUp({
     if (!profile?.handle) {
       pendingQuestionRef.current = pending.question;
       setValue(pending.question);
+      if (variant === 'modal') setModalOpen(true);
       setHandleOpen(true);
       resumeTriedRef.current = true;
       return;
@@ -131,7 +147,7 @@ export function TimelineFollowUp({
     resumeTriedRef.current = true;
     setValue(pending.question);
     void launchFork(pending.question);
-  }, [busy, launchFork, profile?.handle, profileLoading, sessionPending, shareId, user]);
+  }, [busy, launchFork, profile?.handle, profileLoading, sessionPending, shareId, user, variant]);
 
   const onSubmit = (raw: string) => {
     const question = raw.trim();
@@ -191,13 +207,8 @@ export function TimelineFollowUp({
     }
   };
 
-  return (
-    <VStack
-      as="section"
-      gap={2}
-      className="timeline-followup"
-      aria-label="Ask a follow-up"
-    >
+  const composer: ReactNode = (
+    <>
       {continuePrompt?.trim() ? (
         <HStack gap={2} vAlign="center" className="ai-scope-lock-hint">
           <span>Answer interrupted before it finished. Continue to complete it.</span>
@@ -220,11 +231,14 @@ export function TimelineFollowUp({
         input={<ChatComposerInput maxRows={4} hasHistory={false} />}
         sendButton={<ChatSendButton />}
       />
-
       {error && (
         <Text className="timeline-err" role="alert">{error}</Text>
       )}
+    </>
+  );
 
+  const authDialogs: ReactNode = (
+    <>
       <Dialog
         isOpen={signInOpen}
         onOpenChange={setSignInOpen}
@@ -314,6 +328,88 @@ export function TimelineFollowUp({
           }
         />
       </Dialog>
+    </>
+  );
+
+  if (variant === 'modal') {
+    const headerTitle = title?.trim() || 'Shared chat';
+    return (
+      <>
+        <Button
+          className="timeline-reply"
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          label="Ask a follow-up"
+          tooltip="Ask a follow-up"
+          icon={<MessageCircleReply size={16} aria-hidden="true" />}
+          onClick={() => setModalOpen(true)}
+        />
+        {modalOpen ? (
+          <Dialog
+            isOpen={modalOpen}
+            onOpenChange={setModalOpen}
+            purpose="form"
+            width={640}
+            maxHeight="85vh"
+          >
+            <Layout
+              className="timeline-followup-dialog-shell"
+              header={
+                <DialogHeader
+                  title="Continue in Chat"
+                  subtitle={headerTitle}
+                  onOpenChange={setModalOpen}
+                />
+              }
+              content={
+                <LayoutContent isScrollable className="timeline-followup-dialog-scroll">
+                  <VStack gap={4} className="timeline-followup-dialog-body">
+                    <Text type="supporting">
+                      Review the thread, then ask a follow-up — it forks into your own conversation.
+                    </Text>
+                    {messages.length > 0 ? (
+                      <VStack gap={4} className="timeline-msgs" aria-label="Shared conversation">
+                        {messages.map((message, index) => (
+                          <TranscriptMessage
+                            key={`${shareId}-followup-${index}`}
+                            message={message}
+                            openInData
+                            hydrateResult
+                            collapseSql
+                          />
+                        ))}
+                      </VStack>
+                    ) : (
+                      <Text type="supporting">No transcript available for this post.</Text>
+                    )}
+                  </VStack>
+                </LayoutContent>
+              }
+              footer={
+                <LayoutFooter>
+                  <VStack gap={2} className="timeline-followup-dialog-composer">
+                    {composer}
+                  </VStack>
+                </LayoutFooter>
+              }
+            />
+          </Dialog>
+        ) : null}
+        {authDialogs}
+      </>
+    );
+  }
+
+  return (
+    <VStack
+      as="section"
+      gap={2}
+      className="timeline-followup"
+      aria-label="Ask a follow-up"
+    >
+      {composer}
+      {authDialogs}
     </VStack>
   );
 }
