@@ -494,8 +494,7 @@ test.describe('Public timeline', () => {
     await expect(card).toBeVisible();
     await expect(card.getByRole('heading', { name: 'Session' })).toBeVisible();
     await expect(card.getByRole('link', { name: /SPY \+0\.4%/ })).toBeVisible();
-    await expect(card.getByText('CPI')).toBeVisible();
-    await expect(card.getByText(/today/)).toBeVisible();
+    await expect(card.getByLabel('Upcoming prints')).toContainText('CPI · today');
     await expect(card.getByRole('link', { name: '@nowlobster' })).toBeVisible();
     await expect(card.getByText(/SPX holds the 6500 handle/)).toBeVisible();
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
