@@ -2,12 +2,12 @@ import { expect, test } from '@playwright/test';
 
 const LOCAL_WORKER = 'http://127.0.0.1:8787';
 
-test.describe('Public timeline', () => {
-  test('home page is the timeline and Chat lives at /chat', async ({ page }) => {
+test.describe('The Floor', () => {
+  test('home page is the Floor and Chat lives at /chat', async ({ page }) => {
     await page.goto('/');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
-    await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Timeline' }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Floor' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Floor' }).first()).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
 
     await page.getByRole('link', { name: 'Chat', exact: true }).first().click();
@@ -484,7 +484,7 @@ test.describe('Public timeline', () => {
     const bottomNav = page.getByRole('navigation', { name: 'Mobile navigation' });
     const menu = page.getByTestId('mobile-nav-toggle');
     await expect(bottomNav).toBeVisible();
-    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Floor' })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'New chat' })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Search tickers' })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Menu' })).toBeVisible();
@@ -532,7 +532,7 @@ test.describe('Public timeline', () => {
     expect(shellColors.workspace).toBe(shellColors.body);
 
     const menuBox = await bottomNav.getByRole('button', { name: 'Menu' }).boundingBox();
-    const timelineBox = await bottomNav.getByRole('link', { name: 'Timeline' }).boundingBox();
+    const timelineBox = await bottomNav.getByRole('link', { name: 'Floor' }).boundingBox();
     expect(menuBox && timelineBox).toBeTruthy();
     expect(menuBox!.x).toBeLessThan(timelineBox!.x);
 
@@ -555,17 +555,17 @@ test.describe('Public timeline', () => {
     expect(searchBox!.y).toBeLessThan(navBoxWhileSearch!.y);
     expect(searchBox!.y + searchBox!.height).toBeLessThanOrEqual(navBoxWhileSearch!.y + 1);
     await expect(bottomNav.getByRole('button', { name: 'Search tickers' })).toBeVisible();
-    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Floor' })).toBeVisible();
 
     await menu.click();
     const drawer = page.locator('dialog[aria-label="Navigation"]');
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole('link', { name: 'Lobster home' })).toContainText('Lobster MP');
     await expect(drawer.getByRole('button', { name: 'Close navigation' })).toBeVisible();
-    await expect(drawer.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Floor' })).toBeVisible();
     await expect(drawer.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
 
-    await drawer.getByRole('link', { name: 'Timeline' }).click();
+    await drawer.getByRole('link', { name: 'Floor' }).click();
     await expect(drawer).not.toBeVisible();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -869,7 +869,7 @@ test.describe('Public timeline', () => {
 
     await page.goto('/u/nobodyhere');
     await expect(page.getByRole('heading', { name: 'Profile not found' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Back to timeline' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Back to the Floor' })).toBeVisible();
   });
 
   test('desktop profile shows the same market rail as the timeline', async ({ page }) => {

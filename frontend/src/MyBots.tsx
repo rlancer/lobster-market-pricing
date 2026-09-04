@@ -316,7 +316,7 @@ export default function MyBotsPage() {
         <Heading level={1}>My bots</Heading>
         <Text type="supporting">
           Private scheduled briefings for your account. They stay off the
-          public timeline unless you opt in. Attach the paper book, one or
+          Floor unless you opt in. Attach the paper book, one or
           more Schwab accounts, or nothing — the bot only reads what you check.
         </Text>
       </VStack>
@@ -434,11 +434,11 @@ export default function MyBotsPage() {
             width="100%"
           />
           <Switch
-            label="Publish to my timeline"
+            label="Publish to my Floor"
             description={
               hasHandle
                 ? 'Private is the default. Publishing lists the briefing under your handle, not as a public bot.'
-                : 'Claim a public handle on Account if you want an optional timeline post.'
+                : 'Claim a public handle on Account if you want an optional Floor post.'
             }
             value={form.publish_to_timeline}
             onChange={(checked) => setForm((prev) => ({ ...prev, publish_to_timeline: checked }))}

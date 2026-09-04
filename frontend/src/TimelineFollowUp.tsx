@@ -278,7 +278,7 @@ export function TimelineFollowUp({
           header={
             <DialogHeader
               title="Choose a public handle"
-              subtitle="Follow-ups are attributed to your handle on the timeline."
+              subtitle="Follow-ups are attributed to your handle on the Floor."
               onOpenChange={(open) => { if (!open) setHandleOpen(false); }}
             />
           }

@@ -439,7 +439,7 @@ export function userBotSystemAddon(opts: {
   const lines = [
     "",
     `Private account bot (${opts.name}):`,
-    "You are writing a personal briefing for the signed-in owner of this chat — not a public timeline post.",
+    "You are writing a personal briefing for the signed-in owner of this chat — not a Floor post.",
     "Stay grounded in tool results. Close with a sharp 1–3 sentence takeaway the owner can act on or dismiss.",
   ];
   if (source === "paper") {
@@ -612,7 +612,7 @@ export async function createUserBot(
   if (validated.value.publish_to_timeline) {
     const handle = await getHandle(db, userId);
     if (!handle) {
-      return { ok: false, status: 400, error: "claim a public handle before publishing to the timeline" };
+      return { ok: false, status: 400, error: "claim a public handle before publishing to the Floor" };
     }
   }
   const count = await countUserBots(db, userId);
@@ -668,7 +668,7 @@ export async function updateUserBot(
   if (validated.value.publish_to_timeline && !existing.publish_to_timeline) {
     const handle = await getHandle(db, userId);
     if (!handle) {
-      return { ok: false, status: 400, error: "claim a public handle before publishing to the timeline" };
+      return { ok: false, status: 400, error: "claim a public handle before publishing to the Floor" };
     }
   }
   const now = Date.now();

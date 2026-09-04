@@ -124,7 +124,7 @@ function SharedChatRoute() {
           <p>
             This link doesn&apos;t point to a shared chat — it may have expired or been removed.
           </p>
-          <Link to="/" className="share-home">Back to Timeline</Link>
+          <Link to="/" className="share-home">Back to the Floor</Link>
         </div>
       )}
       {!loading && !missing && share && (
@@ -169,7 +169,7 @@ function SharedChatRoute() {
               <Timestamp value={share.created_at / 1000} format="date_time" />
               {share.model && <span>· {share.model}</span>}
               {share.bot && <span>· {share.bot.persona}</span>}
-              {share.on_timeline && <span>· on the timeline</span>}
+              {share.on_timeline && <span>· on the Floor</span>}
             </p>
           </header>
           {(() => {

@@ -49,7 +49,7 @@ const DOCS: Record<string, { title: string; description: string }> = {
   frontend: {
     title: 'Frontend surfaces',
     description:
-      'Timeline, Chat, Research, the Data catalog, monitor, and brand — the React UI on top of the screener API.',
+      'Floor, Chat, Research, the Data catalog, monitor, and brand — the React UI on top of the screener API.',
   },
   run: {
     title: 'Run it locally',
@@ -212,7 +212,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Bots'),
       description:
-        'Admin-only Chat personas — edit handles like nowlobster / yololobster and generate public timeline chats.',
+        'Admin-only Chat personas — edit handles like nowlobster / yololobster and generate public Floor chats.',
       path: '/bots',
     };
   }
@@ -239,7 +239,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('My bots'),
       description:
-        'Schedule a private Copilot for your account — hourly during US market hours, with a paper or Schwab book you choose. Stays off the public timeline unless you opt in.',
+        'Schedule a private Copilot for your account — hourly during US market hours, with a paper or Schwab book you choose. Stays off the Floor unless you opt in.',
       path: '/my-bots',
     };
   }

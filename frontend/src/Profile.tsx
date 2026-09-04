@@ -209,7 +209,7 @@ export default function ProfilePage() {
                 title="Profile not found"
                 description="That handle isn't claimed."
                 icon={<Newspaper size={24} />}
-                actions={<Button variant="secondary" label="Back to timeline" onClick={goHome} />}
+                actions={<Button variant="secondary" label="Back to the Floor" onClick={goHome} />}
               />
             )}
 
@@ -231,7 +231,7 @@ export default function ProfilePage() {
                 <VStack gap={3} className="profile-chats" as="section" aria-label="Public chats">
                   <Heading level={2}>Public chats</Heading>
                   <Text type="supporting">
-                    Chats this handle shared on the public timeline. Unlisted share links stay private.
+                    Chats this handle shared on the Floor. Unlisted share links stay private.
                   </Text>
 
                   {!error && items.length === 0 && (

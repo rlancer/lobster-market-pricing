@@ -571,7 +571,7 @@ async function publishTimeline(
     "SELECT user_id FROM share_owners WHERE share_id = ?1",
   ).bind(shareId).first<{ user_id: string }>();
   if (!owner) {
-    return json({ error: "only the author can post this chat to the timeline" }, 403, "private");
+    return json({ error: "only the author can post this chat to the Floor" }, 403, "private");
   }
   if (owner.user_id !== user.id) {
     return json({ error: "forbidden" }, 403, "private");

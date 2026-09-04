@@ -10,7 +10,7 @@ import {
 } from "../src/timeline-moderation.ts";
 
 test("timeline quality rejected error is the stable client contract", () => {
-  assert.match(TIMELINE_QUALITY_REJECTED_ERROR, /public timeline/i);
+  assert.match(TIMELINE_QUALITY_REJECTED_ERROR, /the Floor/i);
 });
 
 test("moderation system rejects cut-off and placeholder dumps", () => {

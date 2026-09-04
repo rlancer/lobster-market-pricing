@@ -79,7 +79,7 @@ export default function TimelinePage() {
       setItems((prev) => appending ? [...prev, ...feed.items] : feed.items);
     } catch {
       if (seq !== loadSeqRef.current) return;
-      setError('Could not load the timeline.');
+      setError('Could not load the Floor.');
     } finally {
       if (seq === loadSeqRef.current) {
         setLoading(false);
