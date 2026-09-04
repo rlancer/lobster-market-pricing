@@ -31,7 +31,8 @@ test("coalesceAssistantShareTurns merges consecutive recovery assistants", () =>
   assert.equal(out[1].role, "assistant");
   assert.equal(out[1].sql, "SELECT earnings_date FROM options.earnings WHERE symbol = 'UBER'");
   assert.match(out[1].reasoning ?? "", /after recovery/);
-  assert.equal(out[1].content, "(see reasoning)");
+  // Promote lifts the sealed reasoning paragraph into visible content.
+  assert.match(out[1].content, /after recovery/);
 });
 
 test("coalesceAssistantShareTurns prefers desk overview as content", () => {
@@ -117,6 +118,66 @@ test("promoteReasoningTakeaway skips unfinished let-me narration", () => {
     reasoning: "Let me query the options tape and then pull another window for the chart.",
   });
   assert.equal(turned.content, "(see reasoning)");
+});
+
+test("promoteReasoningTakeaway heals eco_calendar meta leak into content (share gpAJwLq)", () => {
+  const meta = "I don't need eco_calendar here since no macro event catalyst question. All good.";
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: meta,
+    reasoning: [
+      "The user attached a Schwab book. Load get_portfolio first.",
+      "",
+      "So the real book-level observations:\n1. Delta/beta-heavy: 61% equity with IGV+EWY as the high-vol sleeves.\n2. EWY is 64-74% realized vol with two-stock concentration.\n3. TLT long-duration is rate-sensitive. Short duration VGSH is stable.\n4. Cash 11.4% — adequate dry powder, plus buying power $141.7k (margin).",
+      "",
+      "Overlap check: no single-name concentration at book level — good. The only issuer-heavy sleeve is EWY (two-stock-driven single country).",
+      "",
+      "Adjustments to consider:\n1. Trim EWY if not a conviction bet.\n2. Reconsider TLT duration size.\n3. SIVR is bleeding hardest — decide the silver thesis.",
+      "",
+      "Actions list:\n- Trim EWY or add stop discipline given 64-74% vol.\n- Reconsider TLT duration size (or accept as rates view).\n- SIVR: decide silver thesis; bleeding hardest.\n- Keep RSP as core; VEU/VGSH fine as ballast.\n- Cash ~11% is a fine buffer.",
+      "",
+      "Let me also verify the T10Y2Y — my query excluded it since no nominal row returned.",
+      "",
+      meta,
+      "",
+      "Now write the direct markdown briefing. No publish_desk (private bot). I'll skip suggest_trades; deliver the actions in prose.",
+      "",
+      "Actually — \"suggest_trades is optional and only when a concrete adjustment is tradable.\" I'll keep it prose-only to avoid over-tooling; the briefing is the deliver",
+    ].join("\n\n"),
+    sql: "SELECT series_id FROM options.yields WHERE series_id IN ('DGS2','DGS10','DGS30')",
+  });
+  assert.match(turned.content, /Actions list:/);
+  assert.match(turned.content, /book-level observations/);
+  assert.match(turned.content, /Adjustments to consider/);
+  assert.doesNotMatch(turned.content, /eco_calendar/);
+  assert.doesNotMatch(turned.content, /briefing is the deliver/);
+  assert.doesNotMatch(turned.content, /Now write the direct markdown/);
+});
+
+test("coalesceAssistantMessageRecords promotes leaked reasoning on public share read", () => {
+  const meta = "I don't need eco_calendar here since no macro event catalyst question. All good.";
+  const out = coalesceAssistantMessageRecords([
+    { role: "user", content: "Review my attached portfolio." },
+    {
+      role: "assistant",
+      content: meta,
+      reasoning: [
+        "Portfolio loaded.",
+        "",
+        "Concentration: RSP is 26% of book; IGV is the high-beta software sleeve; EWY is single-country risk.",
+        "",
+        "Actions list:\n- Trim EWY on vol.\n- Hold RSP as core.\n- Cash buffer looks fine.",
+        "",
+        meta,
+        "",
+        "Now write the direct markdown briefing. No publish_desk.",
+      ].join("\n\n"),
+      sql: "SELECT 1",
+    },
+  ]);
+  assert.equal(out.length, 2);
+  assert.match(String(out[1].content), /Actions list:/);
+  assert.doesNotMatch(String(out[1].content), /eco_calendar/);
 });
 
 test("applyCaptureToShareTurns promotes reasoning after recovering chart/sql", () => {
