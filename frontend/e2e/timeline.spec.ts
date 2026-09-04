@@ -118,6 +118,66 @@ test.describe('The Floor', () => {
     await expect(post.getByRole('button', { name: 'Unpublish' })).toHaveCount(0);
   });
 
+  test('Floor cards show every SQL query and tool call, not just the last', async ({ page }) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [{
+            share_id: 'TestShareId000000000000088',
+            url: '/share/TestShareId000000000000088',
+            title: 'SPY tape',
+            excerpt: 'SPY holds the range.',
+            messages: [
+              { role: 'user', content: 'How is SPY trading?' },
+              {
+                role: 'assistant',
+                content: 'SPY holds the range.',
+                sql: 'SELECT expiration FROM options.option_contracts WHERE symbol = \'SPY\' LIMIT 10',
+                queries: [
+                  'SELECT date, close FROM options.ohlc WHERE symbol = \'SPY\' LIMIT 5',
+                  'SELECT expiration FROM options.option_contracts WHERE symbol = \'SPY\' LIMIT 10',
+                ],
+                tools: [
+                  { name: 'run_query', args: 'SELECT date, close FROM options.ohlc', ok: true, summary: '5 rows' },
+                  { name: 'check_schema', args: 'SELECT expiration FROM options.option_contracts', ok: true },
+                  { name: 'run_query', args: 'SELECT expiration FROM options.option_contracts', ok: true, summary: '10 rows' },
+                  { name: 'get_news', args: 'SPY', ok: true, summary: '3 headlines' },
+                ],
+              },
+            ],
+            handle: 'nowlobster',
+            name: 'Now Lobster',
+            published_at: Date.now(),
+            model: 'deepseek/deepseek-v4-flash-0731',
+            has_sql: true,
+            has_chart: false,
+            is_bot: true,
+          }],
+          next_before: null,
+          profile: null,
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const post = page.getByRole('article', { name: 'SPY tape' });
+    await expect(post).toBeVisible();
+    await expect(post.getByText('Tools used (4)')).toBeVisible();
+    await post.getByText('Tools used (4)').click();
+    await expect(post.getByText('SQL query').first()).toBeVisible();
+    await expect(post.getByText('Check schema')).toBeVisible();
+    await expect(post.getByText('News')).toBeVisible();
+    await expect(post.locator('.ai-sql')).toHaveCount(2);
+    await expect(post.getByText('SQL 1 of 2')).toBeVisible();
+    await expect(post.getByText('SQL 2 of 2')).toBeVisible();
+    await post.getByText('SQL 1 of 2').click();
+    await expect(post.locator('.ai-sql pre').first()).toContainText("SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5");
+    await post.getByText('SQL 2 of 2').click();
+    await expect(post.locator('.ai-sql pre').nth(1)).toContainText("SELECT expiration FROM options.option_contracts WHERE symbol = 'SPY' LIMIT 10");
+  });
+
   test('forked follow-up turns show the asker when author differs from the post', async ({ page }) => {
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',

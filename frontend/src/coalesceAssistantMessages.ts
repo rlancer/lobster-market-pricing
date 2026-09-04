@@ -4,11 +4,14 @@
  * stacks in live chat and on /share.
  */
 
+import { mergeSqlQueries } from './sqlQueries';
+
 export type CoalesceableAssistant = {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
   sql?: string | null;
+  queries?: string[] | null;
   result?: unknown;
   chart?: unknown;
   desk?: { overview?: string } | null;
@@ -26,6 +29,7 @@ function hasSubstance(message: CoalesceableAssistant): boolean {
     message.content?.trim()
     || message.reasoning?.trim()
     || message.sql?.trim()
+    || (Array.isArray(message.queries) && message.queries.length > 0)
     || message.desk
     || message.trades
     || message.chart
@@ -49,6 +53,12 @@ function mergeAssistants<T extends CoalesceableAssistant>(earlier: T, later: T):
   const laterTools = Array.isArray(later.tools) ? later.tools : [];
   const earlierTools = Array.isArray(earlier.tools) ? earlier.tools : [];
   const tools = [...earlierTools, ...laterTools].slice(0, 20);
+  const queries = mergeSqlQueries(
+    Array.isArray(earlier.queries) ? earlier.queries : undefined,
+    earlier.sql ? [earlier.sql] : undefined,
+    Array.isArray(later.queries) ? later.queries : undefined,
+    later.sql ? [later.sql] : undefined,
+  );
   return {
     ...earlier,
     ...later,
@@ -56,6 +66,7 @@ function mergeAssistants<T extends CoalesceableAssistant>(earlier: T, later: T):
     content: content || ((later.reasoning || earlier.reasoning) ? '(see reasoning)' : ''),
     reasoning: later.reasoning?.trim() || earlier.reasoning,
     sql: later.sql || earlier.sql,
+    ...(queries.length ? { queries } : {}),
     result: later.result ?? earlier.result,
     chart: later.chart ?? earlier.chart,
     desk,

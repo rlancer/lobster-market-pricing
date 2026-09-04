@@ -8,6 +8,40 @@ import { normalizeSuggestedTrades, type SuggestedTrades } from "./chat-trades";
 import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
 import { stripLeakedToolMarkup } from "./tool-markup";
 
+/** Cap on SQL statements kept per assistant turn (share / Floor / live chat). */
+export const SHARE_MAX_QUERIES = 20;
+
+const SQL_QUERY_TOOLS = new Set(["run_query", "check_schema", "filter_frame", "refresh_frame"]);
+
+/** First-seen unique SQLs, trimmed, capped. Later duplicates are dropped. */
+export function mergeSqlQueries(
+  ...lists: Array<readonly string[] | null | undefined>
+): string[] {
+  const out: string[] = [];
+  for (const list of lists) {
+    if (!list) continue;
+    for (const raw of list) {
+      const sql = typeof raw === "string" ? raw.trim() : "";
+      if (!sql || out.includes(sql)) continue;
+      out.push(sql);
+      if (out.length >= SHARE_MAX_QUERIES) return out;
+    }
+  }
+  return out;
+}
+
+function sqlFromRecord(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const sql = (value as Record<string, unknown>).sql;
+  return typeof sql === "string" && sql.trim() ? sql.trim() : undefined;
+}
+
+function sqlsFromUnknown(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const queries = mergeSqlQueries(value.filter((item): item is string => typeof item === "string"));
+  return queries.length ? queries : undefined;
+}
+
 /** Compact tool row for share/timeline “Tools used” disclosure. */
 export type ShareToolRow = {
   name: string;
@@ -30,6 +64,8 @@ export type ShareTurn = {
   content: string;
   reasoning?: string;
   sql?: string;
+  /** Every lake query this turn ran (run_query / check_schema / frame slice). */
+  queries?: string[];
   chart?: ChartSpec;
   desk?: DeskBrief;
   trades?: SuggestedTrades;
@@ -42,6 +78,7 @@ export type ShareTurn = {
 
 export type ShareCapture = {
   sql?: string | null;
+  queries?: string[] | null;
   result?: { columns?: string[]; rows?: Record<string, unknown>[]; error?: string } | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
@@ -49,11 +86,12 @@ export type ShareCapture = {
 };
 
 /** True when an assistant turn has anything worth showing (or merging). */
-export function assistantShareTurnHasSubstance(turn: Pick<ShareTurn, "content" | "reasoning" | "sql" | "chart" | "desk" | "trades" | "tools" | "frames">): boolean {
+export function assistantShareTurnHasSubstance(turn: Pick<ShareTurn, "content" | "reasoning" | "sql" | "queries" | "chart" | "desk" | "trades" | "tools" | "frames">): boolean {
   return Boolean(
     (typeof turn.content === "string" && turn.content.trim())
     || (typeof turn.reasoning === "string" && turn.reasoning.trim())
     || (typeof turn.sql === "string" && turn.sql.trim())
+    || (turn.queries && turn.queries.length > 0)
     || turn.chart
     || turn.desk
     || turn.trades
@@ -83,6 +121,13 @@ export function mergeAssistantShareTurns(earlier: ShareTurn, later: ShareTurn): 
   if (reasoning) merged.reasoning = reasoning;
   const sql = later.sql?.trim() || earlier.sql;
   if (sql) merged.sql = sql;
+  const queries = mergeSqlQueries(
+    earlier.queries,
+    earlier.sql ? [earlier.sql] : undefined,
+    later.queries,
+    later.sql ? [later.sql] : undefined,
+  );
+  if (queries.length) merged.queries = queries;
   if (later.chart || earlier.chart) merged.chart = later.chart ?? earlier.chart;
   if (desk) merged.desk = desk;
   if (later.trades || earlier.trades) merged.trades = later.trades ?? earlier.trades;
@@ -141,11 +186,13 @@ export function healShareTurnFromDsml(turn: ShareTurn): ShareTurn {
 }
 
 function shareTurnFromRecord(rec: Record<string, unknown>): ShareTurn {
+  const queries = sqlsFromUnknown(rec.queries);
   return {
     role: "assistant",
     content: typeof rec.content === "string" ? rec.content : "",
     ...(typeof rec.reasoning === "string" ? { reasoning: rec.reasoning } : {}),
     ...(typeof rec.sql === "string" ? { sql: rec.sql } : {}),
+    ...(queries ? { queries } : {}),
     ...(rec.chart && typeof rec.chart === "object" ? { chart: rec.chart as ChartSpec } : {}),
     ...(rec.desk && typeof rec.desk === "object" ? { desk: rec.desk as DeskBrief } : {}),
     ...(rec.trades && typeof rec.trades === "object" ? { trades: rec.trades as SuggestedTrades } : {}),
@@ -159,6 +206,7 @@ function recordFromShareTurn(turn: ShareTurn, result?: unknown): Record<string, 
   const next: Record<string, unknown> = { role: "assistant", content: turn.content };
   if (turn.reasoning) next.reasoning = turn.reasoning;
   if (turn.sql) next.sql = turn.sql;
+  if (turn.queries?.length) next.queries = turn.queries;
   if (turn.chart) next.chart = turn.chart;
   if (turn.desk) next.desk = turn.desk;
   if (turn.trades) next.trades = turn.trades;
@@ -338,13 +386,6 @@ function asQueryResult(value: unknown): { columns: string[]; rows: Record<string
   };
 }
 
-function toolPartName(part: { type?: unknown }): string {
-  if (typeof part.type !== "string") return "";
-  // AI SDK tool UI parts: "tool-render_chart" / "dynamic-tool" with toolName.
-  if (part.type.startsWith("tool-")) return part.type.slice("tool-".length);
-  return part.type;
-}
-
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
 /** Leading voice of tool-loop / planning scratch — not a reader-facing takeaway. */
 const REASONING_SCRATCH =
@@ -460,7 +501,9 @@ export function applyCaptureToShareTurns(
   if (assistantIdx < 0) return out;
   const turn = out[assistantIdx];
   const captureSql = typeof capture.sql === "string" && capture.sql.trim() ? capture.sql.trim() : null;
+  const captureQueries = mergeSqlQueries(turn.queries, capture.queries, captureSql ? [captureSql] : undefined);
   if (captureSql) turn.sql = captureSql;
+  if (captureQueries.length) turn.queries = captureQueries;
   let chart = turn.chart ?? asChartSpec(capture.chart);
   const result = asQueryResult(capture.result);
   if (chart && result && !chartFitsResult(chart, result.columns)) chart = null;
@@ -505,6 +548,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       .trim();
 
     let sql: string | undefined;
+    let queries: string[] = [];
     let chart: ChartSpec | null = null;
     let result: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
     let desk: DeskBrief | null = null;
@@ -512,12 +556,14 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     let frames: ShareFrame[] | null = null;
     const tools: ShareToolRow[] = [];
     for (const part of message.parts) {
-      const name = toolPartName(part as { type?: unknown });
-      if (!name && !("toolName" in part)) continue;
-      const toolName = name || (typeof (part as { toolName?: unknown }).toolName === "string"
+      const type = typeof (part as { type?: unknown }).type === "string"
+        ? String((part as { type: string }).type)
+        : "";
+      const named = typeof (part as { toolName?: unknown }).toolName === "string"
         ? String((part as { toolName: string }).toolName)
-        : "");
-      if (!toolName) continue;
+        : "";
+      const toolName = type.startsWith("tool-") ? type.slice("tool-".length) : named;
+      if (!toolName || type === "text" || type === "reasoning") continue;
       const input = "input" in part ? (part as { input?: unknown }).input : undefined;
       const state = toolPartState(part as { state?: unknown });
       const hasOutput = "output" in part && part.output != null;
@@ -539,6 +585,10 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         }
         tools.push(row);
       }
+      if (SQL_QUERY_TOOLS.has(toolName)) {
+        const fromInput = sqlFromRecord(input);
+        if (fromInput) queries = mergeSqlQueries(queries, [fromInput]);
+      }
       // render_chart args are themselves a ChartSpec — keep them even when output was stripped.
       if (toolName === "render_chart") {
         const fromInput = asChartSpec(input);
@@ -553,7 +603,10 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
         if (fromInput) trades = fromInput;
       }
       if (!output) continue;
-      if (typeof output.sql === "string" && output.sql.trim()) sql = output.sql.trim();
+      if (typeof output.sql === "string" && output.sql.trim()) {
+        sql = output.sql.trim();
+        if (SQL_QUERY_TOOLS.has(toolName)) queries = mergeSqlQueries(queries, [sql]);
+      }
       const nextResult = asQueryResult(output.result);
       if (nextResult) {
         result = nextResult;
@@ -579,12 +632,14 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     const meta = message.metadata as {
       createdAt?: number;
       sql?: string;
+      queries?: unknown;
       chart?: unknown;
       desk?: unknown;
       trades?: unknown;
       frames?: unknown;
     } | undefined;
     if (!sql && typeof meta?.sql === "string" && meta.sql.trim()) sql = meta.sql.trim();
+    queries = mergeSqlQueries(queries, sqlsFromUnknown(meta?.queries), sql ? [sql] : undefined);
     if (!chart) {
       const metaChart = asChartSpec(meta?.chart);
       if (metaChart && (!result || chartFitsResult(metaChart, result.columns))) chart = metaChart;
@@ -618,6 +673,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     };
     if (reasoning) turn.reasoning = reasoning;
     if (sql) turn.sql = sql;
+    if (queries.length) turn.queries = queries;
     if (chart) turn.chart = chart;
     if (desk) turn.desk = desk;
     if (trades) turn.trades = trades;

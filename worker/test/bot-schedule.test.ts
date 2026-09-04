@@ -470,6 +470,8 @@ test("extractShareTurns keeps tools and session frames for timeline Sources", ()
   assert.ok(turns[1].tools?.some((tool) => tool.name === "run_query"));
   assert.equal(turns[1].tools?.[0]?.args, "SELECT symbol FROM options.chains LIMIT 5");
   assert.equal(turns[1].tools?.[0]?.ok, true);
+  assert.deepEqual(turns[1].queries, ["SELECT symbol FROM options.chains LIMIT 5"]);
+  assert.equal(turns[1].sql, "SELECT symbol FROM options.chains LIMIT 5");
   assert.deepEqual(turns[1].frames, [{
     name: "last",
     columns: ["symbol"],
@@ -478,3 +480,74 @@ test("extractShareTurns keeps tools and session frames for timeline Sources", ()
     fetched_at: 1_700_000_000_000,
   }]);
 });
+
+test("extractShareTurns keeps every SQL query and tool call, not just the last", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Tape?" }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-run_query",
+          toolCallId: "q1",
+          state: "output-available",
+          input: { sql: "SELECT symbol, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5" },
+          output: {
+            ok: true,
+            summary: "5 rows",
+            sql: "SELECT symbol, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5",
+          },
+        },
+        {
+          type: "tool-check_schema",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { sql: "SELECT strike FROM options.option_contracts LIMIT 1" },
+          output: { ok: true, summary: "ok", sql: "SELECT strike FROM options.option_contracts LIMIT 1" },
+        },
+        {
+          type: "tool-run_query",
+          toolCallId: "q2",
+          state: "output-available",
+          input: { sql: "SELECT expiration, strike FROM options.option_contracts WHERE symbol = 'SPY' LIMIT 10" },
+          output: {
+            ok: true,
+            summary: "10 rows",
+            sql: "SELECT expiration, strike FROM options.option_contracts WHERE symbol = 'SPY' LIMIT 10",
+          },
+        },
+        {
+          type: "tool-get_news",
+          toolCallId: "n1",
+          state: "output-available",
+          input: { symbol: "SPY" },
+          output: { ok: true, summary: "3 headlines" },
+        },
+        { type: "text", text: "SPY holds the range." },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.equal(turns.length, 2);
+  assert.deepEqual(turns[1].queries, [
+    "SELECT symbol, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5",
+    "SELECT strike FROM options.option_contracts LIMIT 1",
+    "SELECT expiration, strike FROM options.option_contracts WHERE symbol = 'SPY' LIMIT 10",
+  ]);
+  assert.equal(
+    turns[1].sql,
+    "SELECT expiration, strike FROM options.option_contracts WHERE symbol = 'SPY' LIMIT 10",
+  );
+  assert.deepEqual(turns[1].tools?.map((tool) => tool.name), [
+    "run_query",
+    "check_schema",
+    "run_query",
+    "get_news",
+  ]);
+});
+
