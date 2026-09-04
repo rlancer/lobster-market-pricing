@@ -158,6 +158,10 @@ test("promoteReasoningTakeaway skips a leaked weight scratchpad and lifts the br
   assert.doesNotMatch(turned.content, /Compute weights again precisely/);
   assert.doesNotMatch(turned.content, /Good\. Write it/);
   assert.doesNotMatch(turned.content, /Let me write the briefing/);
+  // Second read must keep the briefing — anywhere-includes used to collapse
+  // it to the trailing "Equity beta concentration" paragraph on api-dev.
+  const again = promoteReasoningTakeaway(turned);
+  assert.equal(again.content, turned.content);
 });
 
 test("promoteReasoningTakeaway heals eco_calendar meta leak into content (share gpAJwLq)", () => {

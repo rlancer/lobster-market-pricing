@@ -419,14 +419,29 @@ export function isInterimToolNarration(text: string, reasoning = ""): boolean {
   if (TOOL_SKIP_META.test(trimmed)) return true;
   if (REASONING_SCRATCH.test(trimmed)) return true;
   if (/(?:let me|i'll|i will)\s+[a-z0-9_ -]+[.!?]?$/i.test(trimmed)) return true;
-  // Content channel sometimes gets a verbatim reasoning paragraph (share gpAJwLq…).
-  const reason = reasoning.trim();
-  if (reason.length >= 200 && trimmed.length < reason.length) {
-    if (reason.includes(trimmed) || collapseWs(reason).includes(collapseWs(trimmed))) {
-      return true;
-    }
-  }
-  return false;
+  // A finished briefing lifted from mid-reasoning must not look interim on
+  // the next GET — anywhere-includes collapsed share S2xd3… to one paragraph.
+  if (looksLikeFinishedBriefing(trimmed)) return false;
+  // Content channel sometimes gets a verbatim *trailing* reasoning paragraph
+  // (share gpAJwLq…). Only the tail is a leak; the middle is the takeaway.
+  return isReasoningTailLeak(trimmed, reasoning);
+}
+
+/** Structured multi-section answer — already the reader-facing briefing. */
+function looksLikeFinishedBriefing(text: string): boolean {
+  if (text.trim().length < 400) return false;
+  const sections = text.match(/(?:^|\n)\s*(?:[-*•]|\d+\.|[A-Z][^:\n]{1,48}:)/g);
+  return (sections?.length ?? 0) >= 3;
+}
+
+/** True when visible content is a leak from the end of the reasoning stream. */
+function isReasoningTailLeak(content: string, reasoning: string): boolean {
+  const c = collapseWs(content);
+  const r = collapseWs(reasoning.trim());
+  if (c.length < 20 || r.length < c.length + 80) return false;
+  if (r.endsWith(c)) return true;
+  const tailLen = Math.max(1_500, Math.min(2_400, Math.floor(r.length * 0.2)));
+  return r.slice(-tailLen).includes(c);
 }
 
 function isReasoningScratchPara(para: string): boolean {
@@ -462,12 +477,10 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   if (!reasoning) return turn;
   if (content && !isInterimToolNarration(content, reasoning) && content.length >= 40) return turn;
 
-  // When the visible channel is a verbatim suffix of reasoning (share
+  // When the visible channel is a trailing reasoning leak (share
   // S2xd3YVSuwjYaByfdF1cw0HL), skip those paragraphs so we lift the
   // earlier sealed briefing instead of re-promoting the leak.
-  const leaked = content && (
-    reasoning.includes(content) || collapseWs(reasoning).includes(collapseWs(content))
-  ) ? content : "";
+  const leaked = isReasoningTailLeak(content, reasoning) ? content : "";
 
   const paras = reasoning
     .split(/\n\s*\n/)
