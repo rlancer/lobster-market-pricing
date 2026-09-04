@@ -11,7 +11,7 @@ import {
   occExpirationIso,
   yearFraction,
 } from './schwabBlackScholes.ts';
-import { etTradeDay } from './tickerChartRange.ts';
+import { etDateString, etTradeDay } from './tickerChartRange.ts';
 
 export type PnlInclude = {
   stocks: boolean;
@@ -146,6 +146,90 @@ export function composeTotals(
     dividends,
     fees,
   };
+}
+
+export type ReturnWindow = 'DTD' | 'MTD' | 'YTD';
+
+/**
+ * P&L as a percent of the value at the start of the move.
+ * Uses abs(start) so a short that loses money stays negative.
+ */
+export function pnlPercent(
+  pnl: number | null | undefined,
+  equity: number | null | undefined,
+): number | null {
+  if (pnl == null || !Number.isFinite(pnl)) return null;
+  if (equity == null || !Number.isFinite(equity)) return null;
+  const start = equity - pnl;
+  if (!Number.isFinite(start) || start === 0) return null;
+  return (pnl / Math.abs(start)) * 100;
+}
+
+export function formatSignedPercent(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  const digits = Math.abs(pct) >= 10 ? 1 : 2;
+  const abs = Math.abs(pct).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  if (pct > 0) return `+${abs}%`;
+  if (pct < 0) return `−${abs}%`;
+  return `${abs}%`;
+}
+
+export function calendarWindowStart(window: 'MTD' | 'YTD', asOf: string = etDateString()): string {
+  if (window === 'YTD') return `${asOf.slice(0, 4)}-01-01`;
+  return `${asOf.slice(0, 7)}-01`;
+}
+
+/** Sum composed daily P&L from `start` through the end of the series. */
+export function periodPnlSince(
+  series: Array<{ date: string; daily: number }>,
+  start: string,
+): number {
+  let sum = 0;
+  for (const point of series) {
+    if (point.date >= start) sum += point.daily;
+  }
+  return sum;
+}
+
+/** Live book dollars for DTD — whole account, or the scoped ticker's marks. */
+export function scopedPortfolioBasis(
+  positions: SchwabPortfolioPosition[],
+  symbol: string,
+  account: { equity: number | null; day_pnl: number | null },
+): { equity: number | null; day_pnl: number | null } {
+  const want = symbol.trim();
+  if (!want) return { equity: account.equity, day_pnl: account.day_pnl };
+  const rows = positions.filter((row) => positionMatchesQuery(row, want));
+  if (rows.length === 0) return { equity: account.equity, day_pnl: account.day_pnl };
+  let equity = 0;
+  let dayPnl = 0;
+  let hasEquity = false;
+  let hasDay = false;
+  for (const row of rows) {
+    if (row.market_value != null && Number.isFinite(row.market_value)) {
+      equity += row.market_value;
+      hasEquity = true;
+    }
+    if (row.day_pnl != null && Number.isFinite(row.day_pnl)) {
+      dayPnl += row.day_pnl;
+      hasDay = true;
+    }
+  }
+  return {
+    equity: hasEquity ? equity : account.equity,
+    day_pnl: hasDay ? dayPnl : account.day_pnl,
+  };
+}
+
+/** Schwab's own day % when present; otherwise mark-to-market vs prior session. */
+export function positionDayPercent(
+  row: Pick<SchwabPortfolioPosition, 'day_pnl' | 'day_pnl_pct' | 'market_value'>,
+): number | null {
+  if (row.day_pnl_pct != null && Number.isFinite(row.day_pnl_pct)) return row.day_pnl_pct;
+  return pnlPercent(row.day_pnl, row.market_value);
 }
 
 export function buildActivityRows(opts: {

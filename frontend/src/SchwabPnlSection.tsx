@@ -50,27 +50,33 @@ import {
   type SchwabPortfolioPosition,
   type SchwabTrade,
 } from './api';
-import { formatChartTick } from './tickerChartRange';
+import { etDateString, formatChartTick } from './tickerChartRange';
 import {
   applyEquityMarkPath,
   applyOptionMarkPath,
   buildActivityRows,
+  calendarWindowStart,
   composeSeries,
   composeTotals,
   DEFAULT_PNL_INCLUDE,
   densifyWithOhlc,
   equityLotsFromFills,
   filterActivity,
+  formatSignedPercent,
   includedOpenMark,
   optionLegDailyPath,
   optionLotsFromFills,
   parseOccContract,
   performanceFocusWindow,
+  periodPnlSince,
+  pnlPercent,
+  scopedPortfolioBasis,
   tickerOpenMark,
   type ActivityRow,
   type LegDailyPoint,
   type OptionLot,
   type PnlInclude,
+  type ReturnWindow,
 } from './schwabPnlView';
 import './Portfolio.css';
 
@@ -167,6 +173,30 @@ function formatApiError(err: unknown): string {
   return raw.length > 280 ? `${raw.slice(0, 280)}…` : raw;
 }
 
+function returnTokenColor(n: number | null | undefined): 'green' | 'red' | 'gray' {
+  return pnlTone(n);
+}
+
+function ReturnBubbles({
+  windows,
+}: {
+  windows: Array<{ key: ReturnWindow; pct: number | null; pnl: number | null }>;
+}) {
+  return (
+    <HStack gap={2} wrap="wrap" role="group" aria-label="Portfolio return">
+      {windows.map((window) => (
+        <Token
+          key={window.key}
+          size="sm"
+          color={returnTokenColor(window.pnl ?? window.pct)}
+          label={`${window.key} ${formatSignedPercent(window.pct)}`}
+          description={`${window.key} return ${formatSignedPercent(window.pct)}`}
+        />
+      ))}
+    </HStack>
+  );
+}
+
 function markerColor(kind: ActivityRow['kind']): string {
   if (kind === 'option') return 'var(--color-warning, var(--accent))';
   if (kind === 'dividend') return 'var(--color-success)';
@@ -221,6 +251,9 @@ export function SchwabPnlSection({
   onSymbolChange,
   hideSymbolInput = false,
   positions = [],
+  accountEquity = null,
+  accountDayPnl = null,
+  accountDayPnlPct = null,
   afterChart,
 }: {
   accountId: string | null;
@@ -232,6 +265,12 @@ export function SchwabPnlSection({
   /** Hide the local ticker field when the parent already renders search. */
   hideSymbolInput?: boolean;
   positions?: SchwabPortfolioPosition[];
+  /** Live account equity for DTD / period-return percentages. */
+  accountEquity?: number | null;
+  /** Live Schwab day P&L (mark-to-market), not realized trading P&L. */
+  accountDayPnl?: number | null;
+  /** Schwab currentDayProfitLossPercentage when the API sent it. */
+  accountDayPnlPct?: number | null;
   /** Open positions (or other book UI) rendered directly under the chart. */
   afterChart?: ReactNode;
 }) {
@@ -263,8 +302,16 @@ export function SchwabPnlSection({
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
   const [chartMetric, setChartMetric] = useState<ChartMetric>('daily');
   const [chartWindow, setChartWindow] = useState<ChartWindow>('focus');
+  const [ytdSnapshot, setYtdSnapshot] = useState<{
+    key: string;
+    points: SchwabPnlPoint[];
+    openMark: SchwabPnlResponse['open_mark'];
+  } | null>(null);
   const requestSequence = useRef(0);
+  const ytdKeyRef = useRef('');
   const isMobile = useMediaQuery('(max-width: 47.99rem)');
+
+  const returnKey = `${accountId ?? ''}|${symbol}`;
 
   useEffect(() => {
     if (isControlled) return;
@@ -333,6 +380,14 @@ export function SchwabPnlSection({
       // Portfolio marks are Schwab-only (see AGENTS.md). Do not fall back to
       // lake/Yahoo — it often has no bars for the hold (CAR Apr 2026).
       setOhlc(schwabBars);
+      if (nextRange === 'YTD') {
+        ytdKeyRef.current = `${nextAccount ?? ''}|${nextSymbol}`;
+        setYtdSnapshot({
+          key: ytdKeyRef.current,
+          points: res.points,
+          openMark: res.open_mark ?? null,
+        });
+      }
     } catch (err) {
       if (requestId !== requestSequence.current) return;
       setError(formatApiError(err));
@@ -361,6 +416,32 @@ export function SchwabPnlSection({
       requestSequence.current += 1;
     };
   }, [accountId, range, symbol, load]);
+
+  useEffect(() => {
+    if (range === 'YTD') return;
+    const key = `${accountId ?? ''}|${symbol}`;
+    if (ytdKeyRef.current === key) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.schwabPnl({
+          range: 'YTD',
+          account: accountId ?? undefined,
+          symbol: symbol || undefined,
+        });
+        if (cancelled) return;
+        ytdKeyRef.current = key;
+        setYtdSnapshot({
+          key,
+          points: res.points,
+          openMark: res.open_mark ?? null,
+        });
+      } catch {
+        if (!cancelled && ytdKeyRef.current !== key) setYtdSnapshot(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accountId, range, symbol]);
 
   const openMark = useMemo(() => {
     if (!symbol) return null;
@@ -558,6 +639,41 @@ export function SchwabPnlSection({
   const activeLegTotal = activeLegPath.at(-1)?.cumulative_pnl ?? 0;
 
   const periodPnl = totals.period;
+  const returnBasis = useMemo(
+    () => scopedPortfolioBasis(positions, symbol, {
+      equity: accountEquity,
+      day_pnl: accountDayPnl,
+    }),
+    [positions, symbol, accountEquity, accountDayPnl],
+  );
+  const ytdComposed = useMemo(() => {
+    if (range === 'YTD') return series;
+    if (!ytdSnapshot || ytdSnapshot.key !== returnKey) return [];
+    return composeSeries(
+      ytdSnapshot.points,
+      include,
+      includedOpenMark(ytdSnapshot.openMark, include),
+    );
+  }, [range, series, ytdSnapshot, returnKey, include]);
+  const returnAsOf = windowEnd ?? etDateString();
+  const mtdSource = range === 'YTD' ? series : ytdComposed;
+  const mtdPnl = range === 'MTD'
+    ? totals.period
+    : (mtdSource.length === 0
+      ? null
+      : periodPnlSince(mtdSource, calendarWindowStart('MTD', returnAsOf)));
+  const ytdPnl = range === 'YTD'
+    ? totals.period
+    : (ytdComposed.at(-1)?.cumulative ?? null);
+  const dtdPnl = returnBasis.day_pnl;
+  const dtdPct = !symbol && accountDayPnlPct != null && Number.isFinite(accountDayPnlPct)
+    ? accountDayPnlPct
+    : pnlPercent(dtdPnl, returnBasis.equity);
+  const returnWindows = [
+    { key: 'DTD' as const, pnl: dtdPnl, pct: dtdPct },
+    { key: 'MTD' as const, pnl: mtdPnl, pct: pnlPercent(mtdPnl, returnBasis.equity) },
+    { key: 'YTD' as const, pnl: ytdPnl, pct: ytdPnl == null ? null : pnlPercent(ytdPnl, returnBasis.equity) },
+  ];
   const hasActivity = activity.length > 0
     || series.some((p) => p.daily !== 0)
     || lastPointPnl !== 0
@@ -672,21 +788,32 @@ export function SchwabPnlSection({
       )}
 
       <HStack gap={3} wrap="wrap" justify="between" align="end">
-        <VStack gap={0}>
+        <VStack gap={1}>
           <Text type="supporting" size="sm">
             {range} · {tickerLabel}
           </Text>
-          <Text
-            type="display-3"
-            weight="bold"
-            hasTabularNumbers
-            className={`portfolio-stat portfolio-pnl-${pnlTone(periodPnl)}`}
-          >
-            {moneySigned(periodPnl)}
-          </Text>
+          <HStack gap={3} wrap="wrap" vAlign="end">
+            <Text
+              type="display-3"
+              weight="bold"
+              hasTabularNumbers
+              className={`portfolio-stat portfolio-pnl-${pnlTone(periodPnl)}`}
+            >
+              {moneySigned(periodPnl)}
+            </Text>
+            <Text
+              type="large"
+              weight="semibold"
+              hasTabularNumbers
+              className={`portfolio-pnl-${pnlTone(periodPnl)}`}
+            >
+              {formatSignedPercent(pnlPercent(periodPnl, returnBasis.equity))}
+            </Text>
+          </HStack>
           {windowLabel ? (
             <Text type="supporting" size="sm">{windowLabel}</Text>
           ) : null}
+          <ReturnBubbles windows={returnWindows} />
         </VStack>
       </HStack>
 
