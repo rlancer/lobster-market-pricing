@@ -493,7 +493,7 @@ export default function AccountPage() {
           <Text type="supporting">
             Schedule a private Copilot — for example every hour during US
             market hours with a paper or Schwab book you choose. Briefings stay off the
-            public timeline unless you opt in.
+            Floor unless you opt in.
           </Text>
           <Button
             variant="secondary"

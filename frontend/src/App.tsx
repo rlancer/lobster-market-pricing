@@ -53,7 +53,7 @@ type Section = {
   exact?: boolean;
 };
 const SECTIONS: Section[] = [
-  { to: '/', label: 'Timeline', heading: 'Timeline', icon: Newspaper, exact: true },
+  { to: '/', label: 'Floor', heading: 'Floor', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
   { to: '/portfolio', label: 'Portfolio', heading: 'Portfolio', icon: Briefcase },
   { to: '/my-bots', label: 'Bots', heading: 'My bots', icon: Bot },
@@ -216,7 +216,7 @@ function WorkspaceNavItems({
       <SideNavItem
         as={RouterLink}
         href="/"
-        label="Timeline"
+        label="Floor"
         icon={Newspaper}
         isSelected={isTimeline}
         onClick={closeMobileNav}
@@ -507,7 +507,7 @@ function MobileBottomNavigation() {
         <AstryxLink
           as={RouterLink}
           href="/"
-          label="Timeline"
+          label="Floor"
           isStandalone
           className="mobile-bottom-nav-link"
           data-selected={isTimeline ? 'true' : undefined}

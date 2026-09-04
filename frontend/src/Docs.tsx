@@ -110,7 +110,7 @@ const COMPONENTS = [
   {
     dir: 'frontend/',
     title: 'React UI',
-    body: 'Vite + React + TanStack Router. Timeline home, Chat, the Data catalog, monitor — plus the docs portal you are reading.',
+    body: 'Vite + React + TanStack Router. Floor home, Chat, the Data catalog, monitor — plus the docs portal you are reading.',
   },
 ];
 
@@ -154,24 +154,24 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/econ_calendar', desc: 'Upcoming FRED macro releases + FOMC/Beige (lake + live fallback) — Chat eco_calendar tool' },
   { method: 'GET', path: '/api/notebook/premium', desc: '45-day premium-leaders notebook (calls + puts)' },
   { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats plus bot shares (limit, before cursor, optional handle filter)' },
-  { method: 'GET', path: '/api/timeline/rail', desc: 'Desktop timeline column — trending public tags, breaking market news, and SPY/QQQ/IWM/DIA/VIX highlights' },
+  { method: 'GET', path: '/api/timeline/rail', desc: 'Desktop Floor companion column — trending public tags, breaking market news, and SPY/QQQ/IWM/DIA/VIX highlights' },
   { method: 'GET', path: '/api/chats/{id}/rail', desc: 'Desktop chat column — tickers linked to the conversation, related headlines, and a session tape (falls back to market rail when no tickers yet)' },
   { method: 'POST', path: '/api/chats/fork', desc: 'Fork a public share into a new owned chat seeded with the transcript (session + public handle required); client then sends the follow-up' },
-  { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the public timeline (session + handle required). Quality gate rejects incomplete / cut-off answers (422).' },
-  { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the timeline (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
+  { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the Floor (session + handle required). Quality gate rejects incomplete / cut-off answers (422).' },
+  { method: 'DELETE', path: '/api/timeline/{id}', desc: 'Remove a share from the Floor (owner or admin); the unlisted link remains. Admins can also unlist bot shares.' },
   { method: 'GET', path: '/api/bots', desc: 'Public list of enabled bot profiles' },
   { method: 'GET', path: '/api/bots/{handle}', desc: 'Public bot profile (enabled only)' },
   { method: 'GET', path: '/api/bots/{handle}/trades', desc: 'Public bot suggested-trade performance (D1 book + lake marks with TTL; optional status/conviction; refresh=0 skips remake; backfill=1 recovers missed ideas)' },
   { method: 'GET', path: '/api/reply-styles', desc: 'Canned Chat reply voices (desk / hedge fund / new to trading) plus the 240-char note cap' },
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Chat reply_style / reply_note' },
-  { method: 'GET/POST', path: '/api/me/bots', desc: 'Signed-in personal bots — list (with friendly schedule presets) or create. Private by default; no timeline publish unless opted in.' },
+  { method: 'GET/POST', path: '/api/me/bots', desc: 'Signed-in personal bots — list (with friendly schedule presets) or create. Private by default; no Floor publish unless opted in.' },
   { method: 'GET/PUT/DELETE', path: '/api/me/bots/{id}', desc: 'Signed-in — read one bot plus recent runs, update, or delete' },
-  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (ignores next_run_at and market hours). Lands in Chat history; emails when enabled; timeline only if opted in.' },
+  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (ignores next_run_at and market hours). Lands in Chat history; emails when enabled; Floor only if opted in.' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/chat/capabilities', desc: 'Admin — live Chat system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
-  { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows timeline listing' },
+  { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows Floor listing' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
   { method: 'POST', path: '/api/admin/dev-session', desc: 'Preview only (api-dev) — ADMIN_TOKEN mints a Better Auth cookie as an admin email so agents can test signed-in Chat/Bots. Production 404s.' },
@@ -182,18 +182,18 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
 const SURFACES = [
   {
     route: '/',
-    title: 'Timeline',
-    body: 'The home feed of chats people chose to share publicly. Each post shows the full conversation in place (tall threads expand without leaving the feed) using the same transcript body as live chat — Thinking, Tools used, SQL, charts, desk viewpoints, and query results (hydrated when you expand). Session frames open in a Sources strip with Open in Data, same as /chat. The title opens the unlisted /share/<id> page, and a share control beside the title (and on each assistant reply) offers copy link or system Share via… — reply links deep-link with `#m-N`. Under each post, Ask a follow-up forks the transcript into your own chat (Google sign-in + public handle required) so the continue is attributed to you when shared. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>, which reuses the same companion column.',
+    title: 'Floor',
+    body: 'The home feed of chats people chose to share publicly — the trading Floor. Each post shows the full conversation in place (tall threads expand without leaving the feed) using the same transcript body as live chat — Thinking, Tools used, SQL, charts, desk viewpoints, and query results (hydrated when you expand). Session frames open in a Sources strip with Open in Data, same as /chat. The title opens the unlisted /share/<id> page, and a share control beside the title (and on each assistant reply) offers copy link or system Share via… — reply links deep-link with `#m-N`. Under each post, Ask a follow-up forks the transcript into your own chat (Google sign-in + public handle required) so the continue is attributed to you when shared. On desktop a companion column shows trending tags, breaking news, and an index tape (hidden on small viewports). Posts are attributed to a handle; a handle’s profile and public chats live at /u/<handle>, which reuses the same companion column.',
   },
   {
     route: '/u/<handle>',
     title: 'Profile',
-    body: 'Public identity for a claimed handle — name, avatar, join date, and (for bots) persona/bio — plus the chats that handle opted onto the timeline. Bot profiles also show suggested-trade performance (lake marks and open/realized PnL for ideas from suggest_trades). Desktop keeps the same companion column as the home feed (tags, breaking news, index tape).',
+    body: 'Public identity for a claimed handle — name, avatar, join date, and (for bots) persona/bio — plus the chats that handle opted onto the Floor. Bot profiles also show suggested-trade performance (lake marks and open/realized PnL for ideas from suggest_trades). Desktop keeps the same companion column as the home feed (tags, breaking news, index tape).',
   },
   {
     route: '/share/<id>',
     title: 'Share',
-    body: 'Unlisted transcript for a shared chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Timeline, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts). Each assistant reply has a share control that copies `/share/<id>#m-N` (or opens the system share sheet). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
+    body: 'Unlisted transcript for a shared chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Floor, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts). Each assistant reply has a share control that copies `/share/<id>#m-N` (or opens the system share sheet). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
   },
   {
     route: '/account',
@@ -203,12 +203,12 @@ const SURFACES = [
   {
     route: '/chat',
     title: 'Chat',
-    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. From chat controls you can attach your Schwab brokerage book (or paper book) so questions about adjustments and uncorrelated adds call get_portfolio against live holdings — more portfolio sources can plug into the same attach control later. A signed-in owner with Schwab connected can ask for a live print and chat calls get_schwab_quotes using that owner’s token only — never another user’s. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers, session frames, or a portfolio, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. Share from the chat header or any settled reply (through that answer). From the share dialog, signed-in authors can post a chat onto the public timeline.',
+    body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. From chat controls you can attach your Schwab brokerage book (or paper book) so questions about adjustments and uncorrelated adds call get_portfolio against live holdings — more portfolio sources can plug into the same attach control later. A signed-in owner with Schwab connected can ask for a live print and chat calls get_schwab_quotes using that owner’s token only — never another user’s. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers, session frames, or a portfolio, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. Share from the chat header or any settled reply (through that answer). From the share dialog, signed-in authors can post a chat onto the Floor.',
   },
   {
     route: '/my-bots',
     title: 'My bots',
-    body: 'Left-nav signed-in scheduled Chat for your account. Anonymous visitors see a sign-in empty state. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach one or more books (paper and/or specific Schwab accounts), and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the timeline unless you opt in.',
+    body: 'Left-nav signed-in scheduled Chat for your account. Anonymous visitors see a sign-in empty state. Pick a friendly cadence (every hour during US market hours — no cron syntax), attach one or more books (paper and/or specific Schwab accounts), and get an email when the briefing is ready. Private by default: runs land in Chat history and do not publish to the Floor unless you opt in.',
   },
   {
     route: '/portfolio',
@@ -513,7 +513,7 @@ export function DocsFrontend() {
   return (
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
-        The React app (Vite + TanStack Router) is a public timeline, per-handle profiles at
+        The React app (Vite + TanStack Router) is the Floor (public home feed), per-handle profiles at
         /u/&lt;handle&gt;, Account settings at /account, Chat, and a Data catalog on one shell —
         sidebar navigation with a
         ticker search. The left nav links here and (for admins) to the Admin hub under a

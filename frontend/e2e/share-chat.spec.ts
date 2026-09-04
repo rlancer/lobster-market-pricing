@@ -81,11 +81,11 @@ test.describe('Share chat (public unlisted transcripts)', () => {
 
     await expect(page.getByRole('heading', { name: 'SPY call setup' })).toBeVisible();
     await expect(page.locator('.workspace-nav')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Timeline' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Floor' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Chat', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Mobile navigation' })).toHaveCount(0);
 
-    await page.getByRole('link', { name: 'Timeline' }).first().click();
+    await page.getByRole('link', { name: 'Floor' }).first().click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   });
 
@@ -98,18 +98,18 @@ test.describe('Share chat (public unlisted transcripts)', () => {
 
     const bottomNav = page.getByRole('navigation', { name: 'Mobile navigation' });
     await expect(bottomNav).toBeVisible();
-    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toBeVisible();
-    await expect(bottomNav.getByRole('link', { name: 'Timeline' })).toHaveAttribute('aria-current', 'page');
+    await expect(bottomNav.getByRole('link', { name: 'Floor' })).toBeVisible();
+    await expect(bottomNav.getByRole('link', { name: 'Floor' })).toHaveAttribute('aria-current', 'page');
     await expect(bottomNav.getByRole('button', { name: 'Menu' })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'New chat' })).toBeVisible();
 
     await bottomNav.getByTestId('mobile-nav-toggle').click();
     const drawer = page.locator('dialog[aria-label="Navigation"]');
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByRole('link', { name: 'Timeline' })).toBeVisible();
+    await expect(drawer.getByRole('link', { name: 'Floor' })).toBeVisible();
     await expect(drawer.getByRole('link', { name: 'Chat', exact: true })).toBeVisible();
 
-    await drawer.getByRole('link', { name: 'Timeline' }).click();
+    await drawer.getByRole('link', { name: 'Floor' }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   });
 
@@ -137,7 +137,7 @@ test.describe('Share chat (public unlisted transcripts)', () => {
     const shareId = shareUrl.split('/').pop() ?? '';
     expect(shareId).toMatch(/^[0-9A-Za-z]{10,}$/);
 
-    await expect(page.getByRole('switch', { name: 'Post to public timeline' })).toBeVisible();
+    await expect(page.getByRole('switch', { name: 'Post to the Floor' })).toBeVisible();
 
     // "View share" navigates to the public page — exactly what a recipient sees.
     await page.getByRole('button', { name: 'View share' }).click();

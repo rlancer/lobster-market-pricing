@@ -12,10 +12,10 @@ import { hasLeakedToolMarkup, stripLeakedToolMarkup } from "./tool-markup";
 
 /** Stable client-facing error when publish is refused for quality. */
 export const TIMELINE_QUALITY_REJECTED_ERROR =
-  "This chat isn't ready for the public timeline yet. Finish the answer (a clear takeaway, not a cut-off mid-thought) and try again.";
+  "This chat isn't ready for the Floor yet. Finish the answer (a clear takeaway, not a cut-off mid-thought) and try again.";
 
 export const TIMELINE_MODERATION_SYSTEM = [
-  "You moderate one Lobster MP chat transcript for the PUBLIC home timeline.",
+  "You moderate one Lobster MP chat transcript for the PUBLIC Floor (home feed).",
   "ALLOW only when the assistant left a finished, readable market takeaway a stranger could skim — desk overview, trade ideas, or a coherent answer that reaches a conclusion.",
   "REJECT when the transcript is incomplete or not feed-worthy:",
   "- cut off mid-sentence or mid-list (ends with 'wait,', 'Let me…', trailing comma, ellipsis without a finish)",

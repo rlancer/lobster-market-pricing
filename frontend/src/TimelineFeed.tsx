@@ -157,7 +157,7 @@ export function TimelinePostRow({
 
   const unpublish = async () => {
     const who = post.is_bot ? `bot @${post.handle}` : (post.name?.trim() || `@${post.handle}`);
-    if (!window.confirm(`Unpublish this chat by ${who} from the timeline? The share link will still work.`)) {
+    if (!window.confirm(`Unpublish this chat by ${who} from the Floor? The share link will still work.`)) {
       return;
     }
     setUnpublishing(true);
@@ -355,10 +355,10 @@ export function TimelineEmpty({
 }) {
   return (
     <EmptyState
-      title={handle ? 'No public chats yet' : 'The timeline is empty'}
+      title={handle ? 'No public chats yet' : 'The Floor is empty'}
       description={handle
-        ? 'This handle has not posted a chat to the public timeline.'
-        : 'Share a chat and turn on “Post to public timeline” to appear here.'}
+        ? 'This handle has not posted a chat to the Floor.'
+        : 'Share a chat and turn on “Post to the Floor” to appear here.'}
       icon={<Newspaper size={24} />}
       headingLevel={2}
       actions={<Button variant="primary" label="Ask the Lobster" icon={<Sparkles size={16} />} onClick={onAsk} />}

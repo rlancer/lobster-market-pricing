@@ -1148,8 +1148,8 @@ function AiChatSession({
       if (response.moderation_rejected) {
         setShareError(
           response.reason
-            ? `Shared as an unlisted link, but not posted to the timeline: ${response.reason}`
-            : 'Shared as an unlisted link, but not posted to the timeline — finish the answer and share again.',
+            ? `Shared as an unlisted link, but not posted to the Floor: ${response.reason}`
+            : 'Shared as an unlisted link, but not posted to the Floor — finish the answer and share again.',
         );
       }
       // Server marks bot_runs shared when run_id is present (or failed when
@@ -1308,7 +1308,7 @@ function AiChatSession({
       <header className="ai-head" aria-label="Chat controls">
                 {botHandle && (
                   <p className="ai-bot-banner" role="status">
-                    Generating as <b>@{botHandle}</b> — when the answer completes it auto-shares to the public timeline as that bot.
+                    Generating as <b>@{botHandle}</b> — when the answer completes it auto-shares to the Floor as that bot.
                   </p>
                 )}
                 {forkContext && (
@@ -1684,11 +1684,11 @@ function AiChatSession({
                 <DialogHeader
                   title={
                     shareResult?.moderation_rejected
-                      ? 'Shared (held from timeline)'
+                      ? 'Shared (held from the Floor)'
                       : shareError && !shareResult
                         ? 'Share failed'
                         : shareResult
-                          ? (shareResult.bot_handle ? 'Auto-shared to timeline' : 'Chat shared')
+                          ? (shareResult.bot_handle ? 'Auto-shared to the Floor' : 'Chat shared')
                           : 'Share chat'
                   }
                   subtitle={
@@ -1726,16 +1726,16 @@ function AiChatSession({
                       )}
                       <Switch
                         className="ai-share-publish"
-                        label="Post to public timeline"
+                        label="Post to the Floor"
                         description={shareResult.can_publish
                           ? 'Anyone visiting the site will see this chat on the home feed, attributed to your handle. Incomplete or cut-off answers are held back.'
-                          : 'Sign in with a public handle before sharing to post chats on the timeline. The link still works for anyone you send it to.'}
+                          : 'Sign in with a public handle before sharing to post chats on the Floor. The link still works for anyone you send it to.'}
                         value={onTimeline}
                         onChange={setOnTimeline}
                         isDisabled={!shareResult.can_publish}
                         disabledMessage={shareResult.can_publish
                           ? undefined
-                          : 'Sign in with a public handle, then share again to post this chat on the timeline.'}
+                          : 'Sign in with a public handle, then share again to post this chat on the Floor.'}
                         changeAction={async (checked) => {
                           if (!shareResult.can_publish) return;
                           try {
@@ -1744,10 +1744,10 @@ function AiChatSession({
                             setShareError(null);
                           } catch (error) {
                             const raw = String((error as Error)?.message ?? error);
-                            const quality = raw.match(/This chat isn't ready for the public timeline[^"]*/);
+                            const quality = raw.match(/This chat isn't ready for the Floor[^"]*/);
                             const message = quality?.[0]
                               ?? (raw.includes('422')
-                                ? "This chat isn't ready for the public timeline yet. Finish the answer and try again."
+                                ? "This chat isn't ready for the Floor yet. Finish the answer and try again."
                                 : raw);
                             setShareError(message);
                             throw error;

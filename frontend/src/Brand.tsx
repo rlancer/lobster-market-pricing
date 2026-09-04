@@ -170,7 +170,7 @@ export default function BrandPage() {
           <p className="brand-hero-tag">Ask the Lobster</p>
           <p>
             Style guide and asset shelf for the blue lobster in sunglasses — the marks, palette,
-            type, motion, and voice used across Chat, Timeline, share cards, and social previews.
+            type, motion, and voice used across Chat, Floor, share cards, and social previews.
           </p>
           <ul className="brand-meta">
             {META.map(([label, value]) => (

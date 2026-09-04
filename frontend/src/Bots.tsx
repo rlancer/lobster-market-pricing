@@ -39,7 +39,7 @@ const BOT_PRESETS = {
     persona: 'High risk, high reward',
     bio: 'Asymmetric upside hunter — short-dated lottery tickets with real flow, always flagged as able to go to zero.',
     system_prompt_extra:
-      'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes. When a standout name has a chartable series (volume/OI leaders, IV smile, or short-dated price action), query a compact frame and call render_chart so the public timeline post paints a figure — do not narrate a chart without that tool.',
+      'You chase asymmetric upside. Prefer lottery-ticket OTM structures, meme-adjacent names with real flow, and short-dated catalysts. Always flag that the idea can go to zero. Still require tradable quotes. When a standout name has a chartable series (volume/OI leaders, IV smile, or short-dated price action), query a compact frame and call render_chart so the Floor post paints a figure — do not narrate a chart without that tool.',
     seed_prompts: [
       'Find the juiciest short-dated call lottery tickets with real volume and open interest today.',
       'Scan for OTM call flow with real volume and open interest — pick the asymmetric upside names that can still go to zero.',
@@ -377,7 +377,7 @@ export default function BotsPage() {
           (e.g. @nowlobster for live market commentary, @macrolobster for rates / the
           curve, @yololobster for high risk / high reward). Generate opens Chat with the
           persona loaded — successful answers
-          auto-share to the timeline as that bot.
+          auto-share to the Floor as that bot.
         </Text>
       </header>
 
@@ -553,7 +553,7 @@ export default function BotsPage() {
                   <Text type="supporting">
                     Opens Chat as @{selected} with a prompt that has not already been used
                     in a prior run. Leave blank to take the next unused seed or invent a new
-                    question. Successful answers auto-share to the timeline as this bot.
+                    question. Successful answers auto-share to the Floor as this bot.
                   </Text>
                   <TextArea
                     label="Prompt (optional)"
