@@ -451,6 +451,8 @@ export interface SharedChatMessage extends ChatHistoryMessage {
   /** Model reasoning / thinking trace when the share captured it. */
   reasoning?: string;
   tools?: { name: string; args?: string; ok?: boolean; summary?: string }[];
+  /** Every lake query this turn ran (not just the last `sql`). */
+  queries?: string[];
   result?: QueryResult;
   chart?: {
     title?: string;

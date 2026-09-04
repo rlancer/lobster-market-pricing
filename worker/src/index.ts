@@ -1842,6 +1842,7 @@ const SHARE_MESSAGES_MAX_BYTES = 1_200_000; // serialized messages JSON, UTF-8 b
 const SHARE_ROW_MAX_BYTES = 2_000_000;      // D1 row ceiling (messages + source_sql + columns)
 const SHARE_MAX_CONTENT = 5_000;            // chars — per message content
 const SHARE_MAX_SQL = 10_000;               // chars — per message sql
+const SHARE_MAX_QUERIES = 20;               // lake queries kept per assistant turn
 const SHARE_MAX_REASONING = 20_000;         // chars — per message thinking trace
 const SHARE_MAX_TOOLS = 20;                 // tool entries per message
 const SHARE_MAX_TOOL_ARG = 2_000;           // chars — per tool args
@@ -2016,6 +2017,19 @@ function capShareTools(raw: unknown): Record<string, unknown>[] | undefined {
   return tools.length ? tools : undefined;
 }
 
+function capShareQueries(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const queries: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const sql = item.trim();
+    if (!sql || queries.includes(sql)) continue;
+    queries.push(sql.slice(0, SHARE_MAX_SQL));
+    if (queries.length >= SHARE_MAX_QUERIES) break;
+  }
+  return queries.length ? queries : undefined;
+}
+
 /**
  * Pass 2 — share-only tightening on top of the lake normalizer's output.
  * The shipped caps (20k chars, no byte budget) are looser than the D1 row
@@ -2041,6 +2055,8 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     const original = raw[index] && typeof raw[index] === "object" && !Array.isArray(raw[index])
       ? raw[index] as Record<string, unknown>
       : {};
+    const queries = capShareQueries(original.queries ?? rec.queries);
+    if (queries) out.queries = queries;
     // Reasoning may arrive on the lake-normalized message or only on the raw
     // client payload — keep whichever is present so share/timeline can show
     // the same Thinking disclosure as the live chat.
@@ -2099,7 +2115,10 @@ function normalizeShareRecord(pass1: Record<string, unknown>, rawMessages: unkno
     for (const m of [...messages].reverse()) delete m.frames;
   }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
-    for (const m of [...messages].reverse()) delete m.sql; // newest last to lose sql
+    for (const m of [...messages].reverse()) {
+      delete m.sql;
+      delete m.queries;
+    }
   }
   if (bytes() > SHARE_MESSAGES_MAX_BYTES) {
     for (const m of [...messages].reverse()) delete m.tools;

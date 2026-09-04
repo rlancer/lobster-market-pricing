@@ -30,6 +30,10 @@ test("coalesceAssistantShareTurns merges consecutive recovery assistants", () =>
   assert.equal(out[0].role, "user");
   assert.equal(out[1].role, "assistant");
   assert.equal(out[1].sql, "SELECT earnings_date FROM options.earnings WHERE symbol = 'UBER'");
+  assert.deepEqual(out[1].queries, [
+    "SELECT 1",
+    "SELECT earnings_date FROM options.earnings WHERE symbol = 'UBER'",
+  ]);
   assert.match(out[1].reasoning ?? "", /after recovery/);
   assert.equal(out[1].content, "(see reasoning)");
 });
@@ -67,6 +71,7 @@ test("coalesceAssistantMessageRecords heals stored multi-bubble shares", () => {
   ]);
   assert.equal(out.length, 2);
   assert.equal(out[1].sql, "SELECT b");
+  assert.deepEqual(out[1].queries, ["SELECT a", "SELECT b"]);
   assert.equal(out[1].reasoning, "second attempt");
   assert.deepEqual(out[1].result, { columns: ["b"], rows: [] });
 });

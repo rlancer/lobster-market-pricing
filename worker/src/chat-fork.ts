@@ -33,6 +33,7 @@ export type SeedableTurn = {
   content: string;
   reasoning?: string;
   sql?: string;
+  queries?: string[];
   chart?: unknown;
   desk?: unknown;
   trades?: unknown;
@@ -72,12 +73,16 @@ export function turnsFromShareMessages(raw: unknown): SeedableTurn[] {
     const content = typeof rec.content === "string" ? rec.content.trim() : "";
     const reasoning = typeof rec.reasoning === "string" ? rec.reasoning.trim() : "";
     const sql = typeof rec.sql === "string" ? rec.sql.trim() : "";
+    const queries = Array.isArray(rec.queries)
+      ? rec.queries.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
     const hasExtra = Boolean(
       rec.chart || rec.desk || rec.trades
       || (Array.isArray(rec.tools) && rec.tools.length)
       || (Array.isArray(rec.frames) && rec.frames.length)
       || reasoning
-      || sql,
+      || sql
+      || queries.length,
     );
     if (!content && !hasExtra) continue;
     const turn: SeedableTurn = {
@@ -86,6 +91,7 @@ export function turnsFromShareMessages(raw: unknown): SeedableTurn[] {
     };
     if (reasoning) turn.reasoning = reasoning;
     if (sql) turn.sql = sql;
+    if (queries.length) turn.queries = queries.slice(0, 20).map((item) => item.trim());
     if (rec.chart) turn.chart = rec.chart;
     if (rec.desk) turn.desk = rec.desk;
     if (rec.trades) turn.trades = rec.trades;
@@ -110,6 +116,7 @@ export function uiMessagesFromSeedTurns(turns: SeedableTurn[]): UIMessage[] {
       createdAt: turn.ts ?? Date.now(),
     };
     if (turn.sql) metadata.sql = turn.sql;
+    if (turn.queries?.length) metadata.queries = turn.queries;
     if (turn.chart) metadata.chart = turn.chart;
     if (turn.desk) metadata.desk = turn.desk;
     if (turn.trades) metadata.trades = turn.trades;

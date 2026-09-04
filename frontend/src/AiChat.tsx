@@ -62,6 +62,7 @@ import { AssistantMark } from './Sunglasses';
 import { type ChartSpec } from './Chart';
 import { MAX_RENDER_ROWS } from './QueryResultView';
 import { chartFitsResult, inferChartSpec, wantsChart } from './chartSpec';
+import { mergeSqlQueries } from './sqlQueries';
 import { ChatContextStrip, type FrameMetadata } from './ChatContextStrip';
 import { ChatRail } from './ChatRail';
 import { AssistantMessageBody } from './ChatTranscript';
@@ -114,6 +115,7 @@ const TOOL_LABELS: Record<string, string> = {
 
 interface Presentation {
   sql: string | null;
+  queries: string[];
   result: QueryResult | null;
   chart: ChartSpec | null;
   model: string;
@@ -127,6 +129,7 @@ interface ChatMetadata {
   createdAt: number;
   /** Restored from D1 history/share when the preview Durable Object is empty. */
   sql?: string | null;
+  queries?: string[] | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
@@ -147,6 +150,7 @@ interface Msg {
   role: 'user' | 'assistant';
   content: string;
   sql?: string | null;
+  queries?: string[];
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
@@ -180,9 +184,17 @@ interface ToolRow {
   summary: string;
 }
 
+const SQL_QUERY_TOOLS = new Set([
+  'run_query',
+  'check_schema',
+  'filter_frame',
+  'refresh_frame',
+]);
+
 function presentationFromMessage(message: ChatMessage): Presentation | null {
   const model = message.metadata?.model ?? '';
   let sql: string | null = null;
+  let queries: string[] = [];
   let result: QueryResult | null = null;
   let chart: ChartSpec | null = null;
   let frames: FrameMetadata[] = [];
@@ -195,10 +207,16 @@ function presentationFromMessage(message: ChatMessage): Presentation | null {
     const input = getToolInput(part);
     if (name === 'publish_desk' && isDeskBrief(input)) desk = input;
     if (name === 'suggest_trades' && isSuggestedTrades(input)) trades = input;
+    if (SQL_QUERY_TOOLS.has(name) && input && typeof input === 'object' && typeof (input as { sql?: unknown }).sql === 'string') {
+      queries = mergeSqlQueries(queries, [(input as { sql: string }).sql]);
+    }
     const output = getToolOutput(part);
     if (!output || typeof output !== 'object') continue;
     const candidate = output as ToolOutput;
-    if (candidate.sql) sql = candidate.sql;
+    if (candidate.sql) {
+      sql = candidate.sql;
+      if (SQL_QUERY_TOOLS.has(name)) queries = mergeSqlQueries(queries, [candidate.sql]);
+    }
     if (candidate.result) {
       result = candidate.result;
       if (chart && result.columns && !chartFitsResult(chart, result.columns)) chart = null;
@@ -209,9 +227,10 @@ function presentationFromMessage(message: ChatMessage): Presentation | null {
     if (isSuggestedTrades(candidate.trades)) trades = candidate.trades;
     if (candidate.sql || candidate.result || candidate.chart || candidate.frames || candidate.desk || candidate.trades) found = true;
   }
-  if (!found && !desk && !trades) return null;
+  queries = mergeSqlQueries(queries, message.metadata?.queries, sql ? [sql] : undefined);
+  if (!found && !desk && !trades && !queries.length) return null;
   if (chart && result?.columns && !chartFitsResult(chart, result.columns)) chart = null;
-  return { sql, result, chart, model, frames, desk, trades };
+  return { sql, queries, result, chart, model, frames, desk, trades };
 }
 
 function withChartFallback(message: Msg, question: string): Msg {
@@ -329,6 +348,9 @@ function projectMessage(message: ChatMessage): Msg | null {
     content,
     ...(reasoning ? { reasoning } : {}),
     sql: presentation?.sql ?? meta?.sql ?? null,
+    ...(presentation?.queries.length || meta?.queries?.length
+      ? { queries: mergeSqlQueries(presentation?.queries, meta?.queries, (presentation?.sql ?? meta?.sql) ? [presentation?.sql ?? meta?.sql ?? ''] : undefined) }
+      : {}),
     result: presentation?.result ?? meta?.result ?? null,
     chart,
     desk,
@@ -352,6 +374,7 @@ function backupToChatMessages(rows: ShareChatMessage[]): ChatMessage[] {
       model: '',
       createdAt: row.ts ?? Date.now(),
       ...(row.sql ? { sql: row.sql } : {}),
+      ...(row.queries?.length ? { queries: row.queries } : {}),
       ...(row.result ? { result: row.result } : {}),
       ...(row.chart ? { chart: row.chart as ChartSpec } : {}),
       ...(row.desk ? { desk: row.desk } : {}),
@@ -384,6 +407,7 @@ function projectTools(message: ChatMessage | undefined): ToolRow[] {
 /** DO turn-budget capture — source of truth when tool parts omit outputs. */
 type TurnCapture = {
   sql?: string | null;
+  queries?: string[] | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
@@ -459,7 +483,7 @@ function applyCaptureToShareMessages(
   const desk = isDeskBrief(capture.desk) ? capture.desk : null;
   const trades = isSuggestedTrades(capture.trades) ? capture.trades : null;
   const sql = typeof capture.sql === 'string' && capture.sql.trim() ? capture.sql.trim() : null;
-  if (!desk && !trades && !sql && !capture.chart && !capture.result) return turns;
+  if (!desk && !trades && !sql && !capture.chart && !capture.result && !capture.queries?.length) return turns;
   const out = turns.map((turn) => ({ ...turn }));
   let idx = -1;
   for (let i = out.length - 1; i >= 0; i--) {
@@ -471,6 +495,8 @@ function applyCaptureToShareMessages(
   if (idx < 0) return turns;
   const turn = out[idx];
   if (sql) turn.sql = sql;
+  const queries = mergeSqlQueries(turn.queries, capture.queries, sql ? [sql] : undefined);
+  if (queries.length) turn.queries = queries;
   if (desk) {
     turn.desk = desk;
     turn.content = desk.overview;
@@ -1086,6 +1112,7 @@ function AiChatSession({
         content: message.content,
         ...(message.reasoning ? { reasoning: message.reasoning } : {}),
         ...(message.sql ? { sql: message.sql } : {}),
+        ...(message.queries?.length ? { queries: message.queries } : {}),
         ...(message.ts ? { ts: message.ts } : {}),
         ...(message.result && !message.result.error ? {
           result: {
@@ -1522,6 +1549,7 @@ function AiChatSession({
                         content: message.content,
                         ...(message.reasoning ? { reasoning: message.reasoning } : {}),
                         ...(message.sql ? { sql: message.sql } : {}),
+                        ...(message.queries?.length ? { queries: message.queries } : {}),
                         ...(message.result && !message.result.error ? { result: message.result } : {}),
                         ...(message.chart ? { chart: message.chart } : {}),
                         ...(message.desk ? { desk: message.desk } : {}),

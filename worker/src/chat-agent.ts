@@ -50,7 +50,7 @@ import {
   formatSchwabPortfolioSummary,
   type SchwabPortfolioView,
 } from "./schwab-portfolio";
-import { extractShareTurns, applyCaptureToShareTurns, type ShareCapture, type ShareTurn } from "./share-turns";
+import { extractShareTurns, applyCaptureToShareTurns, mergeSqlQueries, type ShareCapture, type ShareTurn } from "./share-turns";
 import { looksLikeDsmlToolMarkup, parseDsmlToolCalls } from "./dsml";
 import { stripLeakedToolMarkup } from "./tool-markup";
 
@@ -135,6 +135,7 @@ interface StoredFrame extends FrameMetadata {
 
 interface Capture {
   sql: string | null;
+  queries?: string[];
   result: QueryResult | null;
   chart: ChartSpec | null;
   desk: DeskBrief | null;
@@ -175,6 +176,7 @@ interface ChatMetadata {
   scopeRejected?: boolean;
   /** Turn-budget capture mirrored onto finish metadata when tool parts omit outputs. */
   sql?: string | null;
+  queries?: string[] | null;
   result?: QueryResult | null;
   chart?: ChartSpec | null;
   desk?: DeskBrief | null;
@@ -636,6 +638,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
       content: string;
       reasoning?: string;
       sql?: string;
+      queries?: unknown;
       chart?: unknown;
       desk?: unknown;
       trades?: unknown;
@@ -661,6 +664,12 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
         createdAt: typeof turn.ts === "number" && Number.isFinite(turn.ts) ? turn.ts : Date.now(),
       };
       if (typeof turn.sql === "string" && turn.sql.trim()) metadata.sql = turn.sql.trim();
+      if (Array.isArray(turn.queries) && turn.queries.length) {
+        const queries = turn.queries
+          .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          .map((item) => item.trim());
+        if (queries.length) metadata.queries = queries;
+      }
       if (turn.chart) metadata.chart = turn.chart;
       if (turn.desk) metadata.desk = turn.desk;
       if (turn.trades) metadata.trades = turn.trades;
@@ -917,6 +926,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
 
   private setCapturedResult(capture: Capture, result: QueryResult, sql: string): void {
     capture.sql = sql;
+    capture.queries = mergeSqlQueries(capture.queries, [sql]);
     capture.result = result;
     if (capture.chart && (!result.columns.length || !chartFitsResult(capture.chart, result.columns))) {
       capture.chart = null;
@@ -1065,6 +1075,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
           if (errors.length) {
             const message = errors.map((issue) => issue.message).join(" ");
             noteQueryFailure();
+            capture.queries = mergeSqlQueries(capture.queries, [normalized.sql]);
             return this.output(false, `Schema validation failed: ${message}`, { error: message });
           }
           status("Running query…");
@@ -1091,6 +1102,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
         inputSchema: CHAT_TOOL_INPUT_SCHEMAS.check_schema,
         execute: async ({ sql }) => runTool("check_schema", TOOL_LABELS.check_schema, { sql }, () => {
           const normalized = applyColumnSynonyms(sql, tables);
+          capture.queries = mergeSqlQueries(capture.queries, [normalized.sql]);
           const issues = validateSqlSchema(normalized.sql, tables).map((issue) => `[${issue.severity}] ${issue.message}`);
           if (normalized.rewrites.length) {
             issues.unshift(`[info] Column synonyms applied: ${normalized.rewrites.join("; ")}`);
@@ -1641,6 +1653,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
               model: activeModel,
               createdAt: Date.now(),
               ...(capture.sql ? { sql: capture.sql } : {}),
+              ...(capture.queries?.length ? { queries: capture.queries } : {}),
               ...(capture.result ? { result: boundedResult(capture.result) } : {}),
               ...(capture.chart ? { chart: capture.chart } : {}),
               ...(capture.desk ? { desk: capture.desk } : {}),
