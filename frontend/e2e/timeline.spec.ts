@@ -768,7 +768,7 @@ test.describe('The Floor', () => {
       const url = new URL(page.url());
       return `${url.pathname}${url.search}`;
     }).toBe('/portfolio?book=schwab');
-    await expect(page.getByRole('tab', { name: 'Schwab' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Portfolio book' }).getByRole('button', { name: 'Schwab' })).toBeVisible();
 
     await page.goto('/');
     await expect(card).toBeVisible();
