@@ -23,7 +23,9 @@ import {
   optionLegDailyPath,
   optionSchwabBarsTrackExit,
   performanceFocusWindow,
+  positionMatchesQuery,
   positionTicker,
+  positionTickerOptions,
   tickerOpenMark,
   weekdayDates,
   type PnlInclude,
@@ -1192,4 +1194,87 @@ test('positionTicker prefers underlying then OCC root', () => {
     underlying: null,
     asset_type: 'OPTION',
   }), 'CAR');
+});
+
+test('positionMatchesQuery keeps the whole book when the search is empty', () => {
+  const row: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type' | 'description'> = {
+    symbol: 'AAPL',
+    underlying: null,
+    asset_type: 'EQUITY',
+    description: 'APPLE INC',
+  };
+  assert.equal(positionMatchesQuery(row, ''), true);
+  assert.equal(positionMatchesQuery(row, '  '), true);
+});
+
+test('positionMatchesQuery scopes equity and options on the same root', () => {
+  const equity: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type' | 'description'> = {
+    symbol: 'CAR',
+    underlying: null,
+    asset_type: 'EQUITY',
+    description: 'AVIS BUDGET GROUP',
+  };
+  const put: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type' | 'description'> = {
+    symbol: 'CAR   260618P00390000',
+    underlying: 'CAR',
+    asset_type: 'OPTION',
+    description: 'CAR Jun 18 2026 390 Put',
+  };
+  const other: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type' | 'description'> = {
+    symbol: 'AAPL',
+    underlying: null,
+    asset_type: 'EQUITY',
+    description: 'APPLE INC',
+  };
+  assert.equal(positionMatchesQuery(equity, 'car'), true);
+  assert.equal(positionMatchesQuery(put, 'CAR'), true);
+  assert.equal(positionMatchesQuery(other, 'CAR'), false);
+});
+
+test('positionTickerOptions groups option legs under the underlying root', () => {
+  const options = positionTickerOptions([
+    {
+      id: 'eq',
+      symbol: 'CAR',
+      underlying: null,
+      description: 'AVIS BUDGET GROUP',
+      asset_type: 'EQUITY',
+      quantity: 100,
+      average_price: 10,
+      market_value: 1200,
+      day_pnl: 0,
+      open_pnl: 200,
+    },
+    {
+      id: 'put',
+      symbol: 'CAR   260618P00390000',
+      underlying: 'CAR',
+      description: 'CAR Jun 18 2026 390 Put',
+      asset_type: 'OPTION',
+      quantity: -1,
+      average_price: 2,
+      market_value: 80,
+      day_pnl: 0,
+      open_pnl: -20,
+    },
+    {
+      id: 'aapl',
+      symbol: 'AAPL',
+      underlying: null,
+      description: 'APPLE INC',
+      asset_type: 'EQUITY',
+      quantity: 5,
+      average_price: 180,
+      market_value: 900,
+      day_pnl: 0,
+      open_pnl: 0,
+    },
+  ]);
+  assert.deepEqual(
+    options.map((row) => ({ ticker: row.ticker, count: row.count })),
+    [
+      { ticker: 'AAPL', count: 1 },
+      { ticker: 'CAR', count: 2 },
+    ],
+  );
 });

@@ -1118,6 +1118,46 @@ export function positionTicker(row: Pick<SchwabPortfolioPosition, 'symbol' | 'un
   return symbol;
 }
 
+/** True when a committed ticker search should keep this open position visible. */
+export function positionMatchesQuery(
+  row: Pick<SchwabPortfolioPosition, 'symbol' | 'underlying' | 'asset_type' | 'description'>,
+  query: string,
+): boolean {
+  const want = query.trim().toUpperCase();
+  if (!want) return true;
+  if (positionTicker(row) === want) return true;
+  if (row.symbol.trim().toUpperCase() === want) return true;
+  return false;
+}
+
+export type PositionTickerOption = {
+  ticker: string;
+  description: string | null;
+  count: number;
+};
+
+/** Unique roots from open positions, for the Schwab book typeahead. */
+export function positionTickerOptions(
+  positions: SchwabPortfolioPosition[],
+): PositionTickerOption[] {
+  const map = new Map<string, PositionTickerOption>();
+  for (const row of positions) {
+    const ticker = positionTicker(row);
+    const existing = map.get(ticker);
+    if (existing) {
+      existing.count += 1;
+      if (!existing.description && row.description) existing.description = row.description;
+    } else {
+      map.set(ticker, {
+        ticker,
+        description: row.description,
+        count: 1,
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
+}
+
 function positionMarkPnl(row: Pick<
   SchwabPortfolioPosition,
   'open_pnl' | 'market_value' | 'average_price' | 'quantity' | 'asset_type' | 'symbol'

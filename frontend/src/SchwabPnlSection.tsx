@@ -14,7 +14,10 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  Banner,
   Button,
+  EmptyState,
+  Heading,
   HStack,
   List,
   ListItem,
@@ -26,11 +29,16 @@ import {
   TabList,
   Text,
   Token,
+  ToggleButton,
+  ToggleButtonGroup,
   useMediaQuery,
   VStack,
+  MetadataList,
+  MetadataListItem,
 } from '@astryxdesign/core';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
+import { LineChart } from 'lucide-react';
 import {
   api,
   type OhlcBar,
@@ -209,16 +217,27 @@ type LegDailyTableRow = LegDailyPoint & Record<string, unknown>;
 export function SchwabPnlSection({
   accountId,
   initialSymbol = '',
+  symbol: controlledSymbol,
+  onSymbolChange,
+  hideSymbolInput = false,
   positions = [],
 }: {
   accountId: string | null;
   /** Root ticker from a position click (`CAR`, not the OCC symbol). */
   initialSymbol?: string;
+  /** Controlled root ticker. When set, the parent owns search/filter state. */
+  symbol?: string;
+  onSymbolChange?: (symbol: string) => void;
+  /** Hide the local ticker field when the parent already renders search. */
+  hideSymbolInput?: boolean;
   positions?: SchwabPortfolioPosition[];
 }) {
   const [range, setRange] = useState<SchwabPnlRange>('YTD');
-  const [symbolDraft, setSymbolDraft] = useState(initialSymbol);
-  const [symbol, setSymbol] = useState(initialSymbol.trim().toUpperCase());
+  const isControlled = controlledSymbol !== undefined;
+  const [internalDraft, setInternalDraft] = useState(initialSymbol);
+  const [internalSymbol, setInternalSymbol] = useState(initialSymbol.trim().toUpperCase());
+  const symbolDraft = isControlled ? (controlledSymbol ?? '') : internalDraft;
+  const symbol = (isControlled ? controlledSymbol : internalSymbol).trim().toUpperCase();
   const [include, setInclude] = useState<PnlInclude>(DEFAULT_PNL_INCLUDE);
   const [points, setPoints] = useState<SchwabPnlPoint[]>([]);
   const [summary, setSummary] = useState<SchwabPnlResponse['summary'] | null>(null);
@@ -245,14 +264,21 @@ export function SchwabPnlSection({
   const isMobile = useMediaQuery('(max-width: 47.99rem)');
 
   useEffect(() => {
+    if (isControlled) return;
     const next = initialSymbol.trim().toUpperCase();
-    setSymbolDraft(next);
-    setSymbol(next);
-  }, [initialSymbol]);
+    setInternalDraft(next);
+    setInternalSymbol(next);
+  }, [initialSymbol, isControlled]);
 
   const applySymbol = useCallback((raw: string) => {
-    setSymbol(raw.trim().toUpperCase());
-  }, []);
+    const next = raw.trim().toUpperCase();
+    if (isControlled) {
+      onSymbolChange?.(next);
+      return;
+    }
+    setInternalSymbol(next);
+    setInternalDraft(next);
+  }, [isControlled, onSymbolChange]);
 
   const load = useCallback(async (
     nextRange: SchwabPnlRange,
@@ -537,11 +563,15 @@ export function SchwabPnlSection({
   const periodStart = windowLabel?.split(' → ')[0] ?? 'this period';
   const tickerLabel = symbol || 'this account';
 
-  const toggleInclude = (key: keyof PnlInclude) => {
-    setInclude((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      if (!next.stocks && !next.options && !next.dividends && !next.fees) return prev;
-      return next;
+  const includeKeys = (['stocks', 'options', 'dividends', 'fees'] as const)
+    .filter((key) => include[key]);
+  const setIncludeKeys = (keys: string[]) => {
+    if (keys.length === 0) return;
+    setInclude({
+      stocks: keys.includes('stocks'),
+      options: keys.includes('options'),
+      dividends: keys.includes('dividends'),
+      fees: keys.includes('fees'),
     });
   };
   const revealLeg = (id: string) => {
@@ -556,44 +586,61 @@ export function SchwabPnlSection({
 
   return (
     <VStack gap={4} className="portfolio-pnl-section">
-      <Text type="supporting">
-        {symbol
-          ? `Full ${symbol} P&L — realized stock and options on that root, plus the live open mark.`
-          : 'Realized P&L for the whole account.'}
-        {' '}
-        Type a ticker to unify equity and option fills (for example CAR).
-        Include chips choose what lands on the chart — stocks, options,
-        dividends, and/or fees. Deposits and withdrawals stay off the curve.
-        {' '}
-        <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
-      </Text>
+      {hideSymbolInput ? null : (
+        <Text type="supporting">
+          {symbol
+            ? `Full ${symbol} P&L — realized stock and options on that root, plus the live open mark.`
+            : 'Realized P&L for the whole account.'}
+          {' '}
+          Type a ticker to unify equity and option fills (for example CAR).
+          Include chips choose what lands on the chart — stocks, options,
+          dividends, and/or fees. Deposits and withdrawals stay off the curve.
+          {' '}
+          <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
+        </Text>
+      )}
 
       <HStack gap={3} wrap="wrap" align="end" justify="between">
-        <HStack gap={3} wrap="wrap" align="end">
-          <TextInput
-            label="Ticker"
+        {hideSymbolInput ? (
+          <ToggleButtonGroup
+            type="multiple"
             size="sm"
-            width={140}
-            value={symbolDraft}
-            onChange={(v: string) => setSymbolDraft(v.toUpperCase())}
-            placeholder="CAR"
-            isOptional
-            hasClear
-            onKeyDown={(e: { key: string; preventDefault: () => void }) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                applySymbol(symbolDraft);
-              }
-            }}
-          />
-          <Button
-            size="sm"
-            variant="primary"
-            label={loading ? 'Loading…' : 'Apply'}
-            isDisabled={loading}
-            onClick={() => applySymbol(symbolDraft)}
-          />
-        </HStack>
+            label="Include in performance"
+            value={[...includeKeys]}
+            onChange={setIncludeKeys}
+          >
+            <ToggleButton value="stocks" label="Stocks" />
+            <ToggleButton value="options" label="Options" />
+            <ToggleButton value="dividends" label="Dividends" />
+            <ToggleButton value="fees" label="Fees" />
+          </ToggleButtonGroup>
+        ) : (
+          <HStack gap={3} wrap="wrap" align="end">
+            <TextInput
+              label="Ticker"
+              size="sm"
+              width={140}
+              value={symbolDraft}
+              onChange={(v: string) => setInternalDraft(v.toUpperCase())}
+              placeholder="CAR"
+              isOptional
+              hasClear
+              onKeyDown={(e: { key: string; preventDefault: () => void }) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applySymbol(symbolDraft);
+                }
+              }}
+            />
+            <Button
+              size="sm"
+              variant="primary"
+              label={loading ? 'Loading…' : 'Apply'}
+              isDisabled={loading}
+              onClick={() => applySymbol(symbolDraft)}
+            />
+          </HStack>
+        )}
         <TabList
           size="sm"
           aria-label="PnL range"
@@ -606,22 +653,20 @@ export function SchwabPnlSection({
         </TabList>
       </HStack>
 
-      <HStack gap={2} wrap="wrap" role="group" aria-label="Include in performance">
-        {([
-          ['stocks', 'Stocks'],
-          ['options', 'Options'],
-          ['dividends', 'Dividends'],
-          ['fees', 'Fees'],
-        ] as const).map(([key, label]) => (
-          <Button
-            key={key}
-            size="sm"
-            variant={include[key] ? 'primary' : 'ghost'}
-            label={label}
-            onClick={() => toggleInclude(key)}
-          />
-        ))}
-      </HStack>
+      {hideSymbolInput ? null : (
+        <ToggleButtonGroup
+          type="multiple"
+          size="sm"
+          label="Include in performance"
+          value={[...includeKeys]}
+          onChange={setIncludeKeys}
+        >
+          <ToggleButton value="stocks" label="Stocks" />
+          <ToggleButton value="options" label="Options" />
+          <ToggleButton value="dividends" label="Dividends" />
+          <ToggleButton value="fees" label="Fees" />
+        </ToggleButtonGroup>
+      )}
 
       <HStack gap={3} wrap="wrap" justify="between" align="end">
         <VStack gap={0}>
@@ -629,7 +674,8 @@ export function SchwabPnlSection({
             {range} · {tickerLabel}
           </Text>
           <Text
-            weight="semibold"
+            type="display-3"
+            weight="bold"
             hasTabularNumbers
             className={`portfolio-stat portfolio-pnl-${pnlTone(periodPnl)}`}
           >
@@ -642,30 +688,31 @@ export function SchwabPnlSection({
       </HStack>
 
       {error ? (
-        <Text className="portfolio-error" role="alert">{error}</Text>
+        <Banner status="error" title="Could not load Schwab performance" description={error} />
       ) : null}
 
       {lookbackTruncated ? (
-        <Text type="supporting" role="status">
-          Complete cost basis was unavailable from Schwab history. Closes of
-          positions opened before the available lookback may be missing from
-          realized PnL.
-        </Text>
+        <Banner
+          status="warning"
+          title="Incomplete cost basis"
+          description="Closes of positions opened before the available Schwab lookback may be missing from realized PnL."
+        />
       ) : null}
 
       {mayBeTruncated ? (
-        <Text type="supporting">
-          Schwab may have truncated trade history (~3000 rows). Some closes may
-          lack cost basis in this window.
-        </Text>
+        <Banner
+          status="warning"
+          title="Trade history may be truncated"
+          description="Schwab may have truncated trade history (~3000 rows). Some closes may lack cost basis in this window."
+        />
       ) : null}
 
       {(summary?.unmatched_close_count ?? 0) > 0 ? (
-        <Text type="supporting">
-          {summary!.unmatched_close_count.toLocaleString()} closing trade
-          {summary!.unmatched_close_count === 1 ? '' : 's'} in this window lacked
-          a matching open and were excluded from realized PnL.
-        </Text>
+        <Banner
+          status="info"
+          title={`${summary!.unmatched_close_count.toLocaleString()} unmatched close${summary!.unmatched_close_count === 1 ? '' : 's'}`}
+          description="Those trades lacked a matching open in this window and were excluded from realized PnL."
+        />
       ) : null}
 
       {loading && points.length === 0 && activity.length === 0 ? (
@@ -673,10 +720,13 @@ export function SchwabPnlSection({
           <Spinner size="md" label="Loading Schwab PnL" />
         </HStack>
       ) : !hasActivity ? (
-        <Text type="supporting">
-          No {symbol ? `${symbol} ` : ''}activity in this period for the
-          selected sleeves.
-        </Text>
+        <EmptyState
+          headingLevel={3}
+          isCompact
+          icon={<LineChart size={24} />}
+          title={symbol ? `No ${symbol} activity in this period` : 'No activity in this period'}
+          description="Try another range or turn on a different sleeve — stocks, options, dividends, or fees."
+        />
       ) : (
         <Section variant="muted" padding={3}>
           <VStack gap={3} className="portfolio-pnl-chart">
@@ -823,16 +873,14 @@ export function SchwabPnlSection({
       )}
 
       {summary && !loading ? (
-        <HStack gap={6} wrap="wrap" className="portfolio-summary">
-          <VStack gap={0}>
-            <Text type="supporting" size="sm">Activity</Text>
+        <MetadataList orientation="horizontal" label={{ position: 'top' }}>
+          <MetadataListItem label="Activity">
             <Text hasTabularNumbers weight="semibold">
               {activity.length.toLocaleString()}
             </Text>
-          </VStack>
+          </MetadataListItem>
           {include.stocks ? (
-            <VStack gap={0}>
-              <Text type="supporting" size="sm">Stocks</Text>
+            <MetadataListItem label="Stocks">
               <Text
                 hasTabularNumbers
                 weight="semibold"
@@ -840,11 +888,10 @@ export function SchwabPnlSection({
               >
                 {moneySigned(totals.stocks)}
               </Text>
-            </VStack>
+            </MetadataListItem>
           ) : null}
           {include.options ? (
-            <VStack gap={0}>
-              <Text type="supporting" size="sm">Options</Text>
+            <MetadataListItem label="Options">
               <Text
                 hasTabularNumbers
                 weight="semibold"
@@ -852,11 +899,10 @@ export function SchwabPnlSection({
               >
                 {moneySigned(totals.options)}
               </Text>
-            </VStack>
+            </MetadataListItem>
           ) : null}
           {include.dividends ? (
-            <VStack gap={0}>
-              <Text type="supporting" size="sm">Dividends</Text>
+            <MetadataListItem label="Dividends">
               <Text
                 hasTabularNumbers
                 weight="semibold"
@@ -864,13 +910,12 @@ export function SchwabPnlSection({
               >
                 {moneySigned(totals.dividends)}
               </Text>
-            </VStack>
+            </MetadataListItem>
           ) : null}
           {include.fees ? (
-            <VStack gap={0}>
-              <Text type="supporting" size="sm">
-                {include.stocks || include.options ? 'Fees (in trading)' : 'Fees'}
-              </Text>
+            <MetadataListItem
+              label={include.stocks || include.options ? 'Fees (in trading)' : 'Fees'}
+            >
               <Text
                 hasTabularNumbers
                 weight="semibold"
@@ -878,11 +923,10 @@ export function SchwabPnlSection({
               >
                 {moneySigned(totals.fees)}
               </Text>
-            </VStack>
+            </MetadataListItem>
           ) : null}
           {summary.prior_open_pnl !== 0 ? (
-            <VStack gap={0}>
-              <Text type="supporting" size="sm">Prior-lot closes</Text>
+            <MetadataListItem label="Prior-lot closes">
               <Text
                 hasTabularNumbers
                 weight="semibold"
@@ -890,9 +934,9 @@ export function SchwabPnlSection({
               >
                 {moneySigned(summary.prior_open_pnl)}
               </Text>
-            </VStack>
+            </MetadataListItem>
           ) : null}
-        </HStack>
+        </MetadataList>
       ) : null}
 
       {summary && summary.prior_open_pnl !== 0 && !loading ? (
@@ -907,7 +951,7 @@ export function SchwabPnlSection({
         <Section variant="muted" padding={3}>
           <VStack gap={3} className="portfolio-leg-audit">
             <VStack gap={0}>
-              <Text weight="semibold">Option leg audit · daily MTM</Text>
+              <Heading level={3}>Option leg audit · daily MTM</Heading>
               <Text type="supporting">
                 Select a leg to see the exact session marks used by the
                 Performance curve. This is mark-to-market timing, not a second
@@ -1035,9 +1079,9 @@ export function SchwabPnlSection({
 
       {!loading && activityRows.length > 0 ? (
         <VStack gap={2} className="portfolio-pnl-breakdown">
-          <Text weight="semibold">
+          <Heading level={3}>
             {symbol ? `${symbol} activity` : 'Activity'}
-          </Text>
+          </Heading>
           <Text type="supporting">
             FIFO realized is the cash and cost-basis result recorded when a lot
             closes. Daily MTM in the leg audit above explains when that value

@@ -112,8 +112,8 @@ export function SchwabTradesSection({
     <VStack gap={4}>
       <Text type="supporting">
         Live TRADE history from Schwab (up to 366 days per request). A ticker
-        such as CAR includes that equity and options on the same root. Use
-        Performance for the realized PnL chart.
+        such as CAR includes that equity and options on the same root. The
+        Portfolio tab shows the realized PnL chart and open positions.
       </Text>
 
       <HStack gap={3} wrap="wrap" align="end">
