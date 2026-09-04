@@ -479,7 +479,9 @@ the feed (mobile and desktop): live index tape, the next high-impact macro
 print, and the latest `@nowlobster` desk takeaway, with Ask about the tape
 opening Chat against that snapshot. The card is a precomputed Worker snapshot
 (`GET /api/timeline/session`) so the homepage does not wait on lake or calendar
-queries. On desktop it also adds a companion
+queries. Each public post is also a card — a discrete conversation (share /
+reply / unpublish) stacked with the same gap as Session, not a divider row.
+On desktop the Floor also adds a companion
 column (tags from public posts, breaking news, index tape) and hides that
 rail below `56rem`. Per-handle profiles at
 `/u/{handle}` reuse the same companion column next to that author's public

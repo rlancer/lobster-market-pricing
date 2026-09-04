@@ -41,8 +41,6 @@
 
 .timeline-post {
   width: 100%;
-  padding-block: var(--spacing-6);
-  border-bottom: var(--border-width) solid var(--color-border);
   animation: timeline-in var(--duration-medium) var(--ease-standard) both;
 }
 
@@ -208,7 +206,7 @@
   background: linear-gradient(
     to bottom,
     transparent,
-    var(--color-background-body)
+    var(--color-background-card)
   );
 }
 
@@ -365,10 +363,6 @@
 }
 
 @media (max-width: 760px) {
-  .timeline-post {
-    padding-block: var(--spacing-5);
-  }
-
   .timeline-preview.is-clamped {
     max-height: calc(var(--size-element-lg) * 10);
   }

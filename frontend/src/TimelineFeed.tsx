@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Button,
+  Card,
   EmptyState,
   Heading,
   HStack,
@@ -169,7 +170,14 @@ export function TimelinePostRow({
   };
 
   return (
-    <VStack as="article" className="timeline-post" gap={4} aria-label={titleText}>
+    <Card
+      className="timeline-post"
+      padding={4}
+      width="100%"
+      role="article"
+      aria-label={titleText}
+    >
+      <VStack gap={4}>
       {/* 1. Identity + time — scan layer */}
       <HStack gap={2} vAlign="center" className="timeline-post-byline">
         {showAuthor && (
@@ -332,19 +340,22 @@ export function TimelinePostRow({
           )}
         </HStack>
       )}
-    </VStack>
+      </VStack>
+    </Card>
   );
 }
 
 export function TimelineFeedSkeleton() {
   return (
-    <VStack gap={0} className="timeline-feed" aria-hidden="true">
+    <VStack gap={5} className="timeline-feed" aria-hidden="true">
       {[0, 1, 2].map((index) => (
-        <VStack key={index} gap={3} className="timeline-post timeline-post-skeleton" paddingBlock={6}>
-          <Skeleton width="28%" height="var(--spacing-4)" index={index} />
-          <Skeleton width="92%" height="var(--spacing-4)" index={index} />
-          <Skeleton width="100%" height="calc(var(--size-element-lg) * 4)" radius={3} index={index} />
-        </VStack>
+        <Card key={index} className="timeline-post timeline-post-skeleton" padding={4} width="100%">
+          <VStack gap={3}>
+            <Skeleton width="28%" height="var(--spacing-4)" index={index} />
+            <Skeleton width="92%" height="var(--spacing-4)" index={index} />
+            <Skeleton width="100%" height="calc(var(--size-element-lg) * 4)" radius={3} index={index} />
+          </VStack>
+        </Card>
       ))}
     </VStack>
   );

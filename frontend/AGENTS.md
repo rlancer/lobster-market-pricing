@@ -33,6 +33,12 @@ MORE CLI:
   upgrade --apply    run after any @astryxdesign/core bump
 <!-- ASTRYX:END -->
 
+## Floor feed
+
+Floor posts are discrete conversations (share, reply, unpublish independently),
+not dense table rows — wrap each in `Card` (default variant). Session stays
+`variant="muted"` because it is a dashboard widget, not a post.
+
 ## Repo-wide workflow
 
 PR workflow, commit hygiene, and preview-link reporting live in the root
