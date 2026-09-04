@@ -9,6 +9,7 @@ import {
   TabList,
   Text,
   Token,
+  useMediaQuery,
   VStack,
 } from '@astryxdesign/core';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
@@ -19,22 +20,19 @@ import {
   type PaperPosition,
   type SchwabPortfolio,
   type SchwabPortfolioAccount,
-  type SchwabPortfolioPosition,
   type SchwabStatus,
 } from './api';
 import { authClient } from './auth';
 import { SignInEmptyState } from './SignInEmptyState';
 import { BotTradesSection } from './BotTradesSection';
-import { SchwabPnlSection } from './SchwabPnlSection';
+import { SchwabBookSection } from './SchwabBookSection';
 import { SchwabTradesSection } from './SchwabTradesSection';
-import { positionTicker } from './schwabPnlView';
 import { formatTradeLeg } from './SuggestedTrades';
 import './Portfolio.css';
 
 type PositionRow = PaperPosition & Record<string, unknown>;
-type SchwabPositionRow = SchwabPortfolioPosition & Record<string, unknown>;
 type BookMode = 'paper' | 'suggested' | 'schwab';
-type SchwabPane = 'positions' | 'performance' | 'trades';
+type SchwabPane = 'book' | 'trades';
 type StatusFilter = 'all' | 'open' | 'closed';
 type ConvictionFilter = 'all' | 'high' | 'medium' | 'low';
 
@@ -45,11 +43,6 @@ function money(n: number | null | undefined): string {
     currency: 'USD',
     maximumFractionDigits: 2,
   });
-}
-
-function qty(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return '—';
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
 function pnlTone(n: number | null | undefined): 'green' | 'red' | 'gray' {
@@ -93,8 +86,11 @@ export default function PortfolioPage() {
   const [schwabAccountId, setSchwabAccountId] = useState<string | null>(null);
   const [schwabNeedsConnect, setSchwabNeedsConnect] = useState(false);
   const [schwabNeedsReauth, setSchwabNeedsReauth] = useState(false);
-  const [schwabPane, setSchwabPane] = useState<SchwabPane>('positions');
-  const [schwabTicker, setSchwabTicker] = useState('');
+  const [schwabPane, setSchwabPane] = useState<SchwabPane>('book');
+  const isMobile = useMediaQuery('(max-width: 47.99rem)');
+  const pageGap = isMobile ? 3 : 5;
+  const pagePaddingBlock = isMobile ? 2 : 6;
+  const pagePaddingInline = isMobile ? 0 : 5;
 
   const loadPaper = useCallback(async (status: StatusFilter, conviction: ConvictionFilter) => {
     setLoading(true);
@@ -260,7 +256,6 @@ export default function PortfolioPage() {
     schwabBook?.accounts.find((a) => a.id === schwabAccountId)
     ?? schwabBook?.accounts[0]
     ?? null;
-  const schwabRows = (schwabAccount?.positions ?? []) as SchwabPositionRow[];
   const schwabSummary = schwabAccount
     ? {
         cash: schwabAccount.cash,
@@ -281,7 +276,12 @@ export default function PortfolioPage() {
 
   if (isPending) {
     return (
-      <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5}>
+      <VStack
+        className="portfolio-page"
+        gap={pageGap}
+        paddingBlock={pagePaddingBlock}
+        paddingInline={pagePaddingInline}
+      >
         <Spinner size="md" label="Loading session" />
       </VStack>
     );
@@ -297,17 +297,25 @@ export default function PortfolioPage() {
   }
 
   return (
-    <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5} maxWidth={1200}>
+    <VStack
+      className="portfolio-page"
+      gap={pageGap}
+      paddingBlock={pagePaddingBlock}
+      paddingInline={pagePaddingInline}
+      maxWidth={1200}
+    >
       <HStack gap={3} align="start" justify="between" wrap="wrap">
         <VStack gap={2}>
           <Heading level={1}>Portfolio</Heading>
-          <Text type="supporting">
-            Your paper book and linked Schwab accounts. Public bot
-            suggested-trade books stay on the Suggested trades tab.
-            Schedule a private{' '}
-            <Link to="/my-bots" className="portfolio-link">portfolio bot</Link>
-            {' '}to review risk on an interval.
-          </Text>
+          {isMobile ? null : (
+            <Text type="supporting">
+              Your paper book and linked Schwab accounts. Public bot
+              suggested-trade books stay on the Suggested trades tab.
+              Schedule a private{' '}
+              <Link to="/my-bots" className="portfolio-link">portfolio bot</Link>
+              {' '}to review risk on an interval.
+            </Text>
+          )}
         </VStack>
         <TabList
           size="sm"
@@ -392,7 +400,7 @@ export default function PortfolioPage() {
             />
           </VStack>
         ) : (
-          <VStack gap={4}>
+          <VStack gap={isMobile ? 3 : 4}>
             {(schwabBook?.accounts.length ?? 0) > 1 && schwabAccount ? (
               <TabList
                 size="sm"
@@ -410,196 +418,32 @@ export default function PortfolioPage() {
               </TabList>
             ) : null}
 
-            <HStack gap={2} wrap="wrap" justify="between" vAlign="center">
-              <TabList
-                size="sm"
-                aria-label="Schwab view"
-                value={schwabPane}
-                onChange={(value) => setSchwabPane(value as SchwabPane)}
-              >
-                <Tab value="positions" label="Positions" />
-                <Tab value="performance" label="Performance" />
-                <Tab value="trades" label="Trade history" />
-              </TabList>
-              {schwabPane === 'positions' ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  label="Refresh"
-                  isDisabled={loading}
-                  onClick={() => void loadSchwab()}
-                />
-              ) : null}
-            </HStack>
-
-            {schwabPane === 'trades' ? (
-              <SchwabTradesSection accountId={schwabAccount?.id ?? null} />
-            ) : schwabPane === 'performance' ? (
-              <SchwabPnlSection
-                accountId={schwabAccount?.id ?? null}
-                initialSymbol={schwabTicker}
-                positions={schwabAccount?.positions ?? []}
-              />
-            ) : (
-              <>
-            {schwabSummary ? (
-              <HStack gap={6} wrap="wrap" className="portfolio-summary">
-                <VStack gap={0}>
-                  <Text type="supporting" size="sm">Cash</Text>
-                  <Text weight="semibold" hasTabularNumbers className="portfolio-stat">
-                    {money(schwabSummary.cash)}
-                  </Text>
-                </VStack>
-                <VStack gap={0}>
-                  <Text type="supporting" size="sm">Equity</Text>
-                  <Text weight="semibold" hasTabularNumbers className="portfolio-stat">
-                    {money(schwabSummary.equity)}
-                  </Text>
-                </VStack>
-                <VStack gap={0}>
-                  <Text type="supporting" size="sm">Buying power</Text>
-                  <Text weight="semibold" hasTabularNumbers className="portfolio-stat">
-                    {money(schwabSummary.buying_power)}
-                  </Text>
-                </VStack>
-                <VStack gap={0}>
-                  <Text type="supporting" size="sm">Day PnL</Text>
-                  <Text
-                    weight="semibold"
-                    hasTabularNumbers
-                    className={`portfolio-stat portfolio-pnl-${pnlTone(schwabSummary.day_pnl)}`}
-                  >
-                    {money(schwabSummary.day_pnl)}
-                  </Text>
-                </VStack>
-                <VStack gap={0}>
-                  <Text type="supporting" size="sm">Open PnL</Text>
-                  <Text
-                    weight="semibold"
-                    hasTabularNumbers
-                    className={`portfolio-stat portfolio-pnl-${pnlTone(schwabSummary.open_pnl)}`}
-                  >
-                    {money(schwabSummary.open_pnl)}
-                  </Text>
-                </VStack>
-              </HStack>
-            ) : null}
-
-            {error ? (
-              <Text className="portfolio-error" role="alert">{error}</Text>
-            ) : null}
+            <TabList
+              size="sm"
+              aria-label="Schwab view"
+              value={schwabPane}
+              onChange={(value) => setSchwabPane(value as SchwabPane)}
+            >
+              <Tab value="book" label="Portfolio" />
+              <Tab value="trades" label="Trade history" />
+            </TabList>
 
             {loading && !schwabBook ? (
               <HStack gap={3} align="center" paddingBlock={8}>
                 <Spinner size="md" label="Loading Schwab portfolio" />
               </HStack>
-            ) : schwabRows.length === 0 ? (
-              <Text type="supporting">
-                {schwabAccount
-                  ? `No open positions in ${schwabAccount.account_number_masked}.`
-                  : 'No linked Schwab accounts returned.'}
-              </Text>
+            ) : schwabPane === 'trades' ? (
+              <SchwabTradesSection accountId={schwabAccount?.id ?? null} />
             ) : (
-              <Table
-                className="portfolio-table"
-                data={schwabRows}
-                idKey="id"
-                density="compact"
-                dividers="rows"
-                hasHover
-                textOverflow="truncate"
-                columns={[
-                  {
-                    key: 'symbol',
-                    header: 'Symbol',
-                    width: pixel(120),
-                    renderCell: (row) => (
-                      <VStack gap={1}>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          label={row.symbol}
-                          onClick={() => {
-                            setSchwabTicker(positionTicker(row));
-                            setSchwabPane('performance');
-                          }}
-                        />
-                        {row.description ? (
-                          <Text type="supporting" size="sm" className="portfolio-legs">
-                            {row.description}
-                          </Text>
-                        ) : null}
-                      </VStack>
-                    ),
-                  },
-                  {
-                    key: 'asset_type',
-                    header: 'Type',
-                    width: pixel(100),
-                    renderCell: (row) => (
-                      row.asset_type ? (
-                        <Token label={row.asset_type} color="gray" size="sm" />
-                      ) : (
-                        <Text type="supporting" size="sm">—</Text>
-                      )
-                    ),
-                  },
-                  {
-                    key: 'quantity',
-                    header: 'Qty',
-                    width: pixel(88),
-                    renderCell: (row) => (
-                      <Text hasTabularNumbers size="sm">{qty(row.quantity)}</Text>
-                    ),
-                  },
-                  {
-                    key: 'average_price',
-                    header: 'Avg',
-                    width: pixel(100),
-                    renderCell: (row) => (
-                      <Text hasTabularNumbers size="sm">{money(row.average_price)}</Text>
-                    ),
-                  },
-                  {
-                    key: 'market_value',
-                    header: 'Mark',
-                    width: proportional(1),
-                    renderCell: (row) => (
-                      <Text hasTabularNumbers size="sm">{money(row.market_value)}</Text>
-                    ),
-                  },
-                  {
-                    key: 'day_pnl',
-                    header: 'Day PnL',
-                    width: pixel(100),
-                    renderCell: (row) => (
-                      <Text
-                        hasTabularNumbers
-                        size="sm"
-                        className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
-                      >
-                        {money(row.day_pnl)}
-                      </Text>
-                    ),
-                  },
-                  {
-                    key: 'open_pnl',
-                    header: 'Open PnL',
-                    width: pixel(100),
-                    renderCell: (row) => (
-                      <Text
-                        hasTabularNumbers
-                        size="sm"
-                        className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
-                      >
-                        {money(row.open_pnl)}
-                      </Text>
-                    ),
-                  },
-                ]}
+              <SchwabBookSection
+                key={schwabAccount?.id ?? 'none'}
+                account={schwabAccount}
+                summary={schwabSummary}
+                positions={schwabAccount?.positions ?? []}
+                error={error}
+                loading={loading}
+                onRefresh={() => void loadSchwab()}
               />
-            )}
-              </>
             )}
           </VStack>
         )

@@ -140,7 +140,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
   { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
   { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; symbol matches equity and options on that root; ≤366 days)</> },
-  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Performance (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; ticker-scoped ohlc[] from Schwab Market Data on the connected token)</> },
+  { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Schwab (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; ticker-scoped ohlc[] from Schwab Market Data on the connected token)</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
   { method: 'GET', path: '/api/sectors', desc: 'Per-sector symbol count and average spot price' },
   { method: 'GET', path: '/api/underlyings', desc: 'Paginated underlyings (sector, q, limit, offset)' },
@@ -214,7 +214,7 @@ const SURFACES = [
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. Schwab adds Positions, Performance, and Trade history. A portfolio bot on /my-bots can review this book on a schedule.',
+    body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. Schwab opens on a combined Portfolio pane (performance chart plus open positions; search a ticker to scope both) with Trade history beside it. A portfolio bot on /my-bots can review this book on a schedule.',
   },
   {
     route: '/data',
@@ -576,9 +576,10 @@ export function DocsSchwabPnl() {
   return (
     <Section id="schwab-pnl" num="08" title="Schwab Performance">
       <p className="docs-lede">
-        After you connect Schwab, Portfolio has a Schwab book with Positions,
-        Performance, and Trade history. This page explains Performance — the
-        chart and tables on that pane — in the same language as the screen.
+        After you connect Schwab, Portfolio has a Schwab book with a combined
+        Portfolio pane (performance chart plus open positions) and Trade
+        history. This page explains Performance — the chart and tables on
+        that pane — in the same language as the screen.
       </p>
       <p className="docs-callout">
         <b>This is not your account balance over time.</b> The big number and the
@@ -602,17 +603,19 @@ export function DocsSchwabPnl() {
 
       <h3>Where to find it</h3>
       <p className="docs-lede">
-        Open <Link to="/portfolio">Portfolio</Link>, choose the Schwab tab, then
-        Performance. Connect Schwab from Account if you have not already.
+        Open <Link to="/portfolio">Portfolio</Link>, choose the Schwab tab.
+        The book opens on the performance chart and your open positions.
+        Connect Schwab from Account if you have not already.
       </p>
 
-      <h3>Ticker — stocks and options together</h3>
+      <h3>Search — stocks and options together</h3>
       <p className="docs-lede">
-        Leave Ticker blank for the whole account. Enter a root such as
+        Leave search blank for the whole account. Enter a root such as
         <b> CAR</b> to see that equity plus every option on CAR in one book —
-        the same FIFO matching and assignment rules, just scoped. Clicking a
-        symbol on Positions opens Performance with that root filled in
-        (an OCC option row uses the underlying, not the long option code).
+        the same FIFO matching and assignment rules, just scoped. The search
+        filters open positions to that root and scopes the chart. Clicking a
+        symbol in the positions table does the same (an OCC option row uses
+        the underlying, not the long option code).
       </p>
 
       <h3>Include chips</h3>
