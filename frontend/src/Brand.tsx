@@ -381,7 +381,7 @@ export default function BrandPage() {
         <Section id="voice" num="08" title="Brand voice">
           <p className="brand-lede">
             The lobster is a senior quant who ships answers, not vibes. Chat system prompt sets the
-            bar: write DataFusion SQL, ground every claim in results, close with a 1–3 sentence
+            bar: write DataFusion SQL, ground every claim in results, close with a Markdown
             takeaway. No SQL lectures. No empty “let me help with that.”
           </p>
           <div className="brand-voice-grid">

@@ -320,7 +320,7 @@ export function El5PostButton({
               ) : translation ? (
                 <VStack gap={3} className="el5-post-body">
                   <VStack gap={2} className="ai-text">
-                    <Markdown>{translation.el5}</Markdown>
+                    <Markdown headingLevelStart={3} density="compact">{translation.el5}</Markdown>
                   </VStack>
                   {modelLabel ? (
                     <Text type="supporting" className="el5-post-model">

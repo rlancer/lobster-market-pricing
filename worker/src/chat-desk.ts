@@ -65,6 +65,10 @@ export const DESK_SPECIALIST_SUMMARIES: Record<DeskViewpointId, string> = {
 export const DESK_OVERVIEW_SUMMARY =
   "Weighs agreement and disagreement across the active specialists only; states the net take and any tradable lean without burying fundamental, options, risk, or macro context under technicals.";
 
+/** Shared shape for desk takes, overviews, and the closing assistant message. */
+export const DESK_MARKDOWN_SHAPE =
+  "Write specialist takes, the overview, and the closing message as Markdown: short paragraphs separated by blank lines, **bold** for the lean and key numbers/levels, and bullets for catalysts, levels, or dates. Never one run-on sentence or a single wall of text. No code fences or tables. Optional ### subheads only.";
+
 /** Classic four-analyst core used when no route is supplied (macro stays routed). */
 export const DESK_CORE_VIEWPOINT_IDS: DeskViewpointId[] = [
   "fundamental",
@@ -79,10 +83,26 @@ const OVERVIEW_MAX_CHARS = 3_200;
 const VIEWPOINT_MIN_CHARS = 40;
 const OVERVIEW_MIN_CHARS = 40;
 
-function clip(text: string, max: number): string {
-  const trimmed = text.replace(/\s+/g, " ").trim();
+/**
+ * Bound length without flattening Markdown. Horizontal runs collapse;
+ * newlines and blank-line paragraphs stay so the UI can render lists
+ * and emphasis. Prefer a paragraph / line / word cut over a mid-token slice.
+ */
+export function clipDeskMarkdown(text: string, max: number): string {
+  const trimmed = text
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max - 1).trimEnd()}…`;
+  const slice = trimmed.slice(0, max - 1);
+  const para = slice.lastIndexOf("\n\n");
+  const line = slice.lastIndexOf("\n");
+  const word = slice.lastIndexOf(" ");
+  const minKeep = Math.floor(max * 0.55);
+  const cut = para >= minKeep ? para : line >= minKeep ? line : word;
+  const kept = (cut > 0 ? slice.slice(0, cut) : slice).trimEnd();
+  return `${kept}…`;
 }
 
 /** True for empty / tiny / explicit stub strings models emit under forced toolChoice. */
@@ -95,7 +115,7 @@ export function isDeskStubText(text: string): boolean {
 
 function readViewpoint(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const clipped = clip(value, VIEWPOINT_MAX_CHARS);
+  const clipped = clipDeskMarkdown(value, VIEWPOINT_MAX_CHARS);
   if (!clipped || isDeskStubText(clipped) || clipped.length < VIEWPOINT_MIN_CHARS) return undefined;
   return clipped;
 }
@@ -114,7 +134,7 @@ export function normalizeDeskBrief(
   input: DeskBriefInput,
   opts?: { required?: readonly DeskViewpointId[] },
 ): DeskBrief | null {
-  const overview = clip(String(input.overview ?? ""), OVERVIEW_MAX_CHARS);
+  const overview = clipDeskMarkdown(String(input.overview ?? ""), OVERVIEW_MAX_CHARS);
   if (!overview || isDeskStubText(overview) || overview.length < OVERVIEW_MIN_CHARS) return null;
 
   const required = opts?.required;
@@ -188,13 +208,15 @@ export function deskAnalystBlock(active?: readonly DeskViewpointId[]): string {
     ...specialistLines,
     `- Desk overview: ${DESK_OVERVIEW_SUMMARY}`,
     "",
+    DESK_MARKDOWN_SHAPE,
+    "",
     "Desk publishing:",
     `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence (private personal account bots answer directly in markdown).`,
     "- Omit inactive specialist fields entirely — do not send stub text (\"placeholder\", \"TBD\", \"N/A\") for specialists that are not active this turn.",
     "- Never put stub text (\"placeholder\", \"TBD\", \"TODO\") in publish_desk — incomplete desks are rejected and the turn stalls. Gather research_ticker / SQL / news first, then publish real takes.",
     "- Emit NO assistant prose (no status lines, no \"let me…\", no partial takes) until publish_desk has succeeded. Tool calls only until then.",
-    "- Keep each specialist take to roughly 2–5 sentences. The overview weighs where the active specialists agree or conflict and states the net take.",
-    "- After publish_desk, call suggest_trades (structured trades or empty + skip_reason), then the final message text must be ONLY the desk overview (1–4 sentences) — identical in substance to the overview field. Do not re-paste the specialist takes or the trade list into the prose; the UI already shows them from the tools.",
+    "- Keep each specialist take tight: a short lead plus 2–5 bullets or 2–4 short paragraphs. The overview weighs where the active specialists agree or conflict and states the net take in the same Markdown shape.",
+    "- After publish_desk, call suggest_trades (structured trades or empty + skip_reason), then the final message text must be ONLY the desk overview — identical Markdown to the overview field. Do not re-paste the specialist takes or the trade list into the prose; the UI already shows them from the tools.",
     "- Skip publish_desk only for pure schema/SQL mechanics, bare calendar lists, or off-analysis tool housekeeping.",
     "- Never overweight technical analysis: if price action is loud but fundamentals, options liquidity, risk, or macro disagree, say so in the overview.",
     "- Routing examples: single-name options chain (e.g. GME) → fundamental + technical + options + risk, not macro. Broad beta / rates ETFs (SPY, TLT) or Fed/CPI asks → include macro. Risk is always active — downside, sizing, and what breaks the thesis.",

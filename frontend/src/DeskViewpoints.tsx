@@ -58,7 +58,7 @@ export function DeskViewpoints({
               <span className="ai-desk-panel-hint">{viewpoint.hint}</span>
             </summary>
             <div className="ai-desk-panel-body">
-              <Markdown>{desk[viewpoint.id]!}</Markdown>
+              <Markdown headingLevelStart={3} density="compact">{desk[viewpoint.id]!}</Markdown>
             </div>
           </details>
         ))}
@@ -67,7 +67,7 @@ export function DeskViewpoints({
         <section className="ai-desk-overview" aria-label="Desk overview">
           <header className="ai-desk-overview-head">Overview</header>
           <div className="ai-desk-overview-body">
-            <Markdown>{desk.overview}</Markdown>
+            <Markdown headingLevelStart={3} density="compact">{desk.overview}</Markdown>
           </div>
         </section>
       ) : null}

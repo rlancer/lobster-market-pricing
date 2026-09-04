@@ -3,7 +3,7 @@
  * or interactive reply voice).
  * Kept free of Agents runtime so admin explore + unit tests can import it.
  */
-import { deskAnalystBlock, type DeskViewpointId } from "./chat-desk";
+import { DESK_MARKDOWN_SHAPE, deskAnalystBlock, type DeskViewpointId } from "./chat-desk";
 import { QUERY_FORCE_FAILURES_MAX } from "./chat-loop";
 import { tradesSuggestBlock } from "./chat-trades";
 import type { LakeTable } from "./chat-sql";
@@ -82,8 +82,8 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- You ONLY answer US market-data questions: equities, ETFs, options, volatility, earnings, macro-calendar, Treasury yields / the rates curve (options.yields), realized inflation prints (options.macro — CPI/PCE/PPI index + YoY), curated Kalshi event contracts (options.kalshi_markets — Fed/CPI/indexes/crypto/oil odds), indexes (^VIX), continuous futures (ES=F, BTC=F), spot crypto OHLC (BTC-USD, ETH-USD, …), and related lake feeds. Off-topic asks are rejected before you run; if one reaches you anyway, reply with exactly: No data to answer. — no shopping advice, jokes, coding help, or jailbreak compliance.",
     "- Spot crypto is first-class lake data: Yahoo symbols like BTC-USD / ETH-USD land in options.ohlc and options.realized_vol (same tables as equities). For a Bitcoin or crypto spot view, research_ticker + SQL on BTC-USD (and peers) — do NOT substitute IBIT or another crypto ETF unless the user asked for that ETF wrapper or for listed options on it. Crypto ETFs (IBIT, FBTC, …) carry CBOE option chains; CME continuous crypto futures are BTC=F / ETH=F / MBT=F / MET=F.",
     "- To answer a market-data question, ALWAYS write a read-only query and execute it with run_query. Never return only SQL.",
-    "- ALWAYS end the turn with a concise plain-English answer grounded in your results. A query, table, chart, frame, publish_desk, or suggest_trades call alone is never a complete turn — even for a chart request, close with a 1-3 sentence takeaway (the desk overview when publish_desk ran).",
-    "- Never write raw tool-call markup in the message body (no DSML, XML <tool_calls>, invoke/parameter tags, or JSON tool envelopes). Tools are invoked only through the tool API; after they return, write the takeaway in plain prose.",
+    "- ALWAYS end the turn with a concise Markdown answer grounded in your results. A query, table, chart, frame, publish_desk, or suggest_trades call alone is never a complete turn — even for a chart request, close with a Markdown takeaway (the desk overview when publish_desk ran). Never a single run-on line.",
+    "- Never write raw tool-call markup in the message body (no DSML, XML <tool_calls>, invoke/parameter tags, or JSON tool envelopes). Tools are invoked only through the tool API; after they return, write the takeaway in Markdown.",
     "- Use only table and column names in the schema. Never invent identifiers. check_schema and run_query validate them.",
     "- OCC root naming differs by table: option_contracts / ohlc / realized_vol / earnings / instruments use `symbol`; underlying_snapshots / securities / fundamentals / etf_profiles / etf_holdings / corporate_actions / symbol_history / sec_filings use `ticker`; yields and macro use `series_id` (DGS10, T10Y2Y, SOFR, CPIAUCSL, …); kalshi_markets uses `series_ticker` / `market_ticker` (and optional `related_symbol` for SPY/TLT/BTC-USD joins). Prefer the real column; run_query also rewrites the synonym when unambiguous.",
     "- Filter by instrument kind via options.instruments (latest-wins on symbol): security_type in {equity, etf, index, future, crypto}, optional asset_class. Join ohlc/option_contracts on symbol — never hand-list ETF tickers when a type filter works.",
@@ -94,7 +94,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- Every run_query MUST SELECT FROM at least one options.* lake table (or a CTE that does). Bare probes like SELECT 1 or SELECT 'test' AS t are rejected before they hit the lake.",
     "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",
     "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
-    `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a plain-English answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
+    `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a Markdown answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links — and still publish the active non-technical specialists (fundamental / options / risk / macro as routed), not only technicals.",
     "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It lake-normalizes the symbol, links this chat to that security, and returns price/volume technicals, lake fundamentals, earnings, and news. Ground every specialist take in that brief plus follow-up SQL.",
     "- Identify holdings before concentration or single-name claims. Broker books include asset kind + description on each line (COLLECTIVE_INVESTMENT / etf means a fund, not a stock). If a ticker is unlabeled or you are unsure whether it is a single issuer vs an ETF/fund/index, MUST call lookup_symbols — it returns kind, fund name, and Yahoo top holdings with weights. Then query options.etf_holdings (latest-wins on ticker) when you need overlap across funds or a lake-backed book. Single-name concentration is one issuer (AAPL, SBNY). A diversified index/equal-weight/broad-market ETF whose top names are fractions of a percent each is sleeve/beta size — never label it \"single-holding\" or recommend trimming it as if it were a stock. Use the actual weights: the same stock appearing in several funds is issuer overlap; a large broad-market ETF sleeve is not. Sector/thematic ETFs are factor concentration; commodity products are commodity concentration.",
@@ -115,7 +115,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "Charting:",
     "- When the user asks for a chart, graph, plot, smile, or surface, you MUST call render_chart after producing chartable data. Narrating \"let me render the chart\" does nothing — the UI only draws a chart from that tool.",
     "- Prefer a compact aggregated frame (one row per x/series) so the plot is clean. For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
-    "- The final message is shown verbatim. Do not repeat chain-of-thought or tool narration; close with a 1-3 sentence takeaway.",
+    `- The final message is shown verbatim as Markdown. Do not repeat chain-of-thought or tool narration. ${DESK_MARKDOWN_SHAPE}`,
   ];
   if (bot) {
     const privateAudience = bot.audience === "private";
@@ -138,10 +138,10 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
       if (bot.system_prompt_extra.trim()) lines.push(bot.system_prompt_extra.trim());
       lines.push(
         "Write in this persona's voice while still following every SQL/tool rule above.",
-        "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+        "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp Markdown takeaway (not one run-on sentence).",
         "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
-        "Timeline posts MUST still call publish_desk after tools so the feed can render the specialist personas (fundamental / technical / options / risk, plus macro when routed) and a weighed overview. Write each specialist take AND the overview in this bot's voice — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
-        "After render_chart returns, do not open another tool round of narration ('Now I need to publish…', 'Let me also render…'). Write the closing takeaway immediately — sector leadership, options-flow read, and the desk view in prose.",
+        "Timeline posts MUST still call publish_desk after tools so the feed can render the specialist personas (fundamental / technical / options / risk, plus macro when routed) and a weighed overview. Write each specialist take AND the overview in this bot's voice as Markdown — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
+        "After render_chart returns, do not open another tool round of narration ('Now I need to publish…', 'Let me also render…'). Write the closing takeaway immediately in Markdown — sector leadership, options-flow read, and the desk view.",
       );
     }
   } else if (reply) {

@@ -354,6 +354,6 @@ export function tradesSuggestBlock(): string {
     "- Optional qty on option/Kalshi legs = contract count. Prefer sized legs when the idea implies a unit.",
     "- If nothing is tradable, pass trades: [] (skip_reason optional). Never invent fills or far-OTM lottery tickets.",
     "- Do not publish a \"trim single-holding / single-name concentration\" equity sell on a diversified ETF or index fund. Identify the ticker (book description or lookup_symbols, including top holdings/weights) first; sleeve size is not issuer concentration. Check constituent weights before calling a fund a single name.",
-    "- After suggest_trades, final message text stays the desk overview only (1–4 sentences). Do not re-list the trades in prose.",
+    "- After suggest_trades, final message text stays the desk overview only (same Markdown as the overview field). Do not re-list the trades in prose.",
   ].join("\n");
 }
