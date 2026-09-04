@@ -138,6 +138,18 @@ domain (`https://dev.lobster.mp` → `https://api-dev.lobster.mp`) so the
 HttpOnly session cookie on `.lobster.mp` can ride; `pages.dev` is a different
 site and SameSite=Lax will not send it.
 
+## Walkthrough artifacts — keep demos light
+
+Prove the change works, but **do not default to a screen recording**. Videos
+are slow to capture and review; use them only when they add signal.
+
+- **Prefer** screenshots, shell/log excerpts, and unit/e2e output for copy
+  renames, docs, API-only work, and other small UI text or layout tweaks.
+- **Reserve screen recordings** for interactive UI flows — new surfaces,
+  multi-step flows, or regressions that need motion to understand.
+- Skip redundant artifacts. One clear screenshot (or green CI + a short log)
+  beats a long demo of the same state.
+
 ## Operational gotchas (learned the hard way — do not rediscover)
 
 - **The local wrangler OAuth token HAS Pipelines read+write** (stream/sink/
