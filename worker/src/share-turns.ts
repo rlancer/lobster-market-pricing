@@ -180,11 +180,11 @@ export function coalesceAssistantShareTurns(turns: ShareTurn[]): ShareTurn[] {
     }
     const prev = out[out.length - 1];
     if (prev?.role === "assistant") {
-      out[out.length - 1] = mergeAssistantShareTurns(prev, turn);
+      out[out.length - 1] = promoteReasoningTakeaway(mergeAssistantShareTurns(prev, turn));
       continue;
     }
     if (!assistantShareTurnHasSubstance(turn)) continue;
-    out.push(turn);
+    out.push(promoteReasoningTakeaway(turn));
   }
   return out;
 }
@@ -192,7 +192,8 @@ export function coalesceAssistantShareTurns(turns: ShareTurn[]): ShareTurn[] {
 /**
  * Same coalesce for stored share/timeline JSON rows ({role, content, …}).
  * Used on share write + public read so existing multi-bubble shares heal.
- * Also recovers DeepSeek DSML tool markup left in assistant content.
+ * Also recovers DeepSeek DSML tool markup left in assistant content, and
+ * promotes substantive reasoning when the content channel is interim/meta.
  */
 export function coalesceAssistantMessageRecords(messages: unknown): Record<string, unknown>[] {
   if (!Array.isArray(messages)) return [];
@@ -207,13 +208,13 @@ export function coalesceAssistantMessageRecords(messages: unknown): Record<strin
       out.push(rec);
       continue;
     }
-    const asTurn = healShareTurnFromDsml(shareTurnFromRecord(rec));
+    const asTurn = promoteReasoningTakeaway(healShareTurnFromDsml(shareTurnFromRecord(rec)));
     // Write healed desk/content back onto the record before merge / push.
     Object.assign(rec, recordFromShareTurn(asTurn, rec.result));
     const prev = out[out.length - 1];
     if (prev?.role === "assistant") {
-      const earlier = healShareTurnFromDsml(shareTurnFromRecord(prev));
-      const merged = mergeAssistantShareTurns(earlier, asTurn);
+      const earlier = promoteReasoningTakeaway(healShareTurnFromDsml(shareTurnFromRecord(prev)));
+      const merged = promoteReasoningTakeaway(mergeAssistantShareTurns(earlier, asTurn));
       const next = recordFromShareTurn(
         merged,
         rec.result != null ? rec.result : prev.result,
@@ -345,17 +346,47 @@ function toolPartName(part: { type?: unknown }): string {
 }
 
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
+/** Leading voice of tool-loop / planning scratch — not a reader-facing takeaway. */
 const REASONING_SCRATCH =
-  /^(?:plan of tool|batch\s*\d|tool calls?|actually[, ]|hmm[, ]|alternatively[, ]|wait[, ]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup)|now[, ]|the private account|given the task|should i call)/i;
+  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need)\b/i;
 const REASONING_UNFINISHED =
-  /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft)|i(?:'ll| will) (?:query|check|pull|run|write)|i need to)\b/i;
+  /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft|verify|also)|i(?:'ll| will) (?:query|check|pull|run|write|keep|skip)|i need to|now write the|deliver the actions|briefing is the deliver)\b/i;
+/** Mid-reasoning meta that sometimes leaks into the visible content channel. */
+const TOOL_SKIP_META =
+  /\bi don'?t need\b|\bno need to (?:call|run|query|pull|fetch|use)\b|\bskip(?:ping)? (?:the )?(?:eco_)?calendar\b/i;
+/** Planning / seal intent still sitting in the reasoning stream. */
+const REASONING_PLANNING_META =
+  /\b(?:suggest_trades is optional|no publish_desk|private bot guidance|prose-only|over-tooling|write the (?:direct )?markdown briefing|briefing is the deliver|keep it prose)\b/i;
+/** First trailing candidate must look sealed — not cut off mid-word. */
+const SEALED_PARA_TAIL = /[.!?…]["')\]]*\s*$/;
 
-export function isInterimToolNarration(text: string): boolean {
+/** Bullet / numbered / labeled analysis often omits a final period. */
+function looksSealedOrStructured(para: string): boolean {
+  if (SEALED_PARA_TAIL.test(para)) return true;
+  if (/(?:^|\n)\s*(?:[-*•]|\d+\.)\s+\S/m.test(para)) return true;
+  if (/^[A-Z][^:\n]{1,48}:\s*\S/m.test(para)) return true;
+  return false;
+}
+
+export function isInterimToolNarration(text: string, reasoning = ""): boolean {
   const trimmed = text.trim();
   if (!trimmed) return true;
   if (PLACEHOLDER_SHARE_CONTENT.test(trimmed)) return true;
   if (REASONING_UNFINISHED.test(trimmed)) return true;
+  if (TOOL_SKIP_META.test(trimmed)) return true;
+  if (REASONING_SCRATCH.test(trimmed)) return true;
   if (/(?:let me|i'll|i will)\s+[a-z0-9_ -]+[.!?]?$/i.test(trimmed)) return true;
+  // Content channel sometimes gets a verbatim reasoning paragraph (share gpAJwLq…).
+  const reason = reasoning.trim();
+  if (reason.length >= 200 && trimmed.length < reason.length && reason.includes(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function isReasoningScratchPara(para: string): boolean {
+  if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) return true;
+  if (TOOL_SKIP_META.test(para) || REASONING_PLANNING_META.test(para)) return true;
   return false;
 }
 
@@ -370,7 +401,7 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   const content = (turn.content ?? "").trim();
   const reasoning = (turn.reasoning ?? "").trim();
   if (!reasoning) return turn;
-  if (content && !isInterimToolNarration(content) && content.length >= 40) return turn;
+  if (content && !isInterimToolNarration(content, reasoning) && content.length >= 40) return turn;
 
   const paras = reasoning
     .split(/\n\s*\n/)
@@ -384,11 +415,12 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
       if (substantive.length > 0) break;
       continue;
     }
-    if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) {
+    if (isReasoningScratchPara(para)) {
       if (substantive.length > 0) break;
       continue;
     }
-    if (substantive.length === 0 && !/[.!?…:\-)\]"'%a-z0-9]\s*$/i.test(para)) {
+    // Skip trailing cut-offs ("the briefing is the deliver") before collecting.
+    if (substantive.length === 0 && !looksSealedOrStructured(para)) {
       continue;
     }
     substantive.unshift(para);
