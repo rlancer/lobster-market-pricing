@@ -85,8 +85,12 @@ test.describe('The Floor', () => {
     await expect(post.getByLabel('Conversation')).toContainText('Liquidity looks thin across the near-dated SPY call board.');
     // Share control is always available even when the title is hidden.
     await expect(post.getByRole('button', { name: 'Share post' })).toBeVisible();
-    // Follow-up uses ChatComposer (send inside the field); sign-in only after submit.
-    const followUp = post.getByRole('region', { name: 'Ask a follow-up' });
+    // Reply icon beside EL5 opens a follow-up popover; sign-in only after submit.
+    const reply = post.getByRole('button', { name: 'Reply' });
+    await expect(reply).toBeVisible();
+    await expect(post.getByRole('textbox', { name: 'Message input' })).toHaveCount(0);
+    await reply.click();
+    const followUp = page.getByRole('dialog', { name: 'Ask a follow-up' });
     await expect(followUp).toBeVisible();
     const followInput = followUp.getByRole('textbox', { name: 'Message input' });
     await expect(followInput).toBeVisible();

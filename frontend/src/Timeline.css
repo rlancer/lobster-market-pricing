@@ -73,7 +73,8 @@
 }
 
 .timeline-post-tags .post-share,
-.timeline-post-tags .el5-post {
+.timeline-post-tags .el5-post,
+.timeline-post-tags .timeline-reply {
   flex-shrink: 0;
 }
 
@@ -292,6 +293,11 @@
 .timeline-followup {
   width: 100%;
   padding-block-start: var(--spacing-1);
+}
+
+.timeline-followup-popover {
+  width: 100%;
+  min-width: 0;
 }
 
 .timeline-author-link:hover {

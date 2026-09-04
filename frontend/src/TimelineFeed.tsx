@@ -231,6 +231,11 @@ export function TimelinePostRow({
         )}
         <HStack gap={1} vAlign="center" className="timeline-post-actions">
           <El5PostButton shareId={post.share_id} title={titleText} />
+          <TimelineFollowUp
+            shareId={post.share_id}
+            postHandle={post.handle}
+            variant="popover"
+          />
           <PostShareButton url={post.url} title={titleText} />
         </HStack>
       </HStack>
@@ -283,10 +288,7 @@ export function TimelinePostRow({
         </FeedPreview>
       )}
 
-      {/* 5. Follow-up — fork into your own chat (login + handle required) */}
-      <TimelineFollowUp shareId={post.share_id} postHandle={post.handle} />
-
-      {/* 6. Supporting meta — technical flags + moderation */}
+      {/* 5. Supporting meta — technical flags + moderation */}
       {(post.has_sql || post.has_chart || post.model || isAdmin) && (
         <HStack gap={3} vAlign="center" className="timeline-post-meta">
           {(post.has_sql || post.has_chart || post.model) && (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
@@ -10,10 +10,12 @@ import {
   Layout,
   LayoutContent,
   LayoutFooter,
+  Popover,
   Text,
   VStack,
 } from '@astryxdesign/core';
 import { ChatComposerInput } from '@astryxdesign/core/Chat';
+import { MessageCircleReply } from 'lucide-react';
 import { api, type ProfileMe } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import {
@@ -29,19 +31,23 @@ import { HandleField } from './HandleField';
 import { handleInputError, normalizeHandleInput } from './handle';
 
 /**
- * Compact ChatComposer follow-up — send lives inside the field, same as /chat.
- * Sign-in / handle claim only open after submit.
+ * Follow-up composer that forks a public share into the reader’s own chat.
+ * Floor posts use `variant="popover"` (reply icon beside EL5); /share keeps
+ * the inline composer. Sign-in / handle claim only open after submit.
  */
 export function TimelineFollowUp({
   shareId,
   postHandle,
   continuePrompt = null,
+  variant = 'inline',
 }: {
   shareId: string;
   /** Timeline post author — used only for copy; fork attribution comes from the API. */
   postHandle?: string;
   /** When the shared answer sealed empty after tools, offer Continue with this finish prompt. */
   continuePrompt?: string | null;
+  /** Floor feed: icon + popover. Share page: always-visible composer. */
+  variant?: 'inline' | 'popover';
 }) {
   const navigate = useNavigate();
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -56,6 +62,7 @@ export function TimelineFollowUp({
   const [handleDraft, setHandleDraft] = useState('');
   const [handleError, setHandleError] = useState<string | null>(null);
   const [handleSaving, setHandleSaving] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const resumeTriedRef = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
 
@@ -104,6 +111,7 @@ export function TimelineFollowUp({
       setValue('');
       setSignInOpen(false);
       setHandleOpen(false);
+      setPopoverOpen(false);
       void navigate({
         to: '/chat/$chatId',
         params: { chatId: result.chat_id },
@@ -124,6 +132,7 @@ export function TimelineFollowUp({
     if (!profile?.handle) {
       pendingQuestionRef.current = pending.question;
       setValue(pending.question);
+      if (variant === 'popover') setPopoverOpen(true);
       setHandleOpen(true);
       resumeTriedRef.current = true;
       return;
@@ -131,7 +140,7 @@ export function TimelineFollowUp({
     resumeTriedRef.current = true;
     setValue(pending.question);
     void launchFork(pending.question);
-  }, [busy, launchFork, profile?.handle, profileLoading, sessionPending, shareId, user]);
+  }, [busy, launchFork, profile?.handle, profileLoading, sessionPending, shareId, user, variant]);
 
   const onSubmit = (raw: string) => {
     const question = raw.trim();
@@ -191,13 +200,8 @@ export function TimelineFollowUp({
     }
   };
 
-  return (
-    <VStack
-      as="section"
-      gap={2}
-      className="timeline-followup"
-      aria-label="Ask a follow-up"
-    >
+  const composer: ReactNode = (
+    <>
       {continuePrompt?.trim() ? (
         <HStack gap={2} vAlign="center" className="ai-scope-lock-hint">
           <span>Answer interrupted before it finished. Continue to complete it.</span>
@@ -220,11 +224,16 @@ export function TimelineFollowUp({
         input={<ChatComposerInput maxRows={4} hasHistory={false} />}
         sendButton={<ChatSendButton />}
       />
-
       {error && (
         <Text className="timeline-err" role="alert">{error}</Text>
       )}
+    </>
+  );
 
+  // Keep auth dialogs outside the popover so light-dismiss / unmount does not
+  // tear down sign-in or handle claim while those flows are open.
+  const dialogs: ReactNode = (
+    <>
       <Dialog
         isOpen={signInOpen}
         onOpenChange={setSignInOpen}
@@ -314,6 +323,55 @@ export function TimelineFollowUp({
           }
         />
       </Dialog>
+    </>
+  );
+
+  if (variant === 'popover') {
+    return (
+      <>
+        <Popover
+          placement="below"
+          alignment="end"
+          label="Ask a follow-up"
+          width="min(24rem, calc(100vw - var(--spacing-6)))"
+          isOpen={popoverOpen}
+          onOpenChange={setPopoverOpen}
+          content={
+            <VStack gap={3} className="timeline-followup-popover">
+              <VStack gap={1}>
+                <Text weight="semibold">Continue in Chat</Text>
+                <Text type="supporting">
+                  Your follow-up forks this thread into your own conversation.
+                </Text>
+              </VStack>
+              {composer}
+            </VStack>
+          }
+        >
+          <Button
+            className="timeline-reply"
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            label="Reply"
+            tooltip="Ask a follow-up"
+            icon={<MessageCircleReply size={16} aria-hidden="true" />}
+          />
+        </Popover>
+        {dialogs}
+      </>
+    );
+  }
+
+  return (
+    <VStack
+      as="section"
+      gap={2}
+      className="timeline-followup"
+      aria-label="Ask a follow-up"
+    >
+      {composer}
+      {dialogs}
     </VStack>
   );
 }
