@@ -9,6 +9,7 @@ import {
   TabList,
   Text,
   Token,
+  useMediaQuery,
   VStack,
 } from '@astryxdesign/core';
 import { Table, pixel, proportional } from '@astryxdesign/core/Table';
@@ -86,6 +87,10 @@ export default function PortfolioPage() {
   const [schwabNeedsConnect, setSchwabNeedsConnect] = useState(false);
   const [schwabNeedsReauth, setSchwabNeedsReauth] = useState(false);
   const [schwabPane, setSchwabPane] = useState<SchwabPane>('book');
+  const isMobile = useMediaQuery('(max-width: 47.99rem)');
+  const pageGap = isMobile ? 3 : 5;
+  const pagePaddingBlock = isMobile ? 2 : 6;
+  const pagePaddingInline = isMobile ? 0 : 5;
 
   const loadPaper = useCallback(async (status: StatusFilter, conviction: ConvictionFilter) => {
     setLoading(true);
@@ -271,7 +276,12 @@ export default function PortfolioPage() {
 
   if (isPending) {
     return (
-      <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5}>
+      <VStack
+        className="portfolio-page"
+        gap={pageGap}
+        paddingBlock={pagePaddingBlock}
+        paddingInline={pagePaddingInline}
+      >
         <Spinner size="md" label="Loading session" />
       </VStack>
     );
@@ -287,17 +297,25 @@ export default function PortfolioPage() {
   }
 
   return (
-    <VStack className="portfolio-page" gap={5} paddingBlock={6} paddingInline={5} maxWidth={1200}>
+    <VStack
+      className="portfolio-page"
+      gap={pageGap}
+      paddingBlock={pagePaddingBlock}
+      paddingInline={pagePaddingInline}
+      maxWidth={1200}
+    >
       <HStack gap={3} align="start" justify="between" wrap="wrap">
         <VStack gap={2}>
           <Heading level={1}>Portfolio</Heading>
-          <Text type="supporting">
-            Your paper book and linked Schwab accounts. Public bot
-            suggested-trade books stay on the Suggested trades tab.
-            Schedule a private{' '}
-            <Link to="/my-bots" className="portfolio-link">portfolio bot</Link>
-            {' '}to review risk on an interval.
-          </Text>
+          {isMobile ? null : (
+            <Text type="supporting">
+              Your paper book and linked Schwab accounts. Public bot
+              suggested-trade books stay on the Suggested trades tab.
+              Schedule a private{' '}
+              <Link to="/my-bots" className="portfolio-link">portfolio bot</Link>
+              {' '}to review risk on an interval.
+            </Text>
+          )}
         </VStack>
         <TabList
           size="sm"
@@ -382,7 +400,7 @@ export default function PortfolioPage() {
             />
           </VStack>
         ) : (
-          <VStack gap={4}>
+          <VStack gap={isMobile ? 3 : 4}>
             {(schwabBook?.accounts.length ?? 0) > 1 && schwabAccount ? (
               <TabList
                 size="sm"

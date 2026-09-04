@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Area,
@@ -221,6 +221,7 @@ export function SchwabPnlSection({
   onSymbolChange,
   hideSymbolInput = false,
   positions = [],
+  afterChart,
 }: {
   accountId: string | null;
   /** Root ticker from a position click (`CAR`, not the OCC symbol). */
@@ -231,6 +232,8 @@ export function SchwabPnlSection({
   /** Hide the local ticker field when the parent already renders search. */
   hideSymbolInput?: boolean;
   positions?: SchwabPortfolioPosition[];
+  /** Open positions (or other book UI) rendered directly under the chart. */
+  afterChart?: ReactNode;
 }) {
   const [range, setRange] = useState<SchwabPnlRange>('YTD');
   const isControlled = controlledSymbol !== undefined;
@@ -585,7 +588,7 @@ export function SchwabPnlSection({
   };
 
   return (
-    <VStack gap={4} className="portfolio-pnl-section">
+    <VStack gap={isMobile ? 2 : 4} className="portfolio-pnl-section">
       {hideSymbolInput ? null : (
         <Text type="supporting">
           {symbol
@@ -728,8 +731,8 @@ export function SchwabPnlSection({
           description="Try another range or turn on a different sleeve — stocks, options, dividends, or fees."
         />
       ) : (
-        <Section variant="muted" padding={3}>
-          <VStack gap={3} className="portfolio-pnl-chart">
+        <Section variant="muted" padding={isMobile ? 1 : 3}>
+          <VStack gap={isMobile ? 2 : 3} className="portfolio-pnl-chart">
             <HStack gap={3} wrap="wrap" justify="between" align="end">
               <VStack gap={0}>
                 <Text weight="semibold">
@@ -764,6 +767,7 @@ export function SchwabPnlSection({
                 </SegmentedControl>
               </HStack>
             </HStack>
+            {isMobile ? null : (
             <Text type="supporting">
               {chartMetric === 'daily'
                 ? largestDay
@@ -771,9 +775,13 @@ export function SchwabPnlSection({
                   : 'Each bar is one session.'
                 : `The step line is the running total through the visible window. The ${range} headline above always uses the full selected period.`}
             </Text>
+            )}
             <VStack className="portfolio-pnl-plot">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartSeries} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+              <ComposedChart
+                data={chartSeries}
+                margin={{ top: 4, right: isMobile ? 4 : 12, bottom: 0, left: 0 }}
+              >
                 <CartesianGrid
                   stroke="var(--color-border)"
                   strokeDasharray="3 3"
@@ -791,7 +799,7 @@ export function SchwabPnlSection({
                   domain={chartDomain}
                   axisLine={false}
                   tickLine={false}
-                  width={56}
+                  width={isMobile ? 40 : 56}
                   tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
                   tickFormatter={(v: number) =>
                     v.toLocaleString(undefined, {
@@ -864,13 +872,17 @@ export function SchwabPnlSection({
               </ComposedChart>
             </ResponsiveContainer>
             </VStack>
+            {isMobile ? null : (
             <Text type="supporting" size="sm">
               Dots are included fills and dividends. Chart focus changes only
               the dates shown — it never changes the {range} headline.
             </Text>
+            )}
           </VStack>
         </Section>
       )}
+
+      {afterChart}
 
       {summary && !loading ? (
         <MetadataList orientation="horizontal" label={{ position: 'top' }}>

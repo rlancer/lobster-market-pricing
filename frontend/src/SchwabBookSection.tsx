@@ -4,7 +4,6 @@ import {
   Banner,
   Button,
   Card,
-  Divider,
   EmptyState,
   Grid,
   Heading,
@@ -12,6 +11,8 @@ import {
   IconButton,
   List,
   ListItem,
+  MetadataList,
+  MetadataListItem,
   Text,
   Token,
   Toolbar,
@@ -112,7 +113,7 @@ function KpiCard({
   return (
     <Card padding={3}>
       <VStack gap={1}>
-        <Text type="supporting">{label}</Text>
+        <Text type="supporting" size="sm">{label}</Text>
         <Text
           type="large"
           weight="bold"
@@ -167,27 +168,207 @@ export function SchwabBookSection({
     setSymbol(next.trim().toUpperCase());
   };
 
+  const kpiItems = summary
+    ? [
+        { label: 'Cash', value: money(summary.cash) },
+        { label: 'Equity', value: money(summary.equity) },
+        { label: 'Buying power', value: money(summary.buying_power) },
+        { label: 'Day PnL', value: money(summary.day_pnl), tone: pnlTone(summary.day_pnl) },
+        { label: 'Open PnL', value: money(summary.open_pnl), tone: pnlTone(summary.open_pnl) },
+      ] as const
+    : [];
+
+  const openPositions = (
+    <VStack gap={2} as="section" aria-label="Open positions">
+      <HStack gap={2} wrap="wrap" justify="between" vAlign="center">
+        <Heading level={2}>Open positions</Heading>
+        {symbol ? (
+          <Token color="blue" size="sm" label={symbol} />
+        ) : (
+          <Text type="supporting" size="sm">
+            {positions.length.toLocaleString()} open
+          </Text>
+        )}
+      </HStack>
+
+      {visibleRows.length === 0 ? (
+        <EmptyState
+          headingLevel={3}
+          isCompact
+          icon={<Briefcase size={24} />}
+          title={symbol
+            ? `No open ${symbol} positions`
+            : account
+              ? `No open positions in ${account.account_number_masked}`
+              : 'No linked Schwab accounts returned.'}
+          description={symbol
+            ? 'Clear the search to see the whole book, or pick another ticker to scope performance.'
+            : 'Connected accounts with no holdings still show account P&L above.'}
+          actions={symbol ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              label="Clear search"
+              onClick={() => setTicker('')}
+            />
+          ) : undefined}
+        />
+      ) : isMobile ? (
+        <List density="compact" hasDividers header={`${visibleRows.length.toLocaleString()} positions`}>
+          {visibleRows.map((row) => {
+            const root = positionTicker(row);
+            return (
+              <ListItem
+                key={row.id}
+                isSelected={symbol === root}
+                label={row.symbol}
+                description={row.description ?? row.asset_type ?? undefined}
+                endContent={(
+                  <Text
+                    hasTabularNumbers
+                    className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
+                  >
+                    {money(row.open_pnl)}
+                  </Text>
+                )}
+                onClick={() => setTicker(symbol === root ? '' : root)}
+              />
+            );
+          })}
+        </List>
+      ) : (
+        <Table
+          className="portfolio-table"
+          data={visibleRows}
+          idKey="id"
+          density="compact"
+          dividers="rows"
+          hasHover
+          textOverflow="truncate"
+          columns={[
+            {
+              key: 'symbol',
+              header: 'Symbol',
+              width: pixel(120),
+              renderCell: (row) => {
+                const root = positionTicker(row);
+                return (
+                  <VStack gap={1}>
+                    <Button
+                      size="sm"
+                      variant={symbol === root ? 'primary' : 'ghost'}
+                      label={row.symbol}
+                      onClick={() => setTicker(symbol === root ? '' : root)}
+                    />
+                    {row.description ? (
+                      <Text type="supporting" size="sm" className="portfolio-legs">
+                        {row.description}
+                      </Text>
+                    ) : null}
+                  </VStack>
+                );
+              },
+            },
+            {
+              key: 'asset_type',
+              header: 'Type',
+              width: pixel(100),
+              renderCell: (row) => (
+                row.asset_type ? (
+                  <Token label={row.asset_type} color="gray" size="sm" />
+                ) : (
+                  <Text type="supporting" size="sm">—</Text>
+                )
+              ),
+            },
+            {
+              key: 'quantity',
+              header: 'Qty',
+              width: pixel(88),
+              renderCell: (row) => (
+                <Text hasTabularNumbers size="sm">{qty(row.quantity)}</Text>
+              ),
+            },
+            {
+              key: 'average_price',
+              header: 'Avg',
+              width: pixel(100),
+              renderCell: (row) => (
+                <Text hasTabularNumbers size="sm">{money(row.average_price)}</Text>
+              ),
+            },
+            {
+              key: 'market_value',
+              header: 'Mark',
+              width: proportional(1),
+              renderCell: (row) => (
+                <Text hasTabularNumbers size="sm">{money(row.market_value)}</Text>
+              ),
+            },
+            {
+              key: 'day_pnl',
+              header: 'Day PnL',
+              width: pixel(100),
+              renderCell: (row) => (
+                <Text
+                  hasTabularNumbers
+                  size="sm"
+                  className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
+                >
+                  {money(row.day_pnl)}
+                </Text>
+              ),
+            },
+            {
+              key: 'open_pnl',
+              header: 'Open PnL',
+              width: pixel(100),
+              renderCell: (row) => (
+                <Text
+                  hasTabularNumbers
+                  size="sm"
+                  className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
+                >
+                  {money(row.open_pnl)}
+                </Text>
+              ),
+            },
+          ]}
+        />
+      )}
+    </VStack>
+  );
+
   return (
-    <VStack gap={5} className="portfolio-schwab-book">
+    <VStack gap={isMobile ? 3 : 5} className="portfolio-schwab-book">
       {error ? (
         <Banner status="error" title="Could not load Schwab portfolio" description={error} />
       ) : null}
 
-      {summary ? (
+      {summary && isMobile ? (
+        <MetadataList orientation="horizontal" label={{ position: 'top' }}>
+          {kpiItems.map((item) => (
+            <MetadataListItem key={item.label} label={item.label}>
+              <Text
+                hasTabularNumbers
+                weight="bold"
+                className={'tone' in item ? `portfolio-pnl-${item.tone}` : undefined}
+              >
+                {item.value}
+              </Text>
+            </MetadataListItem>
+          ))}
+        </MetadataList>
+      ) : summary ? (
         <Grid gap={3} columns={{ minWidth: 160, max: 5, repeat: 'fit' }}>
-          <KpiCard label="Cash" value={money(summary.cash)} />
-          <KpiCard label="Equity" value={money(summary.equity)} />
-          <KpiCard label="Buying power" value={money(summary.buying_power)} />
-          <KpiCard
-            label="Day PnL"
-            value={money(summary.day_pnl)}
-            tone={pnlTone(summary.day_pnl)}
-          />
-          <KpiCard
-            label="Open PnL"
-            value={money(summary.open_pnl)}
-            tone={pnlTone(summary.open_pnl)}
-          />
+          {kpiItems.map((item) => (
+            <KpiCard
+              key={item.label}
+              label={item.label}
+              value={item.value}
+              tone={'tone' in item ? item.tone : undefined}
+            />
+          ))}
         </Grid>
       ) : null}
 
@@ -199,7 +380,7 @@ export function SchwabBookSection({
             label="Position"
             isLabelHidden
             size="sm"
-            width={280}
+            width={isMobile ? '100%' : 280}
             startIcon={Search}
             searchSource={searchSource}
             value={selected}
@@ -232,185 +413,27 @@ export function SchwabBookSection({
         )}
       />
 
-      <VStack gap={3}>
-        <VStack gap={1}>
-          <Heading level={2}>Performance</Heading>
-          <Text type="supporting">
-            {symbol
-              ? `Full ${symbol} P&L — realized stock and options on that root, plus the live open mark.`
-              : 'Realized P&L for the whole account. Search a ticker to unify equity and option fills.'}
-            {' '}
-            <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
-          </Text>
-        </VStack>
+      <VStack gap={isMobile ? 2 : 3}>
+        {isMobile ? null : (
+          <VStack gap={1}>
+            <Heading level={2}>Performance</Heading>
+            <Text type="supporting">
+              {symbol
+                ? `Full ${symbol} P&L — realized stock and options on that root, plus the live open mark.`
+                : 'Realized P&L for the whole account. Search a ticker to unify equity and option fills.'}
+              {' '}
+              <Link to="/docs/schwab-pnl" className="portfolio-link">How this is calculated</Link>.
+            </Text>
+          </VStack>
+        )}
         <SchwabPnlSection
           accountId={account?.id ?? null}
           symbol={symbol}
           onSymbolChange={setTicker}
           hideSymbolInput
           positions={positions}
+          afterChart={openPositions}
         />
-      </VStack>
-
-      <Divider />
-
-      <VStack gap={3} as="section" aria-label="Open positions">
-        <HStack gap={2} wrap="wrap" justify="between" vAlign="center">
-          <Heading level={2}>Open positions</Heading>
-          {symbol ? (
-            <Token color="blue" size="sm" label={symbol} />
-          ) : (
-            <Text type="supporting" size="sm">
-              {positions.length.toLocaleString()} open
-            </Text>
-          )}
-        </HStack>
-
-        {visibleRows.length === 0 ? (
-          <EmptyState
-            headingLevel={3}
-            isCompact
-            icon={<Briefcase size={24} />}
-            title={symbol
-              ? `No open ${symbol} positions`
-              : account
-                ? `No open positions in ${account.account_number_masked}`
-                : 'No linked Schwab accounts returned.'}
-            description={symbol
-              ? 'Clear the search to see the whole book, or pick another ticker to scope performance.'
-              : 'Connected accounts with no holdings still show account P&L above.'}
-            actions={symbol ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                label="Clear search"
-                onClick={() => setTicker('')}
-              />
-            ) : undefined}
-          />
-        ) : isMobile ? (
-          <List density="compact" hasDividers header={`${visibleRows.length.toLocaleString()} positions`}>
-            {visibleRows.map((row) => {
-              const root = positionTicker(row);
-              return (
-                <ListItem
-                  key={row.id}
-                  isSelected={symbol === root}
-                  label={row.symbol}
-                  description={row.description ?? row.asset_type ?? undefined}
-                  endContent={(
-                    <Text
-                      hasTabularNumbers
-                      className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
-                    >
-                      {money(row.open_pnl)}
-                    </Text>
-                  )}
-                  onClick={() => setTicker(symbol === root ? '' : root)}
-                />
-              );
-            })}
-          </List>
-        ) : (
-          <Table
-            className="portfolio-table"
-            data={visibleRows}
-            idKey="id"
-            density="compact"
-            dividers="rows"
-            hasHover
-            textOverflow="truncate"
-            columns={[
-              {
-                key: 'symbol',
-                header: 'Symbol',
-                width: pixel(120),
-                renderCell: (row) => {
-                  const root = positionTicker(row);
-                  return (
-                    <VStack gap={1}>
-                      <Button
-                        size="sm"
-                        variant={symbol === root ? 'primary' : 'ghost'}
-                        label={row.symbol}
-                        onClick={() => setTicker(symbol === root ? '' : root)}
-                      />
-                      {row.description ? (
-                        <Text type="supporting" size="sm" className="portfolio-legs">
-                          {row.description}
-                        </Text>
-                      ) : null}
-                    </VStack>
-                  );
-                },
-              },
-              {
-                key: 'asset_type',
-                header: 'Type',
-                width: pixel(100),
-                renderCell: (row) => (
-                  row.asset_type ? (
-                    <Token label={row.asset_type} color="gray" size="sm" />
-                  ) : (
-                    <Text type="supporting" size="sm">—</Text>
-                  )
-                ),
-              },
-              {
-                key: 'quantity',
-                header: 'Qty',
-                width: pixel(88),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers size="sm">{qty(row.quantity)}</Text>
-                ),
-              },
-              {
-                key: 'average_price',
-                header: 'Avg',
-                width: pixel(100),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers size="sm">{money(row.average_price)}</Text>
-                ),
-              },
-              {
-                key: 'market_value',
-                header: 'Mark',
-                width: proportional(1),
-                renderCell: (row) => (
-                  <Text hasTabularNumbers size="sm">{money(row.market_value)}</Text>
-                ),
-              },
-              {
-                key: 'day_pnl',
-                header: 'Day PnL',
-                width: pixel(100),
-                renderCell: (row) => (
-                  <Text
-                    hasTabularNumbers
-                    size="sm"
-                    className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
-                  >
-                    {money(row.day_pnl)}
-                  </Text>
-                ),
-              },
-              {
-                key: 'open_pnl',
-                header: 'Open PnL',
-                width: pixel(100),
-                renderCell: (row) => (
-                  <Text
-                    hasTabularNumbers
-                    size="sm"
-                    className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
-                  >
-                    {money(row.open_pnl)}
-                  </Text>
-                ),
-              },
-            ]}
-          />
-        )}
       </VStack>
     </VStack>
   );
