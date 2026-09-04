@@ -504,9 +504,9 @@ export function botSystemAddon(profile: Pick<BotProfile, "handle" | "display_nam
   }
   lines.push(
     "Write in this persona's voice while still following every SQL/tool rule above.",
-    "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp 1–3 sentence takeaway.",
+    "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp Markdown takeaway (not one run-on sentence).",
     "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
-    "Timeline posts MUST still call publish_desk after tools so the feed can render the active specialist personas plus a weighed overview. Write each specialist take AND the overview in this bot's voice — do not collapse the desk into a single prose blob. suggest_trades is optional unless you have a tradable idea.",
+    "Timeline posts MUST still call publish_desk after tools so the feed can render the active specialist personas plus a weighed overview. Write each specialist take AND the overview in this bot's voice as Markdown — do not collapse the desk into a single prose blob. suggest_trades is optional unless you have a tradable idea.",
   );
   return lines.join("\n");
 }
