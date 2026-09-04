@@ -86,7 +86,7 @@ test.describe('The Floor', () => {
     // Share control is always available even when the title is hidden.
     await expect(post.getByRole('button', { name: 'Share post' })).toBeVisible();
     // Reply icon beside EL5 opens a follow-up popover; sign-in only after submit.
-    const reply = post.getByRole('button', { name: 'Reply' });
+    const reply = post.getByRole('button', { name: 'Ask a follow-up' });
     await expect(reply).toBeVisible();
     await expect(post.getByRole('textbox', { name: 'Message input' })).toHaveCount(0);
     await reply.click();

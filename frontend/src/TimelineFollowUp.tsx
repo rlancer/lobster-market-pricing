@@ -353,7 +353,7 @@ export function TimelineFollowUp({
             variant="ghost"
             size="sm"
             isIconOnly
-            label="Reply"
+            label="Ask a follow-up"
             tooltip="Ask a follow-up"
             icon={<MessageCircleReply size={16} aria-hidden="true" />}
           />
