@@ -70,6 +70,18 @@ test.describe('The Floor', () => {
     await page.goto('/');
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
+    // Posts are cards — card canvas, not a divider row on the body wash.
+    const chrome = await post.evaluate((el) => {
+      const styles = getComputedStyle(el);
+      const body = getComputedStyle(document.body);
+      return {
+        postBg: styles.backgroundColor,
+        bodyBg: body.backgroundColor,
+        radius: styles.borderRadius,
+      };
+    });
+    expect(chrome.postBg).not.toBe(chrome.bodyBg);
+    expect(chrome.radius).not.toBe('0px');
     // Identity lives once in the byline — no second avatar on user bubbles
     // unless a forked follow-up was asked by someone else.
     const author = post.getByRole('link', { name: /Robert Lancer\s*@thelobster/ });
@@ -219,7 +231,7 @@ test.describe('The Floor', () => {
     const title = post.getByRole('heading', { name: 'SPY call setup' }).getByRole('link');
     await expect(title).toHaveAttribute('href', '/share/TestShareId000000000000042');
     // Share sits on the title row, not down in the meta footer.
-    await expect(post.locator('.timeline-post-head').getByRole('button', { name: 'Share post' })).toBeVisible();
+    await expect(post.locator('.timeline-post-tags').getByRole('button', { name: 'Share post' })).toBeVisible();
     // Each assistant reply has a share control that deep-links with #m-N.
     await expect(post.getByLabel('Conversation').getByRole('button', { name: 'Share reply' })).toHaveCount(1);
 
@@ -810,6 +822,13 @@ test.describe('The Floor', () => {
     await expect(page.getByRole('heading', { name: 'Public chats' })).toBeVisible();
     const post = page.getByRole('article', { name: 'Should I buy SPY calls' });
     await expect(post).toBeVisible();
+    const profileChrome = await post.evaluate((el) => {
+      const styles = getComputedStyle(el);
+      const body = getComputedStyle(document.body);
+      return { postBg: styles.backgroundColor, bodyBg: body.backgroundColor, radius: styles.borderRadius };
+    });
+    expect(profileChrome.postBg).not.toBe(profileChrome.bodyBg);
+    expect(profileChrome.radius).not.toBe('0px');
     // Author byline is redundant on the profile page.
     await expect(post.getByRole('link', { name: '@thelobster' })).toHaveCount(0);
     await expect(post.getByRole('link', { name: 'View full chat' })).toHaveCount(0);

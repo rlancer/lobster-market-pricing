@@ -150,7 +150,7 @@ export default function TimelinePage() {
             )}
 
             {!loading && items.length > 0 && (
-              <VStack gap={0} className="timeline-feed" aria-busy={loadingMore || undefined}>
+              <VStack gap={5} className="timeline-feed" aria-busy={loadingMore || undefined}>
                 {items.map((post) => (
                   <TimelinePostRow
                     key={post.share_id}
