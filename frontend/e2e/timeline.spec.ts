@@ -411,6 +411,64 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
+  test('homepage session card shows tape, next print, and desk takeaway on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline/session', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          tape: [
+            { ticker: 'SPY', name: 'S&P 500', spot: 650.12, change_1d_pct: 0.4 },
+            { ticker: 'QQQ', name: 'Nasdaq-100', spot: 480.5, change_1d_pct: -0.2 },
+            { ticker: '^VIX', name: 'VIX', spot: 16.4, change_1d_pct: -3.1 },
+          ],
+          events: [{
+            date: '2026-09-03',
+            title: 'Consumer Price Index',
+            kind: 'macro',
+            time: '08:30',
+            shortTitle: 'CPI',
+            when: 'today 8:30 AM ET',
+          }],
+          takeaway: {
+            handle: 'nowlobster',
+            shareId: 'ShareDeskNowlobster000000001',
+            url: '/share/ShareDeskNowlobster000000001',
+            publishedAt: Date.now(),
+            text: 'SPX holds the 6500 handle while QQQ lags. Unusual call buying in NVDA led the tape; risk stays defined until CPI.',
+          },
+          ask_prompt: "What's the tape into CPI? Lead with SPX/QQQ/IWM/VIX and whether CPI is already in the options.",
+          fetched_at: new Date().toISOString(),
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Session' });
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('heading', { name: 'Session' })).toBeVisible();
+    await expect(card.getByRole('link', { name: /SPY \+0\.4%/ })).toBeVisible();
+    await expect(card.getByLabel('Upcoming prints')).toContainText('CPI · today');
+    await expect(card.getByRole('link', { name: '@nowlobster' })).toBeVisible();
+    await expect(card.getByText(/SPX holds the 6500 handle/)).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
+
+    await card.getByRole('button', { name: 'Ask about the tape' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    await expect.poll(async () => {
+      const pending = await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_pending_prompt'));
+      return typeof pending === 'string' && pending.includes('CPI');
+    }).toBe(true);
+  });
+
   test('mobile shell offers four blurred bottom actions and keeps the full navigation in a drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
