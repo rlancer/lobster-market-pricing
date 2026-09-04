@@ -157,7 +157,7 @@ test("synthesizeEl5 builds a short glossed summary", () => {
 
 test("EL5_SYSTEM asks for Markdown paragraphs and bullets", () => {
   assert.match(EL5_SYSTEM, /Write Markdown/);
-  assert.match(EL5_SYSTEM, /Never one run-on line/);
+  assert.match(EL5_SYSTEM, /never one run-on line/);
   assert.match(EL5_SYSTEM, /bullet list/);
   assert.doesNotMatch(EL5_SYSTEM, /No headings, lists/);
 });
@@ -187,7 +187,7 @@ test("synthesizeEl5 keeps a multi-paragraph desk overview", () => {
   ].join("\n\n"));
   assert.match(out, /\*\*NVDA IV crush\*\*/);
   assert.match(out, /\*\*Lean:\*\* fade the pop/);
-  assert.match(out, /Vol is rich vs RV30/);
+  assert.match(out, /Vol is rich vs 30-day realized vol/);
   assert.match(out, /Trade idea: NVDA — bearish — put debit — Fade the pop\./);
 });
 
