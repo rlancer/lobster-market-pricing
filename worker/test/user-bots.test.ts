@@ -17,6 +17,8 @@ import {
   assistantBriefingFromTurns,
   buildUserBotAlertEmail,
   normalizeAlertBriefing,
+  sendUserBotAlert,
+  USER_BOT_ALERT_FROM,
 } from "../src/user-bot-email.ts";
 import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "../src/schwab-portfolio.ts";
 
@@ -188,13 +190,14 @@ test("alert email prefers the chat link and keeps the full briefing", () => {
   assert.equal(briefing.endsWith("…"), false);
   const built = buildUserBotAlertEmail({
     botName: "Portfolio risk",
+    title: "Trim NVDA before Friday",
     briefing: assistantBriefingFromTurns([
       { role: "user", content: "Review my book." },
       { role: "assistant", content: `## Takeaway\n\nTrim the NVDA calls before Friday.\n\n${long}` },
     ]),
     chatUrl: "https://lobster.mp/chat/abc",
   });
-  assert.equal(built.subject, "Portfolio risk finished a run");
+  assert.equal(built.subject, "Trim NVDA before Friday");
   assert.match(built.text, /Trim the NVDA calls/);
   assert.match(built.text, new RegExp(long));
   assert.match(built.text, /https:\/\/lobster\.mp\/chat\/abc/);
@@ -202,6 +205,45 @@ test("alert email prefers the chat link and keeps the full briefing", () => {
   assert.match(built.html, /Trim the NVDA calls/);
   assert.match(built.html, /<h2[^>]*>Takeaway<\/h2>/);
   assert.doesNotMatch(built.html, /…/);
+});
+
+test("alert email falls back to bot-finished subject without a title", () => {
+  const built = buildUserBotAlertEmail({
+    botName: "Portfolio risk",
+    title: "   ",
+    briefing: "Ready.",
+    chatUrl: "https://lobster.mp/chat/abc",
+  });
+  assert.equal(built.subject, "Portfolio risk finished a run");
+});
+
+test("sendUserBotAlert is from The Lobster with sunglasses and uses the title subject", async () => {
+  const sent: unknown[] = [];
+  const result = await sendUserBotAlert(
+    {
+      async send(message) {
+        sent.push(message);
+        return { messageId: "mid-1" };
+      },
+    },
+    "owner@example.com",
+    {
+      botName: "Portfolio risk",
+      title: "Cut concentration in the book",
+      briefing: "Trim the overweight name.",
+      chatUrl: "https://lobster.mp/chat/abc",
+    },
+  );
+  assert.deepEqual(result, { ok: true, message_id: "mid-1" });
+  assert.equal(sent.length, 1);
+  const message = sent[0] as {
+    from: { email: string; name: string };
+    subject: string;
+  };
+  assert.deepEqual(message.from, USER_BOT_ALERT_FROM);
+  assert.match(message.from.name, /The Lobster/);
+  assert.match(message.from.name, /😎/);
+  assert.equal(message.subject, "Cut concentration in the book");
 });
 
 test("formatSchwabPortfolioSummary keeps masked accounts and skips empty books", () => {

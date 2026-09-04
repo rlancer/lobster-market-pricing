@@ -4,8 +4,14 @@
  * Sends from noreply@lobster.mp via Cloudflare Email Service. Failure must
  * never fail the bot run — the chat already landed in the owner's history.
  */
-import { EMAIL_TEST_FROM, escapeEmailHtml, isLikelyEmail, type EmailSendBinding } from "./admin-email-test";
+import { escapeEmailHtml, isLikelyEmail, type EmailSendBinding } from "./admin-email-test";
 import { markdownToEmailHtml } from "./email-markdown";
+
+/** Display From for run alerts — sunglasses nod to the brand mark. */
+export const USER_BOT_ALERT_FROM = {
+  email: "noreply@lobster.mp",
+  name: "The Lobster 😎",
+} as const;
 
 /** Normalize whitespace for email bodies; do not truncate — send the full briefing. */
 export function normalizeAlertBriefing(text: string): string {
@@ -29,12 +35,15 @@ export function assistantBriefingFromTurns(
 
 export function buildUserBotAlertEmail(args: {
   botName: string;
+  /** Generated chat/share title — preferred email subject. */
+  title?: string | null;
   briefing: string;
   chatUrl: string;
   shareUrl?: string | null;
 }): { subject: string; text: string; html: string } {
   const name = args.botName.trim() || "Your bot";
-  const subject = `${name} finished a run`;
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  const subject = title || `${name} finished a run`;
   const briefing = args.briefing.trim() || "The briefing is ready in Chat.";
   const link = args.shareUrl?.trim() || args.chatUrl;
   const text = [
@@ -58,6 +67,7 @@ export async function sendUserBotAlert(
   to: string,
   args: {
     botName: string;
+    title?: string | null;
     briefing: string;
     chatUrl: string;
     shareUrl?: string | null;
@@ -70,7 +80,7 @@ export async function sendUserBotAlert(
   try {
     const result = await email.send({
       to: dest,
-      from: { ...EMAIL_TEST_FROM },
+      from: { ...USER_BOT_ALERT_FROM },
       subject: built.subject,
       text: built.text,
       html: built.html,

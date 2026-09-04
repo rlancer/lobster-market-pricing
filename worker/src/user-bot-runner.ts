@@ -264,6 +264,7 @@ export async function runUserBotChat(
         const site = publicChatOrigin(opts?.publicOrigin);
         const send = sendUserBotAlert(env.EMAIL, to, {
           botName: bot.name,
+          title: metaTitle,
           briefing: assistantBriefingFromTurns(turn.messages),
           chatUrl: `${site}/chat/${chatId}`,
           shareUrl: shareId ? `${site}/share/${shareId}` : null,
