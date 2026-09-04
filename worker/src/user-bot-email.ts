@@ -82,20 +82,31 @@ export async function sendUserBotAlert(
   const dest = to.trim();
   if (!isLikelyEmail(dest)) return { ok: false, error: "invalid recipient" };
   const built = buildUserBotAlertEmail(args);
+  const base = {
+    to: dest,
+    from: { ...USER_BOT_ALERT_FROM },
+    subject: built.subject,
+    text: built.text,
+  };
   try {
-    const result = await email.send({
-      to: dest,
-      from: { ...USER_BOT_ALERT_FROM },
-      subject: built.subject,
-      text: built.text,
-      html: built.html,
-    });
+    const result = await email.send({ ...base, html: built.html });
     return { ok: true, message_id: result.messageId, subject: built.subject };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      subject: built.subject,
-    };
+  } catch (htmlError) {
+    // Some alert bodies (GFM tables, long markdown HTML) can trip the send
+    // path — fall back to text-only so the owner still gets the subject/link.
+    try {
+      const result = await email.send(base);
+      console.warn("user-bot email html send failed; sent text-only", {
+        error: htmlError instanceof Error ? htmlError.message : String(htmlError),
+        subject: built.subject,
+      });
+      return { ok: true, message_id: result.messageId, subject: built.subject };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        subject: built.subject,
+      };
+    }
   }
 }

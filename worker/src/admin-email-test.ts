@@ -21,7 +21,7 @@ export type EmailSendBinding = {
     from: { email: string; name: string };
     subject: string;
     text: string;
-    html: string;
+    html?: string;
   }): Promise<{ messageId: string }>;
 };
 

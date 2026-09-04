@@ -246,6 +246,31 @@ test("sendUserBotAlert is from The Lobster with sunglasses and uses the title su
   assert.equal(message.subject, "Cut concentration in the book");
 });
 
+test("sendUserBotAlert falls back to text-only when html send fails", async () => {
+  const sent: Array<{ html?: string; text: string }> = [];
+  const result = await sendUserBotAlert(
+    {
+      async send(message) {
+        sent.push(message);
+        if (message.html) throw new Error("html rejected");
+        return { messageId: "mid-text" };
+      },
+    },
+    "owner@example.com",
+    {
+      botName: "risk",
+      title: "Trim the book",
+      briefing: "## Action\n\nSell **SPY**.",
+      chatUrl: "https://lobster.mp/chat/abc",
+    },
+  );
+  assert.deepEqual(result, { ok: true, message_id: "mid-text", subject: "Trim the book" });
+  assert.equal(sent.length, 2);
+  assert.ok(sent[0]?.html);
+  assert.equal(sent[1]?.html, undefined);
+  assert.match(sent[1]?.text ?? "", /Sell \*\*SPY\*\*/);
+});
+
 test("formatSchwabPortfolioSummary keeps masked accounts and skips empty books", () => {
   const summary = formatSchwabPortfolioSummary({
     connected: true,
