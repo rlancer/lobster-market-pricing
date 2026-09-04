@@ -27,6 +27,14 @@ import { Briefcase, Share2, SquarePen, Trash2 } from 'lucide-react';
 import { API_BASE, api, type ChatHistoryMessage, type ChatHistoryRecord, type QueryResult, type ShareChatMessage, type ShareChatResponse } from './api';
 import { authClient, signInWithGoogle } from './auth';
 import { useAgentReconnect } from './chatConnection';
+import {
+  AGENT_URL_WAIT_MS,
+  chatAccessFromStatus,
+  GET_MESSAGES_TIMEOUT_MS,
+  getMessagesUrlFromAgentHttp,
+  parseGetMessagesPayload,
+  waitForAgentHttpUrl,
+} from './chatHydration';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
 import {
@@ -613,7 +621,6 @@ function AiChatSession({
   const restoredIdsRef = useRef<Set<string> | null>(null);
   const claimedRef = useRef(false);
   const pausedRef = useRef(false);
-  const backupAttemptedRef = useRef(false);
   /** Prevents double auto-share for the same bot run (keyed by run_id or chat_id). */
   const autoSharedKeyRef = useRef<string | null>(null);
   const wasBusyRef = useRef(false);
@@ -674,6 +681,11 @@ function AiChatSession({
     throttle: 80,
     resume: !paused,
     cancelOnClientAbort: false,
+    // Default getInitialMessages uses React `use()` and suspends the whole
+    // session until CopilotAgent GET /get-messages returns. A tool-heavy bot
+    // briefing can leave that Durable Object busy with chat recovery, so the
+    // page stuck on "Opening chat…" and never reached the D1 transcript backup.
+    getInitialMessages: null,
     // Pages (dev.lobster.mp) and the Agent (api-dev.lobster.mp) are different
     // origins. Default fetch credentials omit the session cookie, so owned
     // history 401s and the UI looks like a blank welcome chat.
@@ -702,78 +714,101 @@ function AiChatSession({
     },
   });
 
-  // Probe access for saved chats. Do not replace useAgentChat's getInitialMessages
-  // — a custom fetcher runs before the agent HTTP URL exists and caches [].
+  // Hydrate without blocking render: live DO get-messages (timed) plus D1
+  // transcript backup for owned chats. Do not pass a custom getInitialMessages
+  // function into useAgentChat — that runs before the agent HTTP URL exists and
+  // caches [].
   useEffect(() => {
+    let alive = true;
+    const ac = new AbortController();
+    const liveApplied = { current: false };
+
+    const applyLive = (rows: ChatMessage[]) => {
+      if (!alive || rows.length === 0 || liveApplied.current) return;
+      liveApplied.current = true;
+      setMessages(rows);
+      setBackupState((current) => (current === 'restored' ? current : 'missing'));
+    };
+
+    const loadLive = async (): Promise<{ status: number | null; messages: ChatMessage[] }> => {
+      const raw = await waitForAgentHttpUrl(() => agent.getHttpUrl?.(), {
+        timeoutMs: AGENT_URL_WAIT_MS,
+        signal: ac.signal,
+      });
+      const url = raw ? getMessagesUrlFromAgentHttp(raw) : null;
+      if (!url) return { status: null, messages: [] };
+      const fetchAc = new AbortController();
+      const onParentAbort = () => fetchAc.abort();
+      ac.signal.addEventListener('abort', onParentAbort);
+      const timer = window.setTimeout(() => fetchAc.abort(), GET_MESSAGES_TIMEOUT_MS);
+      try {
+        const response = await fetch(url, { credentials: 'include', signal: fetchAc.signal });
+        if (response.status === 401 || response.status === 403) {
+          return { status: response.status, messages: [] };
+        }
+        if (!response.ok) return { status: response.status, messages: [] };
+        const parsed = parseGetMessagesPayload(await response.json());
+        return { status: response.status, messages: parsed as ChatMessage[] };
+      } catch {
+        return { status: null, messages: [] };
+      } finally {
+        window.clearTimeout(timer);
+        ac.signal.removeEventListener('abort', onParentAbort);
+      }
+    };
+
     if (!isSavedChat) {
       setChatAccess('ok');
-      return;
-    }
-    let alive = true;
-    const probe = async () => {
-      const raw = agent.getHttpUrl?.() ?? '';
-      if (!raw) {
-        // Agent URL appears once PartySocket binds; retry shortly.
-        return false;
-      }
-      const getMessagesUrl = new URL(raw.replace(/^ws/i, 'http'));
-      getMessagesUrl.pathname = getMessagesUrl.pathname.replace(/\/$/, '') + '/get-messages';
-      try {
-        const response = await fetch(getMessagesUrl.toString(), { credentials: 'include' });
-        if (!alive) return true;
-        if (response.status === 401) setChatAccess('unauthorized');
-        else if (response.status === 403) setChatAccess('forbidden');
-        else setChatAccess('ok');
-      } catch {
-        if (alive) setChatAccess('ok');
-      }
-      return true;
-    };
-    let tries = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = () => {
-      void probe().then((done) => {
-        if (!alive || done) return;
-        tries += 1;
-        if (tries < 40) timer = setTimeout(tick, 100);
-        else setChatAccess('ok');
-      });
-    };
-    tick();
-    return () => {
-      alive = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, [isSavedChat, agent, chatId, user?.id]);
-
-  // Preview and production share D1 ownership but not CopilotAgent Durable (class name is historical)
-  // Object storage. When this environment's DO is empty for an owned chat,
-  // restore from shared D1 history/share backups when available.
-  useEffect(() => {
-    if (!isSavedChat || !user || chatAccess !== 'ok') return;
-    if (messages.length > 0) {
-      setBackupState((current) => (current === 'restored' ? current : 'missing'));
-      return;
-    }
-    if (backupAttemptedRef.current) return;
-    backupAttemptedRef.current = true;
-    setBackupState('loading');
-    let alive = true;
-    api.chatTranscript(chatId)
-      .then((backup) => {
+      void loadLive().then((live) => {
         if (!alive) return;
-        if (backup.messages.length === 0) {
-          setBackupState('missing');
-          return;
-        }
+        applyLive(live.messages);
+      });
+      return () => {
+        alive = false;
+        ac.abort();
+      };
+    }
+
+    setBackupState('loading');
+    const backupPromise = user
+      ? api.chatTranscript(chatId).catch(() => null)
+      : Promise.resolve(null);
+    const livePromise = loadLive();
+
+    void backupPromise.then((backup) => {
+      if (!alive || liveApplied.current) return;
+      if (backup && backup.messages.length > 0) {
         setMessages(backupToChatMessages(backup.messages));
         setBackupState('restored');
-      })
-      .catch(() => {
-        if (alive) setBackupState('missing');
-      });
-    return () => { alive = false; };
-  }, [isSavedChat, user, chatAccess, messages.length, chatId, setMessages]);
+        setChatAccess((current) => (current === 'unknown' ? 'ok' : current));
+      }
+    });
+
+    void livePromise.then((live) => {
+      if (!alive) return;
+      setChatAccess(chatAccessFromStatus(live.status));
+      applyLive(live.messages);
+    });
+
+    void Promise.all([backupPromise, livePromise]).then(([backup, live]) => {
+      if (!alive) return;
+      if (liveApplied.current) return;
+      if (live.status === 401 || live.status === 403) {
+        setBackupState('missing');
+        return;
+      }
+      if (backup && backup.messages.length > 0) {
+        setBackupState('restored');
+        return;
+      }
+      setBackupState('missing');
+    });
+
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, [isSavedChat, agent, chatId, user?.id, setMessages]);
 
   const busy = !paused && (chatStatus === 'submitted' || chatStatus === 'streaming' || isStreaming || isRecovering || isToolContinuation);
   // Socket not ready for sends (includes quiet initial CONNECTING). Banner/status
