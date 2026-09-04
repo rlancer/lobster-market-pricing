@@ -67,4 +67,6 @@ test("sendAdminEmailTest builds Lobster noreply payload", async () => {
     html:
       "<p>This is a Cloudflare Email Service smoke test for <strong>robert.lancer@gmail.com</strong>.</p>",
   });
+  assert.equal(EMAIL_TEST_FROM.name, "The Lobster 😎");
+  assert.match(EMAIL_TEST_SUBJECT, /The Lobster/);
 });

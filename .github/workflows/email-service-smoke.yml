@@ -238,9 +238,12 @@ jobs:
           python3 - <<'PY'
           import json
           body = json.load(open("/tmp/trig.json"))
-          print("trigger", {k: body.get(k) for k in ("ok", "error", "chat_id", "run_id", "share_id", "deferred", "reason")})
+          print("trigger", {k: body.get(k) for k in ("ok", "error", "chat_id", "run_id", "share_id", "deferred", "reason", "email")})
           if not body.get("ok"):
               raise SystemExit(body.get("error") or "trigger failed")
+          email = body.get("email")
+          if isinstance(email, dict) and email.get("ok") is False:
+              raise SystemExit(f"bot email failed: {email.get('error') or email}")
           PY
           if [ "$trig" != "200" ]; then
             echo "::error::bot trigger failed HTTP $trig"

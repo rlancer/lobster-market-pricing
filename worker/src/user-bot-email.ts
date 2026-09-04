@@ -4,14 +4,16 @@
  * Sends from noreply@lobster.mp via Cloudflare Email Service. Failure must
  * never fail the bot run — the chat already landed in the owner's history.
  */
-import { escapeEmailHtml, isLikelyEmail, type EmailSendBinding } from "./admin-email-test";
+import {
+  LOBSTER_MAIL_FROM,
+  escapeEmailHtml,
+  isLikelyEmail,
+  type EmailSendBinding,
+} from "./admin-email-test";
 import { markdownToEmailHtml } from "./email-markdown";
 
 /** Display From for run alerts — sunglasses nod to the brand mark. */
-export const USER_BOT_ALERT_FROM = {
-  email: "noreply@lobster.mp",
-  name: "The Lobster 😎",
-} as const;
+export const USER_BOT_ALERT_FROM = LOBSTER_MAIL_FROM;
 
 /** Normalize whitespace for email bodies; do not truncate — send the full briefing. */
 export function normalizeAlertBriefing(text: string): string {
@@ -72,7 +74,10 @@ export async function sendUserBotAlert(
     chatUrl: string;
     shareUrl?: string | null;
   },
-): Promise<{ ok: true; message_id: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; message_id: string; subject: string }
+  | { ok: false; error: string; subject?: string }
+> {
   if (!email) return { ok: false, error: "email is not configured" };
   const dest = to.trim();
   if (!isLikelyEmail(dest)) return { ok: false, error: "invalid recipient" };
@@ -85,8 +90,12 @@ export async function sendUserBotAlert(
       text: built.text,
       html: built.html,
     });
-    return { ok: true, message_id: result.messageId };
+    return { ok: true, message_id: result.messageId, subject: built.subject };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      subject: built.subject,
+    };
   }
 }

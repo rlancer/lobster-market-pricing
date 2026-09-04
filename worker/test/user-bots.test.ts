@@ -234,7 +234,7 @@ test("sendUserBotAlert is from The Lobster with sunglasses and uses the title su
       chatUrl: "https://lobster.mp/chat/abc",
     },
   );
-  assert.deepEqual(result, { ok: true, message_id: "mid-1" });
+  assert.deepEqual(result, { ok: true, message_id: "mid-1", subject: "Cut concentration in the book" });
   assert.equal(sent.length, 1);
   const message = sent[0] as {
     from: { email: string; name: string };

@@ -159,7 +159,18 @@ export async function runUserBotChat(
   bot: UserBot,
   opts?: { force?: boolean; waitUntil?: (p: Promise<unknown>) => void; publicOrigin?: string },
 ): Promise<
-  | { ok: true; run: UserBotRun; chat_id: string; share_id: string | null }
+  | {
+      ok: true;
+      run: UserBotRun;
+      chat_id: string;
+      share_id: string | null;
+      email: null | { ok: true; message_id: string; subject: string; to: string } | {
+        ok: false;
+        error: string;
+        subject?: string;
+        to?: string;
+      };
+    }
   | { ok: false; error: string; run?: UserBotRun; chat_id?: string }
 > {
   if (!bot.enabled) return { ok: false, error: "bot is disabled" };
@@ -258,9 +269,24 @@ export async function runUserBotChat(
       share_id: shareId,
     });
 
+    let emailResult: null | {
+      ok: true;
+      message_id: string;
+      subject: string;
+      to: string;
+    } | {
+      ok: false;
+      error: string;
+      subject?: string;
+      to?: string;
+    } = null;
+
     if (bot.email_alerts) {
       const to = await getUserEmail(env.SCHEMA_DB, bot.user_id);
-      if (to) {
+      if (!to) {
+        emailResult = { ok: false, error: "owner email missing" };
+        console.warn("user-bot email skipped", emailResult);
+      } else {
         const site = publicChatOrigin(opts?.publicOrigin);
         const send = sendUserBotAlert(env.EMAIL, to, {
           botName: bot.name,
@@ -268,14 +294,39 @@ export async function runUserBotChat(
           briefing: assistantBriefingFromTurns(turn.messages),
           chatUrl: `${site}/chat/${chatId}`,
           shareUrl: shareId ? `${site}/share/${shareId}` : null,
+        }).then((result) => {
+          if (result.ok) {
+            return {
+              ok: true as const,
+              message_id: result.message_id,
+              subject: result.subject,
+              to,
+            };
+          }
+          console.warn("user-bot email failed", {
+            error: result.error,
+            subject: result.subject,
+            to,
+          });
+          return {
+            ok: false as const,
+            error: result.error,
+            subject: result.subject,
+            to,
+          };
         }).catch((error) => {
-          console.warn("user-bot email failed", error);
-          return { ok: false as const, error: String(error) };
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn("user-bot email failed", { error: message, to });
+          return {
+            ok: false as const,
+            error: message,
+            to,
+          };
         });
         // Await the send so isolate teardown cannot skip mail. waitUntil is
         // extra coverage if the Worker returns before SMTP finishes.
         if (opts?.waitUntil) opts.waitUntil(send);
-        await send;
+        emailResult = await send;
       }
     }
 
@@ -293,6 +344,7 @@ export async function runUserBotChat(
       run: updated ?? { ...run, status, share_id: shareId },
       chat_id: chatId,
       share_id: shareId,
+      email: emailResult,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -306,7 +358,19 @@ export async function runOneUserBot(
   bot: UserBot,
   opts?: { force?: boolean; waitUntil?: (p: Promise<unknown>) => void; publicOrigin?: string },
 ): Promise<
-  | { ok: true; deferred?: false; run: UserBotRun; chat_id: string; share_id: string | null }
+  | {
+      ok: true;
+      deferred?: false;
+      run: UserBotRun;
+      chat_id: string;
+      share_id: string | null;
+      email: null | { ok: true; message_id: string; subject: string; to: string } | {
+        ok: false;
+        error: string;
+        subject?: string;
+        to?: string;
+      };
+    }
   | { ok: true; deferred: true; reason: string; next_run_at: number }
   | { ok: false; error: string; chat_id?: string }
 > {
@@ -333,7 +397,13 @@ export async function runOneUserBot(
     return { ok: false, error: result.error, chat_id: result.chat_id };
   }
   await markUserBotSuccess(env.SCHEMA_DB, bot.bot_id, result.run.run_id, now, env);
-  return { ok: true, run: result.run, chat_id: result.chat_id, share_id: result.share_id };
+  return {
+    ok: true,
+    run: result.run,
+    chat_id: result.chat_id,
+    share_id: result.share_id,
+    email: result.email,
+  };
 }
 
 export async function runDueUserBotSchedules(

@@ -3739,6 +3739,7 @@ async function handleUserBots(
       run_id: outcome.run.run_id,
       chat_id: outcome.chat_id,
       share_id: outcome.share_id,
+      email: outcome.email,
     }, 200, "private");
   }
 
