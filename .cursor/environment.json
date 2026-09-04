@@ -1,0 +1,24 @@
+{
+  "name": "Lobster Market Pricing",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "user": "node",
+  "install": "cd frontend && npm ci && cd ../worker && npm ci && cd ../loader && npm ci && cd ../worker && npx --yes wrangler d1 migrations apply screener-schema-cache --local",
+  "terminals": [
+    {
+      "name": "worker",
+      "command": "cd worker && npx --yes wrangler dev --ip 127.0.0.1 --port 8787",
+      "description": "screener-api Cloudflare Worker (Miniflare) on http://127.0.0.1:8787. Local D1/DO/Images bindings; lake (R2 SQL) endpoints need cloud secrets."
+    },
+    {
+      "name": "frontend",
+      "command": "cd frontend && npm run dev",
+      "description": "Vite dev server on http://localhost:5173. Proxies /api and /agents to the worker terminal on 127.0.0.1:8787."
+    }
+  ],
+  "ports": [
+    { "name": "frontend", "port": 5173 },
+    { "name": "worker", "port": 8787 }
+  ]
+}
