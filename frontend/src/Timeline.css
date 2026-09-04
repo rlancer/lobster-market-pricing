@@ -295,7 +295,26 @@
   padding-block-start: var(--spacing-1);
 }
 
-.timeline-followup-popover {
+/* Follow-up modal: same scrollport pattern as EL5 — Dialog is height:fit-content. */
+.timeline-followup-dialog-shell {
+  max-height: 85vh;
+  min-height: 0;
+}
+
+.timeline-followup-dialog-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  max-height: calc(85vh - (var(--spacing-10) + var(--spacing-10) + var(--spacing-12)));
+  min-height: 0;
+  padding-bottom: var(--spacing-2);
+}
+
+.timeline-followup-dialog-body {
+  width: 100%;
+  min-width: 0;
+}
+
+.timeline-followup-dialog-composer {
   width: 100%;
   min-width: 0;
 }

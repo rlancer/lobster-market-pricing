@@ -10,14 +10,14 @@ import {
   Layout,
   LayoutContent,
   LayoutFooter,
-  Popover,
   Text,
   VStack,
 } from '@astryxdesign/core';
 import { ChatComposerInput } from '@astryxdesign/core/Chat';
 import { MessageCircleReply } from 'lucide-react';
-import { api, type ProfileMe } from './api';
+import { api, type ProfileMe, type SharedChatMessage } from './api';
 import { authClient, signInWithGoogle } from './auth';
+import { TranscriptMessage } from './ChatTranscript';
 import {
   clearPendingFork,
   notifyChatsChanged,
@@ -32,22 +32,29 @@ import { handleInputError, normalizeHandleInput } from './handle';
 
 /**
  * Follow-up composer that forks a public share into the reader’s own chat.
- * Floor posts use `variant="popover"` (reply icon beside EL5); /share keeps
- * the inline composer. Sign-in / handle claim only open after submit.
+ * Floor posts use `variant="modal"` (reply icon beside EL5 opens the full
+ * conversation + composer); /share keeps the inline composer. Sign-in /
+ * handle claim only open after submit.
  */
 export function TimelineFollowUp({
   shareId,
   postHandle,
   continuePrompt = null,
   variant = 'inline',
+  title,
+  messages = [],
 }: {
   shareId: string;
   /** Timeline post author — used only for copy; fork attribution comes from the API. */
   postHandle?: string;
   /** When the shared answer sealed empty after tools, offer Continue with this finish prompt. */
   continuePrompt?: string | null;
-  /** Floor feed: icon + popover. Share page: always-visible composer. */
-  variant?: 'inline' | 'popover';
+  /** Floor feed: icon + conversation modal. Share page: always-visible composer. */
+  variant?: 'inline' | 'modal';
+  /** Post title shown in the modal header. */
+  title?: string;
+  /** Full transcript shown in the modal so the follow-up stays in context. */
+  messages?: SharedChatMessage[];
 }) {
   const navigate = useNavigate();
   const { data: session, isPending: sessionPending } = authClient.useSession();
@@ -62,7 +69,7 @@ export function TimelineFollowUp({
   const [handleDraft, setHandleDraft] = useState('');
   const [handleError, setHandleError] = useState<string | null>(null);
   const [handleSaving, setHandleSaving] = useState(false);
-  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const resumeTriedRef = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
 
@@ -111,7 +118,7 @@ export function TimelineFollowUp({
       setValue('');
       setSignInOpen(false);
       setHandleOpen(false);
-      setPopoverOpen(false);
+      setModalOpen(false);
       void navigate({
         to: '/chat/$chatId',
         params: { chatId: result.chat_id },
@@ -132,7 +139,7 @@ export function TimelineFollowUp({
     if (!profile?.handle) {
       pendingQuestionRef.current = pending.question;
       setValue(pending.question);
-      if (variant === 'popover') setPopoverOpen(true);
+      if (variant === 'modal') setModalOpen(true);
       setHandleOpen(true);
       resumeTriedRef.current = true;
       return;
@@ -230,9 +237,7 @@ export function TimelineFollowUp({
     </>
   );
 
-  // Keep auth dialogs outside the popover so light-dismiss / unmount does not
-  // tear down sign-in or handle claim while those flows are open.
-  const dialogs: ReactNode = (
+  const authDialogs: ReactNode = (
     <>
       <Dialog
         isOpen={signInOpen}
@@ -326,39 +331,72 @@ export function TimelineFollowUp({
     </>
   );
 
-  if (variant === 'popover') {
+  if (variant === 'modal') {
+    const headerTitle = title?.trim() || 'Shared chat';
     return (
       <>
-        <Popover
-          placement="below"
-          alignment="end"
+        <Button
+          className="timeline-reply"
+          variant="ghost"
+          size="sm"
+          isIconOnly
           label="Ask a follow-up"
-          width="min(24rem, calc(100vw - var(--spacing-6)))"
-          isOpen={popoverOpen}
-          onOpenChange={setPopoverOpen}
-          content={
-            <VStack gap={3} className="timeline-followup-popover">
-              <VStack gap={1}>
-                <Text weight="semibold">Continue in Chat</Text>
-                <Text type="supporting">
-                  Your follow-up forks this thread into your own conversation.
-                </Text>
-              </VStack>
-              {composer}
-            </VStack>
-          }
-        >
-          <Button
-            className="timeline-reply"
-            variant="ghost"
-            size="sm"
-            isIconOnly
-            label="Ask a follow-up"
-            tooltip="Ask a follow-up"
-            icon={<MessageCircleReply size={16} aria-hidden="true" />}
-          />
-        </Popover>
-        {dialogs}
+          tooltip="Ask a follow-up"
+          icon={<MessageCircleReply size={16} aria-hidden="true" />}
+          onClick={() => setModalOpen(true)}
+        />
+        {modalOpen ? (
+          <Dialog
+            isOpen={modalOpen}
+            onOpenChange={setModalOpen}
+            purpose="form"
+            width={640}
+            maxHeight="85vh"
+          >
+            <Layout
+              className="timeline-followup-dialog-shell"
+              header={
+                <DialogHeader
+                  title="Continue in Chat"
+                  subtitle={headerTitle}
+                  onOpenChange={setModalOpen}
+                />
+              }
+              content={
+                <LayoutContent isScrollable className="timeline-followup-dialog-scroll">
+                  <VStack gap={4} className="timeline-followup-dialog-body">
+                    <Text type="supporting">
+                      Review the thread, then ask a follow-up — it forks into your own conversation.
+                    </Text>
+                    {messages.length > 0 ? (
+                      <VStack gap={4} className="timeline-msgs" aria-label="Shared conversation">
+                        {messages.map((message, index) => (
+                          <TranscriptMessage
+                            key={`${shareId}-followup-${index}`}
+                            message={message}
+                            openInData
+                            hydrateResult
+                            collapseSql
+                          />
+                        ))}
+                      </VStack>
+                    ) : (
+                      <Text type="supporting">No transcript available for this post.</Text>
+                    )}
+                  </VStack>
+                </LayoutContent>
+              }
+              footer={
+                <LayoutFooter>
+                  <VStack gap={2} className="timeline-followup-dialog-composer">
+                    {composer}
+                  </VStack>
+                </LayoutFooter>
+              }
+            />
+          </Dialog>
+        ) : null}
+        {authDialogs}
       </>
     );
   }
@@ -371,7 +409,7 @@ export function TimelineFollowUp({
       aria-label="Ask a follow-up"
     >
       {composer}
-      {dialogs}
+      {authDialogs}
     </VStack>
   );
 }

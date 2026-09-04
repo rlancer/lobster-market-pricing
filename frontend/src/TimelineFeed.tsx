@@ -234,7 +234,9 @@ export function TimelinePostRow({
           <TimelineFollowUp
             shareId={post.share_id}
             postHandle={post.handle}
-            variant="popover"
+            variant="modal"
+            title={titleText}
+            messages={messages}
           />
           <PostShareButton url={post.url} title={titleText} />
         </HStack>
