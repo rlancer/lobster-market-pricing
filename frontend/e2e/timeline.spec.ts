@@ -411,6 +411,103 @@ test.describe('Public timeline', () => {
     await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
   });
 
+  test('homepage session card shows tape, next print, and desk takeaway on mobile', async ({ page }) => {
+    const etToday = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      const handle = new URL(route.request().url()).searchParams.get('handle');
+      if (handle === 'nowlobster') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            items: [{
+              share_id: 'ShareDeskNowlobster000000001',
+              url: '/share/ShareDeskNowlobster000000001',
+              title: 'Hourly market overview',
+              excerpt: 'SPX holds the 6500 handle while QQQ lags into the print.',
+              messages: [
+                { role: 'user', content: 'Hourly market overview: what is happening right now?' },
+                {
+                  role: 'assistant',
+                  content: 'SPX holds the 6500 handle while QQQ lags. Unusual call buying in NVDA led the tape; risk stays defined until CPI.',
+                },
+              ],
+              handle: 'nowlobster',
+              name: 'Now Lobster',
+              published_at: Date.now(),
+              model: 'test-model',
+              has_sql: true,
+              has_chart: false,
+              is_bot: true,
+            }],
+            next_before: null,
+            profile: { handle: 'nowlobster', name: 'Now Lobster', is_bot: true, created_at: Date.now() },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline/rail', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          tags: [{ ticker: 'NVDA', posts: 3 }],
+          news: [],
+          highlights: [
+            { ticker: 'SPY', name: 'S&P 500', spot: 650.12, change_1d_pct: 0.4 },
+            { ticker: 'QQQ', name: 'Nasdaq-100', spot: 480.5, change_1d_pct: -0.2 },
+            { ticker: '^VIX', name: 'VIX', spot: 16.4, change_1d_pct: -3.1 },
+          ],
+          fetched_at: new Date().toISOString(),
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/econ_calendar', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          window_days: 14,
+          as_of: new Date().toISOString(),
+          provider: 'fred',
+          items: [
+            { date: etToday, title: 'Consumer Price Index', kind: 'macro', time: '08:30' },
+          ],
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Session' });
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('heading', { name: 'Session' })).toBeVisible();
+    await expect(card.getByRole('link', { name: /SPY \+0\.4%/ })).toBeVisible();
+    await expect(card.getByText('CPI')).toBeVisible();
+    await expect(card.getByText(/today/)).toBeVisible();
+    await expect(card.getByRole('link', { name: '@nowlobster' })).toBeVisible();
+    await expect(card.getByText(/SPX holds the 6500 handle/)).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'Market rail' })).toHaveCount(0);
+
+    await card.getByRole('button', { name: 'Ask about the tape' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    await expect.poll(async () => {
+      const pending = await page.evaluate(() => sessionStorage.getItem('openinterest_copilot_pending_prompt'));
+      return typeof pending === 'string' && pending.includes('CPI');
+    }).toBe(true);
+  });
+
   test('mobile shell offers four blurred bottom actions and keeps the full navigation in a drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {

@@ -1,0 +1,76 @@
+.session-card {
+  width: 100%;
+}
+
+.session-head {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.session-kicker {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.session-ask {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+.session-tape {
+  width: 100%;
+}
+
+.session-tape-item {
+  flex: 1 1 calc(var(--size-element-lg) * 4);
+  min-width: calc(var(--size-element-lg) * 3);
+  color: inherit;
+  text-decoration: none;
+  padding: var(--spacing-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: var(--color-background-body);
+}
+
+.session-tape-item:hover {
+  border-color: var(--color-border-emphasized);
+}
+
+.session-tape-ticker {
+  font-family: var(--font-family-code);
+  letter-spacing: 0.04em;
+}
+
+.session-tape-change {
+  font-family: var(--font-family-code);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.session-tape-change.up {
+  color: var(--color-success);
+}
+
+.session-tape-change.down {
+  color: var(--color-error);
+}
+
+.session-events,
+.session-desk {
+  width: 100%;
+}
+
+.session-desk-handle,
+.session-desk-takeaway {
+  color: inherit;
+  text-decoration: none;
+}
+
+.session-desk-handle:hover,
+.session-desk-takeaway:hover {
+  color: var(--color-text-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}

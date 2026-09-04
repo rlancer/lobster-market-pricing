@@ -472,9 +472,12 @@ in-memory.
 
 ## UI features
 
-The **timeline** is the home surface (`/`). On desktop it adds a companion
+The **timeline** is the home surface (`/`). A Session card sits at the top of
+the feed (mobile and desktop): live index tape, the next high-impact macro
+print, and the latest `@nowlobster` desk takeaway, with Ask about the tape
+opening Chat against that snapshot. On desktop it also adds a companion
 column (tags from public posts, breaking news, index tape) and hides that
-rail below `56rem` until there is a mobile surface. Per-handle profiles at
+rail below `56rem`. Per-handle profiles at
 `/u/{handle}` reuse the same companion column next to that author's public
 chats. Chat lives at `/chat` and reuses the same companion shell inside chat
 chrome (top bar spans both columns). The rail opens once tickers or session
