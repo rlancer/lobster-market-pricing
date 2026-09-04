@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/assert-backdrop-filter.mjs",
     "lint": "oxlint",
-    "test:unit": "node --experimental-strip-types --test src/admin.test.ts src/notebooks/syntheticSeries.test.ts src/notebooks/crossModelConclusion.test.ts src/chatConnection.test.ts src/chatHydration.test.ts src/chatSession.test.ts src/chatAttachments.test.ts src/metaWorker.test.ts src/pageMeta.test.ts src/prepareAvatar.test.ts src/tickerChartRange.test.ts src/replyStyle.test.ts src/schwabBlackScholes.test.ts src/schwabPnlView.test.ts src/sessionSnapshot.test.ts tools/materialize-text-vs-image-snapshot.test.mjs tools/text-vs-image-runner-utils.test.mjs",
+    "test:unit": "node --experimental-strip-types --test src/admin.test.ts src/notebooks/syntheticSeries.test.ts src/notebooks/crossModelConclusion.test.ts src/chatConnection.test.ts src/chatHydration.test.ts src/chatSession.test.ts src/chatAttachments.test.ts src/floorPositions.test.ts src/metaWorker.test.ts src/pageMeta.test.ts src/prepareAvatar.test.ts src/tickerChartRange.test.ts src/replyStyle.test.ts src/schwabBlackScholes.test.ts src/schwabPnlView.test.ts src/sessionSnapshot.test.ts tools/materialize-text-vs-image-snapshot.test.mjs tools/text-vs-image-runner-utils.test.mjs",
     "materialize:text-vs-image": "node tools/materialize-text-vs-image-snapshot.mjs",
     "og:render": "node scripts/render-og.mjs",
     "test:e2e": "node node_modules/@playwright/test/cli.js test",

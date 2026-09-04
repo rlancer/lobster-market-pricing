@@ -332,7 +332,7 @@ export default function MyBotsPage() {
         <Link to="/account">
           <Text type="supporting">Account settings</Text>
         </Link>
-        <Link to="/portfolio">
+        <Link to="/portfolio" search={{ book: undefined }}>
           <Text type="supporting">Portfolio</Text>
         </Link>
       </HStack>
@@ -421,7 +421,7 @@ export default function MyBotsPage() {
             width="100%"
           />
           {books.every((item) => item.source !== 'schwab') ? (
-            <Link to="/portfolio">
+            <Link to="/portfolio" search={{ book: 'schwab' }}>
               <Text type="supporting">Connect Schwab on Portfolio to attach a brokerage account.</Text>
             </Link>
           ) : null}

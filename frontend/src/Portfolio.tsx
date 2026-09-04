@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   Button,
   Heading,
@@ -70,7 +70,14 @@ function convictionColor(conviction: string | null): 'green' | 'orange' | 'gray'
 export default function PortfolioPage() {
   const { data: session, isPending } = authClient.useSession();
   const signedIn = Boolean(session?.user);
-  const [bookMode, setBookMode] = useState<BookMode>('paper');
+  const navigate = useNavigate({ from: '/portfolio' });
+  const { book } = useSearch({ from: '/portfolio' });
+  const bookMode: BookMode = book ?? 'paper';
+  const setBookMode = (next: BookMode) => {
+    void navigate({
+      search: { book: next === 'paper' ? undefined : next },
+    });
+  };
   const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -328,7 +335,7 @@ export default function PortfolioPage() {
         >
           <Tab value="suggested" label="Suggested trades" />
           <Tab value="paper" label="My paper book" />
-          {schwabConfigured ? <Tab value="schwab" label="Schwab" /> : null}
+          {schwabConfigured || bookMode === 'schwab' ? <Tab value="schwab" label="Schwab" /> : null}
         </TabList>
       </HStack>
 

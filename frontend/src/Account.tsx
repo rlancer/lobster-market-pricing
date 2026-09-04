@@ -510,7 +510,7 @@ export default function AccountPage() {
               <Text type="supporting">
                 Connect Charles Schwab to view linked brokerage accounts,
                 balances, and positions on{' '}
-                <Link to="/portfolio">Portfolio</Link>
+                <Link to="/portfolio" search={{ book: undefined }}>Portfolio</Link>
                 . Tokens stay on the server.
               </Text>
             </VStack>
@@ -522,7 +522,7 @@ export default function AccountPage() {
                     variant="secondary"
                     size="sm"
                     label="View portfolio"
-                    onClick={() => { void navigate({ to: '/portfolio' }); }}
+                    onClick={() => { void navigate({ to: '/portfolio', search: { book: 'schwab' } }); }}
                   />
                   <Button
                     variant="secondary"
