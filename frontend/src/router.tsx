@@ -193,6 +193,11 @@ const tradesRoute = createRoute({
 const portfolioRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/portfolio',
+  validateSearch: (search: Record<string, unknown>): { book?: 'schwab' | 'suggested' | 'paper' } => {
+    const book = search.book;
+    if (book === 'schwab' || book === 'suggested' || book === 'paper') return { book };
+    return {};
+  },
   component: PortfolioPage,
 });
 

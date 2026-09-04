@@ -474,13 +474,18 @@ in-memory.
 
 ## UI features
 
-The **Floor** is the home surface (`/`). A Session card sits at the top of
-the feed (mobile and desktop): live index tape, the next high-impact macro
-print, and the latest `@nowlobster` desk takeaway, with Ask about the tape
-opening Chat against that snapshot. The card is a precomputed Worker snapshot
-(`GET /api/timeline/session`) so the homepage does not wait on lake or calendar
-queries. Each public post is also a card — a discrete conversation (share /
-reply / unpublish) stacked with the same gap as Session, not a divider row.
+The **Floor** is the home surface (`/`). When you are signed in with Schwab
+connected, a **Your book** card sits at the top of the feed: equity, day/open
+PnL, and the largest open lots from `GET /api/schwab/portfolio`. Open book
+goes to `/portfolio?book=schwab`; Ask about the book starts Chat with the
+Schwab book attached. Visitors without a connected book never see it. A
+Session card sits below that (mobile and desktop): live index tape, the next
+high-impact macro print, and the latest `@nowlobster` desk takeaway, with Ask
+about the tape opening Chat against that snapshot. The Session card is a
+precomputed Worker snapshot (`GET /api/timeline/session`) so the homepage does
+not wait on lake or calendar queries. Each public post is also a card — a
+discrete conversation (share / reply / unpublish) stacked with the same gap
+as Session, not a divider row.
 On desktop the Floor also adds a companion
 column (tags from public posts, breaking news, index tape) and hides that
 rail below `56rem`. Per-handle profiles at

@@ -11,7 +11,10 @@ import {
 } from '@astryxdesign/core';
 import './Timeline.css';
 import { api, type TimelinePost } from './api';
+import type { ChatAttachment } from './chatAttachments';
+import { saveChatAttachments } from './chatAttachments';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
+import { FloorPositionsCard } from './FloorPositionsCard';
 import { useIsAdmin } from './useAdmin';
 import { SessionCard } from './SessionCard';
 import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './TimelineFeed';
@@ -92,11 +95,12 @@ export default function TimelinePage() {
     void load();
   }, [load]);
 
-  const launchChat = useCallback((raw: string) => {
+  const launchChat = useCallback((raw: string, attachments?: readonly ChatAttachment[]) => {
     const question = raw.trim();
     if (!question) return;
     stashPendingPrompt(question);
-    startNewChatId();
+    const chatId = startNewChatId();
+    if (attachments?.length) saveChatAttachments(chatId, attachments);
     setComposer('');
     void navigate({ to: '/chat' });
   }, [navigate]);
@@ -132,6 +136,7 @@ export default function TimelinePage() {
           ) : null}
 
           <VStack gap={5} className="timeline-body" paddingBlock={5}>
+            <FloorPositionsCard onAsk={launchChat} />
             <SessionCard onAsk={launchChat} />
 
             {loading && <TimelineFeedSkeleton />}

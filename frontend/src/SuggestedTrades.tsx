@@ -147,7 +147,7 @@ function TrackTradeButton({
 
   if (state === 'tracked' || alreadyTracked) {
     return (
-      <Link to="/portfolio" className="ai-trade-tracked">
+      <Link to="/portfolio" search={{ book: undefined }} className="ai-trade-tracked">
         In portfolio
       </Link>
     );

@@ -36,8 +36,9 @@ MORE CLI:
 ## Floor feed
 
 Floor posts are discrete conversations (share, reply, unpublish independently),
-not dense table rows — wrap each in `Card` (default variant). Session stays
-`variant="muted"` because it is a dashboard widget, not a post.
+not dense table rows — wrap each in `Card` (default variant). Session and the
+signed-in Schwab **Your book** overview stay `variant="muted"` because they are
+dashboard widgets, not posts.
 
 ## Repo-wide workflow
 

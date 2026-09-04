@@ -548,6 +548,305 @@ test.describe('The Floor', () => {
     }).toBe(true);
   });
 
+  test('anonymous Floor does not show a Schwab book overview', async ({ page }) => {
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Floor' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Your book' })).toHaveCount(0);
+  });
+
+  test('connected Schwab book appears at the top of the Floor', async ({ page }) => {
+    await page.route((url) => url.pathname === '/api/auth/get-session', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          session: {
+            id: 'sess-floor-book',
+            userId: 'user-floor-book',
+            expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          },
+          user: {
+            id: 'user-floor-book',
+            email: 'floor-book@example.com',
+            name: 'Floor Book',
+            image: null,
+          },
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          id: 'user-floor-book',
+          name: 'Floor Book',
+          email: 'floor-book@example.com',
+          image: null,
+          handle: 'floorbook',
+          display_name: 'Floor Book',
+          avatar_url: null,
+          suggested_handle: 'floorbook',
+          is_admin: false,
+          reply_style: 'desk',
+          reply_note: null,
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/chats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [] }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/schwab/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          connected: true,
+          connected_at: '2026-09-01T00:00:00.000Z',
+          expires_at: '2026-09-05T00:00:00.000Z',
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/schwab/portfolio', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          connected: true,
+          fetched_at: '2026-09-04T15:00:00.000Z',
+          accounts: [{
+            id: 'schwab-0-1234',
+            account_number_masked: '••••1234',
+            type: 'BROKERAGE',
+            cash: 12_000,
+            equity: 54_321.5,
+            buying_power: 20_000,
+            day_pnl: 240.25,
+            open_pnl: 1_850,
+            positions: [
+              {
+                id: 'pos-aapl',
+                symbol: 'AAPL',
+                underlying: null,
+                description: 'Apple Inc',
+                asset_type: 'EQUITY',
+                quantity: 40,
+                average_price: 180,
+                market_value: 8_400,
+                day_pnl: 120.5,
+                open_pnl: 1_200,
+              },
+              {
+                id: 'pos-msft',
+                symbol: 'MSFT',
+                underlying: null,
+                description: 'Microsoft Corp',
+                asset_type: 'EQUITY',
+                quantity: 10,
+                average_price: 400,
+                market_value: 4_200,
+                day_pnl: -40,
+                open_pnl: 200,
+              },
+            ],
+          }],
+          totals: {
+            cash: 12_000,
+            equity: 54_321.5,
+            buying_power: 20_000,
+            day_pnl: 240.25,
+            open_pnl: 1_850,
+            position_count: 2,
+            account_count: 1,
+          },
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Your book' });
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('heading', { name: 'Your book' })).toBeVisible();
+    await expect(card.getByText('$54,321.50')).toBeVisible();
+    await expect(card.getByText('AAPL')).toBeVisible();
+    await expect(card.getByText('MSFT')).toBeVisible();
+
+    await card.getByText('AAPL').click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/research/AAPL');
+  });
+
+  test('Floor book Ask attaches Schwab and Open book deep-links Portfolio', async ({ page }) => {
+    await page.route((url) => url.pathname === '/api/auth/get-session', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          session: {
+            id: 'sess-floor-book',
+            userId: 'user-floor-book',
+            expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          },
+          user: {
+            id: 'user-floor-book',
+            email: 'floor-book@example.com',
+            name: 'Floor Book',
+            image: null,
+          },
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          id: 'user-floor-book',
+          name: 'Floor Book',
+          email: 'floor-book@example.com',
+          image: null,
+          handle: 'floorbook',
+          display_name: 'Floor Book',
+          avatar_url: null,
+          suggested_handle: 'floorbook',
+          is_admin: false,
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/chats', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [] }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/health', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, auth: { google: true, schwab: true } }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/bots', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [] }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/timeline', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], next_before: null, profile: null }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/schwab/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          connected: true,
+          connected_at: '2026-09-01T00:00:00.000Z',
+          expires_at: null,
+        }),
+      });
+    });
+    await page.route((url) => url.pathname === '/api/schwab/portfolio', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          connected: true,
+          fetched_at: '2026-09-04T15:00:00.000Z',
+          accounts: [{
+            id: 'schwab-0-1234',
+            account_number_masked: '••••1234',
+            type: 'BROKERAGE',
+            cash: 1,
+            equity: 10,
+            buying_power: 1,
+            day_pnl: 5,
+            open_pnl: 5,
+            positions: [{
+              id: 'pos-nvda',
+              symbol: 'NVDA',
+              underlying: null,
+              description: 'NVIDIA Corp',
+              asset_type: 'EQUITY',
+              quantity: 2,
+              average_price: 100,
+              market_value: 240,
+              day_pnl: 18,
+              open_pnl: 40,
+            }],
+          }],
+          totals: {
+            cash: 1,
+            equity: 10,
+            buying_power: 1,
+            day_pnl: 5,
+            open_pnl: 5,
+            position_count: 1,
+            account_count: 1,
+          },
+        }),
+      });
+    });
+
+    await page.goto('/');
+    const card = page.getByRole('region', { name: 'Your book' });
+    await expect(card).toBeVisible();
+
+    await card.getByRole('link', { name: 'Open book' }).click();
+    await expect.poll(() => {
+      const url = new URL(page.url());
+      return `${url.pathname}${url.search}`;
+    }).toBe('/portfolio?book=schwab');
+    await expect(page.getByRole('navigation', { name: 'Portfolio book' }).getByRole('button', { name: 'Schwab' })).toBeVisible();
+
+    await page.goto('/');
+    await expect(card).toBeVisible();
+    await card.getByRole('button', { name: 'Ask about the book' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/chat');
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const prompt = sessionStorage.getItem('openinterest_copilot_pending_prompt');
+        const id = sessionStorage.getItem('openinterest_copilot_chat_id');
+        const attachments = id ? sessionStorage.getItem(`lobster.chatAttachments:${id}`) : null;
+        return { prompt, attachments };
+      });
+    }).toEqual({
+      prompt: "What's driving NVDA in my Schwab book today? Tie it to the rest of the open book and whether the position needs an adjustment.",
+      attachments: JSON.stringify([{ kind: 'portfolio', source: 'schwab' }]),
+    });
+  });
+
   test('mobile shell offers four blurred bottom actions and keeps the full navigation in a drawer', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {

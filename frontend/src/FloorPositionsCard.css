@@ -1,0 +1,48 @@
+.floor-book {
+  width: 100%;
+}
+
+.floor-book-head {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.floor-book-kicker {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.floor-book-actions {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+.floor-book-open {
+  color: inherit;
+  text-decoration: none;
+}
+
+.floor-book-open:hover {
+  color: var(--color-text-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.floor-book-kpis,
+.floor-book-list,
+.floor-book-more {
+  width: 100%;
+}
+
+.floor-book-more {
+  color: inherit;
+  text-decoration: none;
+}
+
+.floor-book-more:hover {
+  color: var(--color-text-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
