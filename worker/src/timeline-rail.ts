@@ -24,8 +24,26 @@ export const MARKET_HIGHLIGHT_WATCHLIST: ReadonlyArray<{ ticker: string; name: s
   { ticker: "QQQ", name: "Nasdaq-100" },
   { ticker: "IWM", name: "Russell 2000" },
   { ticker: "DIA", name: "Dow Jones" },
-  { ticker: "^VIX", name: "VIX" },
 ];
+
+/** How many front VX monthals to pin on the Session / market tape. */
+export const NEAR_MONTH_VX_LIMIT = 2;
+
+/** CFE month codes on monthly VX quote symbols (e.g. VXU26 → Sep '26). */
+const VX_MONTH_CODES: Readonly<Record<string, string>> = {
+  F: "Jan",
+  G: "Feb",
+  H: "Mar",
+  J: "Apr",
+  K: "May",
+  M: "Jun",
+  N: "Jul",
+  Q: "Aug",
+  U: "Sep",
+  V: "Oct",
+  X: "Nov",
+  Z: "Dec",
+};
 
 export interface TimelineRailTag {
   ticker: string;
@@ -120,6 +138,45 @@ export function highlightsFromOhlcRows(
   });
 }
 
+/** Friendly tape label for a monthly VX quote symbol (`VXU26` → `VX Sep'26`). */
+export function vxFuturesDisplayName(contractSymbol: string): string {
+  const symbol = contractSymbol.trim().toUpperCase();
+  const match = /^VX([FGHJKMNQUVXZ])(\d{2})$/.exec(symbol);
+  if (!match) return symbol || "VX";
+  const month = VX_MONTH_CODES[match[1]!] ?? match[1]!;
+  return `VX ${month}'${match[2]}`;
+}
+
+/**
+ * Map latest `options.futures_quotes` rows (already ordered nearest-expiry first)
+ * onto the shared highlight shape. Spot prefers last → close → settlement.
+ * Non-monthly VX symbols are ignored so a shared lake mock cannot pollute the tape.
+ */
+export function highlightsFromVxQuoteRows(
+  rows: Record<string, unknown>[],
+  limit = NEAR_MONTH_VX_LIMIT,
+): TimelineRailHighlight[] {
+  const out: TimelineRailHighlight[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const ticker = String(row.symbol ?? row.contract_symbol ?? row.ticker ?? "")
+      .trim()
+      .toUpperCase();
+    if (!ticker || seen.has(ticker) || !/^VX[FGHJKMNQUVXZ]\d{2}$/.test(ticker)) continue;
+    seen.add(ticker);
+    const spot = numOrNull(row.spot ?? row.last ?? row.close ?? row.settlement_price);
+    const prev = numOrNull(row.prev_close);
+    out.push({
+      ticker,
+      name: vxFuturesDisplayName(ticker),
+      spot,
+      change_1d_pct: pctChange(prev, spot),
+    });
+    if (out.length >= Math.max(1, Math.min(6, limit))) break;
+  }
+  return out;
+}
+
 export function parseTavilyNewsResults(
   data: { results?: { title?: string; url?: string; content?: string; published_date?: string | null }[] },
   limit = TIMELINE_RAIL_NEWS_LIMIT,
@@ -160,6 +217,38 @@ export function marketHighlightSql(
     "FROM ranked a\n" +
     "LEFT JOIN ranked b ON a.symbol = b.symbol AND b.rn = 2\n" +
     "WHERE a.rn = 1"
+  );
+}
+
+/**
+ * Two nearest unexpired VX monthals from the CFE delayed-quotes table.
+ * `asOfDate` is YYYY-MM-DD (session calendar date); contracts with
+ * expiration_date before that day are dropped so the tape stays on the curve.
+ */
+export function nearMonthVxSql(
+  asOfDate: string,
+  limit = NEAR_MONTH_VX_LIMIT,
+): string {
+  const cap = Math.max(1, Math.min(6, limit));
+  return (
+    "WITH latest AS (\n" +
+    "  SELECT contract_symbol, expiration_date, last, close, prev_close, settlement_price,\n" +
+    "    ROW_NUMBER() OVER (\n" +
+    "      PARTITION BY contract_symbol\n" +
+    "      ORDER BY fetched_at DESC, run_id DESC\n" +
+    "    ) AS rn\n" +
+    "  FROM options.futures_quotes\n" +
+    "  WHERE root = 'VX'\n" +
+    "    AND expiration_date IS NOT NULL\n" +
+    `    AND expiration_date >= ${lit(asOfDate)}\n` +
+    "), deduped AS (\n" +
+    "  SELECT contract_symbol, expiration_date, last, close, prev_close, settlement_price\n" +
+    "  FROM latest WHERE rn = 1\n" +
+    ")\n" +
+    "SELECT contract_symbol AS symbol, expiration_date, last, close, prev_close, settlement_price\n" +
+    "FROM deduped\n" +
+    "ORDER BY expiration_date ASC, contract_symbol ASC\n" +
+    `LIMIT ${cap}`
   );
 }
 
@@ -345,14 +434,33 @@ export async function loadMarketHighlights(
   const since = new Date(now - HIGHLIGHT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
-  const cacheKey = watchlist === MARKET_HIGHLIGHT_WATCHLIST
-    ? "timeline_rail_hl_v1"
+  const isMarketWatchlist = watchlist === MARKET_HIGHLIGHT_WATCHLIST;
+  // v2: equity tape no longer includes spot ^VIX; near VX monthals append instead.
+  const cacheKey = isMarketWatchlist
+    ? "timeline_rail_hl_v2"
     : `chat_rail_hl_v1_${watchlist.map((item) => item.ticker).join("_")}`;
   const rows = await deps.queryLake(marketHighlightSql(since, watchlist), cacheKey);
   const items = highlightsFromOhlcRows(rows, watchlist);
-  const missing = items.every((item) => item.spot == null);
-  if (missing && rows.length === 0) return { items, error: "no highlight bars" };
-  return { items };
+
+  let vxItems: TimelineRailHighlight[] = [];
+  if (isMarketWatchlist) {
+    try {
+      const vxRows = await deps.queryLake(
+        nearMonthVxSql(etDateKey(now)),
+        "timeline_rail_vx_v1",
+      );
+      vxItems = highlightsFromVxQuoteRows(vxRows);
+    } catch {
+      // Equity tape still useful when the CFE quotes path is down.
+    }
+  }
+
+  const combined = [...items, ...vxItems];
+  const missing = combined.every((item) => item.spot == null);
+  if (missing && rows.length === 0 && vxItems.length === 0) {
+    return { items: combined, error: "no highlight bars" };
+  }
+  return { items: combined };
 }
 
 function truncateAtSentence(s: string, max = NEWS_SNIPPET_MAX): string {
@@ -371,4 +479,19 @@ function lit(v: unknown): string {
 function numOrNull(v: unknown): number | null {
   const n = Number(v);
   return v == null || !Number.isFinite(n) ? null : n;
+}
+
+/** YYYY-MM-DD in America/New_York — matches Session card calendar math. */
+function etDateKey(nowMs: number): string {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const bag: Record<string, string> = {};
+  for (const part of fmt.formatToParts(new Date(nowMs))) {
+    if (part.type !== "literal") bag[part.type] = part.value;
+  }
+  return `${bag.year ?? "1970"}-${bag.month ?? "01"}-${bag.day ?? "01"}`;
 }
