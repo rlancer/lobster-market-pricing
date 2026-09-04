@@ -14,9 +14,9 @@ import {
 } from "../src/user-bots.ts";
 import { publicChatOrigin } from "../src/user-bot-runner.ts";
 import {
-  assistantExcerptFromTurns,
+  assistantBriefingFromTurns,
   buildUserBotAlertEmail,
-  clipAlertExcerpt,
+  normalizeAlertBriefing,
 } from "../src/user-bot-email.ts";
 import { filterSchwabPortfolioView, formatSchwabPortfolioSummary } from "../src/schwab-portfolio.ts";
 
@@ -181,22 +181,27 @@ test("publicChatOrigin points email at the site that can restore the transcript"
   assert.equal(publicChatOrigin(undefined), "https://lobster.mp");
 });
 
-test("alert email prefers the chat link and clips the briefing", () => {
-  const excerpt = clipAlertExcerpt("x".repeat(900));
-  assert.ok(excerpt.endsWith("…"));
-  assert.ok(excerpt.length <= 800);
+test("alert email prefers the chat link and keeps the full briefing", () => {
+  const long = "x".repeat(900);
+  const briefing = normalizeAlertBriefing(long);
+  assert.equal(briefing.length, 900);
+  assert.equal(briefing.endsWith("…"), false);
   const built = buildUserBotAlertEmail({
     botName: "Portfolio risk",
-    excerpt: assistantExcerptFromTurns([
+    briefing: assistantBriefingFromTurns([
       { role: "user", content: "Review my book." },
-      { role: "assistant", content: "Trim the NVDA calls before Friday." },
+      { role: "assistant", content: `## Takeaway\n\nTrim the NVDA calls before Friday.\n\n${long}` },
     ]),
     chatUrl: "https://lobster.mp/chat/abc",
   });
   assert.equal(built.subject, "Portfolio risk finished a run");
   assert.match(built.text, /Trim the NVDA calls/);
+  assert.match(built.text, new RegExp(long));
   assert.match(built.text, /https:\/\/lobster\.mp\/chat\/abc/);
   assert.match(built.html, /Open the briefing/);
+  assert.match(built.html, /Trim the NVDA calls/);
+  assert.match(built.html, /<h2[^>]*>Takeaway<\/h2>/);
+  assert.doesNotMatch(built.html, /…/);
 });
 
 test("formatSchwabPortfolioSummary keeps masked accounts and skips empty books", () => {

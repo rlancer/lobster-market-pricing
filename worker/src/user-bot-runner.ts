@@ -33,7 +33,7 @@ import {
   type UserBot,
   type UserBotRun,
 } from "./user-bots";
-import { assistantExcerptFromTurns, sendUserBotAlert } from "./user-bot-email";
+import { assistantBriefingFromTurns, sendUserBotAlert } from "./user-bot-email";
 
 const SHARE_ID_BYTES = 18;
 const SHARE_ROW_MAX_BYTES = 2_000_000;
@@ -264,7 +264,7 @@ export async function runUserBotChat(
         const site = publicChatOrigin(opts?.publicOrigin);
         const send = sendUserBotAlert(env.EMAIL, to, {
           botName: bot.name,
-          excerpt: assistantExcerptFromTurns(turn.messages),
+          briefing: assistantBriefingFromTurns(turn.messages),
           chatUrl: `${site}/chat/${chatId}`,
           shareUrl: shareId ? `${site}/share/${shareId}` : null,
         }).catch((error) => {
