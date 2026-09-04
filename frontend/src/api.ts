@@ -995,6 +995,8 @@ export interface SchwabPortfolioPosition {
   average_price: number | null;
   market_value: number | null;
   day_pnl: number | null;
+  /** Schwab currentDayProfitLossPercentage, in percentage points. */
+  day_pnl_pct?: number | null;
   open_pnl: number | null;
 }
 
@@ -1006,6 +1008,7 @@ export interface SchwabPortfolioAccount {
   equity: number | null;
   buying_power: number | null;
   day_pnl: number | null;
+  day_pnl_pct?: number | null;
   open_pnl: number | null;
   positions: SchwabPortfolioPosition[];
 }
@@ -1020,6 +1023,7 @@ export interface SchwabPortfolio {
     equity: number;
     buying_power: number;
     day_pnl: number;
+    day_pnl_pct?: number | null;
     open_pnl: number;
     position_count: number;
     account_count: number;

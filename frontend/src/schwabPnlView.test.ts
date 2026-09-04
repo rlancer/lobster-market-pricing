@@ -10,6 +10,7 @@ import {
   applyEquityMarkPath,
   applyOptionMarkPath,
   buildActivityRows,
+  calendarWindowStart,
   parseOccContract,
   composeDaily,
   composeSeries,
@@ -18,14 +19,19 @@ import {
   equityOpenLot,
   equityLotsFromFills,
   filterActivity,
+  formatSignedPercent,
   includedOpenMark,
   optionLotsFromFills,
   optionLegDailyPath,
   optionSchwabBarsTrackExit,
   performanceFocusWindow,
+  periodPnlSince,
+  pnlPercent,
+  positionDayPercent,
   positionMatchesQuery,
   positionTicker,
   positionTickerOptions,
+  scopedPortfolioBasis,
   tickerOpenMark,
   weekdayDates,
   type PnlInclude,
@@ -1277,4 +1283,71 @@ test('positionTickerOptions groups option legs under the underlying root', () =>
       { ticker: 'CAR', count: 2 },
     ],
   );
+});
+
+test('pnlPercent is the move versus the prior value', () => {
+  assert.equal(pnlPercent(50, 1_050), (50 / 1_000) * 100);
+  assert.equal(pnlPercent(-20, 980), (-20 / 1_000) * 100);
+  assert.equal(pnlPercent(-20, -700), (-20 / 680) * 100);
+  assert.equal(pnlPercent(null, 1_000), null);
+  assert.equal(pnlPercent(10, 10), null);
+});
+
+test('formatSignedPercent uses a minus glyph and one or two decimals', () => {
+  assert.equal(formatSignedPercent(1.234), '+1.23%');
+  assert.equal(formatSignedPercent(-12.34), '−12.3%');
+  assert.equal(formatSignedPercent(0), '0.00%');
+  assert.equal(formatSignedPercent(null), '—');
+});
+
+test('calendarWindowStart and periodPnlSince slice MTD out of a YTD series', () => {
+  assert.equal(calendarWindowStart('YTD', '2026-09-04'), '2026-01-01');
+  assert.equal(calendarWindowStart('MTD', '2026-09-04'), '2026-09-01');
+  const series = [
+    { date: '2026-08-31', daily: 100 },
+    { date: '2026-09-01', daily: 10 },
+    { date: '2026-09-03', daily: -4 },
+  ];
+  assert.equal(periodPnlSince(series, '2026-09-01'), 6);
+  assert.equal(periodPnlSince(series, '2026-01-01'), 106);
+});
+
+test('scopedPortfolioBasis and positionDayPercent use live marks', () => {
+  const positions: SchwabPortfolioPosition[] = [
+    {
+      id: 'aapl',
+      symbol: 'AAPL',
+      underlying: null,
+      description: null,
+      asset_type: 'EQUITY',
+      quantity: 10,
+      average_price: 100,
+      market_value: 1_050,
+      day_pnl: 50,
+      day_pnl_pct: 5,
+      open_pnl: 50,
+    },
+    {
+      id: 'msft',
+      symbol: 'MSFT',
+      underlying: null,
+      description: null,
+      asset_type: 'EQUITY',
+      quantity: 2,
+      average_price: 400,
+      market_value: 820,
+      day_pnl: 20,
+      open_pnl: 20,
+    },
+  ];
+  assert.deepEqual(
+    scopedPortfolioBasis(positions, '', { equity: 50_000, day_pnl: -80 }),
+    { equity: 50_000, day_pnl: -80 },
+  );
+  assert.deepEqual(
+    scopedPortfolioBasis(positions, 'AAPL', { equity: 50_000, day_pnl: -80 }),
+    { equity: 1_050, day_pnl: 50 },
+  );
+  assert.equal(positionDayPercent(positions[0]!), 5);
+  assert.equal(positionDayPercent(positions[1]!), (20 / 800) * 100);
 });

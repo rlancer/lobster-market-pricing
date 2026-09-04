@@ -27,6 +27,9 @@ import { Briefcase, RefreshCw, Search } from 'lucide-react';
 import type { SchwabPortfolioAccount, SchwabPortfolioPosition } from './api';
 import { SchwabPnlSection } from './SchwabPnlSection';
 import {
+  formatSignedPercent,
+  pnlPercent,
+  positionDayPercent,
   positionMatchesQuery,
   positionTicker,
   positionTickerOptions,
@@ -105,10 +108,12 @@ function KpiCard({
   label,
   value,
   tone,
+  percent,
 }: {
   label: string;
   value: string;
   tone?: 'green' | 'red' | 'gray';
+  percent?: string;
 }) {
   return (
     <Card padding={3}>
@@ -122,6 +127,13 @@ function KpiCard({
         >
           {value}
         </Text>
+        {percent ? (
+          <Token
+            size="sm"
+            color={tone === 'green' ? 'green' : tone === 'red' ? 'red' : 'gray'}
+            label={percent}
+          />
+        ) : null}
       </VStack>
     </Card>
   );
@@ -145,6 +157,7 @@ export function SchwabBookSection({
     equity: number | null;
     buying_power: number | null;
     day_pnl: number | null;
+    day_pnl_pct?: number | null;
     open_pnl: number | null;
   } | null;
   positions: SchwabPortfolioPosition[];
@@ -168,12 +181,20 @@ export function SchwabBookSection({
     setSymbol(next.trim().toUpperCase());
   };
 
+  const dayPct = summary
+    ? (summary.day_pnl_pct ?? pnlPercent(summary.day_pnl, summary.equity))
+    : null;
   const kpiItems = summary
     ? [
         { label: 'Cash', value: money(summary.cash) },
         { label: 'Equity', value: money(summary.equity) },
         { label: 'Buying power', value: money(summary.buying_power) },
-        { label: 'Day PnL', value: money(summary.day_pnl), tone: pnlTone(summary.day_pnl) },
+        {
+          label: 'Day PnL',
+          value: money(summary.day_pnl),
+          tone: pnlTone(summary.day_pnl),
+          percent: dayPct != null ? formatSignedPercent(dayPct) : undefined,
+        },
         { label: 'Open PnL', value: money(summary.open_pnl), tone: pnlTone(summary.open_pnl) },
       ] as const
     : [];
@@ -224,12 +245,22 @@ export function SchwabBookSection({
                 label={row.symbol}
                 description={row.description ?? row.asset_type ?? undefined}
                 endContent={(
-                  <Text
-                    hasTabularNumbers
-                    className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
-                  >
-                    {money(row.open_pnl)}
-                  </Text>
+                  <VStack gap={0} align="end">
+                    <Text
+                      hasTabularNumbers
+                      className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
+                    >
+                      {money(row.open_pnl)}
+                    </Text>
+                    <Text
+                      type="supporting"
+                      size="sm"
+                      hasTabularNumbers
+                      className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
+                    >
+                      {formatSignedPercent(positionDayPercent(row))} DTD
+                    </Text>
+                  </VStack>
                 )}
                 onClick={() => setTicker(symbol === root ? '' : root)}
               />
@@ -310,13 +341,23 @@ export function SchwabBookSection({
               header: 'Day PnL',
               width: pixel(100),
               renderCell: (row) => (
-                <Text
-                  hasTabularNumbers
-                  size="sm"
-                  className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
-                >
-                  {money(row.day_pnl)}
-                </Text>
+                <VStack gap={0}>
+                  <Text
+                    hasTabularNumbers
+                    size="sm"
+                    className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
+                  >
+                    {money(row.day_pnl)}
+                  </Text>
+                  <Text
+                    type="supporting"
+                    size="sm"
+                    hasTabularNumbers
+                    className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
+                  >
+                    {formatSignedPercent(positionDayPercent(row))}
+                  </Text>
+                </VStack>
               ),
             },
             {
@@ -349,13 +390,22 @@ export function SchwabBookSection({
         <MetadataList orientation="horizontal" label={{ position: 'top' }}>
           {kpiItems.map((item) => (
             <MetadataListItem key={item.label} label={item.label}>
-              <Text
-                hasTabularNumbers
-                weight="bold"
-                className={'tone' in item ? `portfolio-pnl-${item.tone}` : undefined}
-              >
-                {item.value}
-              </Text>
+              <HStack gap={2} vAlign="center" wrap="wrap">
+                <Text
+                  hasTabularNumbers
+                  weight="bold"
+                  className={'tone' in item ? `portfolio-pnl-${item.tone}` : undefined}
+                >
+                  {item.value}
+                </Text>
+                {'percent' in item && item.percent ? (
+                  <Token
+                    size="sm"
+                    color={item.tone === 'green' ? 'green' : item.tone === 'red' ? 'red' : 'gray'}
+                    label={item.percent}
+                  />
+                ) : null}
+              </HStack>
             </MetadataListItem>
           ))}
         </MetadataList>
@@ -367,6 +417,7 @@ export function SchwabBookSection({
               label={item.label}
               value={item.value}
               tone={'tone' in item ? item.tone : undefined}
+              percent={'percent' in item ? item.percent : undefined}
             />
           ))}
         </Grid>
@@ -432,6 +483,9 @@ export function SchwabBookSection({
           onSymbolChange={setTicker}
           hideSymbolInput
           positions={positions}
+          accountEquity={summary?.equity ?? null}
+          accountDayPnl={summary?.day_pnl ?? null}
+          accountDayPnlPct={summary?.day_pnl_pct ?? null}
           afterChart={openPositions}
         />
       </VStack>

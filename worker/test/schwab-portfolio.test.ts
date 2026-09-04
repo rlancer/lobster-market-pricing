@@ -7,6 +7,7 @@ import {
   SCHWAB_TRADER_BASE,
   fetchSchwabAccountsRaw,
   filterSchwabPortfolioView,
+  pnlPercent,
   SchwabApiError,
 } from "../src/schwab-portfolio.ts";
 
@@ -83,8 +84,49 @@ test("normalizeSchwabAccounts maps securitiesAccount envelope", () => {
   assert.equal(view.totals.position_count, 2);
   assert.equal(view.totals.day_pnl, -7.5);
   assert.equal(view.totals.open_pnl, 10);
+  assert.equal(acct.positions[0]!.day_pnl_pct, (12.5 / (1_050 - 12.5)) * 100);
+  assert.equal(view.totals.day_pnl_pct, pnlPercent(-7.5, 50_000));
   // Never leak raw account numbers into ids beyond masked digits.
   assert.ok(!JSON.stringify(view).includes("9876543210"));
+});
+
+test("normalizeSchwabAccounts prefers Schwab account-level day P&L percent", () => {
+  const view = normalizeSchwabAccounts(
+    [
+      {
+        securitiesAccount: {
+          type: "MARGIN",
+          accountNumber: "1111",
+          currentBalances: {
+            cashBalance: 0,
+            liquidationValue: 10_200,
+            buyingPower: 0,
+            currentDayProfitLoss: 200,
+            currentDayProfitLossPercentage: 2,
+          },
+          positions: [
+            {
+              longQuantity: 10,
+              shortQuantity: 0,
+              averagePrice: 100,
+              marketValue: 1_050,
+              currentDayProfitLoss: 12.5,
+              currentDayProfitLossPercentage: 1.2,
+              longOpenProfitLoss: 50,
+              instrument: { symbol: "AAPL", assetType: "EQUITY" },
+            },
+          ],
+        },
+      },
+    ],
+    1_700_000_000_000,
+  );
+  const acct = view.accounts[0]!;
+  assert.equal(acct.day_pnl, 200);
+  assert.equal(acct.day_pnl_pct, 2);
+  assert.equal(acct.positions[0]!.day_pnl_pct, 1.2);
+  assert.equal(view.totals.day_pnl, 200);
+  assert.equal(view.totals.day_pnl_pct, pnlPercent(200, 10_200));
 });
 
 test("normalizeSchwabAccounts derives ETF open P&L from mark minus cost", () => {

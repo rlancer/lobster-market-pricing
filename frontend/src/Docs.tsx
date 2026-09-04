@@ -138,7 +138,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/schwab/status', desc: <>Schwab connect status for the signed-in user (no tokens)</> },
   { method: 'GET', path: '/api/schwab/connect', desc: <>Start Schwab OAuth (302 → Schwab; session required)</> },
   { method: 'POST', path: '/api/schwab/disconnect', desc: <>Drop stored Schwab tokens for the signed-in user</> },
-  { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, and positions (masked account numbers)</> },
+  { method: 'GET', path: '/api/schwab/portfolio', desc: <>Linked Schwab accounts, balances, day P&L (dollars + percent), and positions (masked account numbers)</> },
   { method: 'GET', path: '/api/schwab/trades', desc: <>Historical TRADE transactions (start/end YYYY-MM-DD, optional account + symbol; symbol matches equity and options on that root; ≤366 days)</> },
   { method: 'GET', path: '/api/schwab/pnl', desc: <>Realized trading PnL time series for Portfolio → Schwab (range=MTD|YTD|1M|3M|6M|1Y, optional account + symbol; ticker-scoped ohlc[] from Schwab Market Data on the connected token)</> },
   { method: 'GET', path: '/api/stats', desc: 'Underlyings / contracts / calls / puts counts + last-updated timestamp' },
@@ -632,7 +632,11 @@ export function DocsSchwabPnl() {
       <p className="docs-lede">
         The range buttons (MTD, YTD, 1M, 3M, 6M, 1Y) pick a window in US Eastern
         time, ending today. The headline is the composed total for the sleeves
-        you have on, for lots that both opened and closed inside that window.
+        you have on, for lots that both opened and closed inside that window —
+        dollars plus that same move as a percent of current equity (or the
+        scoped ticker&apos;s mark). DTD / MTD / YTD bubbles sit next to it:
+        DTD is today&apos;s live Schwab mark-to-market; MTD and YTD are the
+        composed period totals. The range tabs still pick the chart window.
         When a ticker is scoped, the live open mark (Schwab&apos;s open P&amp;L,
         or mark minus cost if that field is missing) is added to the Stocks or
         Options stat and the headline. Portfolio marks use Schwab Market
