@@ -13,6 +13,7 @@ import './Timeline.css';
 import { api, type TimelinePost } from './api';
 import { stashPendingPrompt, startNewChatId } from './chatSession';
 import { useIsAdmin } from './useAdmin';
+import { SessionCard } from './SessionCard';
 import { TimelineEmpty, TimelineFeedSkeleton, TimelinePostRow } from './TimelineFeed';
 import { TimelineRail } from './TimelineRail';
 
@@ -131,6 +132,8 @@ export default function TimelinePage() {
           ) : null}
 
           <VStack gap={5} className="timeline-body" paddingBlock={5}>
+            <SessionCard onAsk={launchChat} />
+
             {loading && <TimelineFeedSkeleton />}
 
             {(error || actionError) && (

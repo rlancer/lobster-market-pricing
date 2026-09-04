@@ -944,6 +944,32 @@ export interface TimelineRail {
   fetched_at: string;
 }
 
+/** Precomputed homepage Session card from GET /api/timeline/session. */
+export interface HomepageSessionTakeaway {
+  handle: string;
+  shareId: string;
+  url: string;
+  publishedAt: number;
+  text: string;
+}
+
+export interface HomepageSessionEvent {
+  date: string;
+  title: string;
+  kind: 'macro' | 'fed';
+  time?: string;
+  shortTitle: string;
+  when: string;
+}
+
+export interface HomepageSession {
+  tape: TimelineRailHighlight[];
+  events: HomepageSessionEvent[];
+  takeaway: HomepageSessionTakeaway | null;
+  ask_prompt: string;
+  fetched_at: string;
+}
+
 export interface Health {
   ok: boolean;
   auth?: { google: boolean; schwab?: boolean };
@@ -1609,6 +1635,8 @@ export const api = {
       cache: 'no-store',
     }),
   timelineRail: () => get<TimelineRail>('/api/timeline/rail'),
+  /** Precomputed homepage Session card (D1 snapshot, cron-warmed). */
+  timelineSession: () => get<HomepageSession>('/api/timeline/session'),
   /** Desktop chat companion column — tags/news/tape scoped to this chat's tickers. */
   chatRail: (chatId: string) =>
     get<TimelineRail & { chat_id: string }>(`/api/chats/${encodeURIComponent(chatId)}/rail`),

@@ -92,6 +92,7 @@ import {
   upsertReplyPref,
 } from "./reply-style";
 import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
+import { serveHomepageSession, refreshHomepageSession, SESSION_CALENDAR_DAYS } from "./timeline-session";
 import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
 import { fetchYahooIntraday } from "./yahoo-intraday";
@@ -4446,6 +4447,16 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;
 
+  if (path === "/api/timeline/session") {
+    if (req.method !== "GET") return json(env, { error: "method not allowed" }, 405, "private");
+    return json(env, await serveHomepageSession({
+      env,
+      ctx,
+      queryLake: (sql, key) => r2sql(env, sql, key),
+      loadCalendar: () => econCalendar(env, SESSION_CALENDAR_DAYS),
+    }));
+  }
+
   const timeline = await handleTimeline(env, req, path, ctx, (sql, key) => r2sql(env, sql, key));
   if (timeline) return timeline;
 
@@ -4695,8 +4706,8 @@ export default {
   },
 
   /**
-   * Every-5-minute cron — process due bot schedules (market-gated hourly overviews).
-   * Actual cadence is per-row on bot_schedules; this tick just wakes the runner.
+   * Every-5-minute cron — process due bot schedules (market-gated hourly overviews)
+   * and pre-warm the homepage Session snapshot so `/` never waits on the lake.
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -4711,6 +4722,18 @@ export default {
           waitUntil: (p) => ctx.waitUntil(p),
         }).then((summary) => {
           console.log(JSON.stringify({ userBotSchedules: true, ...summary }));
+        }),
+        refreshHomepageSession({
+          env,
+          queryLake: (sql, key) => r2sql(env, sql, key),
+          loadCalendar: () => econCalendar(env, SESSION_CALENDAR_DAYS),
+        }).then((snapshot) => {
+          console.log(JSON.stringify({
+            homepageSession: true,
+            tape: snapshot.tape.length,
+            events: snapshot.events.length,
+            takeaway: Boolean(snapshot.takeaway),
+          }));
         }),
       ]).catch((error) => {
         console.error("bot schedules tick failed", error);
