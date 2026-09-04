@@ -198,6 +198,79 @@ test("promoteReasoningTakeaway heals eco_calendar meta leak into content (share 
   assert.doesNotMatch(turned.content, /Now write the direct markdown/);
 });
 
+test("promoteReasoningTakeaway skips trailing weight-recompute and lifts the briefing (share S2xd3YV)", () => {
+  // Private portfolio bot: full review lives in reasoning; the last seal step
+  // recopied sleeve math into the visible channel ("Compute weights again").
+  const weights = [
+    "Compute weights again precisely:",
+    "Equity total 67,656.01. Add cash 8,727.33 = 76,383.34.",
+    "- RSP 17,563.20 / 67,656 = 25.96%",
+    "- IGV 10,477.00 = 15.49%",
+    "- VEU 8,640.50 = 12.77%",
+    "- TLT 8,234.65 = 12.17%",
+    "- SIVR 4,713.38 = 6.97%",
+    "- VGSH 4,633.20 = 6.85%",
+    "- EWY 4,666.75 = 6.90%",
+    "Cash = 11.4% of total.",
+  ].join("\n");
+  const beta = "Equity beta concentration: RSP+IGV+VEU+EWY (equities) = 25.96+15.49+12.77+6.90 = 61.1% of equity. SIVR silver 7%, Treasuries TLT+VGSH 19%. So equity+silver ~68% risk assets.";
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: `${weights}\n\n${beta}`,
+    reasoning: [
+      "The owner attached a Schwab portfolio. Private account bot — no publish_desk.",
+      "",
+      "Portfolio (equity $67,656 + cash $8,727): RSP 26%, IGV 15.5%, VEU 12.8%, TLT 12.2%, SIVR 7%, VGSH 6.8%, EWY 6.9%.",
+      "",
+      "Concentration:\n- No single-name stock positions — all ETFs.\n- IGV is software sector concentration at 15.5% of equity.\n- EWY is single-country Korea; Samsung+SK Hynix ~45% of that sleeve.",
+      "",
+      "Key risk / adjustments before next session:\n1. SIVR is the biggest drag (-$2.9k open, 37% vol) — trim or exit.\n2. IGV software at 15.5% is high-beta — consider trimming toward RSP.\n3. TLT 12% is a large duration bet.",
+      "",
+      "Next-session actions with concrete numbers:\n- Trim SIVR (silver, -$2.9k open, 37% vol).\n- Trim IGV 15.5% software sleeve toward RSP.\n- Consider capping TLT duration exposure.",
+      "",
+      "Let me write the briefing directly in markdown. No publish_desk (private bot).",
+      "",
+      "Let me write a comprehensive briefing.",
+      "",
+      weights,
+      "",
+      beta,
+      "",
+      "Good. Write it.",
+    ].join("\n\n"),
+  });
+  assert.match(turned.content, /Next-session actions/);
+  assert.match(turned.content, /Trim SIVR/);
+  assert.match(turned.content, /Concentration:/);
+  assert.doesNotMatch(turned.content, /Compute weights again/);
+  assert.doesNotMatch(turned.content, /Good\. Write it/);
+  assert.doesNotMatch(turned.content, /Let me write the briefing/);
+});
+
+test("coalesceAssistantMessageRecords heals weight-recompute shares on read", () => {
+  const weights = "Compute weights again precisely:\n- RSP 25.96%\n- IGV 15.49%\n- VEU 12.77%\n- TLT 12.17%";
+  const out = coalesceAssistantMessageRecords([
+    { role: "user", content: "Review my attached portfolio." },
+    {
+      role: "assistant",
+      content: weights,
+      reasoning: [
+        "Book is all long ETFs. No option expiry or gamma.",
+        "",
+        "Next-session actions with concrete numbers:\n- Trim SIVR on the 37% vol sleeve.\n- Hold RSP as the core equal-weight beta.",
+        "",
+        "Let me write the private briefing in markdown. No publish_desk.",
+        "",
+        weights,
+        "",
+        "Good. Write it.",
+      ].join("\n\n"),
+    },
+  ]);
+  assert.match(String(out[1]?.content), /Next-session actions/);
+  assert.doesNotMatch(String(out[1]?.content), /Compute weights again/);
+});
+
 test("coalesceAssistantMessageRecords promotes leaked reasoning on public share read", () => {
   const meta = "I don't need eco_calendar here since no macro event catalyst question. All good.";
   const out = coalesceAssistantMessageRecords([

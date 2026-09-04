@@ -448,6 +448,29 @@ function isReasoningScratchPara(para: string): boolean {
   if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) return true;
   if (TOOL_SKIP_META.test(para) || REASONING_PLANNING_META.test(para)) return true;
   if (REASONING_SHORT_SCRATCH.test(para.trim())) return true;
+  return looksLikeAllocationScratch(para);
+}
+
+/**
+ * Trailing weight-recompute pads (share S2xd3YVSuwjYaByfdF1cw0HL). DeepSeek
+ * recopies sleeve math into the text channel, then seals — the real briefing
+ * is earlier in reasoning. Skip these so the walker can keep going.
+ */
+function looksLikeAllocationScratch(para: string): boolean {
+  const text = para.trim();
+  if (!text) return false;
+  if (/\b(?:action|trim|reduce|hedge|roll|takeaway|recommend|next session|adjustment)\b/i.test(text)) {
+    return false;
+  }
+  const pctLines = (text.match(/^\s*[-*•]\s+[A-Z]{1,5}\b.*\d/gm) || []).length;
+  if (pctLines >= 3 && text.length < 600) return true;
+  if (
+    text.length < 400
+    && /%\b/.test(text)
+    && /\b(?:equity total|beta concentration|of equity|risk assets|allocation percentages)\b/i.test(text)
+  ) {
+    return true;
+  }
   return false;
 }
 
