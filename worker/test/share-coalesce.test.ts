@@ -125,6 +125,45 @@ test("promoteReasoningTakeaway skips unfinished let-me narration", () => {
   assert.equal(turned.content, "(see reasoning)");
 });
 
+test("promoteReasoningTakeaway skips a leaked weight scratchpad and lifts the briefing (share S2xd3YVSuwjYaByfdF1cw0HL)", () => {
+  const weights = [
+    "Compute weights again precisely:",
+    "Equity total 67,656.01. Add cash 8,727.33 = 76,383.34.",
+    "- RSP 17,563.20 / 67,656 = 25.96%",
+    "- IGV 10,477.00 = 15.49%",
+    "Cash = 11.4% of total.",
+  ].join("\n");
+  const beta = "Equity beta concentration: RSP+IGV+VEU+EWY (equities) = 61.1% of equity. SIVR silver 7%, Treasuries TLT+VGSH 19%. So equity+silver ~68% risk assets.";
+  const leak = `${weights}\n\n${beta}`;
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: leak,
+    reasoning: [
+      "The owner attached a Schwab portfolio. I must call get_portfolio.",
+      "Let me start by loading the portfolio.",
+      "Portfolio (equity $67,656 + cash $8,727; margin account, buying power $141,767 which is 2x equity):\n- RSP (S&P 500 EW) 80 sh $17,563 (26.0% of equity) +$896.15\n- IGV (software) 100 sh $10,477 (15.5%) +$1,558\n- SIVR (silver) 75 sh $4,713 (7.0%) -$2,942.78 (biggest loser)",
+      "Concentration:\n- No single-name stock positions — all ETFs.\n- IGV is software sector concentration at 15.5% of equity.\n- EWY is single-country Korea with Samsung+SK Hynix ~45% of that sleeve.",
+      "Key risk / adjustments before next session:\n1. SIVR is the biggest drag (-$2.9k open, 37% vol) — trim or exit.\n2. IGV software at 15.5% is high-beta — consider trimming toward RSP.\n3. TLT 12% long duration is a directional rates bet.",
+      "Next-session actions with concrete numbers:\n- Trim SIVR (silver, -$2.9k open, 37% vol).\n- Trim IGV 15.5% software sleeve toward RSP.\n- Consider capping TLT duration exposure.",
+      "Let me write the briefing directly in markdown. No publish_desk (private bot).",
+      "Let me write a comprehensive briefing.",
+      weights,
+      beta,
+      "Good. Write it.",
+    ].join("\n\n"),
+  });
+  assert.match(turned.content, /Next-session actions/);
+  assert.match(turned.content, /Key risk \/ adjustments/);
+  assert.match(turned.content, /Concentration:/);
+  assert.doesNotMatch(turned.content, /Compute weights again precisely/);
+  assert.doesNotMatch(turned.content, /Good\. Write it/);
+  assert.doesNotMatch(turned.content, /Let me write the briefing/);
+  // Second read must keep the briefing — anywhere-includes used to collapse
+  // it to the trailing "Equity beta concentration" paragraph on api-dev.
+  const again = promoteReasoningTakeaway(turned);
+  assert.equal(again.content, turned.content);
+});
+
 test("promoteReasoningTakeaway heals eco_calendar meta leak into content (share gpAJwLq)", () => {
   const meta = "I don't need eco_calendar here since no macro event catalyst question. All good.";
   const turned = promoteReasoningTakeaway({

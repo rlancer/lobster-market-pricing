@@ -133,14 +133,19 @@ export function nextChatStepPolicy(opts: {
   const hasEvidence = opts.successfulQuery || Boolean(opts.portfolioLoaded);
 
   if (hasEvidence) {
-    // Callers that opt out of the desk (legacy bot path) keep interleaved
-    // text + tools for a visible takeaway. Do not hard-seal on chart alone —
-    // that left "(see reasoning)" shares on prod after #210 (DeepSeek dumps
-    // the close into the reasoning channel under toolChoice:none). Keep auto
-    // until the penultimate step; DSML strip + quality-gate heuristics catch
-    // markup leaks.
+    // Private account bots skip publish_desk and must write markdown. Keep
+    // auto through the same gather window as the desk path, then seal so the
+    // model composes instead of researching until disconnect (share
+    // S2xd3YVSuwjYaByfdF1cw0HL: weight scratchpad as the visible answer).
+    // Do not seal on chart alone — that left "(see reasoning)" shares after
+    // #210 (DeepSeek dumps the close into reasoning under toolChoice:none).
     if (!opts.requireDesk) {
       if (opts.stepNumber >= maxSteps - 2) {
+        return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+      }
+      const stepsAfterQuery = opts.stepsAfterQuery ?? 0;
+      const gatherDone = stepsAfterQuery >= autoBeforeDesk || opts.stepNumber >= maxSteps - 4;
+      if (gatherDone) {
         return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
       }
       return { toolChoice: "auto", maxOutputTokens: toolBudget };
