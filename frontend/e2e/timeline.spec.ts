@@ -412,79 +412,41 @@ test.describe('Public timeline', () => {
   });
 
   test('homepage session card shows tape, next print, and desk takeaway on mobile', async ({ page }) => {
-    const etToday = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/New_York',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route((url) => url.pathname === '/api/timeline', async (route) => {
-      const handle = new URL(route.request().url()).searchParams.get('handle');
-      if (handle === 'nowlobster') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            items: [{
-              share_id: 'ShareDeskNowlobster000000001',
-              url: '/share/ShareDeskNowlobster000000001',
-              title: 'Hourly market overview',
-              excerpt: 'SPX holds the 6500 handle while QQQ lags into the print.',
-              messages: [
-                { role: 'user', content: 'Hourly market overview: what is happening right now?' },
-                {
-                  role: 'assistant',
-                  content: 'SPX holds the 6500 handle while QQQ lags. Unusual call buying in NVDA led the tape; risk stays defined until CPI.',
-                },
-              ],
-              handle: 'nowlobster',
-              name: 'Now Lobster',
-              published_at: Date.now(),
-              model: 'test-model',
-              has_sql: true,
-              has_chart: false,
-              is_bot: true,
-            }],
-            next_before: null,
-            profile: { handle: 'nowlobster', name: 'Now Lobster', is_bot: true, created_at: Date.now() },
-          }),
-        });
-        return;
-      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ items: [], next_before: null, profile: null }),
       });
     });
-    await page.route((url) => url.pathname === '/api/timeline/rail', async (route) => {
+    await page.route((url) => url.pathname === '/api/timeline/session', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          tags: [{ ticker: 'NVDA', posts: 3 }],
-          news: [],
-          highlights: [
+          tape: [
             { ticker: 'SPY', name: 'S&P 500', spot: 650.12, change_1d_pct: 0.4 },
             { ticker: 'QQQ', name: 'Nasdaq-100', spot: 480.5, change_1d_pct: -0.2 },
             { ticker: '^VIX', name: 'VIX', spot: 16.4, change_1d_pct: -3.1 },
           ],
+          events: [{
+            date: '2026-09-03',
+            title: 'Consumer Price Index',
+            kind: 'macro',
+            time: '08:30',
+            shortTitle: 'CPI',
+            when: 'today 8:30 AM ET',
+          }],
+          takeaway: {
+            handle: 'nowlobster',
+            shareId: 'ShareDeskNowlobster000000001',
+            url: '/share/ShareDeskNowlobster000000001',
+            publishedAt: Date.now(),
+            text: 'SPX holds the 6500 handle while QQQ lags. Unusual call buying in NVDA led the tape; risk stays defined until CPI.',
+          },
+          ask_prompt: "What's the tape into CPI? Lead with SPX/QQQ/IWM/VIX and whether CPI is already in the options.",
           fetched_at: new Date().toISOString(),
-        }),
-      });
-    });
-    await page.route((url) => url.pathname === '/api/econ_calendar', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          window_days: 14,
-          as_of: new Date().toISOString(),
-          provider: 'fred',
-          items: [
-            { date: etToday, title: 'Consumer Price Index', kind: 'macro', time: '08:30' },
-          ],
         }),
       });
     });

@@ -32,6 +32,7 @@ import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 import { clipTitle, TITLE_MAX } from "./user-chats";
 import { linkBotTradesShare, ensureBotTradesBackfilled } from "./bot-trades";
+import { DESK_HANDLE, expireHomepageSession } from "./timeline-session";
 import type { LakeSql } from "./paper-portfolio";
 
 const SHARE_MAX_CONTENT = 5_000;
@@ -194,6 +195,9 @@ async function mintBotShare(
         await linkBotTradesShare(env.SCHEMA_DB, args.chatId, shareId);
       } catch (error) {
         console.warn("link bot trades share failed", error);
+      }
+      if (args.botHandle === DESK_HANDLE) {
+        opts?.waitUntil?.(expireHomepageSession(env.SCHEMA_DB));
       }
       return { ok: true, share_id: shareId };
     }

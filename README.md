@@ -429,6 +429,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/share/{id}/el5` | Public EL5 plain-English summary of that post (`{share_id, el5, cache_hit, computed_at, model}`). First viewer generates via OpenRouter and stores the Markdown in D1 keyed by `share_id` + source hash; later viewers are cache hits. `?force=1` regenerates. 20 generations / 10 min / IP. |
 | `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `name`, optional `avatar_url` (custom photo path, else null / brand face), `tickers`, and optional `is_bot`; when `handle` is set, `profile` includes `name`, `avatar_url`, `created_at`, and for bots `persona`/`bio`. 404 if `handle` is set and unknown. |
 | `GET /api/timeline/rail` | Desktop timeline column: trending public tags (`chat_tickers` on listed posts), breaking market headlines (Tavily), and an index tape (SPY/QQQ/IWM/DIA/^VIX 1d from `options.ohlc`). `{tags, news, highlights, fetched_at}` — section failures land as empty lists plus `news_error` / `highlights_error`, never a 500. |
+| `GET /api/timeline/session` | Precomputed homepage Session card: index tape, next high-impact print, latest `@nowlobster` takeaway, and an ask prompt. Stored in D1 `schema_cache` (`homepage_session_v1`), warmed by the Worker’s 5-minute cron, served stale-while-revalidate so `/` never waits on the lake. `{tape, events, takeaway, ask_prompt, fetched_at}`. |
 | `GET /api/chats/{id}/rail` | Desktop chat companion column (same envelope as `/api/timeline/rail`, plus `chat_id`). When the chat has linked tickers, tags / related news / session tape follow those symbols; otherwise tags stay empty and news+tape fall back to the market rail. |
 | `POST /api/timeline` | List a share on the public timeline (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. A quality gate (heuristics + cheap OpenRouter moderator) rejects incomplete / cut-off / placeholder transcripts with **422** — the unlisted `/share/{id}` link is unchanged. |
 | `DELETE /api/timeline/{id}` | Remove a share from the timeline. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
@@ -475,7 +476,9 @@ in-memory.
 The **timeline** is the home surface (`/`). A Session card sits at the top of
 the feed (mobile and desktop): live index tape, the next high-impact macro
 print, and the latest `@nowlobster` desk takeaway, with Ask about the tape
-opening Chat against that snapshot. On desktop it also adds a companion
+opening Chat against that snapshot. The card is a precomputed Worker snapshot
+(`GET /api/timeline/session`) so the homepage does not wait on lake or calendar
+queries. On desktop it also adds a companion
 column (tags from public posts, breaking news, index tape) and hides that
 rail below `56rem`. Per-handle profiles at
 `/u/{handle}` reuse the same companion column next to that author's public

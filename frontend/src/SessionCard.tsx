@@ -11,19 +11,12 @@ import {
   VStack,
 } from '@astryxdesign/core';
 import { Sparkles } from 'lucide-react';
-import { api, type TimelineRailHighlight } from './api';
+import { api, type HomepageSession } from './api';
 import {
-  DESK_HANDLE,
   changeDirection,
-  deskTakeaway,
   fmtPct,
   fmtSpot,
-  pickTape,
-  pickUpcomingEvents,
   sessionHasContent,
-  tapeAskPrompt,
-  type DeskTakeaway,
-  type UpcomingEvent,
 } from './sessionSnapshot';
 import './SessionCard.css';
 
@@ -40,8 +33,9 @@ function SessionCardSkeleton() {
 }
 
 /**
- * Live session snapshot at the top of the home feed — index tape, next print,
- * and the latest @nowlobster takeaway. Visible on mobile (the rail is not).
+ * Live session snapshot at the top of the home feed. Payload is precomputed
+ * on the Worker (D1 schema_cache + 5-minute cron) so `/` does not wait on
+ * the lake, the calendar, or a full @nowlobster timeline listing.
  */
 export function SessionCard({
   onAsk,
@@ -49,33 +43,34 @@ export function SessionCard({
   onAsk: (prompt: string) => void;
 }) {
   const [loading, setLoading] = useState(true);
-  const [tape, setTape] = useState<TimelineRailHighlight[]>([]);
-  const [events, setEvents] = useState<UpcomingEvent[]>([]);
-  const [takeaway, setTakeaway] = useState<DeskTakeaway | null>(null);
+  const [session, setSession] = useState<HomepageSession | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void Promise.all([
-      api.timelineRail().catch(() => null),
-      api.econCalendar(14).catch(() => null),
-      api.timeline({ handle: DESK_HANDLE, limit: 1 }).catch(() => null),
-    ]).then(([rail, calendar, desk]) => {
-      if (cancelled) return;
-      setTape(pickTape(rail?.highlights ?? []));
-      setEvents(pickUpcomingEvents(calendar?.items ?? [], Date.now()));
-      setTakeaway(deskTakeaway(desk?.items?.[0]));
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+    void api.timelineSession()
+      .then((next) => {
+        if (!cancelled) setSession(next);
+      })
+      .catch(() => {
+        if (!cancelled) setSession(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const tape = session?.tape ?? [];
+  const events = session?.events ?? [];
+  const takeaway = session?.takeaway ?? null;
+  const askPrompt = session?.ask_prompt ?? "What's happening in the market right now?";
+
   const ask = useCallback(() => {
-    onAsk(tapeAskPrompt(tape, events));
-  }, [onAsk, tape, events]);
+    onAsk(askPrompt);
+  }, [onAsk, askPrompt]);
 
   if (loading) {
     return (

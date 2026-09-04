@@ -207,7 +207,7 @@ export async function loadTimelineRail(deps: TimelineRailDeps): Promise<Timeline
         error: String((error && (error as Error).message) || error),
       }),
     ),
-    loadHighlights(deps, now).catch((error): { items: TimelineRailHighlight[]; error?: string } => ({
+    loadMarketHighlights(deps, now).catch((error): { items: TimelineRailHighlight[]; error?: string } => ({
       items: [],
       error: String((error && (error as Error).message) || error),
     })),
@@ -251,7 +251,7 @@ export async function loadChatRail(
         error: String((error && (error as Error).message) || error),
       }),
     ),
-    loadHighlights(deps, now, watchlist).catch(
+    loadMarketHighlights(deps, now, watchlist).catch(
       (error): { items: TimelineRailHighlight[]; error?: string } => ({
         items: [],
         error: String((error && (error as Error).message) || error),
@@ -335,7 +335,7 @@ async function loadNews(
   return { items };
 }
 
-async function loadHighlights(
+export async function loadMarketHighlights(
   deps: TimelineRailDeps,
   now: number,
   watchlist: ReadonlyArray<{ ticker: string; name: string }> = MARKET_HIGHLIGHT_WATCHLIST,
