@@ -237,7 +237,9 @@ function boundedMessages(messages: UIMessage[], historyCharsMax: number): ModelM
 }
 
 function boundedResult(result: QueryResult | null): QueryResult | null {
-  return result ? { ...result, rows: result.rows.slice(0, RESULT_PERSIST_MAX_ROWS) } : null;
+  if (!result) return null;
+  const rows = Array.isArray(result.rows) ? result.rows.slice(0, RESULT_PERSIST_MAX_ROWS) : [];
+  return { ...result, rows };
 }
 
 function normalizeReasoningEffort(value: string): "xhigh" | "high" | "medium" | "low" | "minimal" | "none" {
