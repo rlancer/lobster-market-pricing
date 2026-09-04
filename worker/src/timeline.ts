@@ -126,6 +126,13 @@ function slimPreviewMessage(rec: Record<string, unknown>): Record<string, unknow
     out.reasoning = rec.reasoning.slice(0, EXCERPT_MAX);
   }
   if (typeof rec.sql === "string" && rec.sql.trim()) out.sql = rec.sql.slice(0, 20_000);
+  if (Array.isArray(rec.queries) && rec.queries.length) {
+    const queries = rec.queries
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim().slice(0, 20_000))
+      .slice(0, 20);
+    if (queries.length) out.queries = queries;
+  }
   if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) out.ts = rec.ts;
   if (rec.chart && typeof rec.chart === "object" && !Array.isArray(rec.chart)) out.chart = rec.chart;
   // Desk / trades / tools / frames are compact — keep them so the feed can reuse
@@ -153,7 +160,7 @@ function slimPreviewMessage(rec: Record<string, unknown>): Record<string, unknow
   }
   // Omit result rows from the list payload — AssistantMessageBody re-runs SQL
   // when needed, same path as snapshot-less shares.
-  if (!out.content && !out.sql && !out.reasoning && !out.chart && !out.desk && !out.trades && !out.tools && !out.frames) {
+  if (!out.content && !out.sql && !out.reasoning && !out.chart && !out.desk && !out.trades && !out.tools && !out.frames && !out.queries) {
     return null;
   }
   return out;
@@ -167,6 +174,9 @@ export function flagsFromMessages(messages: unknown): { has_sql: boolean; has_ch
     const rec = messageRecord(row);
     if (!rec) continue;
     if (typeof rec.sql === "string" && rec.sql.trim()) has_sql = true;
+    if (Array.isArray(rec.queries) && rec.queries.some((item) => typeof item === "string" && item.trim())) {
+      has_sql = true;
+    }
     if (rec.chart && typeof rec.chart === "object" && !Array.isArray(rec.chart)) has_chart = true;
   }
   return { has_sql, has_chart };

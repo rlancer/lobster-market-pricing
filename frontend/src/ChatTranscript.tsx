@@ -10,6 +10,7 @@ import { PostShareButton } from './PostShareButton';
 import { AssistantMark } from './Sunglasses';
 import { DeskViewpoints, isDeskBrief } from './DeskViewpoints';
 import { SuggestedTradesView } from './SuggestedTrades';
+import { sqlQueriesFromMessage } from './sqlQueries';
 
 const TOOL_LABELS: Record<string, string> = {
   run_query: 'SQL query',
@@ -30,6 +31,53 @@ const TOOL_LABELS: Record<string, string> = {
   get_schwab_quotes: 'Schwab quotes',
   get_bot_trades: 'Bot trade performance',
 };
+
+function SqlBlock({
+  sql,
+  label,
+  openInData,
+  collapse,
+}: {
+  sql: string;
+  label: string;
+  openInData: boolean;
+  collapse: boolean;
+}) {
+  const actions = (
+    <span
+      className="ai-sql-actions"
+      onClick={collapse ? (event) => event.stopPropagation() : undefined}
+      onKeyDown={collapse ? (event) => event.stopPropagation() : undefined}
+    >
+      <CopyButton text={sql} />
+      {openInData ? (
+        <Link to="/data" search={{ sql, item: 'query' }} className="ai-sql-open">
+          Open in Data ↗
+        </Link>
+      ) : null}
+    </span>
+  );
+  if (collapse) {
+    return (
+      <details className="ai-sql ai-sql-collapsible">
+        <summary className="ai-sql-head">
+          <span>{label}</span>
+          {actions}
+        </summary>
+        <pre>{sql}</pre>
+      </details>
+    );
+  }
+  return (
+    <div className="ai-sql">
+      <div className="ai-sql-head">
+        <span>{label}</span>
+        {actions}
+      </div>
+      <pre>{sql}</pre>
+    </div>
+  );
+}
 
 /**
  * Finished assistant turn body shared by live chat, /share/:id, and the
@@ -67,18 +115,20 @@ export function AssistantMessageBody({
 }) {
   const wantsChart = Boolean(message.chart);
   const shouldHydrate = hydrateResult || wantsChart;
+  const queries = sqlQueriesFromMessage(message);
+  const primarySql = (message.sql?.trim() || queries[queries.length - 1] || '');
   const [result, setResult] = useState<QueryResult | null>(message.result && !message.result.error ? message.result : null);
-  const [loading, setLoading] = useState(shouldHydrate && !message.result && Boolean(message.sql));
+  const [loading, setLoading] = useState(shouldHydrate && !message.result && Boolean(primarySql));
 
   useEffect(() => {
-    if (message.result || !message.sql || !shouldHydrate) {
+    if (message.result || !primarySql || !shouldHydrate) {
       setResult(message.result && !message.result.error ? message.result : null);
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    api.query(message.sql, 200)
+    api.query(primarySql, 200)
       .then((queryResult) => {
         if (!cancelled && !queryResult.error) setResult(queryResult);
       })
@@ -91,28 +141,11 @@ export function AssistantMessageBody({
     return () => {
       cancelled = true;
     };
-  }, [message.result, message.sql, shouldHydrate]);
+  }, [message.result, primarySql, shouldHydrate]);
 
   const chart = message.chart && result?.columns && chartFitsResult(message.chart, result.columns)
     ? message.chart
     : null;
-
-  const sqlBlock = message.sql ? (
-    <>
-      <div className="ai-sql-head">
-        <span>SQL</span>
-        <span className="ai-sql-actions">
-          <CopyButton text={message.sql} />
-          {openInData ? (
-            <Link to="/data" search={{ sql: message.sql, item: 'query' }} className="ai-sql-open">
-              Open in Data ↗
-            </Link>
-          ) : null}
-        </span>
-      </div>
-      <pre>{message.sql}</pre>
-    </>
-  ) : null;
 
   const desk = message.desk && isDeskBrief(message.desk) ? message.desk : null;
   const overviewRaw = (desk?.overview || message.content || '').trim();
@@ -169,30 +202,15 @@ export function AssistantMessageBody({
         </details>
       )}
       {chart && result && <ChartView result={result} spec={chart} />}
-      {message.sql && (
-        collapseSql ? (
-          <details className="ai-sql ai-sql-collapsible">
-            <summary className="ai-sql-head">
-              <span>SQL</span>
-              <span
-                className="ai-sql-actions"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <CopyButton text={message.sql} />
-                {openInData ? (
-                  <Link to="/data" search={{ sql: message.sql, item: 'query' }} className="ai-sql-open">
-                    Open in Data ↗
-                  </Link>
-                ) : null}
-              </span>
-            </summary>
-            <pre>{message.sql}</pre>
-          </details>
-        ) : (
-          <div className="ai-sql">{sqlBlock}</div>
-        )
-      )}
+      {queries.map((sql, index) => (
+        <SqlBlock
+          key={`${index}-${sql.slice(0, 48)}`}
+          sql={sql}
+          label={queries.length === 1 ? 'SQL' : `SQL ${index + 1} of ${queries.length}`}
+          openInData={openInData}
+          collapse={collapseSql}
+        />
+      ))}
       {loading && <div className="ai-empty">Loading query result…</div>}
       {result && (
         chart ? (
@@ -206,7 +224,7 @@ export function AssistantMessageBody({
       )}
       {message.role === 'assistant'
         && !overview
-        && (message.sql || result || chart || message.trades || desk)
+        && (message.sql || queries.length || result || chart || message.trades || desk)
         && (
           <div className="ai-no-answer">The model produced the data above but no written answer for this turn.</div>
         )}

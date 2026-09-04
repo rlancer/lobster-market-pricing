@@ -75,9 +75,17 @@ export function capShareMessages(messages: ShareTurn[], titleOverride?: string |
     };
     if (m.reasoning) out.reasoning = m.reasoning.slice(0, SHARE_MAX_REASONING);
     if (m.sql) out.sql = m.sql.slice(0, SHARE_MAX_SQL);
+    if (m.queries?.length) {
+      out.queries = m.queries
+        .map((sql) => sql.slice(0, SHARE_MAX_SQL))
+        .filter(Boolean)
+        .slice(0, 20);
+    }
     if (m.chart) out.chart = m.chart;
     if (m.desk) out.desk = m.desk;
     if (m.trades) out.trades = m.trades;
+    if (m.tools?.length) out.tools = m.tools.slice(0, 20);
+    if (m.frames?.length) out.frames = m.frames.slice(0, 8);
     if (typeof m.ts === "number") out.ts = m.ts;
     return out;
   });

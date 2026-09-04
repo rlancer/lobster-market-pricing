@@ -52,3 +52,34 @@ test("capShareMessages keeps structured trades on assistant turns", () => {
   const trades = assistant.trades as { trades: unknown[] };
   assert.equal(trades.trades.length, 2);
 });
+
+test("capShareMessages keeps every SQL query and tool call on bot Floor posts", () => {
+  const { messages } = capShareMessages(
+    [
+      { role: "user", content: "Tape?" },
+      {
+        role: "assistant",
+        content: "SPY holds the range.",
+        sql: "SELECT expiration FROM options.option_contracts LIMIT 10",
+        queries: [
+          "SELECT close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5",
+          "SELECT expiration FROM options.option_contracts LIMIT 10",
+        ],
+        tools: [
+          { name: "run_query", args: "SELECT close FROM options.ohlc", ok: true },
+          { name: "check_schema", args: "SELECT expiration", ok: true },
+          { name: "run_query", args: "SELECT expiration FROM options.option_contracts", ok: true },
+          { name: "get_news", args: "SPY", ok: true },
+        ],
+        frames: [{ name: "last", columns: ["expiration"], row_count: 10, sql: "SELECT expiration FROM options.option_contracts LIMIT 10", fetched_at: 1 }],
+      },
+    ],
+  );
+  const assistant = messages[1]!;
+  assert.deepEqual(assistant.queries, [
+    "SELECT close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5",
+    "SELECT expiration FROM options.option_contracts LIMIT 10",
+  ]);
+  assert.equal((assistant.tools as unknown[]).length, 4);
+  assert.equal((assistant.frames as unknown[]).length, 1);
+});
