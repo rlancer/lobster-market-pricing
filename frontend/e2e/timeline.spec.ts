@@ -507,7 +507,8 @@ test.describe('The Floor', () => {
           tape: [
             { ticker: 'SPY', name: 'S&P 500', spot: 650.12, change_1d_pct: 0.4 },
             { ticker: 'QQQ', name: 'Nasdaq-100', spot: 480.5, change_1d_pct: -0.2 },
-            { ticker: '^VIX', name: 'VIX', spot: 16.4, change_1d_pct: -3.1 },
+            { ticker: 'VXU26', name: "VX Sep'26", spot: 16.4, change_1d_pct: -3.1 },
+            { ticker: 'VXV26', name: "VX Oct'26", spot: 17.1, change_1d_pct: -1.2 },
           ],
           events: [{
             date: '2026-09-03',
@@ -524,7 +525,7 @@ test.describe('The Floor', () => {
             publishedAt: Date.now(),
             text: 'SPX holds the 6500 handle while QQQ lags. Unusual call buying in NVDA led the tape; risk stays defined until CPI.',
           },
-          ask_prompt: "What's the tape into CPI? Lead with SPX/QQQ/IWM/VIX and whether CPI is already in the options.",
+          ask_prompt: "What's the tape into CPI? Lead with SPX/QQQ/IWM and the front two VX months and whether CPI is already in the options.",
           fetched_at: new Date().toISOString(),
         }),
       });

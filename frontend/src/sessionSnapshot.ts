@@ -173,7 +173,7 @@ export function tapeAskPrompt(
 ): string {
   const todayEvent = events.find((event) => event.when.startsWith('today'));
   if (todayEvent) {
-    return `What's the tape into ${todayEvent.shortTitle}? Lead with SPX/QQQ/IWM/VIX and whether ${todayEvent.shortTitle} is already in the options.`;
+    return `What's the tape into ${todayEvent.shortTitle}? Lead with SPX/QQQ/IWM and the front two VX months and whether ${todayEvent.shortTitle} is already in the options.`;
   }
   const movers = [...highlights]
     .filter((item) => item.change_1d_pct != null && Math.abs(item.change_1d_pct) >= 1)
@@ -182,7 +182,7 @@ export function tapeAskPrompt(
   if (lead) {
     return `What's driving ${lead.ticker} today? Tie it to SPX/QQQ/IWM posture and the options tape.`;
   }
-  return "What's happening in the market right now? Lead with SPX/QQQ/IWM/VIX, then the unusual options flow that explains it.";
+  return "What's happening in the market right now? Lead with SPX/QQQ/IWM and the front two VX months, then the unusual options flow that explains it.";
 }
 
 export function sessionHasContent(

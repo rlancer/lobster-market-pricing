@@ -60,9 +60,9 @@ test('pickTape drops empty watchlist rows', () => {
   const rows: TimelineRailHighlight[] = [
     { ticker: 'SPY', name: 'S&P 500', spot: 500, change_1d_pct: 0.4 },
     { ticker: 'DIA', name: 'Dow Jones', spot: null, change_1d_pct: null },
-    { ticker: '^VIX', name: 'VIX', spot: 16.2, change_1d_pct: -3.1 },
+    { ticker: 'VXU26', name: "VX Sep'26", spot: 16.2, change_1d_pct: -3.1 },
   ];
-  assert.deepEqual(pickTape(rows).map((row) => row.ticker), ['SPY', '^VIX']);
+  assert.deepEqual(pickTape(rows).map((row) => row.ticker), ['SPY', 'VXU26']);
 });
 
 test('etDateKey uses America/New_York, not UTC', () => {
@@ -150,15 +150,15 @@ test('deskTakeaway prefers desk overview over the raw assistant body', () => {
 test('tapeAskPrompt prefers a today-print, then the biggest mover', () => {
   const highlights: TimelineRailHighlight[] = [
     { ticker: 'SPY', name: 'S&P 500', spot: 500, change_1d_pct: 0.2 },
-    { ticker: '^VIX', name: 'VIX', spot: 18, change_1d_pct: 4.2 },
+    { ticker: 'VXU26', name: "VX Sep'26", spot: 18, change_1d_pct: 4.2 },
   ];
   const today = pickUpcomingEvents(
     [{ date: '2026-09-03', title: 'Consumer Price Index', kind: 'macro', time: '08:30' }],
     THU_ET,
   );
   assert.match(tapeAskPrompt(highlights, today), /CPI/);
-  assert.match(tapeAskPrompt(highlights, []), /\^VIX/);
-  assert.match(tapeAskPrompt([], []), /happening in the market right now/);
+  assert.match(tapeAskPrompt(highlights, []), /VXU26/);
+  assert.match(tapeAskPrompt([], []), /front two VX months/);
 });
 
 test('sessionHasContent is true when any slice landed', () => {
