@@ -4,12 +4,16 @@
  * ADMIN_TOKEN-supplied address).
  */
 
-export const EMAIL_TEST_FROM = {
+/** Product From for outbound mail (run alerts + admin smoke). */
+export const LOBSTER_MAIL_FROM = {
   email: "noreply@lobster.mp",
-  name: "Lobster",
+  name: "The Lobster 😎",
 } as const;
 
-export const EMAIL_TEST_SUBJECT = "Lobster Email Service test";
+/** @deprecated Prefer LOBSTER_MAIL_FROM — kept as an alias for older imports. */
+export const EMAIL_TEST_FROM = LOBSTER_MAIL_FROM;
+
+export const EMAIL_TEST_SUBJECT = "The Lobster Email Service test";
 
 export type EmailSendBinding = {
   send(message: {
@@ -17,7 +21,7 @@ export type EmailSendBinding = {
     from: { email: string; name: string };
     subject: string;
     text: string;
-    html: string;
+    html?: string;
   }): Promise<{ messageId: string }>;
 };
 

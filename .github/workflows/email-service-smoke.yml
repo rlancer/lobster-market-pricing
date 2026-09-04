@@ -71,6 +71,7 @@ jobs:
         if: ${{ inputs.target != 'api' }}
         env:
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          TO: ${{ inputs.to }}
           TRIGGER_BOT: ${{ inputs.trigger_bot }}
           TICK_PROD: ${{ inputs.tick_prod }}
         run: |
@@ -231,16 +232,94 @@ jobs:
             echo "::error::no enabled personal bot to trigger"
             exit 1
           fi
+
+          # Prove bot-alert-shaped mail delivers (same From + generated title subject)
+          # before kicking a long Run now.
+          SHARE_ID=$(python3 - <<'PY'
+          import json
+          data = json.load(open("/tmp/bot_detail.json"))
+          for r in data.get("runs") or []:
+              sid = r.get("share_id")
+              if sid:
+                  print(sid)
+                  break
+          PY
+          )
+          if [ -n "$SHARE_ID" ]; then
+            echo "POST /api/admin/email/test bot_alert share_id=$SHARE_ID"
+            probe=$(curl -sS -o /tmp/alert_probe.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg to "$TO" --arg sid "$SHARE_ID" '{to:$to, share_id:$sid}')" \
+              https://api-dev.lobster.mp/api/admin/email/test)
+            echo "alert probe HTTP $probe"
+            python3 -m json.tool /tmp/alert_probe.json
+            if [ "$probe" != "200" ]; then
+              echo "::error::bot alert email probe failed HTTP $probe"
+              exit 1
+            fi
+            python3 - <<'PY'
+          import json
+          body = json.load(open("/tmp/alert_probe.json"))
+          if not body.get("ok") or not body.get("message_id") or not body.get("subject"):
+              raise SystemExit(f"alert probe incomplete: {body}")
+          print("alert_probe_ok", body.get("subject"), body.get("message_id"))
+          PY
+          else
+            echo "No prior share_id to probe; continuing to Run now"
+          fi
+
           echo "POST /api/me/bots/$BOT_ID/trigger?force=1"
-          trig=$(curl -sS --max-time 300 -o /tmp/trig.json -w '%{http_code}' -X POST "${AUTH[@]}" \
+          # Long headless turns can outlive intermediate proxies. Retry once on
+          # transport failure; the Worker keeps the run alive via waitUntil.
+          set +e
+          trig=$(curl -sS --max-time 480 -o /tmp/trig.json -w '%{http_code}' -X POST "${AUTH[@]}" \
             "https://api-dev.lobster.mp/api/me/bots/${BOT_ID}/trigger?force=1")
+          curl_ec=$?
+          set -e
+          if [ "$curl_ec" -ne 0 ]; then
+            echo "trigger curl exit $curl_ec — waiting for in-flight run, then rechecking"
+            sleep 90
+            detail=$(curl -sS -o /tmp/bot_after.json -w '%{http_code}' "${AUTH[@]}" \
+              "https://api-dev.lobster.mp/api/me/bots/${BOT_ID}")
+            echo "dev /api/me/bots/$BOT_ID after wait HTTP $detail"
+            python3 - <<'PY'
+          import json, datetime
+          data = json.load(open("/tmp/bot_after.json"))
+          runs = data.get("runs") or []
+          def ts(v):
+            if v is None: return None
+            return datetime.datetime.utcfromtimestamp(v / 1000).isoformat() + "Z"
+          for r in runs[:3]:
+            print(json.dumps({
+              "run_id": r.get("run_id"),
+              "status": r.get("status"),
+              "started_at": ts(r.get("started_at")),
+              "error": r.get("error"),
+              "chat_id": r.get("chat_id"),
+              "share_id": r.get("share_id"),
+            }, default=str))
+          top = runs[0] if runs else {}
+          if top.get("status") not in ("completed", "shared", "failed"):
+              raise SystemExit(f"run still {top.get('status')}")
+          if top.get("status") == "failed":
+              raise SystemExit(top.get("error") or "run failed")
+          print("trigger_recovered", top.get("chat_id"), top.get("share_id"))
+          PY
+            exit 0
+          fi
           echo "trigger HTTP $trig"
           python3 - <<'PY'
           import json
           body = json.load(open("/tmp/trig.json"))
-          print("trigger", {k: body.get(k) for k in ("ok", "error", "chat_id", "run_id", "share_id", "deferred", "reason")})
+          print("trigger", {k: body.get(k) for k in ("ok", "error", "chat_id", "run_id", "share_id", "deferred", "reason", "email")})
           if not body.get("ok"):
               raise SystemExit(body.get("error") or "trigger failed")
+          email = body.get("email")
+          if isinstance(email, dict) and email.get("ok") is False:
+              raise SystemExit(f"bot email failed: {email.get('error') or email}")
+          if isinstance(email, dict) and email.get("ok"):
+              print("email_ok", email.get("subject"), email.get("message_id"))
           PY
           if [ "$trig" != "200" ]; then
             echo "::error::bot trigger failed HTTP $trig"

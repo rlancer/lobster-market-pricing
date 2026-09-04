@@ -195,7 +195,8 @@ import {
   listUserBots,
   updateUserBot,
 } from "./user-bots";
-import { runDueUserBotSchedules, runOneUserBot } from "./user-bot-runner";
+import { runDueUserBotSchedules, runOneUserBot, publicChatOrigin } from "./user-bot-runner";
+import { assistantBriefingFromTurns, sendUserBotAlert } from "./user-bot-email";
 
 
 // ---------------------------------------------------------------------------
@@ -3715,11 +3716,16 @@ async function handleUserBots(
     if (!bot) return json(env, { error: "not found" }, 404, "private");
     // Manual Run now always ignores next_run_at and market hours. The cron
     // path (runDueUserBotSchedules) is the one that honors the schedule gate.
-    const outcome = await runOneUserBot(env, bot, {
+    // Register the full run with waitUntil so a client disconnect (common ~60s
+    // proxy reset while the headless turn is still going) cannot cancel share
+    // minting + the owner email.
+    const outcomePromise = runOneUserBot(env, bot, {
       force: true,
       waitUntil: (p) => ctx.waitUntil(p),
       publicOrigin: new URL(req.url).origin,
     });
+    ctx.waitUntil(outcomePromise.then(() => undefined));
+    const outcome = await outcomePromise;
     if (outcome.ok && outcome.deferred) {
       return json(env, {
         ok: true,
@@ -3739,6 +3745,7 @@ async function handleUserBots(
       run_id: outcome.run.run_id,
       chat_id: outcome.chat_id,
       share_id: outcome.share_id,
+      email: outcome.email,
     }, 200, "private");
   }
 
@@ -4486,26 +4493,68 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
   }
 
   // Cloudflare Email Service smoke test — session admin email, or ADMIN_TOKEN + {to}.
+  // Optional { share_id } sends a bot-alert-shaped probe (same From + title subject).
   if (path === "/api/admin/email/test" && req.method === "POST") {
     const admin = await requireBotAdmin(env, req);
     if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
     const user = admin.user ?? (await getSessionUser(env, req));
-    let bodyTo: unknown;
+    let body: { to?: unknown; share_id?: unknown } = {};
     try {
       const raw = await req.text();
-      bodyTo = raw ? (JSON.parse(raw) as { to?: unknown }).to : undefined;
+      body = raw ? (JSON.parse(raw) as { to?: unknown; share_id?: unknown }) : {};
     } catch {
       return json(env, { error: "invalid JSON body" }, 400, "private");
     }
     const recipient = resolveEmailTestRecipient({
       sessionEmail: user?.email,
-      bodyTo,
+      bodyTo: body.to,
       tokenAuthorized: adminTokenAuthorized(req, env),
     });
     if (!recipient.ok) {
       return json(env, { error: recipient.error }, recipient.status, "private");
     }
     try {
+      const shareId = typeof body.share_id === "string" ? body.share_id.trim() : "";
+      if (shareId) {
+        const share = await env.SCHEMA_DB.prepare(
+          `SELECT share_id, title, messages, chat_id FROM shared_chats WHERE share_id = ?1`,
+        ).bind(shareId).first<{
+          share_id: string;
+          title: string | null;
+          messages: string;
+          chat_id: string | null;
+        }>();
+        if (!share) return json(env, { error: "share not found" }, 404, "private");
+        let messages: Array<{ role?: string; content?: unknown }> = [];
+        try {
+          const parsed = JSON.parse(share.messages) as unknown;
+          if (Array.isArray(parsed)) messages = parsed as Array<{ role?: string; content?: unknown }>;
+        } catch {
+          messages = [];
+        }
+        const site = publicChatOrigin(new URL(req.url).origin);
+        const chatUrl = share.chat_id
+          ? `${site}/chat/${share.chat_id}`
+          : `${site}/share/${share.share_id}`;
+        const alert = await sendUserBotAlert(env.EMAIL, recipient.to, {
+          botName: "risk",
+          title: share.title,
+          briefing: assistantBriefingFromTurns(messages),
+          chatUrl,
+          shareUrl: `${site}/share/${share.share_id}`,
+        });
+        if (!alert.ok) {
+          return json(env, { ok: false, error: alert.error, subject: alert.subject }, 502, "private");
+        }
+        return json(env, {
+          ok: true,
+          to: recipient.to,
+          message_id: alert.message_id,
+          subject: alert.subject,
+          mode: "bot_alert",
+          share_id: share.share_id,
+        }, 200, "private");
+      }
       const result = await sendAdminEmailTest(env.EMAIL, recipient.to);
       return json(env, { ok: true, to: recipient.to, message_id: result.messageId }, 200, "private");
     } catch (err) {
