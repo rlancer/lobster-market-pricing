@@ -191,6 +191,35 @@ test('keeps bot turns on auto after a chart so the takeaway can land in text', (
   assert.equal(policy.toolChoice, 'auto');
 });
 
+test('keeps private no-desk turns on auto during the gather window', () => {
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 2,
+    successfulQuery: true,
+    portfolioLoaded: true,
+    requireDesk: false,
+    stepsAfterQuery: 1,
+    autoStepsBeforeDesk: 2,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('seals private no-desk turns after the gather window so the briefing lands in text', () => {
+  // Regression: share S2xd3YVSuwjYaByfdF1cw0HL — private account bot
+  // researched the Schwab book then leaked a weight scratchpad as the answer.
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 3,
+    successfulQuery: true,
+    portfolioLoaded: true,
+    requireDesk: false,
+    stepsAfterQuery: 2,
+    autoStepsBeforeDesk: 2,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
+});
+
 test('seals bot turns on the penultimate step', () => {
   const policy = nextChatStepPolicy({
     ...base,

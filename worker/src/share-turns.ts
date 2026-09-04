@@ -389,7 +389,9 @@ function asQueryResult(value: unknown): { columns: string[]; rows: Record<string
 const PLACEHOLDER_SHARE_CONTENT = /^(?:\(see reasoning\)|see reasoning|…|\.{3}|n\/a|tbd|\(see tools\))?$/i;
 /** Leading voice of tool-loop / planning scratch — not a reader-facing takeaway. */
 const REASONING_SCRATCH =
-  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need|compute\b|recompute\b|good[,.]?\s*write it)\b/i;
+  /^(?:plan of tool|batch\s*\d|tool calls?|actually[,—–\s-]|hmm[,—–\s-]|alternatively[,—–\s-]|wait[,—–\s-]|let me (?:write|draft|compose|summarize|review|first|start|call|run|do|just|also|recompute|see|check|pull|get|lookup|verify)|now[, ]|now write|the private account|given the task|should i call|i don'?t need|compute (?:weights|allocation)|recompute|recalc(?:ulate)?)\b/i;
+/** Trailing seal-intent crumbs that are too short to trip REASONING_SCRATCH. */
+const REASONING_SHORT_SCRATCH = /^(?:good\.?\s*)?write it\.?$|^(?:ok\.?\s*)?(?:done|enough)\.?$/i;
 const REASONING_UNFINISHED =
   /\b(?:let me (?:query|check|look|pull|run|render|use|get|find|start|write|draft|verify|also)|i(?:'ll| will) (?:query|check|pull|run|write|keep|skip)|i need to|now write the|deliver the actions|briefing is the deliver)\b/i;
 /** Mid-reasoning meta that sometimes leaks into the visible content channel. */
@@ -417,17 +419,35 @@ export function isInterimToolNarration(text: string, reasoning = ""): boolean {
   if (TOOL_SKIP_META.test(trimmed)) return true;
   if (REASONING_SCRATCH.test(trimmed)) return true;
   if (/(?:let me|i'll|i will)\s+[a-z0-9_ -]+[.!?]?$/i.test(trimmed)) return true;
-  // Content channel sometimes gets a verbatim reasoning paragraph (share gpAJwLq…).
-  const reason = reasoning.trim();
-  if (reason.length >= 200 && trimmed.length < reason.length && reason.includes(trimmed)) {
-    return true;
-  }
-  return false;
+  // A finished briefing lifted from mid-reasoning must not look interim on
+  // the next GET — anywhere-includes collapsed share S2xd3… to one paragraph.
+  if (looksLikeFinishedBriefing(trimmed)) return false;
+  // Content channel sometimes gets a verbatim *trailing* reasoning paragraph
+  // (share gpAJwLq…). Only the tail is a leak; the middle is the takeaway.
+  return isReasoningTailLeak(trimmed, reasoning);
+}
+
+/** Structured multi-section answer — already the reader-facing briefing. */
+function looksLikeFinishedBriefing(text: string): boolean {
+  if (text.trim().length < 400) return false;
+  const sections = text.match(/(?:^|\n)\s*(?:[-*•]|\d+\.|[A-Z][^:\n]{1,48}:)/g);
+  return (sections?.length ?? 0) >= 3;
+}
+
+/** True when visible content is a leak from the end of the reasoning stream. */
+function isReasoningTailLeak(content: string, reasoning: string): boolean {
+  const c = collapseWs(content);
+  const r = collapseWs(reasoning.trim());
+  if (c.length < 20 || r.length < c.length + 80) return false;
+  if (r.endsWith(c)) return true;
+  const tailLen = Math.max(1_500, Math.min(2_400, Math.floor(r.length * 0.2)));
+  return r.slice(-tailLen).includes(c);
 }
 
 function isReasoningScratchPara(para: string): boolean {
   if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) return true;
   if (TOOL_SKIP_META.test(para) || REASONING_PLANNING_META.test(para)) return true;
+  if (REASONING_SHORT_SCRATCH.test(para.trim())) return true;
   return looksLikeAllocationScratch(para);
 }
 
@@ -454,12 +474,17 @@ function looksLikeAllocationScratch(para: string): boolean {
   return false;
 }
 
-/** Paragraph is a slice of the interim visible dump (weight table, meta leak). */
-function paraIsInterimContentExcerpt(para: string, content: string): boolean {
-  const p = para.trim();
-  const c = content.trim();
-  if (p.length < 40 || c.length < 40) return false;
-  return c.includes(p) || (p.includes(c) && c.length * 2 > p.length);
+function collapseWs(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** True when a reasoning paragraph is the visible-channel leak, not a new takeaway. */
+function isLeakedContentPara(para: string, leaked: string): boolean {
+  if (!leaked) return false;
+  const p = collapseWs(para);
+  const l = collapseWs(leaked);
+  if (!p || p.length < 12) return false;
+  return l.includes(p);
 }
 
 /**
@@ -475,6 +500,11 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   if (!reasoning) return turn;
   if (content && !isInterimToolNarration(content, reasoning) && content.length >= 40) return turn;
 
+  // When the visible channel is a trailing reasoning leak (share
+  // S2xd3YVSuwjYaByfdF1cw0HL), skip those paragraphs so we lift the
+  // earlier sealed briefing instead of re-promoting the leak.
+  const leaked = isReasoningTailLeak(content, reasoning) ? content : "";
+
   const paras = reasoning
     .split(/\n\s*\n/)
     .map((p) => stripLeakedToolMarkup(p))
@@ -483,11 +513,14 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   const substantive: string[] = [];
   for (let i = paras.length - 1; i >= 0; i--) {
     const para = paras[i]!;
+    if (isLeakedContentPara(para, leaked)) continue;
     if (para.length < 40) {
+      // Short scratch ("Good. Write it.") is a separator, not a section wall.
+      if (isReasoningScratchPara(para) || REASONING_SHORT_SCRATCH.test(para.trim())) continue;
       if (substantive.length > 0) break;
       continue;
     }
-    if (isReasoningScratchPara(para) || paraIsInterimContentExcerpt(para, content)) {
+    if (isReasoningScratchPara(para)) {
       if (substantive.length > 0) break;
       continue;
     }

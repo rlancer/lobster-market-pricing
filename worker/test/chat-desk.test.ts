@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DESK_CORE_VIEWPOINT_IDS,
+  clipDeskMarkdown,
   deskAnalystBlock,
   deskViewpointsFromBrief,
   formatDeskToolSummary,
@@ -105,6 +106,52 @@ test("deskAnalystBlock names all specialists, routing, and publish_desk", () => 
   assert.match(block, /GME/);
   assert.match(block, /SPY/);
   assert.match(block, /Risk is always active/);
+  assert.match(block, /Write specialist takes, the overview, and the closing message as Markdown/);
+  assert.match(block, /Never one run-on sentence/);
+});
+
+test("clipDeskMarkdown keeps blank-line paragraphs and lists", () => {
+  const md = [
+    "**Lean:** stay with the steeper.",
+    "",
+    "The long end is carrying the load:",
+    "",
+    "- **30Y** 5.27%",
+    "- **2s10s** +43bp",
+  ].join("\n");
+  assert.equal(clipDeskMarkdown(md, 2_400), md);
+  assert.match(clipDeskMarkdown(md, 2_400), /\n\n- \*\*30Y\*\*/);
+});
+
+test("clipDeskMarkdown cuts at a paragraph boundary when over budget", () => {
+  const para = "The Fed is quietly neutral and the long end is carrying the load. ";
+  const md = [`**Lean:** stay with the steeper.`, "", para.repeat(80)].join("\n");
+  const clipped = clipDeskMarkdown(md, 50);
+  assert.ok(clipped.length <= 50);
+  assert.equal(clipped, "**Lean:** stay with the steeper.…");
+  assert.doesNotMatch(clipped, /The Fed is quietly/);
+});
+
+test("normalizeDeskBrief preserves Markdown instead of flattening to one line", () => {
+  const take = [
+    "**Lean:** stay with the steeper.",
+    "",
+    "The long end is carrying the load:",
+    "",
+    "- **30Y** 5.27% near the cycle high",
+    "- **2s10s** +43bp and fragile into CPI",
+  ].join("\n");
+  const desk = normalizeDeskBrief({
+    fundamental: `${take}\n\nCore PCE is the problem child on this print.`,
+    technical: `${take}\n\nPrice holds the 21-day average after the squeeze.`,
+    options: `${take}\n\nNear-ATM calls quote two-sided with usable open interest.`,
+    risk: `${take}\n\nA hot CPI reprint gaps the belly and blows up short-dated premium.`,
+    overview: `${take}\n\nLet the 9/11 CPI print set the next curve trade.`,
+  }, { required: DESK_CORE_VIEWPOINT_IDS });
+  assert.ok(desk);
+  assert.match(desk.overview, /\n\n- \*\*30Y\*\*/);
+  assert.match(desk.overview, /\n\nLet the 9\/11 CPI/);
+  assert.doesNotMatch(desk.overview, /steeper\. The long end is carrying/);
 });
 
 test("selectDeskSpecialists skips macro for single-name options chain", () => {

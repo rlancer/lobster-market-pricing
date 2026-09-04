@@ -22,6 +22,8 @@ export interface SchwabPortfolioPosition {
   average_price: number | null;
   market_value: number | null;
   day_pnl: number | null;
+  /** Schwab currentDayProfitLossPercentage, in percentage points. */
+  day_pnl_pct?: number | null;
   open_pnl: number | null;
   cusip: string | null;
 }
@@ -35,6 +37,7 @@ export interface SchwabPortfolioAccount {
   equity: number | null;
   buying_power: number | null;
   day_pnl: number | null;
+  day_pnl_pct?: number | null;
   open_pnl: number | null;
   positions: SchwabPortfolioPosition[];
 }
@@ -44,6 +47,7 @@ export interface SchwabPortfolioTotals {
   equity: number;
   buying_power: number;
   day_pnl: number;
+  day_pnl_pct?: number | null;
   open_pnl: number;
   position_count: number;
   account_count: number;
@@ -89,6 +93,16 @@ function pickBalance(balances: Record<string, unknown> | null, keys: string[]): 
     if (n != null) return n;
   }
   return null;
+}
+
+/** P&L as a percent of the prior value. abs(start) keeps short losses negative. */
+export function pnlPercent(pnl: number | null, equity: number | null): number | null {
+  if (pnl == null || equity == null || !Number.isFinite(pnl) || !Number.isFinite(equity)) {
+    return null;
+  }
+  const start = equity - pnl;
+  if (!Number.isFinite(start) || start === 0) return null;
+  return (pnl / Math.abs(start)) * 100;
 }
 
 function positionOpenPnl(pos: Record<string, unknown>): number | null {
@@ -142,6 +156,8 @@ function normalizePosition(
     average_price: avg,
     market_value: num(pos.marketValue),
     day_pnl: num(pos.currentDayProfitLoss),
+    day_pnl_pct: num(pos.currentDayProfitLossPercentage)
+      ?? pnlPercent(num(pos.currentDayProfitLoss), num(pos.marketValue)),
     open_pnl: resolvePositionOpenPnl(
       pos,
       quantity,
@@ -185,6 +201,8 @@ export function normalizeSchwabAccounts(raw: unknown, now = Date.now()): SchwabP
       "longMarketValue",
     ]);
     const buyingPower = pickBalance(balances, ["buyingPower", "availableFunds"]);
+    const balanceDayPnl = pickBalance(balances, ["currentDayProfitLoss"]);
+    const balanceDayPnlPct = pickBalance(balances, ["currentDayProfitLossPercentage"]);
 
     const rawPositions = Array.isArray(sec.positions) ? sec.positions : [];
     const positions: SchwabPortfolioPosition[] = [];
@@ -210,6 +228,7 @@ export function normalizeSchwabAccounts(raw: unknown, now = Date.now()): SchwabP
       }
     }
 
+    const accountDayPnl = balanceDayPnl ?? (hasDay ? dayPnl : null);
     accounts.push({
       id,
       account_number_masked: masked,
@@ -217,7 +236,8 @@ export function normalizeSchwabAccounts(raw: unknown, now = Date.now()): SchwabP
       cash,
       equity,
       buying_power: buyingPower,
-      day_pnl: hasDay ? dayPnl : null,
+      day_pnl: accountDayPnl,
+      day_pnl_pct: balanceDayPnlPct ?? pnlPercent(accountDayPnl, equity),
       open_pnl: hasOpen ? openPnl : null,
       positions,
     });
@@ -228,6 +248,7 @@ export function normalizeSchwabAccounts(raw: unknown, now = Date.now()): SchwabP
     equity: 0,
     buying_power: 0,
     day_pnl: 0,
+    day_pnl_pct: null,
     open_pnl: 0,
     position_count: 0,
     account_count: accounts.length,
@@ -240,6 +261,7 @@ export function normalizeSchwabAccounts(raw: unknown, now = Date.now()): SchwabP
     if (a.open_pnl != null) totals.open_pnl += a.open_pnl;
     totals.position_count += a.positions.length;
   }
+  totals.day_pnl_pct = pnlPercent(totals.day_pnl, totals.equity);
 
   return {
     connected: true,
@@ -291,12 +313,24 @@ function money(value: number | null | undefined): string {
   return value < 0 ? `-${formatted}` : formatted;
 }
 
+function pctLabel(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return "";
+  const digits = Math.abs(pct) >= 10 ? 1 : 2;
+  const abs = Math.abs(pct).toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  if (pct > 0) return ` (+${abs}%)`;
+  if (pct < 0) return ` (−${abs}%)`;
+  return ` (${abs}%)`;
+}
+
 /** Compact tool summary for get_portfolio(source=schwab) — no account hashes. */
 export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string {
   const { totals, accounts } = view;
   const lines = [
     "Schwab brokerage",
-    `Cash ${money(totals.cash)} · Equity ${money(totals.equity)} · Buying power ${money(totals.buying_power)} · Day PnL ${money(totals.day_pnl)} · Open PnL ${money(totals.open_pnl)} · ${totals.position_count} positions across ${totals.account_count} account${totals.account_count === 1 ? "" : "s"}`,
+    `Cash ${money(totals.cash)} · Equity ${money(totals.equity)} · Buying power ${money(totals.buying_power)} · Day PnL ${money(totals.day_pnl)}${pctLabel(totals.day_pnl_pct)} · Open PnL ${money(totals.open_pnl)} · ${totals.position_count} positions across ${totals.account_count} account${totals.account_count === 1 ? "" : "s"}`,
   ];
   if (accounts.length === 0) {
     lines.push("No linked accounts returned.");
@@ -318,7 +352,7 @@ export function formatSchwabPortfolioSummary(view: SchwabPortfolioView): string 
       lines.push(
         `- ${position.symbol}${position.underlying ? ` (${position.underlying})` : ""} · ${kindLabel}`
           + `${position.description ? ` · ${position.description}` : ""}`
-          + ` · qty ${qty} · mark ${money(position.market_value)} · day ${money(position.day_pnl)} · open ${money(position.open_pnl)}`,
+          + ` · qty ${qty} · mark ${money(position.market_value)} · day ${money(position.day_pnl)}${pctLabel(position.day_pnl_pct)} · open ${money(position.open_pnl)}`,
       );
     }
     if (shown > 40) break;
@@ -366,6 +400,7 @@ export function filterSchwabPortfolioView(
       equity,
       buying_power,
       day_pnl,
+      day_pnl_pct: pnlPercent(day_pnl, equity),
       open_pnl,
       position_count,
       account_count: accounts.length,

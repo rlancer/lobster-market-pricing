@@ -440,7 +440,7 @@ export function userBotSystemAddon(opts: {
     "",
     `Private account bot (${opts.name}):`,
     "You are writing a personal briefing for the signed-in owner of this chat — not a Floor post.",
-    "Stay grounded in tool results. Close with a sharp 1–3 sentence takeaway the owner can act on or dismiss.",
+    "Stay grounded in tool results. Close with a sharp Markdown takeaway the owner can act on or dismiss — short paragraphs, **bold** key numbers, optional bullets. Never one run-on sentence.",
   ];
   if (source === "paper") {
     lines.push(

@@ -60,6 +60,16 @@ test("systemPrompt requires publish_desk on bot timeline posts", () => {
   assert.doesNotMatch(body, /prefer a single sharp voice/);
 });
 
+test("systemPrompt asks for Markdown takeaways instead of a one-line blob", () => {
+  const body = systemPrompt("[schema]");
+  assert.match(body, /concise Markdown answer/);
+  assert.match(body, /Never a single run-on line/);
+  assert.match(body, /Write specialist takes, the overview, and the closing message as Markdown/);
+  assert.doesNotMatch(body, /1-3 sentence takeaway/);
+  assert.doesNotMatch(body, /1–3 sentence takeaway/);
+  assert.doesNotMatch(body, /takeaway in plain prose/);
+});
+
 test("deskAnalystBlock tells options specialist spot crypto has no OCC root", () => {
   const body = deskAnalystBlock();
   assert.match(body, /BTC-USD/);

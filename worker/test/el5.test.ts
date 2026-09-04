@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  EL5_SYSTEM,
   cleanEl5Text,
   computeEl5FromLookup,
   formatEl5Source,
   getOrComputeEl5,
   hashEl5Source,
   lookupEl5,
+  parseEl5SourceBlocks,
   resolveEl5Cache,
   synthesizeEl5,
   type El5CachedRow,
@@ -151,6 +153,42 @@ test("synthesizeEl5 builds a short glossed summary", () => {
   assert.doesNotMatch(out, /kid words/i);
   // Desk overview wins over the longer assistant body.
   assert.doesNotMatch(out, /30 DTE|days to expiration|elevated/);
+});
+
+test("EL5_SYSTEM asks for Markdown paragraphs and bullets", () => {
+  assert.match(EL5_SYSTEM, /Write Markdown/);
+  assert.match(EL5_SYSTEM, /never one run-on line/);
+  assert.match(EL5_SYSTEM, /bullet list/);
+  assert.doesNotMatch(EL5_SYSTEM, /No headings, lists/);
+});
+
+test("parseEl5SourceBlocks keeps Markdown continuations on the prior label", () => {
+  const blocks = parseEl5SourceBlocks([
+    "title: NVDA IV crush",
+    "desk overview: **Lean:** fade the pop.",
+    "The 30 DTE call is ATM.",
+    "",
+    "- **IV** is elevated vs RV30",
+    "trade: NVDA — bearish — put debit — Fade the pop.",
+  ].join("\n\n"));
+  const overview = blocks.find((b) => b.label === "desk overview");
+  assert.ok(overview);
+  assert.match(overview.text, /\*\*Lean:\*\* fade the pop/);
+  assert.match(overview.text, /The 30 DTE call is ATM/);
+  assert.match(overview.text, /- \*\*IV\*\* is elevated/);
+});
+
+test("synthesizeEl5 keeps a multi-paragraph desk overview", () => {
+  const out = synthesizeEl5([
+    "title: NVDA IV crush",
+    "desk overview: **Lean:** fade the pop.",
+    "Vol is rich vs RV30 after the pop.",
+    "trade: NVDA — bearish — put debit — Fade the pop.",
+  ].join("\n\n"));
+  assert.match(out, /\*\*NVDA IV crush\*\*/);
+  assert.match(out, /\*\*Lean:\*\* fade the pop/);
+  assert.match(out, /Vol is rich vs 30-day realized vol/);
+  assert.match(out, /Trade idea: NVDA — bearish — put debit — Fade the pop\./);
 });
 
 test("synthesizeEl5 falls back to assistant lead when no desk overview", () => {

@@ -13,7 +13,7 @@ export const EL5_SYSTEM = [
   "Audience: adults with basic market knowledge. Do not define well-known companies, tickers, or everyday finance words (e.g. do not say NVIDIA is a company, or explain what a stock is).",
   "Only gloss dense jargon when it actually appears (IV, DTE, delta, ATM/ITM/OTM, premium, short interest, Kalshi YES/NO, greeks) — one short clause, no kid analogies.",
   "Keep tickers, key numbers, dates, and the conclusion. Skip play-by-play, desk section dumps, and filler. Do not invent trades, fills, or news.",
-  "Aim for 2–4 short Markdown paragraphs (about 80–150 words). No headings, lists, tables, code fences, or emoji.",
+  "Write Markdown — never one run-on line. Use 2–4 short paragraphs separated by blank lines, **bold** for the lean and key numbers, and a short bullet list when listing levels, dates, or catalysts. Optional ### subheads. No tables, code fences, or emoji.",
   "Do not mention being an AI or that this is a translation.",
 ].join("\n");
 
@@ -22,7 +22,7 @@ export const EL5_MAX_OUTPUT_TOKENS = 400;
 export const EL5_RATE_WINDOW_MS = 10 * 60_000;
 export const EL5_RATE_LIMIT = 20;
 /** Bump when the rewrite shape changes so D1 cache misses stale rows. */
-export const EL5_CACHE_VERSION = 3;
+export const EL5_CACHE_VERSION = 4;
 
 export const EL5_SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 
@@ -198,7 +198,28 @@ function clipEl5Fallback(text: string, maxChars: number): string {
   return `${trimmed.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
-/** Pull title / overview / lead / trades into a short plain summary. */
+const EL5_LABELED_BLOCK = /^(title|user|assistant|desk overview|desk \w+|trade|trade skip):\s*/i;
+
+/** Split source into labeled fields, keeping Markdown continuations on the prior label. */
+export function parseEl5SourceBlocks(source: string): Array<{ label: string; text: string }> {
+  const out: Array<{ label: string; text: string }> = [];
+  for (const chunk of source.split(/\n\n+/)) {
+    const block = chunk.trim();
+    if (!block) continue;
+    const match = EL5_LABELED_BLOCK.exec(block);
+    if (match) {
+      out.push({
+        label: match[1].toLowerCase(),
+        text: block.slice(match[0].length).trim(),
+      });
+      continue;
+    }
+    if (out.length) out[out.length - 1]!.text += `\n\n${block}`;
+  }
+  return out;
+}
+
+/** Pull title / overview / lead / trades into a short Markdown summary. */
 export function synthesizeEl5(source: string): string {
   let title = "";
   let overview = "";
@@ -206,20 +227,12 @@ export function synthesizeEl5(source: string): string {
   const trades: string[] = [];
   let skip = "";
 
-  for (const block of source.split(/\n\n+/)) {
-    const line = block.trim();
-    if (!line) continue;
-    if (/^title:\s*/i.test(line)) {
-      title = line.replace(/^title:\s*/i, "").trim();
-    } else if (/^desk overview:\s*/i.test(line)) {
-      overview = line.replace(/^desk overview:\s*/i, "").trim();
-    } else if (/^assistant:\s*/i.test(line) && !lead) {
-      lead = line.replace(/^assistant:\s*/i, "").trim();
-    } else if (/^trade:\s*/i.test(line)) {
-      trades.push(line.replace(/^trade:\s*/i, "").trim());
-    } else if (/^trade skip:\s*/i.test(line)) {
-      skip = line.replace(/^trade skip:\s*/i, "").trim();
-    }
+  for (const { label, text } of parseEl5SourceBlocks(source)) {
+    if (label === "title") title = text;
+    else if (label === "desk overview") overview = text;
+    else if (label === "assistant" && !lead) lead = text;
+    else if (label === "trade") trades.push(text);
+    else if (label === "trade skip") skip = text;
   }
 
   const parts: string[] = [];
@@ -247,7 +260,7 @@ export async function generateEl5Text(
       model,
       system: EL5_SYSTEM,
       prompt: [
-        "Summarize this chat post in plain English for an adult with basic market knowledge. Be brief.",
+        "Summarize this chat post in Markdown for an adult with basic market knowledge. Be brief — paragraphs, **bold** figures, optional bullets. Never one run-on line.",
         "",
         source,
       ].join("\n"),

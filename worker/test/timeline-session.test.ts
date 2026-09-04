@@ -99,14 +99,18 @@ test("presentHomepageSession labels today/tomorrow at serve time, not cache time
 test("tapeAskPrompt prefers a today-print, then the biggest mover", () => {
   assert.match(
     tapeAskPrompt(
-      [{ ticker: "^VIX", name: "VIX", spot: 18, change_1d_pct: 4.2 }],
+      [{ ticker: "VXU26", name: "VX Sep'26", spot: 18, change_1d_pct: 4.2 }],
       [{ date: "2026-09-03", title: "CPI", shortTitle: "CPI", kind: "macro", when: "today 8:30 AM ET" }],
     ),
     /CPI/,
   );
   assert.match(
-    tapeAskPrompt([{ ticker: "^VIX", name: "VIX", spot: 18, change_1d_pct: 4.2 }], []),
-    /\^VIX/,
+    tapeAskPrompt([{ ticker: "VXU26", name: "VX Sep'26", spot: 18, change_1d_pct: 4.2 }], []),
+    /VXU26/,
+  );
+  assert.match(
+    tapeAskPrompt([{ ticker: "SPY", name: "S&P 500", spot: 500, change_1d_pct: 0.1 }], []),
+    /front two VX months/,
   );
 });
 

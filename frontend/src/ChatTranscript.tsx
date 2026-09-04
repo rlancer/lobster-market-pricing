@@ -160,7 +160,7 @@ export function AssistantMessageBody({
         return (
           <div className="ai-text">
             {desk ? <span className="ai-desk-overview-label">Overview</span> : null}
-            <Markdown>{overview}</Markdown>
+            <Markdown headingLevelStart={3} density="compact">{overview}</Markdown>
           </div>
         );
       })()}

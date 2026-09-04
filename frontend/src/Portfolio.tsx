@@ -269,6 +269,7 @@ export default function PortfolioPage() {
         equity: schwabAccount.equity,
         buying_power: schwabAccount.buying_power,
         day_pnl: schwabAccount.day_pnl,
+        day_pnl_pct: schwabAccount.day_pnl_pct ?? null,
         open_pnl: schwabAccount.open_pnl,
       }
     : schwabBook
@@ -277,6 +278,7 @@ export default function PortfolioPage() {
           equity: schwabBook.totals.equity,
           buying_power: schwabBook.totals.buying_power,
           day_pnl: schwabBook.totals.day_pnl,
+          day_pnl_pct: schwabBook.totals.day_pnl_pct ?? null,
           open_pnl: schwabBook.totals.open_pnl,
         }
       : null;
