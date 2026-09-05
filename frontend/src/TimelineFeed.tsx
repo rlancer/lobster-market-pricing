@@ -12,7 +12,7 @@ import {
   Token,
   VStack,
 } from '@astryxdesign/core';
-import { BarChart3, ChevronDown, ChevronUp, Code2, Newspaper, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronUp, Newspaper, Sparkles } from 'lucide-react';
 import './Timeline.css';
 import { ChatContextStrip } from './ChatContextStrip';
 import { framesFromMessages, TranscriptMessage } from './ChatTranscript';
@@ -270,34 +270,13 @@ export function TimelinePostRow({
         </FeedPreview>
       )}
 
-      {/* 5. Supporting meta — technical flags + moderation */}
-      {(post.has_sql || post.has_chart || post.model || isAdmin) && (
+      {/* 5. Supporting meta — model + moderation */}
+      {(post.model || isAdmin) && (
         <HStack gap={3} vAlign="center" className="timeline-post-meta">
-          {(post.has_sql || post.has_chart || post.model) && (
-            <HStack gap={2} vAlign="center" className="timeline-post-flags" aria-label="Post details">
-              {post.has_sql && (
-                <HStack gap={1} vAlign="center" className="timeline-flag">
-                  <Code2 size={14} aria-hidden="true" />
-                  <Text type="supporting">SQL</Text>
-                </HStack>
-              )}
-              {post.has_chart && (
-                <HStack gap={1} vAlign="center" className="timeline-flag">
-                  <BarChart3 size={14} aria-hidden="true" />
-                  <Text type="supporting">Chart</Text>
-                </HStack>
-              )}
-              {post.model && (
-                <>
-                  {(post.has_sql || post.has_chart) && (
-                    <Text type="supporting" className="timeline-byline-sep" aria-hidden="true">·</Text>
-                  )}
-                  <Text type="supporting" className="timeline-model" maxLines={1}>
-                    {shortModel(post.model)}
-                  </Text>
-                </>
-              )}
-            </HStack>
+          {post.model && (
+            <Text type="supporting" className="timeline-model" maxLines={1}>
+              {shortModel(post.model)}
+            </Text>
           )}
           {isAdmin && (
             <HStack gap={2} vAlign="center" className="timeline-post-actions">

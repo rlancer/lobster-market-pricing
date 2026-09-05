@@ -88,7 +88,8 @@ test.describe('The Floor', () => {
     await expect(author).toBeVisible();
     await expect(author.locator('img.timeline-author-avatar')).toBeVisible();
     await expect(post.locator('.timeline-msgs .timeline-author-avatar')).toHaveCount(0);
-    await expect(post.getByText('SQL')).toBeVisible();
+    await expect(post.getByText('SQL')).toHaveCount(0);
+    await expect(post.getByText('Chart')).toHaveCount(0);
     await expect(post.getByText('deepseek-v4-flash')).toBeVisible();
     // Title matches the user bubble — don't duplicate it as a heading.
     await expect(post.getByRole('heading', { name: 'Should I buy SPY calls' })).toHaveCount(0);
