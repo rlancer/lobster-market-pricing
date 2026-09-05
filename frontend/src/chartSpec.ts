@@ -1,4 +1,18 @@
-import type { ChartSpec } from './Chart';
+export type ChartKind = 'line' | 'area' | 'scatter' | 'bar';
+
+export interface ChartSpec {
+  /** Short heading shown above the chart. */
+  title?: string;
+  kind: ChartKind;
+  /** Column in the query result to plot on the x-axis. */
+  x: string;
+  /** Column in the query result to plot on the y-axis. */
+  y: string;
+  /** Optional column that splits the data into one series per distinct value. */
+  series?: string;
+  xLabel?: string;
+  yLabel?: string;
+}
 
 const CHART_REQUEST_RE = /\b(chart|graph|plot|smile|surface|visuali[sz]e|histogram)\b/i;
 const X_PREF = ['strike', 'expiration', 'dte', 'as_of_date', 'date', 'moneyness', 'delta'];

@@ -1,0 +1,24 @@
+.lobster-chart {
+  width: 100%;
+  height: 100%;
+  color: var(--color-text-secondary);
+  --ts-chart-1: var(--color-accent);
+  --ts-chart-2: var(--color-icon-blue);
+  --ts-chart-3: var(--color-warning);
+  --ts-chart-4: var(--color-success);
+  --ts-chart-5: var(--color-error);
+  --ts-chart-6: var(--color-text-blue);
+  --ts-chart-tooltip-background: var(--color-background-popover);
+  --ts-chart-tooltip-color: var(--color-text-primary);
+  --ts-chart-tooltip-border: var(--border-width) solid var(--color-border);
+  --ts-chart-tooltip-border-radius: var(--radius-element);
+  --ts-chart-tooltip-padding: var(--spacing-2) var(--spacing-3);
+  --ts-chart-tooltip-font: var(--font-size-xs) / var(--line-height-normal) var(--font-family-body);
+  --ts-chart-tooltip-shadow: none;
+}
+
+.lobster-chart .ts-chart-host,
+.lobster-chart.ts-chart-host {
+  width: 100%;
+  height: 100%;
+}

@@ -65,7 +65,7 @@ test.describe('Server-funded Chat Agent', () => {
     await ask(page, 'Chart the IV smile for NVDA');
     await lastAnswer(page, 540_000);
     await expect(page.locator('.ai-chart').last()).toBeVisible();
-    await expect(page.locator('.ai-chart .recharts-wrapper, .ai-chart svg').last()).toBeVisible();
+    await expect(page.locator('.ai-chart svg').last()).toBeVisible();
   });
 
   test('oversized question is rejected before a model answer', async ({ page }) => {

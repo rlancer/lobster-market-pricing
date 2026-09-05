@@ -1,18 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import {
-  Area,
-  Bar,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { Chart } from '@tanstack/charts/react';
 import {
   Banner,
   Button,
@@ -50,7 +38,10 @@ import {
   type SchwabPortfolioPosition,
   type SchwabTrade,
 } from './api';
-import { etDateString, formatChartTick } from './tickerChartRange';
+import { definePnlChart, type PnlChartMarker } from './charts/pnlChart';
+import { CHART_HOST_CLASS } from './charts/theme';
+import { etDateString } from './tickerChartRange';
+import './charts.css';
 import {
   applyEquityMarkPath,
   applyOptionMarkPath,
@@ -195,12 +186,6 @@ function ReturnBubbles({
       ))}
     </HStack>
   );
-}
-
-function markerColor(kind: ActivityRow['kind']): string {
-  if (kind === 'option') return 'var(--color-warning, var(--accent))';
-  if (kind === 'dividend') return 'var(--color-success)';
-  return 'var(--accent)';
 }
 
 function activityFillId(row: ActivityRow): string | null {
@@ -598,8 +583,8 @@ export function SchwabPnlSection({
       point.date >= focusWindow.start && point.date <= focusWindow.end
     ));
   }, [series, effectiveChartWindow, focusWindow]);
-  const chartMarkers = useMemo(
-    () => activity
+  const chartMarkers = useMemo((): PnlChartMarker[] => (
+    activity
       .filter((row) => (
         chartSeries.length > 0
         && row.date >= chartSeries[0]!.date
@@ -614,14 +599,22 @@ export function SchwabPnlSection({
           kind: row.kind,
           label: row.symbol ?? row.description ?? row.kind,
         };
-      }),
-    [activity, chartSeries],
-  );
+      })
+  ), [activity, chartSeries]);
   const chartValues = chartSeries.map((point) => point[chartMetric]);
   const chartMin = Math.min(0, ...chartValues);
   const chartMax = Math.max(0, ...chartValues);
   const chartPad = Math.max((chartMax - chartMin) * 0.08, 1);
   const chartDomain: [number, number] = [chartMin - chartPad, chartMax + chartPad];
+  const chartDefinition = useMemo(
+    () => definePnlChart({
+      series: chartSeries,
+      markers: chartMarkers,
+      metric: chartMetric,
+      domain: chartDomain,
+    }),
+    [chartSeries, chartMarkers, chartMetric, chartMin, chartMax, chartPad],
+  );
   const largestDay = chartSeries.reduce<(typeof chartSeries)[number] | null>(
     (largest, point) => (
       !largest || Math.abs(point.daily) > Math.abs(largest.daily) ? point : largest
@@ -904,100 +897,12 @@ export function SchwabPnlSection({
             </Text>
             )}
             <VStack className="portfolio-pnl-plot">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={chartSeries}
-                margin={{ top: 4, right: isMobile ? 4 : 12, bottom: 0, left: 0 }}
-              >
-                <CartesianGrid
-                  stroke="var(--color-border)"
-                  strokeDasharray="3 3"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={48}
-                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                  tickFormatter={formatChartTick}
-                />
-                <YAxis
-                  domain={chartDomain}
-                  axisLine={false}
-                  tickLine={false}
-                  width={isMobile ? 40 : 56}
-                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                  tickFormatter={(v: number) =>
-                    v.toLocaleString(undefined, {
-                      style: 'currency',
-                      currency: 'USD',
-                      maximumFractionDigits: 0,
-                    })
-                  }
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--panel)',
-                    border: 'var(--border-width) solid var(--color-border)',
-                    borderRadius: 'var(--radius-element)',
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-text-primary)',
-                  }}
-                  labelFormatter={(d) => String(d)}
-                  formatter={(v) => [
-                    money(v as number),
-                    chartMetric === 'cumulative' ? 'Cumulative P&L' : 'Day P&L',
-                  ]}
-                />
-                <ReferenceLine y={0} stroke="var(--color-border)" />
-                {chartMetric === 'daily' ? (
-                  <Bar
-                    dataKey="daily"
-                    name="Day P&L"
-                    isAnimationActive={false}
-                    maxBarSize={28}
-                  >
-                    {chartSeries.map((point) => (
-                      <Cell
-                        key={point.date}
-                        fill={point.daily >= 0
-                          ? 'var(--color-success)'
-                          : 'var(--color-error)'}
-                      />
-                    ))}
-                  </Bar>
-                ) : (
-                  <Area
-                    type="stepAfter"
-                    dataKey="cumulative"
-                    name="Cumulative P&L"
-                    stroke="var(--accent)"
-                    fill="var(--accent)"
-                    fillOpacity={0.12}
-                    strokeWidth={2}
-                    isAnimationActive={false}
-                  />
-                )}
-                <Scatter
-                  data={chartMarkers}
-                  dataKey={chartMetric}
-                  fill="var(--accent)"
-                  shape={(props: { cx?: number; cy?: number; payload?: { kind?: ActivityRow['kind'] } }) => {
-                    const kind = props.payload?.kind ?? 'stock';
-                    return (
-                      <circle
-                        cx={props.cx}
-                        cy={props.cy}
-                        r={3.5}
-                        fill={markerColor(kind)}
-                      />
-                    );
-                  }}
-                  isAnimationActive={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+              <Chart
+                definition={chartDefinition}
+                height={isMobile ? 240 : 280}
+                ariaLabel={chartMetric === 'daily' ? 'Day P&L' : 'Cumulative P&L'}
+                className={CHART_HOST_CLASS}
+              />
             </VStack>
             {isMobile ? null : (
             <Text type="supporting" size="sm">
