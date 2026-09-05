@@ -64,7 +64,10 @@ PY
     fi
     err=$(python3 -c 'import json; print((json.load(open("/tmp/trigger.json")).get("error") or ""))')
     case "$err" in
-      *"in progress"*) echo "run in progress — wait 30s"; sleep 30 ;;
+      *"in progress"*|*"code was updated"*|*"Durable Object reset"*)
+        echo "transient: $err — wait 30s"
+        sleep 30
+        ;;
       *) echo "::error::trigger failed: $err"; fail=1; break ;;
     esac
   done
