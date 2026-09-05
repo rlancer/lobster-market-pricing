@@ -467,7 +467,7 @@ export function isPlanningOnlyTakeaway(text: string): boolean {
  * even when the last one happens to end with a period (share 1qKRZL7…).
  */
 const TOOL_LOOP_SENTENCE =
-  /\b(?:let me|i(?:'ll| will)|i should|i need to|now i need|hmm\b|the prompt (?:says|lists)|the instructions say|active specialists|active list|listed as active|publish(?:_desk| the desk)|render_chart|the schema (?:only )?(?:has|says)|looking at routing|routing (?:for|says|examples))\b/i;
+  /\b(?:let me|i(?:'ll| will)|i should|i need to|now i need|hmm\b|the prompt (?:says|lists)|the instructions say|active specialists|active list|listed as active|publish(?:_desk| the desk)|render_chart|suggest_trades|the schema (?:only )?(?:has|says)|looking at routing|routing (?:for|says|examples)|i could (?:offer|suggest|publish|render|call)|actually i can|i can suggest)\b/i;
 
 /** System-prompt / specialist-routing debate leaked into the reader-facing body. */
 const PROMPT_LEAK =

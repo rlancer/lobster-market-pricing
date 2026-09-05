@@ -194,6 +194,24 @@ test("heuristic rejects null-token desk plus tool-loop body (share 1qKRZL7)", ()
   assert.match(decision?.reason ?? "", /tool-loop|narration|placeholder|empty/i);
 });
 
+test("heuristic rejects reasoning promoted into suggest_trades scratch (share 1qKRZL7 heal)", () => {
+  // coalesce lifts a reasoning paragraph; that lift must still fail the gate.
+  const decision = heuristicTimelineQuality([
+    { role: "user", content: "Macro / rates desk hourly." },
+    {
+      role: "assistant",
+      content: [
+        "Also suggest_trades — this is a macro timeline post with a tradable lean.",
+        "I could offer a Kalshi KXFED-26SEP-T3.75 contract (yes/no) as the binary play.",
+        "Actually I can suggest a Kalshi trade: buy NO on KXFED-26SEP-T3.75.",
+        "That is tradable with real two-sided quotes. Good.",
+      ].join(" "),
+    },
+  ]);
+  assert.equal(decision?.allow, false);
+  assert.match(decision?.reason ?? "", /tool-loop|narration|empty/i);
+});
+
 test("lastAssistantView does not treat a null-token desk as sealed", () => {
   const view = lastAssistantView([
     {
