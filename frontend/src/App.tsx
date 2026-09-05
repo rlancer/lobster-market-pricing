@@ -26,6 +26,7 @@ import { useIsAdmin } from './useAdmin';
 import { AuthControls } from './AuthControls';
 import { BlueLobsterLogo } from './BlueLobsterLogo';
 import { TickerTypeahead } from './TickerTypeahead';
+import { useAsOfDate } from './useAsOfDate';
 import { api, useDbReady, type Stats, type UserChat } from './api';
 import { authClient } from './auth';
 import {
@@ -86,6 +87,8 @@ function ResearchSearch({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { asOf } = useAsOfDate();
+  const asofSearch = asOf ? { asof: asOf } : {};
   const tickerMatch = location.pathname.match(/^\/research\/([^/]+)$/);
   const ticker = tickerMatch?.[1]
     ? decodeURIComponent(tickerMatch[1]).trim().toUpperCase()
@@ -97,11 +100,15 @@ function ResearchSearch({
       value={ticker}
       onSelect={(symbol) => {
         onSelectSymbol?.(symbol);
-        void navigate({ to: '/research/$ticker', params: { ticker: symbol } });
+        void navigate({
+          to: '/research/$ticker',
+          params: { ticker: symbol },
+          search: asofSearch,
+        });
       }}
       onClear={() => {
         if (location.pathname.startsWith('/research')) {
-          void navigate({ to: '/research' });
+          void navigate({ to: '/research', search: asofSearch });
         }
       }}
       isLabelHidden

@@ -183,6 +183,36 @@ function clampStartToMaxWindow(start: string, end: string): string {
   return start;
 }
 
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Valid YYYY-MM-DD, clamped to `today` when the value is in the future. */
+export function parseAsOfDate(
+  raw: string | null | undefined,
+  today = etDateString(),
+): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  const m = ISO_DATE.exec(trimmed);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  if (
+    utc.getUTCFullYear() !== year
+    || utc.getUTCMonth() !== month - 1
+    || utc.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return trimmed > today ? today : trimmed;
+}
+
+/** Noon-ish UTC instant that still maps to `ymd` on the ET calendar. */
+export function asOfInstant(ymd: string): Date {
+  return new Date(`${ymd}T16:00:00.000Z`);
+}
+
 /** Resolve a preset range to inclusive YYYY-MM-DD bounds (ET calendar). */
 export function resolvePnlRange(
   range: string | null,

@@ -1,18 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import {
-  Area,
-  Bar,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { Chart } from '@tanstack/charts/react';
 import {
   Banner,
   Button,
@@ -50,7 +38,11 @@ import {
   type SchwabPortfolioPosition,
   type SchwabTrade,
 } from './api';
-import { etDateString, formatChartTick } from './tickerChartRange';
+import { definePnlChart, type PnlChartMarker } from './charts/pnlChart';
+import { CHART_HOST_CLASS } from './charts/theme';
+import { AsOfDateField } from './AsOfDateField';
+import { useAsOfDate } from './useAsOfDate';
+import './charts.css';
 import {
   applyEquityMarkPath,
   applyOptionMarkPath,
@@ -197,12 +189,6 @@ function ReturnBubbles({
   );
 }
 
-function markerColor(kind: ActivityRow['kind']): string {
-  if (kind === 'option') return 'var(--color-warning, var(--accent))';
-  if (kind === 'dividend') return 'var(--color-success)';
-  return 'var(--accent)';
-}
-
 function activityFillId(row: ActivityRow): string | null {
   if (row.id.startsWith('fill-')) return row.id.slice('fill-'.length);
   if (row.id.startsWith('trade-')) return row.id.slice('trade-'.length);
@@ -274,6 +260,7 @@ export function SchwabPnlSection({
   /** Open positions (or other book UI) rendered directly under the chart. */
   afterChart?: ReactNode;
 }) {
+  const { asOf, asOfDate, historical } = useAsOfDate();
   const [range, setRange] = useState<SchwabPnlRange>('YTD');
   const isControlled = controlledSymbol !== undefined;
   const [internalDraft, setInternalDraft] = useState(initialSymbol);
@@ -311,7 +298,7 @@ export function SchwabPnlSection({
   const ytdKeyRef = useRef('');
   const isMobile = useMediaQuery('(max-width: 47.99rem)');
 
-  const returnKey = `${accountId ?? ''}|${symbol}`;
+  const returnKey = `${accountId ?? ''}|${symbol}|${asOf ?? ''}`;
 
   useEffect(() => {
     if (isControlled) return;
@@ -334,6 +321,7 @@ export function SchwabPnlSection({
     nextRange: SchwabPnlRange,
     nextAccount: string | null,
     nextSymbol: string,
+    nextAsOf?: string,
   ) => {
     const requestId = ++requestSequence.current;
     setLoading(true);
@@ -357,6 +345,7 @@ export function SchwabPnlSection({
         range: nextRange,
         account: nextAccount ?? undefined,
         symbol: nextSymbol.trim() || undefined,
+        as_of: nextAsOf,
       });
       if (requestId !== requestSequence.current) return;
       setPoints(res.points);
@@ -381,7 +370,7 @@ export function SchwabPnlSection({
       // lake/Yahoo — it often has no bars for the hold (CAR Apr 2026).
       setOhlc(schwabBars);
       if (nextRange === 'YTD') {
-        ytdKeyRef.current = `${nextAccount ?? ''}|${nextSymbol}`;
+        ytdKeyRef.current = `${nextAccount ?? ''}|${nextSymbol}|${nextAsOf ?? ''}`;
         setYtdSnapshot({
           key: ytdKeyRef.current,
           points: res.points,
@@ -411,15 +400,15 @@ export function SchwabPnlSection({
   }, []);
 
   useEffect(() => {
-    void load(range, accountId, symbol);
+    void load(range, accountId, symbol, asOf);
     return () => {
       requestSequence.current += 1;
     };
-  }, [accountId, range, symbol, load]);
+  }, [accountId, range, symbol, asOf, load]);
 
   useEffect(() => {
     if (range === 'YTD') return;
-    const key = `${accountId ?? ''}|${symbol}`;
+    const key = `${accountId ?? ''}|${symbol}|${asOf ?? ''}`;
     if (ytdKeyRef.current === key) return;
     let cancelled = false;
     void (async () => {
@@ -428,6 +417,7 @@ export function SchwabPnlSection({
           range: 'YTD',
           account: accountId ?? undefined,
           symbol: symbol || undefined,
+          as_of: asOf,
         });
         if (cancelled) return;
         ytdKeyRef.current = key;
@@ -441,13 +431,14 @@ export function SchwabPnlSection({
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId, range, symbol]);
+  }, [accountId, range, symbol, asOf]);
 
-  const openMark = useMemo(() => {
+  const liveOpenMark = useMemo(() => {
     if (!symbol) return null;
     if (openMarkFromApi) return openMarkFromApi;
     return tickerOpenMark(positions, symbol);
   }, [openMarkFromApi, positions, symbol]);
+  const openMark = historical ? null : liveOpenMark;
 
   const optionLots = useMemo(
     () => (symbol ? optionLotsFromFills(fills, positions, symbol) : []),
@@ -598,8 +589,8 @@ export function SchwabPnlSection({
       point.date >= focusWindow.start && point.date <= focusWindow.end
     ));
   }, [series, effectiveChartWindow, focusWindow]);
-  const chartMarkers = useMemo(
-    () => activity
+  const chartMarkers = useMemo((): PnlChartMarker[] => (
+    activity
       .filter((row) => (
         chartSeries.length > 0
         && row.date >= chartSeries[0]!.date
@@ -614,14 +605,24 @@ export function SchwabPnlSection({
           kind: row.kind,
           label: row.symbol ?? row.description ?? row.kind,
         };
-      }),
-    [activity, chartSeries],
+      })
+  ), [activity, chartSeries]);
+  const chartDomain = useMemo((): [number, number] => {
+    const values = chartSeries.map((point) => point[chartMetric]);
+    const min = Math.min(0, ...values);
+    const max = Math.max(0, ...values);
+    const pad = Math.max((max - min) * 0.08, 1);
+    return [min - pad, max + pad];
+  }, [chartSeries, chartMetric]);
+  const chartDefinition = useMemo(
+    () => definePnlChart({
+      series: chartSeries,
+      markers: chartMarkers,
+      metric: chartMetric,
+      domain: chartDomain,
+    }),
+    [chartSeries, chartMarkers, chartMetric, chartDomain],
   );
-  const chartValues = chartSeries.map((point) => point[chartMetric]);
-  const chartMin = Math.min(0, ...chartValues);
-  const chartMax = Math.max(0, ...chartValues);
-  const chartPad = Math.max((chartMax - chartMin) * 0.08, 1);
-  const chartDomain: [number, number] = [chartMin - chartPad, chartMax + chartPad];
   const largestDay = chartSeries.reduce<(typeof chartSeries)[number] | null>(
     (largest, point) => (
       !largest || Math.abs(point.daily) > Math.abs(largest.daily) ? point : largest
@@ -655,7 +656,7 @@ export function SchwabPnlSection({
       includedOpenMark(ytdSnapshot.openMark, include),
     );
   }, [range, series, ytdSnapshot, returnKey, include]);
-  const returnAsOf = windowEnd ?? etDateString();
+  const returnAsOf = windowEnd ?? asOfDate;
   const mtdSource = range === 'YTD' ? series : ytdComposed;
   const mtdPnl = range === 'MTD'
     ? totals.period
@@ -665,10 +666,12 @@ export function SchwabPnlSection({
   const ytdPnl = range === 'YTD'
     ? totals.period
     : (ytdComposed.at(-1)?.cumulative ?? null);
-  const dtdPnl = returnBasis.day_pnl;
-  const dtdPct = !symbol && accountDayPnlPct != null && Number.isFinite(accountDayPnlPct)
-    ? accountDayPnlPct
-    : pnlPercent(dtdPnl, returnBasis.equity);
+  const dtdPnl = historical ? null : returnBasis.day_pnl;
+  const dtdPct = historical
+    ? null
+    : (!symbol && accountDayPnlPct != null && Number.isFinite(accountDayPnlPct)
+      ? accountDayPnlPct
+      : pnlPercent(dtdPnl, returnBasis.equity));
   const returnWindows = [
     { key: 'DTD' as const, pnl: dtdPnl, pct: dtdPct },
     { key: 'MTD' as const, pnl: mtdPnl, pct: pnlPercent(mtdPnl, returnBasis.equity) },
@@ -760,17 +763,27 @@ export function SchwabPnlSection({
             />
           </HStack>
         )}
-        <TabList
-          size="sm"
-          aria-label="PnL range"
-          value={range}
-          onChange={(value) => setRange(value as SchwabPnlRange)}
-        >
-          {PNL_RANGES.map((key) => (
-            <Tab key={key} value={key} label={key} />
-          ))}
-        </TabList>
+        <HStack gap={3} wrap="wrap" align="end">
+          <AsOfDateField
+            description="End performance windows on this ET date. Live day P&L and open marks stay current."
+          />
+          <TabList
+            size="sm"
+            aria-label="PnL range"
+            value={range}
+            onChange={(value) => setRange(value as SchwabPnlRange)}
+          >
+            {PNL_RANGES.map((key) => (
+              <Tab key={key} value={key} label={key} />
+            ))}
+          </TabList>
+        </HStack>
       </HStack>
+      {historical ? (
+        <Text type="supporting">
+          Realized window ends {asOfDate}. Live Schwab day P&L and open marks are hidden because they are as-of now.
+        </Text>
+      ) : null}
 
       {hideSymbolInput ? null : (
         <ToggleButtonGroup
@@ -904,100 +917,12 @@ export function SchwabPnlSection({
             </Text>
             )}
             <VStack className="portfolio-pnl-plot">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
-                data={chartSeries}
-                margin={{ top: 4, right: isMobile ? 4 : 12, bottom: 0, left: 0 }}
-              >
-                <CartesianGrid
-                  stroke="var(--color-border)"
-                  strokeDasharray="3 3"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={48}
-                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                  tickFormatter={formatChartTick}
-                />
-                <YAxis
-                  domain={chartDomain}
-                  axisLine={false}
-                  tickLine={false}
-                  width={isMobile ? 40 : 56}
-                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                  tickFormatter={(v: number) =>
-                    v.toLocaleString(undefined, {
-                      style: 'currency',
-                      currency: 'USD',
-                      maximumFractionDigits: 0,
-                    })
-                  }
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--panel)',
-                    border: 'var(--border-width) solid var(--color-border)',
-                    borderRadius: 'var(--radius-element)',
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-text-primary)',
-                  }}
-                  labelFormatter={(d) => String(d)}
-                  formatter={(v) => [
-                    money(v as number),
-                    chartMetric === 'cumulative' ? 'Cumulative P&L' : 'Day P&L',
-                  ]}
-                />
-                <ReferenceLine y={0} stroke="var(--color-border)" />
-                {chartMetric === 'daily' ? (
-                  <Bar
-                    dataKey="daily"
-                    name="Day P&L"
-                    isAnimationActive={false}
-                    maxBarSize={28}
-                  >
-                    {chartSeries.map((point) => (
-                      <Cell
-                        key={point.date}
-                        fill={point.daily >= 0
-                          ? 'var(--color-success)'
-                          : 'var(--color-error)'}
-                      />
-                    ))}
-                  </Bar>
-                ) : (
-                  <Area
-                    type="stepAfter"
-                    dataKey="cumulative"
-                    name="Cumulative P&L"
-                    stroke="var(--accent)"
-                    fill="var(--accent)"
-                    fillOpacity={0.12}
-                    strokeWidth={2}
-                    isAnimationActive={false}
-                  />
-                )}
-                <Scatter
-                  data={chartMarkers}
-                  dataKey={chartMetric}
-                  fill="var(--accent)"
-                  shape={(props: { cx?: number; cy?: number; payload?: { kind?: ActivityRow['kind'] } }) => {
-                    const kind = props.payload?.kind ?? 'stock';
-                    return (
-                      <circle
-                        cx={props.cx}
-                        cy={props.cy}
-                        r={3.5}
-                        fill={markerColor(kind)}
-                      />
-                    );
-                  }}
-                  isAnimationActive={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+              <Chart
+                definition={chartDefinition}
+                height={isMobile ? 240 : 280}
+                ariaLabel={chartMetric === 'daily' ? 'Day P&L' : 'Cumulative P&L'}
+                className={CHART_HOST_CLASS}
+              />
             </VStack>
             {isMobile ? null : (
             <Text type="supporting" size="sm">

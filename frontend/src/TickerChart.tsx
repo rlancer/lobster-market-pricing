@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { Chart } from '@tanstack/charts/react';
 import {
   HStack,
   Spinner,
@@ -18,23 +10,21 @@ import {
   VStack,
 } from '@astryxdesign/core';
 import { api, type OhlcBar } from './api';
+import { defineTickerChart, tickerCloses } from './charts/tickerChart';
+import { CHART_HOST_CLASS } from './charts/theme';
 import {
   CHART_RANGES,
   type ChartRange,
   chartRangeLabel,
-  formatChartTick,
   rangeMove,
   sliceBars,
 } from './tickerChartRange';
+import { useAsOfDate } from './useAsOfDate';
 import './Research.css';
+import './charts.css';
 
 const PRIMARY_CHART_RANGES: ChartRange[] = ['1D', 'MTD', 'YTD'];
 const OVERFLOW_CHART_RANGES: ChartRange[] = ['1M', '3M', '6M', '1Y', 'ALL'];
-
-function fmtNum(v: number | null | undefined, d = 2): string {
-  if (v == null || !Number.isFinite(v)) return '—';
-  return v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
-}
 
 function fmtPct(v: number): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
@@ -63,9 +53,19 @@ export function TickerChart({
   const [intraday, setIntraday] = useState<OhlcBar[] | null>(null);
   const [intradayLoading, setIntradayLoading] = useState(false);
   const [intradayError, setIntradayError] = useState<string | null>(null);
+  const { asOfDate, historical } = useAsOfDate();
+  const liveIntraday = range === '1D' && !historical;
+  const chartSpot = historical
+    ? (sliceBars(bars, '1D', asOfDate)[0]?.close ?? null)
+    : spot;
 
   useEffect(() => {
-    if (range !== '1D') return;
+    if (!liveIntraday) {
+      setIntraday(null);
+      setIntradayError(null);
+      setIntradayLoading(false);
+      return;
+    }
     let active = true;
     setIntradayLoading(true);
     setIntradayError(null);
@@ -83,15 +83,20 @@ export function TickerChart({
         if (active) setIntradayLoading(false);
       });
     return () => { active = false; };
-  }, [range, ticker]);
+  }, [liveIntraday, ticker]);
 
   const data = useMemo(() => {
-    if (range === '1D') return intraday ?? [];
-    return sliceBars(bars, range);
-  }, [range, bars, intraday]);
+    if (liveIntraday) return intraday ?? [];
+    return sliceBars(bars, range, asOfDate);
+  }, [liveIntraday, range, bars, intraday, asOfDate]);
+  const rows = useMemo(() => tickerCloses(data), [data]);
+  const definition = useMemo(
+    () => defineTickerChart({ rows, spot: chartSpot, isIntraday: liveIntraday }),
+    [rows, chartSpot, liveIntraday],
+  );
   const move = useMemo(() => rangeMove(data), [data]);
   const rangeLabel = chartRangeLabel(range);
-  const isIntraday = range === '1D';
+  const isIntraday = liveIntraday;
 
   const rangeTabs = (ranges: ChartRange[]) => ranges.map((key) => (
     <Tab key={key} value={key} label={chartRangeLabel(key)} />
@@ -153,7 +158,11 @@ export function TickerChart({
           </TabList>
         </HStack>
       </HStack>
-      {isIntraday && intradayLoading && data.length === 0 ? (
+      {historical && data.length === 0 ? (
+        <HStack gap={2} vAlign="center" className="research-chart-empty">
+          <Text type="supporting">No lake bars on or before {asOfDate}.</Text>
+        </HStack>
+      ) : isIntraday && intradayLoading && data.length === 0 ? (
         <HStack gap={2} vAlign="center" className="research-chart-empty">
           <Spinner size="sm" />
           <Text type="supporting">Loading intraday…</Text>
@@ -164,63 +173,28 @@ export function TickerChart({
             {intradayError ? 'Intraday bars unavailable right now.' : 'No intraday bars for this session yet.'}
           </Text>
         </HStack>
+      ) : historical && range === '1D' ? (
+        <VStack gap={2}>
+          <Text type="supporting">
+            Intraday history is not stored — showing the {asOfDate} daily bar.
+          </Text>
+          <div className="research-chart-plot">
+            <Chart
+              definition={definition}
+              height={256}
+              ariaLabel={`${ticker} ${rangeLabel} close chart as of ${asOfDate}`}
+              className={CHART_HOST_CLASS}
+            />
+          </div>
+        </VStack>
       ) : (
         <div className="research-chart-plot">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-              <XAxis
-                dataKey="date"
-                axisLine={false}
-                tickLine={false}
-                minTickGap={isIntraday ? 36 : 48}
-                tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                tickFormatter={formatChartTick}
-              />
-              <YAxis
-                domain={['auto', 'auto']}
-                axisLine={false}
-                tickLine={false}
-                width={48}
-                tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
-                tickFormatter={(v: number) => fmtNum(v, 0)}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--panel)',
-                  border: 'var(--border-width) solid var(--color-border)',
-                  borderRadius: 'var(--radius-element)',
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text-primary)',
-                }}
-                labelFormatter={(d) =>
-                  isIntraday ? `Price · ${String(d)}` : `Close · ${String(d)}`
-                }
-                formatter={(v) => [fmtNum(v as number, 2), isIntraday ? 'price' : 'close']}
-              />
-              {spot != null && (
-                <ReferenceLine
-                  y={spot}
-                  stroke="var(--accent)"
-                  strokeDasharray="3 3"
-                  label={{
-                    value: `spot ${fmtNum(spot)}`,
-                    position: 'insideTopRight',
-                    fontSize: 10,
-                    fill: 'var(--accent)',
-                  }}
-                />
-              )}
-              <Line
-                type="monotone"
-                dataKey="close"
-                stroke="var(--accent)"
-                dot={false}
-                strokeWidth={1.5}
-                connectNulls
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <Chart
+            definition={definition}
+            height={256}
+            ariaLabel={`${ticker} ${rangeLabel} ${isIntraday ? 'intraday' : 'close'} chart`}
+            className={CHART_HOST_CLASS}
+          />
         </div>
       )}
     </VStack>

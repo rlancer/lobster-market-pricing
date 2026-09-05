@@ -1,0 +1,153 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createChartScene, renderChartSvg, type ChartScene } from '@tanstack/charts';
+import type { QueryResult } from '../api.ts';
+import type { ChartSpec } from '../chartSpec.ts';
+import { asPlotNumber, buildQueryPlotRows, defineQueryChart } from './queryChart.ts';
+import { definePnlChart } from './pnlChart.ts';
+import { defineTickerChart, tickerCloses } from './tickerChart.ts';
+
+function nodeKinds(nodes: ChartScene['nodes'], kinds = new Set<string>()): Set<string> {
+  for (const node of nodes) {
+    kinds.add(node.kind);
+    if ('children' in node && Array.isArray(node.children)) {
+      nodeKinds(node.children, kinds);
+    }
+  }
+  return kinds;
+}
+
+function result(columns: string[], rows: Record<string, unknown>[]): QueryResult {
+  return { columns, rows, row_count: rows.length };
+}
+
+test('asPlotNumber accepts numeric strings and rejects blanks', () => {
+  assert.equal(asPlotNumber(12.5), 12.5);
+  assert.equal(asPlotNumber(' 4 '), 4);
+  assert.equal(asPlotNumber(''), null);
+  assert.equal(asPlotNumber(null), null);
+});
+
+test('buildQueryPlotRows emits long-form series rows sorted by numeric x', () => {
+  const spec: ChartSpec = {
+    kind: 'line',
+    x: 'strike',
+    y: 'implied_vol',
+    series: 'expiration',
+  };
+  const data = buildQueryPlotRows(
+    result(
+      ['strike', 'implied_vol', 'expiration'],
+      [
+        { strike: 110, implied_vol: 0.32, expiration: '2026-10-16' },
+        { strike: 100, implied_vol: 0.28, expiration: '2026-09-18' },
+        { strike: 100, implied_vol: 0.30, expiration: '2026-10-16' },
+        { strike: 110, implied_vol: 'bad', expiration: '2026-09-18' },
+      ],
+    ),
+    spec,
+  );
+  assert.equal(data.numericX, true);
+  assert.deepEqual(data.seriesNames, ['2026-09-18', '2026-10-16']);
+  assert.deepEqual(data.rows, [
+    { x: 100, y: 0.28, series: '2026-09-18' },
+    { x: 100, y: 0.30, series: '2026-10-16' },
+    { x: 110, y: 0.32, series: '2026-10-16' },
+  ]);
+});
+
+test('buildQueryPlotRows keeps the last value per x and series', () => {
+  const spec: ChartSpec = { kind: 'bar', x: 'ticker', y: 'pct_chg' };
+  const data = buildQueryPlotRows(
+    result(
+      ['ticker', 'pct_chg'],
+      [
+        { ticker: 'SPY', pct_chg: 1.2 },
+        { ticker: 'XBI', pct_chg: 2.1 },
+        { ticker: 'XBI', pct_chg: 2.4 },
+      ],
+    ),
+    spec,
+  );
+  assert.deepEqual(data.rows, [
+    { x: 'SPY', y: 1.2, series: 'pct_chg' },
+    { x: 'XBI', y: 2.4, series: 'pct_chg' },
+  ]);
+  assert.doesNotThrow(() => {
+    createChartScene(
+      defineQueryChart({
+        rows: data.rows,
+        kind: 'bar',
+        numericX: data.numericX,
+        seriesNames: data.seriesNames,
+      }),
+      { width: 640, height: 280 },
+    );
+  });
+});
+
+test('query line chart scene emits one point per valid row', () => {
+  const spec: ChartSpec = { kind: 'line', x: 'strike', y: 'implied_vol' };
+  const plot = buildQueryPlotRows(
+    result(
+      ['strike', 'implied_vol'],
+      [
+        { strike: 90, implied_vol: 0.4 },
+        { strike: 100, implied_vol: 0.3 },
+        { strike: 110, implied_vol: 0.35 },
+      ],
+    ),
+    spec,
+  );
+  const scene = createChartScene(
+    defineQueryChart({
+      rows: plot.rows,
+      kind: 'line',
+      numericX: plot.numericX,
+      seriesNames: plot.seriesNames,
+    }),
+    { width: 640, height: 280 },
+  );
+  assert.equal(scene.points.length, 3);
+  assert.ok(nodeKinds(scene.nodes).has('polyline'));
+  assert.match(renderChartSvg(scene, { ariaLabel: 'IV vs strike' }), /<svg /);
+});
+
+test('ticker chart scene includes the close path and optional spot rule', () => {
+  const rows = tickerCloses([
+    { date: '2026-01-02', open: 10, high: 11, low: 9, close: 10.5, volume: 1 },
+    { date: '2026-01-05', open: 10.5, high: 12, low: 10, close: 11.2, volume: 1 },
+    { date: '2026-01-06', open: 11, high: 12, low: 10, close: null, volume: 1 },
+  ]);
+  assert.equal(rows.length, 2);
+  const scene = createChartScene(
+    defineTickerChart({ rows, spot: 11, isIntraday: false }),
+    { width: 640, height: 256 },
+  );
+  assert.equal(scene.points.length, 3);
+  const kinds = nodeKinds(scene.nodes);
+  assert.ok(kinds.has('polyline'));
+  assert.ok(kinds.has('rule'));
+});
+
+test('daily P&L scene paints signed bars and a zero rule', () => {
+  const scene = createChartScene(
+    definePnlChart({
+      series: [
+        { date: '2026-08-01', daily: 120, cumulative: 120 },
+        { date: '2026-08-04', daily: -40, cumulative: 80 },
+        { date: '2026-08-05', daily: 15, cumulative: 95 },
+      ],
+      markers: [
+        { date: '2026-08-01', daily: 120, cumulative: 120, kind: 'stock', label: 'AAPL' },
+      ],
+      metric: 'daily',
+      domain: [-50, 140],
+    }),
+    { width: 720, height: 280 },
+  );
+  assert.ok(scene.points.length >= 3);
+  const kinds = nodeKinds(scene.nodes);
+  assert.ok(kinds.has('rect'));
+  assert.ok(kinds.has('rule'));
+});

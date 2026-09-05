@@ -71,11 +71,14 @@ export default function PortfolioPage() {
   const { data: session, isPending } = authClient.useSession();
   const signedIn = Boolean(session?.user);
   const navigate = useNavigate({ from: '/portfolio' });
-  const { book } = useSearch({ from: '/portfolio' });
+  const { book, asof } = useSearch({ from: '/portfolio' });
   const bookMode: BookMode = book ?? 'paper';
   const setBookMode = (next: BookMode) => {
     void navigate({
-      search: { book: next === 'paper' ? undefined : next },
+      search: {
+        book: next === 'paper' ? undefined : next,
+        asof,
+      },
     });
   };
   const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
