@@ -49,6 +49,7 @@ export type ImprovementAction =
   | "allow_publish"
   | "reject_bot_share"
   | "allow_bot_share"
+  | "unlist_qa_share"
   | "reject_bot_create_share"
   | "allow_bot_create_share";
 

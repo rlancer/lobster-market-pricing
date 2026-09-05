@@ -190,11 +190,20 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/admin/test-runs') {
+    return {
+      title: pageTitle('Test runs'),
+      description:
+        'Admin-only QA ledger — bug description, associated PR, and unlisted bot shares that stay off the Floor.',
+      path: '/admin/test-runs',
+    };
+  }
+
   if (path === '/admin') {
     return {
       title: pageTitle('Admin'),
       description:
-        'Admin hub for bots, users, chats, Chat capabilities, brand, and an Email Service smoke test — operator tools behind one left-nav entry.',
+        'Admin hub for bots, users, chats, Chat capabilities, brand, test runs, and an Email Service smoke test — operator tools behind one left-nav entry.',
       path: '/admin',
     };
   }

@@ -5,6 +5,7 @@ import {
   DESK_FORCE_FAILURES_MAX,
   PORTFOLIO_FORCE_FAILURES_MAX,
   QUERY_FORCE_FAILURES_MAX,
+  TAPE_FORCE_FAILURES_MAX,
   TRADES_FORCE_FAILURES_MAX,
   nextChatStepPolicy,
 } from '../src/chat-loop.ts';
@@ -304,6 +305,62 @@ test('forces publish_desk sooner after portfolio evidence than after lake SQL', 
     autoStepsBeforeDesk: 5,
   });
   assert.equal(afterLake.toolChoice, 'auto');
+});
+
+test('forces get_market_tape before lake SQL on overview asks', () => {
+  // Regression: share wnJWqaRxtCu1I3CLJIgCiaon — "what's going on" ran
+  // unfiltered option_contracts GROUP BY and treated enrolled ETFs as flow.
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 0,
+    requireTape: true,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'get_market_tape' });
+});
+
+test('does not force run_query while the market tape is still loading', () => {
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 1,
+    requireTape: true,
+    failedTapeCount: 0,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'get_market_tape' });
+  assert.notDeepEqual(policy.toolChoice, { type: 'tool', toolName: 'run_query' });
+});
+
+test('treats a loaded tape as grounding evidence (desk gather auto)', () => {
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 1,
+    requireTape: true,
+    tapeLoaded: true,
+    requireDesk: true,
+    deskPublished: false,
+    stepsAfterQuery: 0,
+  });
+  assert.equal(policy.toolChoice, 'auto');
+});
+
+test('portfolio still wins when both a book and an overview are required', () => {
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 0,
+    requirePortfolio: true,
+    requireTape: true,
+  });
+  assert.deepEqual(policy.toolChoice, { type: 'tool', toolName: 'get_portfolio' });
+});
+
+test('seals after TAPE_FORCE_FAILURES_MAX so the model can explain', () => {
+  const policy = nextChatStepPolicy({
+    ...base,
+    stepNumber: 2,
+    requireTape: true,
+    failedTapeCount: TAPE_FORCE_FAILURES_MAX,
+  });
+  assert.equal(policy.toolChoice, 'none');
+  assert.deepEqual(policy.activeTools, []);
 });
 
 test('seals after PORTFOLIO_FORCE_FAILURES_MAX so the model can explain', () => {

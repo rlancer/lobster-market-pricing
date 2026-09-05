@@ -24,6 +24,7 @@ import TradesPage from './Trades';
 import PortfolioPage from './Portfolio';
 import ChatExplorePage from './ChatExplore';
 import AdminPage from './AdminPage';
+import AdminTestRunsPage from './AdminTestRuns';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import { parseChatId } from './chatSession';
@@ -224,6 +225,15 @@ const adminRoute = createRoute({
   component: AdminPage,
 });
 
+const adminTestRunsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/test-runs',
+  validateSearch: (search: Record<string, unknown>): { batch?: string } => ({
+    batch: typeof search.batch === 'string' ? search.batch : undefined,
+  }),
+  component: AdminTestRunsPage,
+});
+
 
 const experimentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -353,6 +363,7 @@ const routeTree = rootRoute.addChildren([
   chatExploreRoute,
   copilotRedirectRoute,
   adminRoute,
+  adminTestRunsRoute,
   experimentsRoute,
   textVsImageExperimentRoute,
   notebooksRedirectRoute,

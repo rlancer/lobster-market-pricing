@@ -143,5 +143,7 @@ describe("enroll-symbol", () => {
     assert.equal(posts.length, 1);
     assert.equal(posts[0]!.symbol, "RSP");
     assert.equal(posts[0]!.security_type, "etf");
+    assert.equal(posts[0]!.etl_scope, "etf");
+    assert.equal(posts[0]!.load_now, false);
   });
 });

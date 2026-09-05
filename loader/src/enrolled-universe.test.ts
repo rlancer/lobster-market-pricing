@@ -8,6 +8,7 @@ import {
   isEnrollableTicker,
   listEnrolledSymbols,
   listEnrolledSymbolsByType,
+  listOptionsEnrolledSymbols,
   normalizeEnrollTicker,
   normalizeEnrolledSecurityType,
 } from "./enrolled-universe.js";
@@ -44,13 +45,16 @@ class MemoryDb implements D1Database {
       },
       async all<T extends Record<string, unknown> = Record<string, unknown>>() {
         if (query.includes("FROM enrolled_symbols") && query.includes("enabled = 1")) {
+          const optionsOnly = query.includes("seed_options");
           return {
             success: true,
             results: Array.from(self.enrolled.values())
               .filter((r) => Number(r.enabled) === 1)
+              .filter((r) => !optionsOnly || Number(r.seed_options ?? 1) === 1)
               .map((r) => ({
                 symbol: String(r.symbol),
                 security_type: r.security_type ?? null,
+                seed_options: r.seed_options ?? 1,
               }) as unknown as T)
               .sort((a, b) => String(a.symbol).localeCompare(String(b.symbol))),
           };
@@ -65,7 +69,7 @@ class MemoryDb implements D1Database {
       },
       async run() {
         if (query.startsWith("INSERT INTO enrolled_symbols")) {
-          const [symbol, source, requested_by, requested_at, notes, security_type] = binds;
+          const [symbol, source, requested_by, requested_at, notes, security_type, seed_options] = binds;
           const sym = String(symbol).toUpperCase();
           self.enrolled.set(sym, {
             symbol: sym,
@@ -76,6 +80,7 @@ class MemoryDb implements D1Database {
             last_error: null,
             notes,
             security_type: security_type ?? null,
+            seed_options: seed_options ?? 1,
           });
         } else if (query.startsWith("UPDATE enrolled_symbols")) {
           const symbol = String(binds[binds.length - 1]).toUpperCase();
@@ -86,6 +91,10 @@ class MemoryDb implements D1Database {
             if (binds[1] != null) row.requested_by = binds[1];
             if (binds[2] != null) row.notes = binds[2];
             if (binds.length >= 5 && binds[3] != null) row.security_type = binds[3];
+            if (binds.length >= 6) {
+              const next = Number(binds[4]);
+              row.seed_options = next === 1 ? 1 : (row.seed_options ?? 1);
+            }
             row.last_error = null;
           }
         } else if (query.includes("INSERT OR IGNORE INTO symbol_state")) {
@@ -196,5 +205,36 @@ describe("enrolled-universe helpers", () => {
     expect(upgraded.already).toBe(true);
     expect(db.enrolled.get("SOFI")?.security_type).toBe("etf");
     expect(await listEnrolledSymbolsByType(db, "etf")).toEqual(["RSP", "SOFI", "VGSH"]);
+  });
+
+  it("etf-scope enroll writes holdings-only and stays off the CBOE tape", async () => {
+    const db = new MemoryDb();
+    const result = await enrollSymbol(db, "VEU", {
+      source: "lookup_symbols",
+      securityType: "etf",
+      etlScope: "etf",
+    });
+    expect(result.enrolled).toBe(true);
+    expect(db.enrolled.get("VEU")?.seed_options).toBe(0);
+    expect(db.enrolled.get("VEU")?.security_type).toBe("etf");
+    expect(db.symbolState.has("VEU")).toBe(false);
+    expect(db.ohlcBackfill.has("VEU")).toBe(false);
+    expect(db.researchBrief.has("VEU")).toBe(false);
+    expect(await listEnrolledSymbols(db)).toEqual(["VEU"]);
+    expect(await listOptionsEnrolledSymbols(db)).toEqual([]);
+    expect(await listEnrolledSymbolsByType(db, "etf")).toEqual(["VEU"]);
+    expect(await expectedUniverseSize(db)).toBe(bundledUniverse().length);
+    expect(await effectiveUniverse(db)).not.toContain("VEU");
+
+    const upgraded = await enrollSymbol(db, "VEU", {
+      source: "copilot_research",
+      securityType: "etf",
+      etlScope: "full",
+    });
+    expect(upgraded.already).toBe(true);
+    expect(db.enrolled.get("VEU")?.seed_options).toBe(1);
+    expect(db.symbolState.has("VEU")).toBe(true);
+    expect(await listOptionsEnrolledSymbols(db)).toEqual(["VEU"]);
+    expect(await effectiveUniverse(db)).toContain("VEU");
   });
 });

@@ -109,6 +109,7 @@ const TOOL_LABELS: Record<string, string> = {
   suggest_trades: 'Suggested trades',
   get_paper_portfolio: 'Paper portfolio',
   get_portfolio: 'Portfolio',
+  get_market_tape: 'Market tape',
   get_schwab_quotes: 'Schwab quotes',
   get_bot_trades: 'Bot trade performance',
 };
@@ -293,6 +294,8 @@ function formatToolArgs(name: string, input: unknown): string {
       return o.days != null ? `next ${o.days} days` : '';
     case 'list_frames':
       return '';
+    case 'get_market_tape':
+      return 'liquid sleeve';
     case 'get_portfolio':
     case 'get_paper_portfolio': {
       const source = String(o.source ?? (name === 'get_paper_portfolio' ? 'paper' : '')).trim();

@@ -21,12 +21,21 @@ export interface EnrollEnv {
   LOADER_TOKEN?: string;
 }
 
+/** full = CBOE/OHLC/research item stores. etf = enrolled_symbols only (etf-daily). */
+export type EnrollEtlScope = "full" | "etf";
+
 export interface EnrollRequestOpts {
   source?: string;
   requestedBy?: string | null;
   notes?: string | null;
   /** Default true — kick an immediate CBOE + OHLC load after enrollment. */
   loadNow?: boolean;
+  /**
+   * full (default) seeds the CBOE options / OHLC / research item stores.
+   * etf writes enrolled_symbols for etf-daily only — identifying a private-book
+   * fund must not jump the public options tape.
+   */
+  etlScope?: EnrollEtlScope;
   /** equity | etf | fund — persisted on enrolled_symbols for etf-daily. */
   securityType?: string | null;
   fetchImpl?: typeof fetch;
@@ -95,6 +104,7 @@ export async function enrollTickerWithLoader(
       requested_by: opts.requestedBy || null,
       notes: opts.notes || null,
       load_now: opts.loadNow !== false,
+      etl_scope: opts.etlScope || undefined,
       security_type: opts.securityType || undefined,
     }),
   });
@@ -158,7 +168,9 @@ export function maybeEnrollMissingTicker(
 
 /**
  * Enroll a looked-up ETF/fund so etf-daily writes profile + top holdings
- * to the lake. Bundled optionable ETFs are already in etfs.json. Never throws.
+ * to the lake. Does not seed the CBOE options / OHLC item stores — identifying
+ * a private-book fund must not jump the public tape. Bundled optionable ETFs
+ * are already in etfs.json. Never throws.
  */
 export function maybeEnrollIdentifiedFund(
   env: EnrollEnv,
@@ -180,7 +192,8 @@ export function maybeEnrollIdentifiedFund(
     requestedBy: opts.requestedBy || null,
     notes: `auto-enrolled: ${identity.kind}${name} holdings ingest`.slice(0, 512),
     securityType: "etf",
-    loadNow: true,
+    etlScope: "etf",
+    loadNow: false,
     fetchImpl: opts.fetchImpl,
   }).then((result) => {
     if (result?.error) {

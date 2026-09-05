@@ -1,0 +1,33 @@
+.admin-test-runs-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.admin-test-runs-error {
+  color: var(--color-error);
+}
+
+.admin-test-runs-table {
+  width: 100%;
+}
+
+.admin-test-runs-title-btn {
+  justify-content: flex-start;
+  max-width: 100%;
+  padding-inline: 0;
+  height: auto;
+  font-weight: var(--font-weight-semibold);
+}
+
+.admin-test-runs-link {
+  color: var(--color-text-accent);
+  text-decoration: none;
+}
+
+.admin-test-runs-link:hover {
+  text-decoration: underline;
+}
+
+.admin-test-runs-form {
+  width: 100%;
+}

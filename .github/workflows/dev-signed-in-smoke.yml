@@ -10,6 +10,14 @@ on:
         description: 'After listing bots, Run now on the first enabled personal bot'
         type: boolean
         default: false
+      overview_e2e:
+        description: 'Force-trigger @nowlobster N times on api-dev and assert get_market_tape'
+        type: boolean
+        default: false
+      overview_count:
+        description: 'How many sequential nowlobster schedule triggers (1–5)'
+        type: string
+        default: '3'
 
 permissions:
   contents: read
@@ -116,3 +124,27 @@ jobs:
             echo "::error::bot trigger failed HTTP $trig"
             exit 1
           fi
+
+  overview:
+    if: ${{ inputs.overview_e2e }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker test runner
+        run: cd worker && npm ci
+
+      - name: Force-trigger @nowlobster and assert tape
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          HANDLE: nowlobster
+          COUNT: ${{ inputs.overview_count }}
+          API_BASE: https://api-dev.lobster.mp
+        run: bash worker/tools/run-bot-overview-e2e.sh

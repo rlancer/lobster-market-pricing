@@ -161,7 +161,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'lookup_symbols',
     summary: 'Identify a ticker and, for funds, what it holds',
     description:
-      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto), issuer/fund name, and for funds Yahoo top-10 holdings with weights. Lake coverage is incomplete — many funds have no etf_profiles row in the default manifest — so this uses the in-process catalog first, then Yahoo search + quoteSummary. Looked-up funds are enrolled into etf-daily so constituents persist on options.etf_holdings. Call before treating an unknown holding as a single-name stock, and read the weights before calling a fund concentrated. Chat also prints Schwab asset kind + description on get_portfolio / get_schwab_quotes lines when the broker sent them.',
+      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto), issuer/fund name, and for funds Yahoo top-10 holdings with weights. Lake coverage is incomplete — many funds have no etf_profiles row in the default manifest — so this uses the in-process catalog first, then Yahoo search + quoteSummary. Looked-up funds are enrolled for etf-daily holdings only (not the public CBOE options tape) so constituents persist on options.etf_holdings. Call before treating an unknown holding as a single-name stock, and read the weights before calling a fund concentrated. Chat also prints Schwab asset kind + description on get_portfolio / get_schwab_quotes lines when the broker sent them.',
     feeds: ['yahoo', 'yahoo-etf'],
     tables: ['etf_profiles', 'etf_holdings'],
     tools: ['get_portfolio', 'research_ticker', 'suggest_trades'],
@@ -177,7 +177,7 @@ export const TOOLS: CatalogItem[] = [
     description:
       'Publishes 0–3 typed trade suggestions (ticker, bias, conviction, structure, optional legs, rationale, liquidity) after the desk. Legs are formal: instrument option|equity|kalshi, side buy|sell (long/short), optional qty, plus option right/strike/expiry or Kalshi market_ticker + contract_side (yes|no). The chat UI renders these rows from the tool payload — it does not parse freeform markdown. Empty trades[] with skip_reason covers thin books. Absolute option strikes must come from option_contracts quote evidence; Kalshi legs must cite options.kalshi_markets quotes. For signed-in chat owners, markable suggestions auto-open as paper positions for PnL tracking. For public bots, the same suggestions are snapshotted into that bot’s trade book on /u/{handle}.',
     tables: ['option_contracts', 'kalshi_markets'],
-    tools: ['research_ticker', 'run_query', 'publish_desk', 'get_paper_portfolio', 'get_portfolio', 'get_schwab_quotes', 'get_bot_trades'],
+    tools: ['research_ticker', 'run_query', 'get_market_tape', 'publish_desk', 'get_paper_portfolio', 'get_portfolio', 'get_schwab_quotes', 'get_bot_trades'],
     params: [
       { name: 'trades', type: 'array', note: '0–3 structured trade ideas' },
       { name: 'skip_reason', type: 'string?', note: 'Optional when trades is empty (worker defaults)' },
@@ -225,6 +225,16 @@ export const TOOLS: CatalogItem[] = [
     params: [
       { name: 'symbols', type: 'string[]', note: '1–20 tickers (AAPL, $SPX, /ES, OCC options)' },
     ],
+  },
+  {
+    id: 'tool:get_market_tape',
+    kind: 'tool',
+    title: 'get_market_tape',
+    summary: 'Liquid index / sector / options-flow tape',
+    description:
+      'Loads a fixed liquid sleeve: SPY/QQQ/IWM/DIA/^VIX, the 11 sector SPDRs, and option volume on those names plus TLT/HYG/GLD/SMH/IBIT. Forced on hourly overview / “what’s going on” asks so the desk does not invent flow leaders from an unfiltered option_contracts GROUP BY (a thin ingest day looks like unusual volume). If that day’s distinct-underlying count is incomplete, the tool says so.',
+    tables: ['ohlc', 'option_contracts'],
+    tools: ['run_query', 'publish_desk', 'research_ticker'],
   },
   {
     id: 'tool:get_bot_trades',

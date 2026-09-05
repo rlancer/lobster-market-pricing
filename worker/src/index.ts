@@ -42,6 +42,19 @@ import {
   runOneBotSchedule,
 } from "./bot-runner";
 import {
+  attachQaItem,
+  createQaBatch,
+  getQaBatch,
+  importQaShares,
+  listQaBatches,
+  listQaItems,
+  parseBotTriggerOptions,
+  parseCreateQaBatch,
+  parseQaVerdict,
+  parseShareIds,
+  patchQaItem,
+} from "./qa-runs";
+import {
   deleteBotSchedule,
   getBotSchedule,
   upsertBotSchedule,
@@ -177,6 +190,7 @@ import {
   isEnrollableEquityTicker,
   shouldEnrollForMissingLakeData,
 } from "./enroll-symbol";
+import { schemaCountSql, schemaSampleSql, schemaUniverseColumn } from "./schema-sample";
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
@@ -787,7 +801,6 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
 // performance layer only).
 const SCHEMA_TTL_MS = 10 * 60 * 1000; // schema structure is near-static
 const SCHEMA_CACHE_KEY = "lake_tables";
-const SCHEMA_SAMPLE_LIMIT = 3;
 // Background change-detection cadence: on fresh reads, diff the lake's shape
 // against the cached payload at most once per interval, per isolate.
 const SCHEMA_PROBE_INTERVAL_MS = 60 * 1000;
@@ -797,6 +810,8 @@ interface LakeTable {
   row_count: number | null;
   columns: { name: string; type: string }[];
   sample: Record<string, unknown>[];
+  distinct_key?: string | null;
+  distinct_count?: number | null;
 }
 
 // Lake tables that must NEVER surface to users: options.chat_history holds
@@ -817,15 +832,19 @@ async function loadLakeTables(env: Env): Promise<LakeTable[]> {
       .map((t) => String(t.table_name))
       .filter(isPublicLakeTable)
       .map(async (name): Promise<LakeTable> => {
-        const [cols, cnt, sample] = await Promise.all([
-          r2sql(env, `DESCRIBE options.${name}`),
-          r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
-          r2sql(env, `SELECT * FROM options."${name}" LIMIT ${SCHEMA_SAMPLE_LIMIT}`, "tbl_sample_" + name),
+        const cols = await r2sql(env, `DESCRIBE options.${name}`);
+        const columns = cols.map((c) => ({ name: String(c.column_name), type: String(c.type) }));
+        const key = schemaUniverseColumn(columns);
+        const [cnt, sample] = await Promise.all([
+          r2sql(env, schemaCountSql(name, columns), "tbl_count_" + name),
+          r2sql(env, schemaSampleSql(name, columns), "tbl_sample_" + name),
         ]);
         return {
           name,
           row_count: num(cnt[0]?.n),
-          columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
+          distinct_key: key,
+          distinct_count: key ? num(cnt[0]?.n_keys) : null,
+          columns,
           sample: sample as Record<string, unknown>[],
         };
       }),
@@ -3795,6 +3814,93 @@ async function handleAvatarGet(env: Env, req: Request, path: string): Promise<Re
   return serveAvatar(env, decodeURIComponent(match[1]));
 }
 
+/** Admin QA / test-run batches — unlisted bot shares with bug + PR metadata. */
+async function handleQaRuns(env: Env, req: Request, path: string): Promise<Response | null> {
+  if (path === "/api/admin/qa" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const batches = await listQaBatches(env.SCHEMA_DB);
+    const itemsByBatch = await Promise.all(
+      batches.map(async (batch) => ({
+        ...batch,
+        items: await listQaItems(env.SCHEMA_DB, batch.batch_id),
+      })),
+    );
+    return json(env, { items: itemsByBatch }, 200, "private");
+  }
+
+  if (path === "/api/admin/qa" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const parsed = parseCreateQaBatch(body);
+    if (!parsed.ok) return json(env, { error: parsed.error }, parsed.status, "private");
+    const batch = await createQaBatch(env.SCHEMA_DB, parsed.value);
+    return json(env, { ok: true, batch }, 200, "private");
+  }
+
+  const oneBatch = path.match(/^\/api\/admin\/qa\/([^/]+)$/);
+  if (oneBatch && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const batchId = decodeURIComponent(oneBatch[1]);
+    const batch = await getQaBatch(env.SCHEMA_DB, batchId);
+    if (!batch) return json(env, { error: "not found" }, 404, "private");
+    const items = await listQaItems(env.SCHEMA_DB, batchId);
+    return json(env, { batch: { ...batch, items } }, 200, "private");
+  }
+
+  const importItems = path.match(/^\/api\/admin\/qa\/([^/]+)\/items$/);
+  if (importItems && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const batchId = decodeURIComponent(importItems[1]);
+    const batch = await getQaBatch(env.SCHEMA_DB, batchId);
+    if (!batch) return json(env, { error: "not found" }, 404, "private");
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const rec = body && typeof body === "object" && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : {};
+    const parsed = parseShareIds(rec.share_ids ?? rec.share_id);
+    if (!parsed.ok) return json(env, { error: parsed.error }, parsed.status, "private");
+    const imported = await importQaShares(env.SCHEMA_DB, batchId, parsed.value);
+    return json(env, {
+      ok: true,
+      items: imported.items,
+      missing: imported.missing,
+    }, 200, "private");
+  }
+
+  const patchItem = path.match(/^\/api\/admin\/qa\/items\/([^/]+)$/);
+  if (patchItem && req.method === "PATCH") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const parsed = parseQaVerdict(body);
+    if (!parsed.ok) return json(env, { error: parsed.error }, parsed.status, "private");
+    const item = await patchQaItem(env.SCHEMA_DB, decodeURIComponent(patchItem[1]), parsed.value);
+    if (!item) return json(env, { error: "not found" }, 404, "private");
+    return json(env, { ok: true, item }, 200, "private");
+  }
+
+  return null;
+}
+
 /**
  * Bot profiles — public read of enabled bots; admin CRUD + generate trigger.
  *
@@ -4121,10 +4227,23 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const schedule = await getBotSchedule(env.SCHEMA_DB, handle);
     if (!schedule) return json(env, { error: "schedule not found" }, 404, "private");
     const force = new URL(req.url).searchParams.get("force") === "1";
+    let triggerBody: unknown = {};
+    try {
+      const raw = await req.text();
+      triggerBody = raw.trim() ? JSON.parse(raw) : {};
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const triggerOpts = parseBotTriggerOptions(triggerBody);
+    if (triggerOpts.qaBatchId) {
+      const batch = await getQaBatch(env.SCHEMA_DB, triggerOpts.qaBatchId);
+      if (!batch) return json(env, { error: "qa batch not found" }, 404, "private");
+    }
     const outcome = await runOneBotSchedule(env, schedule, {
       force,
       waitUntil: (p) => ctx.waitUntil(p),
       lake: (sql, key) => r2sql(env, sql, key),
+      listOnFloor: triggerOpts.listOnFloor,
     });
     if (outcome.ok && outcome.deferred) {
       return json(env, {
@@ -4132,15 +4251,31 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
         deferred: true,
         reason: outcome.reason,
         next_run_at: outcome.next_run_at,
+        list_on_floor: triggerOpts.listOnFloor,
       }, 200, "private");
     }
     if (!outcome.ok) return json(env, { error: outcome.error }, 400, "private");
+    let qaItemId: string | null = null;
+    if (triggerOpts.qaBatchId) {
+      const item = await attachQaItem(env.SCHEMA_DB, {
+        batch_id: triggerOpts.qaBatchId,
+        handle,
+        run_id: outcome.run.run_id,
+        share_id: outcome.share_id,
+        chat_id: outcome.run.chat_id,
+        status: "shared",
+      });
+      qaItemId = item.item_id;
+    }
     return json(env, {
       ok: true,
       run_id: outcome.run.run_id,
       chat_id: outcome.run.chat_id,
       share_id: outcome.share_id,
       share_url: `/share/${outcome.share_id}`,
+      list_on_floor: triggerOpts.listOnFloor,
+      qa_batch_id: triggerOpts.qaBatchId,
+      qa_item_id: qaItemId,
     }, 200, "private");
   }
 
@@ -4482,6 +4617,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const timeline = await handleTimeline(env, req, path, ctx, (sql, key) => r2sql(env, sql, key));
   if (timeline) return timeline;
+
+  const qaRuns = await handleQaRuns(env, req, path);
+  if (qaRuns) return qaRuns;
 
   const bots = await handleBots(env, req, path, ctx);
   if (bots) return bots;

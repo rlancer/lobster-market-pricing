@@ -1,6 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { capShareMessages } from "../src/bot-runner.ts";
+import { botShareFloorDecision, capShareMessages } from "../src/bot-runner.ts";
+
+test("botShareFloorDecision lists a finished scheduled post", () => {
+  assert.deepEqual(botShareFloorDecision({ listOnFloor: true, moderationAllow: true }), {
+    stampHandle: true,
+    runStatus: "shared",
+  });
+});
+
+test("botShareFloorDecision fails a quality-rejected Floor post", () => {
+  assert.deepEqual(botShareFloorDecision({ listOnFloor: true, moderationAllow: false }), {
+    stampHandle: false,
+    runStatus: "failed",
+    failReason: "timeline quality",
+  });
+});
+
+test("botShareFloorDecision keeps QA runs unlisted and successful", () => {
+  assert.deepEqual(botShareFloorDecision({ listOnFloor: false, moderationAllow: true }), {
+    stampHandle: false,
+    runStatus: "shared",
+  });
+  assert.deepEqual(botShareFloorDecision({ listOnFloor: false, moderationAllow: false }), {
+    stampHandle: false,
+    runStatus: "shared",
+  });
+});
 
 test("capShareMessages keeps structured trades on assistant turns", () => {
   const { messages, title } = capShareMessages(

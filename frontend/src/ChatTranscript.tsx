@@ -25,6 +25,7 @@ const TOOL_LABELS: Record<string, string> = {
   suggest_trades: 'Suggested trades',
   get_paper_portfolio: 'Paper portfolio',
   get_portfolio: 'Portfolio',
+  get_market_tape: 'Market tape',
   get_schwab_quotes: 'Schwab quotes',
   get_bot_trades: 'Bot trade performance',
 };

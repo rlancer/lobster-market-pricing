@@ -30,9 +30,11 @@ import {
   AGENT_ITERATIONS_MAX,
   AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK,
   AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
+  AUTO_STEPS_AFTER_TAPE_BEFORE_DESK,
   QUERY_FORCE_FAILURES_MAX,
   nextChatStepPolicy,
 } from "./chat-loop";
+import { formatMarketTapeSummary, isMarketOverviewAsk, loadMarketTape } from "./market-tape";
 import { applyColumnSynonyms, validateSqlSchema, type LakeTable } from "./chat-sql";
 import { formatDeskToolSummary, normalizeDeskBrief, type DeskBrief, type DeskBriefInput, type DeskViewpointId } from "./chat-desk";
 import { selectDeskSpecialists } from "./chat-desk-route";
@@ -148,6 +150,10 @@ interface Capture {
   failed_portfolio_count?: number;
   /** True once get_portfolio / get_paper_portfolio returned ok this turn. */
   portfolio_loaded?: boolean;
+  /** In-turn counter: failed get_market_tape while forcing an overview. */
+  failed_tape_count?: number;
+  /** True once get_market_tape returned ok this turn. */
+  tape_loaded?: boolean;
   /** Steps completed after the first successful lake query (desk gather window). */
   steps_after_query?: number;
 }
@@ -1024,6 +1030,8 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
       failedDeskCount: number;
       failedPortfolioCount: number;
       portfolioLoaded: boolean;
+      failedTapeCount: number;
+      tapeLoaded: boolean;
       stepsAfterQuery: number;
     },
     deskSpecialists: readonly DeskViewpointId[],
@@ -1056,6 +1064,19 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
       capture.portfolio_loaded = true;
       turn.failedPortfolioCount = 0;
       capture.failed_portfolio_count = 0;
+      persist();
+    };
+    const noteTapeFailure = () => {
+      turn.failedTapeCount += 1;
+      capture.failed_tape_count = turn.failedTapeCount;
+      persist();
+    };
+    const noteTapeLoaded = () => {
+      turn.tapeLoaded = true;
+      turn.successfulQuery = true;
+      capture.tape_loaded = true;
+      turn.failedTapeCount = 0;
+      capture.failed_tape_count = 0;
       persist();
     };
     const runTool = (
@@ -1236,6 +1257,26 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
             error: result.error ?? null,
             research: result.research ?? null,
           });
+        }),
+      }),
+      get_market_tape: tool({
+        description: CHAT_TOOL_DESCRIPTIONS.get_market_tape,
+        inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_market_tape,
+        execute: async (args) => runTool("get_market_tape", TOOL_LABELS.get_market_tape, args, async () => {
+          status("Loading market tape…");
+          const tape = await loadMarketTape(async (sql) => {
+            const result = await this.executeLakeQuery(sql, FRAME_QUERY_LIMIT);
+            return result.rows;
+          });
+          const empty = tape.indexes.length === 0 && tape.sectors.length === 0 && tape.flow.length === 0;
+          if (empty && tape.errors.length) {
+            noteTapeFailure();
+            return this.output(false, formatMarketTapeSummary(tape), {
+              error: tape.errors.join("; "),
+            });
+          }
+          noteTapeLoaded();
+          return this.output(true, formatMarketTapeSummary(tape), { error: null });
         }),
       }),
       lookup_symbols: tool({
@@ -1479,6 +1520,8 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
       failedDeskCount: typeof capture.failed_desk_count === "number" ? capture.failed_desk_count : 0,
       failedPortfolioCount: typeof capture.failed_portfolio_count === "number" ? capture.failed_portfolio_count : 0,
       portfolioLoaded: capture.portfolio_loaded === true,
+      failedTapeCount: typeof capture.failed_tape_count === "number" ? capture.failed_tape_count : 0,
+      tapeLoaded: capture.tape_loaded === true,
       stepsAfterQuery: typeof capture.steps_after_query === "number" ? capture.steps_after_query : 0,
     };
     // Finish follow-up after disconnect: prior turn(s) already ran get_portfolio
@@ -1562,7 +1605,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
         const tools = this.createTools(tables, capture, status, turn, deskSpecialists);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply, attachments }),
+          system: systemPrompt(schemaToPrompt(tables, { includeSamples: false }), { bot, deskSpecialists, reply, attachments }),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),
@@ -1585,11 +1628,16 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
               requirePortfolio,
               portfolioLoaded: turn.portfolioLoaded,
               failedPortfolioCount: turn.failedPortfolioCount,
-              // Portfolio evidence is already the book — keep gather short so
-              // risk reviews finish (publish_desk) instead of researching every name.
+              requireTape: isMarketOverviewAsk(userQuestion),
+              tapeLoaded: turn.tapeLoaded,
+              failedTapeCount: turn.failedTapeCount,
+              // Portfolio / tape evidence is already the book or the sleeve —
+              // keep gather short so reviews finish instead of researching every name.
               autoStepsBeforeDesk: turn.portfolioLoaded
                 ? AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK
-                : AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
+                : turn.tapeLoaded
+                  ? AUTO_STEPS_AFTER_TAPE_BEFORE_DESK
+                  : AUTO_STEPS_AFTER_QUERY_BEFORE_DESK,
               // Bot thesis posts and interactive chat both publish the routed
               // specialist personas via publish_desk. Private personal bots
               // write directly to the owner unless opting into the timeline.

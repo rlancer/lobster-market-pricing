@@ -6,8 +6,8 @@
  * are absent from options.etf_profiles / etf_holdings. Yahoo search returns
  * quoteType + name without a crumb; quoteSummary (crumb session) returns the
  * top-10 book so this turn can see constituents before the lake flush.
- * lookup_symbols then enrolls the fund so etf-daily persists the same rows to
- * the lake.
+ * lookup_symbols then enrolls the fund for etf-daily (holdings only — not the
+ * public CBOE options tape) so the same rows persist to the lake.
  */
 
 import { catalogLookup } from "./catalog-symbols";

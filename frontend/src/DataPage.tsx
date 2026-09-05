@@ -151,9 +151,10 @@ export default function DataPage() {
 
   const showSql = selected.live === 'sql' || selected.kind === 'query' || selected.kind === 'table';
   const activeTable = selected.kind === 'table' ? selected.title : null;
-  const activeCols = activeTable ? (tableByName.get(activeTable)?.columns ?? []) : [];
-  const activeSample = activeTable ? (tableByName.get(activeTable)?.sample ?? []) : [];
-  const activeCount = activeTable ? tableByName.get(activeTable)?.row_count : null;
+  const activeInfo = activeTable ? tableByName.get(activeTable) : undefined;
+  const activeCols = activeInfo?.columns ?? [];
+  const activeSample = activeInfo?.sample ?? [];
+  const activeCount = activeInfo?.row_count ?? null;
 
   const onKey = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -299,6 +300,11 @@ export default function DataPage() {
               {activeCount != null ? activeCount.toLocaleString() : '—'}
             </MetadataListItem>
           )}
+          {selected.kind === 'table' && activeInfo?.distinct_count != null && (
+            <MetadataListItem label={`Distinct ${activeInfo.distinct_key ?? 'keys'}`}>
+              {activeInfo.distinct_count.toLocaleString()}
+            </MetadataListItem>
+          )}
           {selected.kind === 'table' && (
             <MetadataListItem label="Columns">{String(activeCols.length)}</MetadataListItem>
           )}
@@ -362,7 +368,7 @@ export default function DataPage() {
             </ul>
             {activeSample.length > 0 && (
               <>
-                <Heading level={2}>Sample rows</Heading>
+                <Heading level={2}>Sample rows (not the universe)</Heading>
                 <ResultGrid
                   columns={activeCols.map((c) => c.name)}
                   rows={activeSample}

@@ -4,6 +4,8 @@
  * Mints a bot_run + CopilotAgent DO (historical class name), runs one headless turn, then inserts a
  * shared_chats row. Finished answers stamp bot_handle (timeline); the quality
  * gate holds incomplete runs as unlisted shares and marks the run failed.
+ * QA / e2e triggers pass listOnFloor=false so the share stays a capability
+ * URL, the run still records as shared, and the Floor never lists it.
  */
 import {
   createBotRun,
@@ -33,6 +35,7 @@ import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improv
 import { clipTitle, TITLE_MAX } from "./user-chats";
 import { linkBotTradesShare, ensureBotTradesBackfilled } from "./bot-trades";
 import { DESK_HANDLE, expireHomepageSession } from "./timeline-session";
+import { clearBotListing } from "./timeline";
 import type { LakeSql } from "./paper-portfolio";
 
 const SHARE_MAX_CONTENT = 5_000;
@@ -106,6 +109,29 @@ export function capShareMessages(messages: ShareTurn[], titleOverride?: string |
   return { messages: capped, title, sourceSql };
 }
 
+/**
+ * Floor listing is bot_handle on shared_chats. Three outcomes:
+ * - listed success (handle stamped, run shared)
+ * - quality reject (unlisted share, run failed)
+ * - QA / e2e (unlisted share, run still shared — do not treat as a Floor miss)
+ */
+export function botShareFloorDecision(input: {
+  listOnFloor: boolean;
+  moderationAllow: boolean;
+}): {
+  stampHandle: boolean;
+  runStatus: "shared" | "failed";
+  failReason?: "timeline quality";
+} {
+  if (!input.listOnFloor) {
+    return { stampHandle: false, runStatus: "shared" };
+  }
+  if (!input.moderationAllow) {
+    return { stampHandle: false, runStatus: "failed", failReason: "timeline quality" };
+  }
+  return { stampHandle: true, runStatus: "shared" };
+}
+
 async function mintBotShare(
   env: BotRunnerEnv,
   args: {
@@ -117,14 +143,19 @@ async function mintBotShare(
     startedAt: number;
     endedAt: number;
     title?: string | null;
+    listOnFloor?: boolean;
   },
   opts?: { waitUntil?: (p: Promise<unknown>) => void },
 ): Promise<{ ok: true; share_id: string } | { ok: false; error: string }> {
+  const listOnFloor = args.listOnFloor !== false;
   const existing = await env.SCHEMA_DB.prepare(
     `SELECT share_id FROM shared_chats WHERE run_id = ?1`,
   ).bind(args.runId).first<{ share_id: string }>();
   if (existing?.share_id) {
     await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: existing.share_id });
+    if (!listOnFloor) {
+      await clearBotListing(env.SCHEMA_DB, existing.share_id);
+    }
     try {
       await linkBotTradesShare(env.SCHEMA_DB, args.chatId, existing.share_id);
     } catch (error) {
@@ -148,8 +179,11 @@ async function mintBotShare(
     )
     : null;
   const moderation = await moderateTimelineShare(messages, moderationModel);
-  const onTimeline = moderation.allow;
-  if (!onTimeline) {
+  const floor = botShareFloorDecision({
+    listOnFloor,
+    moderationAllow: moderation.allow,
+  });
+  if (!floor.stampHandle && floor.runStatus === "failed") {
     console.info(JSON.stringify({
       timelineModeration: true,
       action: "reject_bot_share",
@@ -157,6 +191,14 @@ async function mintBotShare(
       bot_handle: args.botHandle,
       source: moderation.source,
       reason: moderation.reason,
+    }));
+  } else if (!floor.stampHandle) {
+    console.info(JSON.stringify({
+      timelineModeration: true,
+      action: "unlist_qa_share",
+      run_id: args.runId,
+      bot_handle: args.botHandle,
+      list_on_floor: false,
     }));
   }
 
@@ -179,7 +221,7 @@ async function mintBotShare(
       messagesJson,
       sourceSql,
       now,
-      onTimeline ? args.botHandle : null,
+      floor.stampHandle ? args.botHandle : null,
       args.runId,
     ).run();
     scheduleImprovementReport(
@@ -188,7 +230,11 @@ async function mintBotShare(
       {
         messages,
         decision: moderation,
-        action: onTimeline ? "allow_bot_share" : "reject_bot_share",
+        action: floor.stampHandle
+          ? "allow_bot_share"
+          : floor.runStatus === "failed"
+            ? "reject_bot_share"
+            : "unlist_qa_share",
         shareId,
         runId: args.runId,
         botHandle: args.botHandle,
@@ -197,14 +243,14 @@ async function mintBotShare(
       },
       { waitUntil: opts?.waitUntil },
     );
-    if (onTimeline) {
+    if (floor.runStatus === "shared") {
       await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: shareId });
       try {
         await linkBotTradesShare(env.SCHEMA_DB, args.chatId, shareId);
       } catch (error) {
         console.warn("link bot trades share failed", error);
       }
-      if (args.botHandle === DESK_HANDLE) {
+      if (floor.stampHandle && args.botHandle === DESK_HANDLE) {
         opts?.waitUntil?.(expireHomepageSession(env.SCHEMA_DB));
       }
       return { ok: true, share_id: shareId };
@@ -232,7 +278,12 @@ async function mintBotShare(
         } catch (linkError) {
           console.warn("link bot trades share failed", linkError);
         }
-        if (byRun.bot_handle) {
+        if (byRun.bot_handle && listOnFloor) {
+          await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: byRun.share_id });
+          return { ok: true, share_id: byRun.share_id };
+        }
+        if (!listOnFloor) {
+          await clearBotListing(env.SCHEMA_DB, byRun.share_id);
           await updateBotRun(env.SCHEMA_DB, args.runId, { status: "shared", share_id: byRun.share_id });
           return { ok: true, share_id: byRun.share_id };
         }
@@ -281,6 +332,8 @@ export async function runBotChatAndShare(
     waitUntil?: (p: Promise<unknown>) => void;
     /** When set, recover missed bot ideas after share (off the public GET path). */
     lake?: LakeSql;
+    /** Default true. False keeps the share unlisted and the run successful. */
+    listOnFloor?: boolean;
   },
 ): Promise<
   | { ok: true; run: BotRun; share_id: string; chat_id: string }
@@ -345,6 +398,7 @@ export async function runBotChatAndShare(
       startedAt,
       endedAt: Date.now(),
       title: metaTitle,
+      listOnFloor: opts?.listOnFloor,
     }, { waitUntil: opts?.waitUntil });
     if (!share.ok) {
       await updateBotRun(env.SCHEMA_DB, run.run_id, { status: "failed", error: share.error });
@@ -378,6 +432,7 @@ export async function runOneBotSchedule(
     force?: boolean;
     waitUntil?: (p: Promise<unknown>) => void;
     lake?: LakeSql;
+    listOnFloor?: boolean;
   },
 ): Promise<
   | { ok: true; deferred?: false; run: BotRun; share_id: string }
@@ -403,6 +458,7 @@ export async function runOneBotSchedule(
   const result = await runBotChatAndShare(env, bot, schedule.prompt, {
     waitUntil: opts?.waitUntil,
     lake: opts?.lake,
+    listOnFloor: opts?.listOnFloor,
   });
   if (!result.ok) {
     await markScheduleFailure(env.SCHEMA_DB, schedule.handle, result.error, now, env);

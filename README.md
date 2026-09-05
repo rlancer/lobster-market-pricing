@@ -395,7 +395,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/research/{ticker}/chats` | Shared, titled chats linked to this security (cross-ticker graph via `security_id`). Only public shares with a title — timeline posts or enabled bot shares. Each item includes `share_id` + `title` for `/share/{id}` links. |
 | `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
 | `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the Chat's `get_news` tool — the narrative half of "why is vol high". |
-| `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
+| `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, `COUNT(DISTINCT)` key counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 | `/agents/copilot-agent/{conversation-id}` | The chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: fundamental / technical / options / risk always, plus macro when the ask warrants it — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
@@ -445,7 +445,11 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
 | `POST /api/admin/bots/{handle}/generate` | Admin — mint a `chat_id` + **unique** prompt for Chat under that persona (`{prompt?}`). Skips prompts already used on prior runs: unused seed → LLM invent. UI opens `/chat/{id}` and auto-sends. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}/schedule` | Admin — read / upsert / clear a recurring server-side schedule (`cadence_seconds`, `market_gated`, fixed `prompt`). |
-| `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Headless Chat + auto-share to timeline. |
+| `POST /api/admin/bots/{handle}/schedule/trigger` | Admin — run the schedule now (`?force=1` bypasses market hours). Optional JSON `{ list_on_floor, qa_batch_id }` — QA batches mint an unlisted share (no Floor) and attach it to `/admin/test-runs`. Official overview e2e: `gh workflow run "Bot overview e2e" --ref <branch> -f count=3` (api-dev, asserts `get_market_tape`, registers the batch). |
+| `GET/POST /api/admin/qa` | Admin — list or create test-run batches (`title`, `description`, `pr_url`). Powers `/admin/test-runs`. |
+| `GET /api/admin/qa/{batch_id}` | Admin — one batch plus attached shares. |
+| `POST /api/admin/qa/{batch_id}/items` | Admin — attach `share_ids` (or `/share/…` URLs) and clear `bot_handle` so they leave the Floor. |
+| `PATCH /api/admin/qa/items/{item_id}` | Admin — record `{ verdict_ok, verdict }` on a run. |
 | `POST /api/admin/bots/schedules/tick` | Admin — process all due schedules (same path as the Worker cron, every 5 minutes on production). |
 | `GET /api/admin/users` | Admin session (or `ADMIN_TOKEN`) — list signed-up users (email, Google name, handle, signup time, chat count). Optional `limit` (default 500, max 2000). |
 | `POST /api/admin/email/test` | Admin session — Cloudflare Email Service smoke test. Sends from `noreply@lobster.mp` to the signed-in admin's email (or `ADMIN_TOKEN` + `{ "to": "…" }`). Returns `{ ok, to, message_id }`. |
@@ -536,6 +540,10 @@ feed the bot trade book on the profile.
 and **Chats** (`/chats`) are admin directories — signed-up
 Google identities, and every lake chat conversation (profile when signed
 in, visitor fingerprint from IP + UA when anonymous).
+**Test runs** (`/admin/test-runs`) is the QA ledger: bug description, associated
+PR, and the unlisted `/share/{id}` links. Overview e2e (and any
+`qa_batch_id` trigger) mint shares without stamping `bot_handle`, so they
+never appear on the Floor.
 **Data**
 (`/data`) is the catalog of everything that can land in an answer:
 
@@ -543,7 +551,7 @@ in, visitor fingerprint from IP + UA when anonymous).
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
   Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)
-- Iceberg lake tables with live row counts, columns, and sample rows
+- Iceberg lake tables with live row counts, distinct key counts, columns, and sample rows
 - A read-only SQL editor (`POST /api/query`) — the same path Chat uses
 
 Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted. Chat deep-links
