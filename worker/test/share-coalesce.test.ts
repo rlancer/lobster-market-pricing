@@ -39,6 +39,23 @@ test("coalesceAssistantShareTurns merges consecutive recovery assistants", () =>
   assert.match(out[1].content, /after recovery/);
 });
 
+test("coalesceAssistantMessageRecords drops null-token desks", () => {
+  const out = coalesceAssistantMessageRecords([
+    { role: "user", content: "curve?" },
+    {
+      role: "assistant",
+      content: "Let me refresh the curve frame first.",
+      desk: {
+        overview: "REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:",
+        fundamental: "REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:",
+        macro: "The frame last was overwritten. Let me call render_chart.",
+      },
+    },
+  ]);
+  assert.equal(out.length, 2);
+  assert.equal(out[1].desk, undefined);
+});
+
 test("coalesceAssistantShareTurns prefers desk overview as content", () => {
   const turns: ShareTurn[] = [
     { role: "user", content: "Long UBER?" },

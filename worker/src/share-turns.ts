@@ -4,8 +4,6 @@
 import type { UIMessage } from "ai";
 import { chartFitsResult, inferChartSpec, wantsChart, type ChartSpec } from "./chart-spec";
 import {
-  DESK_VIEWPOINT_IDS,
-  isDeskStubText,
   normalizeDeskBrief,
   type DeskBrief,
   type DeskBriefInput,
@@ -196,18 +194,9 @@ export function healShareTurnFromDsml(turn: ShareTurn): ShareTurn {
 
 function storedDeskFromRecord(value: unknown): DeskBrief | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const input = value as DeskBriefInput;
-  const overview = typeof input.overview === "string" ? input.overview.trim() : "";
-  if (overview && isDeskStubText(overview)) return undefined;
-  const normalized = normalizeDeskBrief(input);
-  if (normalized) return normalized;
-  if (!overview) return undefined;
-  const brief: DeskBrief = { overview };
-  for (const id of DESK_VIEWPOINT_IDS) {
-    const body = typeof input[id] === "string" ? input[id]!.trim() : "";
-    if (body && !isDeskStubText(body)) brief[id] = body;
-  }
-  return brief;
+  // Unnormalized leftovers (null-tokens, planning scratch) are not a desk.
+  // Share 1qKRZL7… listed because a rejected publish_desk payload was kept.
+  return normalizeDeskBrief(value as DeskBriefInput) ?? undefined;
 }
 
 function shareTurnFromRecord(rec: Record<string, unknown>): ShareTurn {
@@ -463,6 +452,7 @@ export function isInterimToolNarration(text: string, reasoning = ""): boolean {
 export function isPlanningOnlyTakeaway(text: string): boolean {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (trimmed.length < 20) return false;
+  if (isMostlyToolLoopNarration(trimmed) || hasLeakedPromptDebate(trimmed)) return true;
   if (!/^(?:since this is|i should |let me |i(?:'ll| will) )/i.test(trimmed)) return false;
   const leftover = trimmed
     .replace(/\b(?:let me|i(?:'ll| will)|i should|now i need to)[^.!?]{0,240}[.!?]?/gi, " ")
@@ -470,6 +460,33 @@ export function isPlanningOnlyTakeaway(text: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   return leftover.length < 40;
+}
+
+/**
+ * Majority of sentences are still "let me query / the prompt says / render_chart"
+ * even when the last one happens to end with a period (share 1qKRZL7…).
+ */
+const TOOL_LOOP_SENTENCE =
+  /\b(?:let me|i(?:'ll| will)|i should|i need to|now i need|hmm\b|the prompt (?:says|lists)|the instructions say|active specialists|active list|listed as active|publish(?:_desk| the desk)|render_chart|the schema (?:only )?(?:has|says)|looking at routing|routing (?:for|says|examples))\b/i;
+
+/** System-prompt / specialist-routing debate leaked into the reader-facing body. */
+const PROMPT_LEAK =
+  /\b(?:the prompt says|the instructions say|active specialists(?: for this turn)?|fill ONLY these|routing examples|looking at routing)\b/i;
+
+export function hasLeakedPromptDebate(text: string): boolean {
+  return PROMPT_LEAK.test(text.replace(/\s+/g, " "));
+}
+
+export function isMostlyToolLoopNarration(text: string): boolean {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  if (trimmed.length < 80) return false;
+  const parts = trimmed
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 24);
+  if (parts.length < 2) return false;
+  const planning = parts.filter((part) => TOOL_LOOP_SENTENCE.test(part));
+  return planning.length / parts.length >= 0.5;
 }
 
 /** Structured multi-section answer — already the reader-facing briefing. */

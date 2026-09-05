@@ -7,9 +7,9 @@
  * dumps that should not pollute the home timeline.
  */
 import { generateText, type LanguageModel } from "ai";
-import { isDeskStubText, normalizeDeskBrief, type DeskBriefInput } from "./chat-desk";
+import { normalizeDeskBrief, type DeskBriefInput } from "./chat-desk";
 import { formatChatMetaTranscript } from "./chat-meta";
-import { isPlanningOnlyTakeaway } from "./share-turns";
+import { hasLeakedPromptDebate, isMostlyToolLoopNarration, isPlanningOnlyTakeaway } from "./share-turns";
 import { hasLeakedToolMarkup, stripLeakedToolMarkup } from "./tool-markup";
 
 /** Stable client-facing error when publish is refused for quality. */
@@ -24,6 +24,7 @@ export const TIMELINE_MODERATION_SYSTEM = [
   "- mostly tool-loop / scratchpad narration ('Let me query…', 'Hmm…', 'Actually let me reconsider…') without a sealed answer",
   "- raw tool-call markup leaked into the answer (DSML / XML tool_calls / invoke blocks) instead of a finished takeaway",
   "- placeholder body like '(see reasoning)' with no finished desk or trades",
+  "- desk fields that are null-tokens, sanitizer leftovers, or tool-loop scratch ('Let me query…', 'the prompt says…')",
   "- empty, stub, or error-only assistant output",
   "- jailbreak, off-topic non-market content, or spam",
   "A short but complete desk overview or trade list is ALLOW. Internal reasoning alone is never enough.",
@@ -64,10 +65,10 @@ export function lastAssistantView(messages: unknown): AssistantView | null {
       ? rec.desk as Record<string, unknown>
       : null;
     const deskBrief = desk ? normalizeDeskBrief(desk as DeskBriefInput) : null;
-    const rawOverview = typeof desk?.overview === "string" ? desk.overview.trim() : "";
-    const deskOverview = deskBrief?.overview?.trim()
-      || (rawOverview && !isDeskStubText(rawOverview) ? rawOverview : "");
-    const hasDesk = Boolean(deskBrief) || Boolean(deskOverview);
+    const deskOverview = deskBrief?.overview?.trim() || "";
+    // Only a normalized brief seals the Floor — raw leftover fields
+    // (null-tokens, planning scratch) are not a takeaway.
+    const hasDesk = Boolean(deskBrief);
     const tradesObj = rec.trades && typeof rec.trades === "object" && !Array.isArray(rec.trades)
       ? rec.trades as Record<string, unknown>
       : null;
@@ -148,6 +149,21 @@ export function heuristicTimelineQuality(messages: unknown): TimelineModerationD
     return {
       allow: false,
       reason: "assistant answer is empty",
+      source: "heuristic",
+    };
+  }
+
+  // Scratchpad / leaked-prompt bodies are never feed-worthy — even when a
+  // desk object exists. Share 1qKRZL7… ended with "Good." and still listed
+  // because a junk desk counted as sealed.
+  if (
+    isPlanningOnlyTakeaway(body)
+    || isMostlyToolLoopNarration(body)
+    || hasLeakedPromptDebate(body)
+  ) {
+    return {
+      allow: false,
+      reason: "assistant answer is unfinished tool-loop narration",
       source: "heuristic",
     };
   }

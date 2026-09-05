@@ -104,7 +104,7 @@ import {
   publicReplyStyles,
   upsertReplyPref,
 } from "./reply-style";
-import { clearBotListing, getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
+import { clearBotListing, getTimelineAuthor, handleTimeline, recordShareOwner, remoderateListedBotShares } from "./timeline";
 import { serveHomepageSession, refreshHomepageSession, SESSION_CALENDAR_DAYS } from "./timeline-session";
 import { heuristicTimelineQuality, moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
@@ -4867,8 +4867,9 @@ export default {
   },
 
   /**
-   * Every-5-minute cron — process due bot schedules (market-gated hourly overviews)
-   * and pre-warm the homepage Session snapshot so `/` never waits on the lake.
+   * Every-5-minute cron — process due bot schedules (market-gated hourly overviews),
+   * remoderate recent listed bot shares, and pre-warm the homepage Session snapshot
+   * so `/` never waits on the lake.
    */
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -4895,6 +4896,9 @@ export default {
             events: snapshot.events.length,
             takeaway: Boolean(snapshot.takeaway),
           }));
+        }),
+        remoderateListedBotShares(env.SCHEMA_DB).then((summary) => {
+          console.log(JSON.stringify({ timelineRemoderation: true, ...summary }));
         }),
       ]).catch((error) => {
         console.error("bot schedules tick failed", error);
