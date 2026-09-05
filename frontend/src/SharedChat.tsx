@@ -195,8 +195,6 @@ function SharedChatRoute() {
                       <TranscriptMessage
                         key={i}
                         message={m}
-                        openInData
-                        collapseSql
                         anchorId={messageShareFragment(i)}
                         shareUrl={m.role === 'assistant'
                           ? messageShareUrl(`/share/${share.share_id}`, i)

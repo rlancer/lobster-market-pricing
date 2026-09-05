@@ -49,7 +49,9 @@ test.describe('Server-funded Chat Agent', () => {
     const answer = await lastAnswer(page);
 
     expect(answer.length).toBeGreaterThan(20);
-    await expect(page.locator('.ai-sql').last()).toBeVisible();
+    await expect(page.locator('.ai-tool-row').first()).toBeVisible();
+    await expect(page.locator('.ai-sql')).toHaveCount(0);
+    await expect(page.locator('.ai-result')).toHaveCount(0);
     expect(websocketUrls.some((url) => url.includes(`/agents/copilot-agent/${chatId}`))).toBe(true);
     expect(oldChatRequests).toEqual([]);
     expect(browserAuthorizationHeaders).toEqual([]);

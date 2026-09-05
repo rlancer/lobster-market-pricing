@@ -37,23 +37,16 @@ function titlesMatch(title: string, userContent: string | undefined): boolean {
 /**
  * Clamp tall feed posts; expand/collapse in place so the full conversation
  * stays on the timeline (no /share route hop to keep reading).
- * Reports clamp/expand so the parent can hydrate query results when the
- * reader opens the full post (or when content already fits).
  */
 function FeedPreview({
   children,
-  onReveal,
 }: {
   children: ReactNode;
-  /** Fires when the post should load full query results (expanded or unclamped). */
-  onReveal?: () => void;
 }) {
   const bodyRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
-  const [measured, setMeasured] = useState(false);
   const collapsed = !expanded && overflows;
-  const revealedRef = useRef(false);
 
   useLayoutEffect(() => {
     const node = bodyRef.current;
@@ -68,22 +61,12 @@ function FeedPreview({
         getComputedStyle(document.documentElement).getPropertyValue('--size-element-lg'),
       ) || 36;
       setOverflows(node.scrollHeight > lg * 12 + 4);
-      setMeasured(true);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
   }, [children, expanded]);
-
-  useLayoutEffect(() => {
-    if (!measured || revealedRef.current) return;
-    // Hydrate when the post already fits, or the reader expanded it.
-    if (expanded || !overflows) {
-      revealedRef.current = true;
-      onReveal?.();
-    }
-  }, [expanded, overflows, measured, onReveal]);
 
   return (
     <VStack gap={2} className="timeline-preview-wrap">
@@ -108,14 +91,7 @@ function FeedPreview({
               : <ChevronDown size={14} aria-hidden="true" />
           }
           onClick={() => {
-            setExpanded((value) => {
-              const next = !value;
-              if (next && !revealedRef.current) {
-                revealedRef.current = true;
-                onReveal?.();
-              }
-              return next;
-            });
+            setExpanded((value) => !value);
           }}
         />
       )}
@@ -139,7 +115,6 @@ export function TimelinePostRow({
   titleLevel?: 2 | 3;
 }) {
   const [unpublishing, setUnpublishing] = useState(false);
-  const [hydrateResult, setHydrateResult] = useState(false);
   const messages: SharedChatMessage[] = coalesceAssistantMessages(
     post.messages?.length
       ? post.messages
@@ -250,14 +225,14 @@ export function TimelinePostRow({
         </HStack>
       </HStack>
 
-      {/* 3. Sources — same frame exploration as live chat (SQL / Open in Data) */}
+      {/* 3. Sources — same frame exploration as live chat */}
       {frames.length > 0 && (
         <ChatContextStrip frames={frames} tickers={[]} />
       )}
 
       {/* 4. Full conversation — primary content, expand in place */}
       {messages.length > 0 && (
-        <FeedPreview onReveal={() => setHydrateResult(true)}>
+        <FeedPreview>
           <VStack gap={4} className="timeline-msgs" aria-label="Conversation">
             {messages.map((message, index) => {
               const turnAuthor = message.role === 'user' ? message.author : undefined;
@@ -269,9 +244,6 @@ export function TimelinePostRow({
                 <TranscriptMessage
                   key={`${post.share_id}-${index}`}
                   message={message}
-                  openInData
-                  hydrateResult={hydrateResult}
-                  collapseSql
                   anchorId={messageShareFragment(index)}
                   shareUrl={message.role === 'assistant'
                     ? messageShareUrl(post.url, index)

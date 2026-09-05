@@ -374,9 +374,6 @@ export function TimelineFollowUp({
                           <TranscriptMessage
                             key={`${shareId}-followup-${index}`}
                             message={message}
-                            openInData
-                            hydrateResult
-                            collapseSql
                           />
                         ))}
                       </VStack>

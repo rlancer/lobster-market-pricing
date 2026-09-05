@@ -194,7 +194,7 @@ const SURFACES = [
   {
     route: '/share/<id>',
     title: 'Share',
-    body: 'Unlisted transcript for a shared chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Floor, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, tools, SQL, charts). Each assistant reply has a share control that copies `/share/<id>#m-N` (or opens the system share sheet). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
+    body: 'Unlisted transcript for a shared chat. The id is the capability (no auth to read). Lives in the same workspace shell as the rest of the app — SideNav on desktop, mobile drawer nav — so recipients can leave the page for Floor, Chat, or Research without a separate chrome. Title, tags, author/bot attribution, and the same transcript body as live chat (Thinking, Tools used, charts). Each assistant reply has a share control that copies `/share/<id>#m-N` (or opens the system share sheet). Signed-in readers with a public handle can ask a follow-up from here too — that forks into their own /chat/<id>.',
   },
   {
     route: '/account',

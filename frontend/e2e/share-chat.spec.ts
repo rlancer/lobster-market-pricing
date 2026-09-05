@@ -144,9 +144,10 @@ test.describe('Share chat (public unlisted transcripts)', () => {
     await page.waitForURL(/\/share\//);
     await expect(page.locator('.share-msgs .ai-msg')).toHaveCount(2);
     await expect(page.locator('.share-msgs')).toContainText(text.slice(0, 40));
-    // SQL block is part of the transcript (the assistant ran a query).
-    await expect(page.locator('.share-msgs .ai-sql pre')).toHaveCount(1);
-    await expect(page.locator('.share-msgs .ai-result')).toBeVisible({ timeout: 30_000 });
+    // SQL lives in Tools used, not as a standalone block or results table.
+    await expect(page.locator('.share-msgs .ai-tools-used')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.share-msgs .ai-sql')).toHaveCount(0);
+    await expect(page.locator('.share-msgs .ai-result')).toHaveCount(0);
 
     // Recipient API: keyless GET returns the transcript and NEVER the
     // server-side abuse columns.
