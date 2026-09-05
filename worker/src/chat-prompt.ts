@@ -47,10 +47,13 @@ export function schemaToPrompt(tables: LakeTable[], opts?: { includeSamples?: bo
   return tables.map((table) => {
     const columns = table.columns.map((column) => `    ${column.name} ${column.type}`).join("\n");
     const samples = includeSamples && table.sample?.length
-      ? `\n  sample rows:\n${table.sample.map((row) => `    ${JSON.stringify(row)}`).join("\n")}`
+      ? `\n  sample rows (not the universe — GROUP BY / COUNT(DISTINCT) for coverage):\n${table.sample.map((row) => `    ${JSON.stringify(row)}`).join("\n")}`
       : "";
     const rows = table.row_count == null ? "" : `\n  row_count: ${table.row_count.toLocaleString("en-US")}`;
-    return `TABLE options.${table.name}\n  columns:\n${columns}${samples}${rows}`;
+    const distinct = table.distinct_key && table.distinct_count != null
+      ? `\n  distinct_${table.distinct_key}: ${table.distinct_count.toLocaleString("en-US")}`
+      : "";
+    return `TABLE options.${table.name}\n  columns:\n${columns}${samples}${rows}${distinct}`;
   }).join("\n\n");
 }
 
@@ -84,10 +87,10 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- US Treasury / rates curve lives in options.yields (FRED): series_id, date, value (percent / percentage points), tenor, kind in {nominal, real, breakeven, forward, spread, policy}. For the curve, filter kind='nominal' (DGS*); for inversion use T10Y2Y / T10Y3M; for real rates DFII*; for spot breakevens T5YIE/T10YIE; for 5y5y forward inflation T5YIFR; for overnight policy DFF / SOFR. Latest-wins on (series_id, date) via QUALIFY ROW_NUMBER(). Bond ETF prices (TLT/IEF/SHY) are still in options.ohlc — yields are the curve levels, not ETF closes.",
     "- Realized inflation prints live in options.macro (FRED): series_id, date, value, kind in {cpi, pce, ppi}, units in {index, yoy_pct}, frequency=monthly. Headline/core CPI (CPIAUCSL / CPILFESL + *_YOY), headline/core PCE (PCEPI / PCEPILFE + *_YOY), PPI final demand (PPIFIS + PPIFIS_YOY). Prefer yoy_pct for \"where is inflation?\" questions; index levels for longer history / charting. Latest-wins on (series_id, date). Release *dates* stay on options.econ_calendar / eco_calendar — do not treat the calendar as CPI levels.",
     "- Curated Kalshi event odds live in options.kalshi_markets (hourly): series_ticker (KXFED, KXCPI, KXINX, KXBTC, …), market_ticker, theme, yes_bid/yes_ask/yes_last (0–1 dollars), volume/OI, close_time, related_symbol. Latest-wins on market_ticker. Use for market-implied probs on Fed/CPI/index weeks — not sports or politics. Sports/entertainment markets are intentionally absent.",
-    "- End the top-level query with LIMIT. Prefer explicit columns. No OFFSET, CROSS JOIN, or named WINDOW clauses. WHERE comes before QUALIFY.",
+    "- End the top-level query with LIMIT when returning row-level detail. Prefer explicit columns. No OFFSET, CROSS JOIN, or named WINDOW clauses. WHERE comes before QUALIFY.",
     "- Every run_query MUST SELECT FROM at least one options.* lake table (or a CTE that does). Bare probes like SELECT 1 or SELECT 'test' AS t are rejected before they hit the lake.",
     "- implied_vol is decimal (0.25 = 25%). spot_price is the spot column. expiration is TEXT; DTE is CAST(expiration AS DATE) - CURRENT_DATE.",
-    "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
+    "- Iceberg LIMIT n without GROUP BY returns recently written files, not the names in the table. To see coverage or the universe of a key (symbol, ticker, type, as_of_date, series_id), GROUP BY that key or COUNT(DISTINCT …) — never treat a LIMIT sample as the set. Filter before joining; skip ARRAY_AGG/STRING_AGG and large window partitions. Use approx_* when you only need a magnitude.",
     `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a Markdown answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links — and still publish the active non-technical specialists (fundamental / options / risk / macro as routed), not only technicals.",
     "- When the user (or a bot prompt) asks what's going on, what's happening, an hourly/market overview, or the tape this session, MUST call get_market_tape first and ground the overview in that output. That tool already reads a fixed liquid sleeve (indexes, sector SPDRs, listed flow on those names). Do not invent flow leaders from an unfiltered option_contracts GROUP BY.",

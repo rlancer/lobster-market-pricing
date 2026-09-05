@@ -395,7 +395,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/research/{ticker}/chats` | Shared, titled chats linked to this security (cross-ticker graph via `security_id`). Only public shares with a title — timeline posts or enabled bot shares. Each item includes `share_id` + `title` for `/share/{id}` links. |
 | `GET /api/chats/{id}/tickers` | Tickers linked to a chat (chips link to `/research/{ticker}`). |
 | `GET /api/news?symbol=&limit=` | Upcoming-ish per-ticker news headlines (Worker → Tavily news search; `{title, link, published, snippet}`, cached in-isolate ~10 min). Feeds the Chat's `get_news` tool — the narrative half of "why is vol high". |
-| `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
+| `GET /api/tables` | List lake tables (`options.*`) with columns/types, row counts, `COUNT(DISTINCT)` key counts, and sample rows (cached in D1; stale reads serve the cached payload while a background refresh recomputes, `?force=1` recomputes live) |
 | `POST /api/query` | Run an arbitrary read-only SQL query against the lake (body: `{"sql":"...","limit":1000}`) |
 | `GET /api/notebook/premium` | 45-day premium leaders notebook |
 | `/agents/copilot-agent/{conversation-id}` | The chat Agent (Cloudflare Agents SDK `AIChatAgent`). The browser connects over the standard Agent WebSocket (via `useAgent`/`useAgentChat`); the conversation UUID in the path is the instance name. Unowned chats are UUID-capability; once claimed onto a user in D1 `user_chats`, the same path requires a session whose `user_id` matches. Reasoning, tool progress, SQL, results, charts, **routed multi-analyst desk viewpoints** (`publish_desk`: fundamental / technical / options / risk always, plus macro when the ask warrants it — e.g. GME options skips macro; SPY/TLT pulls macro), and the final prose stream back as typed AI SDK UI-message parts. The OpenRouter key stays in the Worker; no model key ever reaches the browser. |
@@ -543,7 +543,7 @@ in, visitor fingerprint from IP + UA when anonymous).
 - Upstream feeds (CBOE delayed quotes, FRED macro calendar, Fed FOMC/Beige,
   Tavily news/search, Yahoo OHLC + ETF profiles/holdings + lake fundamentals,
   Nasdaq earnings, OpenFIGI)
-- Iceberg lake tables with live row counts, columns, and sample rows
+- Iceberg lake tables with live row counts, distinct key counts, columns, and sample rows
 - A read-only SQL editor (`POST /api/query`) — the same path Chat uses
 
 Only `SELECT`/`WITH`/`DESCRIBE`/`SHOW`/`EXPLAIN` are permitted. Chat deep-links

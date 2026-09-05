@@ -11,6 +11,10 @@ export interface LakeTable {
   row_count: number | null;
   columns: { name: string; type: string }[];
   sample: Record<string, unknown>[];
+  /** Key used for COUNT(DISTINCT) universe size (symbol / ticker / series_id / …). */
+  distinct_key?: string | null;
+  /** Distinct values of distinct_key. Null when the table has no key or the count failed. */
+  distinct_count?: number | null;
 }
 
 export interface ValidatedIssue {

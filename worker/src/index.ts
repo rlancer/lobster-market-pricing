@@ -177,7 +177,7 @@ import {
   isEnrollableEquityTicker,
   shouldEnrollForMissingLakeData,
 } from "./enroll-symbol";
-import { schemaSampleSql } from "./schema-sample";
+import { schemaCountSql, schemaSampleSql, schemaUniverseColumn } from "./schema-sample";
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
@@ -797,6 +797,8 @@ interface LakeTable {
   row_count: number | null;
   columns: { name: string; type: string }[];
   sample: Record<string, unknown>[];
+  distinct_key?: string | null;
+  distinct_count?: number | null;
 }
 
 // Lake tables that must NEVER surface to users: options.chat_history holds
@@ -819,13 +821,16 @@ async function loadLakeTables(env: Env): Promise<LakeTable[]> {
       .map(async (name): Promise<LakeTable> => {
         const cols = await r2sql(env, `DESCRIBE options.${name}`);
         const columns = cols.map((c) => ({ name: String(c.column_name), type: String(c.type) }));
+        const key = schemaUniverseColumn(columns);
         const [cnt, sample] = await Promise.all([
-          r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
+          r2sql(env, schemaCountSql(name, columns), "tbl_count_" + name),
           r2sql(env, schemaSampleSql(name, columns), "tbl_sample_" + name),
         ]);
         return {
           name,
           row_count: num(cnt[0]?.n),
+          distinct_key: key,
+          distinct_count: key ? num(cnt[0]?.n_keys) : null,
           columns,
           sample: sample as Record<string, unknown>[],
         };

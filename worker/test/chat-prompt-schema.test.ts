@@ -30,10 +30,30 @@ test("schemaToPrompt omits sample rows and fake enums by default", () => {
 
 test("schemaToPrompt never infers a universe from a 3-row sample", () => {
   const body = schemaToPrompt([ewyOhlc], { includeSamples: true });
-  assert.match(body, /sample rows/);
+  assert.match(body, /sample rows \(not the universe/);
+  assert.match(body, /GROUP BY \/ COUNT\(DISTINCT\)/);
   assert.match(body, /EWY/);
   assert.doesNotMatch(body, /low-cardinality/);
   assert.doesNotMatch(body, /symbol in \{"EWY"\}/);
+});
+
+test("schemaToPrompt prints COUNT(DISTINCT) cardinality, not a value list", () => {
+  const body = schemaToPrompt([{
+    ...ewyOhlc,
+    distinct_key: "symbol",
+    distinct_count: 412,
+  }]);
+  assert.match(body, /distinct_symbol: 412/);
+  assert.doesNotMatch(body, /EWY/);
+  assert.doesNotMatch(body, /symbol in \{/);
+});
+
+test("systemPrompt requires GROUP BY / COUNT DISTINCT for table universe", () => {
+  const body = systemPrompt("[schema]");
+  assert.match(body, /Iceberg LIMIT n without GROUP BY/);
+  assert.match(body, /COUNT\(DISTINCT/);
+  assert.match(body, /never treat a LIMIT sample as the set/);
+  assert.doesNotMatch(body, /sample more/i);
 });
 
 test("systemPrompt forces get_market_tape on overview / what's-going-on asks", () => {

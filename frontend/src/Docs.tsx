@@ -147,7 +147,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/symbols', desc: 'Symbol autocomplete — equities/ETFs, spot crypto (BTC-USD), VIX indexes (^VIX), continuous futures (ES=F), and Thinkorswim-style /ROOT search (/ES, /VX)' },
   { method: 'GET', path: '/api/screen', desc: 'The screener — filters, sort, pagination (see below)' },
   { method: 'GET', path: '/api/symbol/{symbol}', desc: 'Underlying info + its full option chain from the latest run' },
-  { method: 'GET', path: '/api/tables', desc: 'Lake tables with columns/types, row counts, and sample rows (D1-cached; ?force=1 recomputes live)' },
+  { method: 'GET', path: '/api/tables', desc: 'Lake tables with columns/types, row counts, distinct key counts, and sample rows (D1-cached; ?force=1 recomputes live)' },
   { method: 'POST', path: '/api/query', desc: <>Run arbitrary read-only SQL against the lake — <code>{'{"sql":"…","limit":1000}'}</code></> },
   { method: 'GET', path: '/api/news', desc: 'Per-ticker headlines (Tavily news search) — Chat get_news tool' },
   { method: 'GET', path: '/api/web_search', desc: 'Open web search (Tavily) — Chat web_search tool' },

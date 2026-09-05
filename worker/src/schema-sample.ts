@@ -10,6 +10,8 @@
 export const SCHEMA_SAMPLE_LIMIT = 3;
 export const SCHEMA_SAMPLE_PUBLIC_SYMBOL = "SPY";
 
+export type SchemaKeyColumn = "symbol" | "ticker" | "series_id" | "series_ticker";
+
 export function schemaSampleColumn(
   columns: readonly { name: string }[],
 ): "symbol" | "ticker" | null {
@@ -17,6 +19,34 @@ export function schemaSampleColumn(
   if (names.has("symbol")) return "symbol";
   if (names.has("ticker")) return "ticker";
   return null;
+}
+
+/**
+ * Column that defines "what lives in this table." Iceberg LIMIT samples
+ * cannot establish this — use COUNT(DISTINCT) / GROUP BY instead.
+ */
+export function schemaUniverseColumn(
+  columns: readonly { name: string }[],
+): SchemaKeyColumn | null {
+  const names = new Set(columns.map((column) => column.name.toLowerCase()));
+  if (names.has("symbol")) return "symbol";
+  if (names.has("ticker")) return "ticker";
+  if (names.has("series_id")) return "series_id";
+  if (names.has("series_ticker")) return "series_ticker";
+  return null;
+}
+
+/** Row count plus distinct key count in one scan. */
+export function schemaCountSql(
+  table: string,
+  columns: readonly { name: string }[],
+): string {
+  const quoted = String(table).replace(/"/g, "");
+  const key = schemaUniverseColumn(columns);
+  if (key) {
+    return `SELECT COUNT(*) AS n, COUNT(DISTINCT ${key}) AS n_keys FROM options."${quoted}"`;
+  }
+  return `SELECT COUNT(*) AS n FROM options."${quoted}"`;
 }
 
 export function schemaSampleSql(

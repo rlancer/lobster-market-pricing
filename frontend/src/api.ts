@@ -83,6 +83,10 @@ export interface TableInfo {
   columns: ColumnInfo[];
   /** Up to 3 sample rows from the (D1-cached) lake schema; absent when the fetch predates samples. */
   sample?: Record<string, unknown>[];
+  /** Key used for COUNT(DISTINCT) universe size (symbol / ticker / series_id / …). */
+  distinct_key?: string | null;
+  /** Distinct values of distinct_key. Null when the table has no key or the count failed. */
+  distinct_count?: number | null;
 }
 
 export interface QueryResult {
