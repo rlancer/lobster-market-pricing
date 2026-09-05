@@ -149,7 +149,10 @@ export function AssistantMessageBody({
 
   const desk = message.desk && isDeskBrief(message.desk) ? message.desk : null;
   const overviewRaw = (desk?.overview || message.content || '').trim();
-  const overview = /^(placeholder|tbd|todo|n\/?a|none|\.{1,3})$/i.test(overviewRaw) ? '' : overviewRaw;
+  const overview = /^(placeholder|tbd|todo|n\/?a|none|\.{1,3})$/i.test(overviewRaw)
+    || (/\breceived\b/i.test(overviewRaw) && /first include(?: the)? text/i.test(overviewRaw))
+    ? ''
+    : overviewRaw;
   const tools = !hideTools && message.tools?.length ? message.tools : null;
 
   return (

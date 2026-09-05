@@ -18,15 +18,17 @@ import { getSessionUser, type AuthEnv } from "./auth";
 import { backfillShareMeta, shareNeedsMetaBackfill, type ChatMetaEnv } from "./chat-meta";
 import { listTickersForChats } from "./chat-tickers";
 import { createChatModel } from "./chat-contract";
-import { coalesceAssistantMessageRecords } from "./share-turns";
+import { coalesceAssistantMessageRecords, isPlanningOnlyTakeaway } from "./share-turns";
 import { getHandle, parseHandle, publicName } from "./profiles";
 import { avatarUrlFor } from "./avatars";
 import { shareDisplayTitle } from "./user-chats";
 import { loadTimelineRail, type TimelineLakeQuery } from "./timeline-rail";
 import {
+  heuristicTimelineQuality,
   moderateTimelineShare,
   TIMELINE_QUALITY_REJECTED_ERROR,
 } from "./timeline-moderation";
+import { expireHomepageSession, isScheduledDeskPrompt } from "./timeline-session";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
@@ -70,18 +72,20 @@ export function excerptFromMessages(messages: unknown, title: string | null): st
   let text = "";
   for (const row of rows) {
     const rec = messageRecord(row);
-    if (rec?.role === "assistant" && typeof rec.content === "string" && rec.content.trim()) {
-      text = rec.content;
-      break;
-    }
+    if (rec?.role !== "assistant" || typeof rec.content !== "string") continue;
+    const content = rec.content.trim();
+    if (!content || isPlanningOnlyTakeaway(content)) continue;
+    text = rec.content;
+    break;
   }
   if (!text) {
     for (const row of rows) {
       const rec = messageRecord(row);
-      if (rec?.role === "user" && typeof rec.content === "string" && rec.content.trim()) {
-        text = rec.content;
-        break;
-      }
+      if (rec?.role !== "user" || typeof rec.content !== "string") continue;
+      const content = rec.content.trim();
+      if (!content || isScheduledDeskPrompt(content)) continue;
+      text = rec.content;
+      break;
     }
   }
   if (!text && typeof title === "string") text = title;
@@ -524,10 +528,17 @@ async function listTimeline(env: TimelineEnv, req: Request, ctx: ExecutionContex
     // Recompute flags from messages for bot rows (SQL LIKE is approximate).
     if (row.is_bot === 1 && row.messages) {
       try {
-        const flags = flagsFromMessages(JSON.parse(row.messages));
+        const parsed = JSON.parse(row.messages);
+        const healed = coalesceAssistantMessageRecords(parsed);
+        const decision = heuristicTimelineQuality(healed);
+        if (decision && !decision.allow) {
+          ctx.waitUntil(clearBotListing(env.SCHEMA_DB, row.share_id));
+          continue;
+        }
+        const flags = flagsFromMessages(parsed);
         row.has_sql = flags.has_sql ? 1 : 0;
         row.has_chart = flags.has_chart ? 1 : 0;
-        row.excerpt = excerptFromMessages(JSON.parse(row.messages), row.title);
+        row.excerpt = excerptFromMessages(parsed, row.title);
       } catch {
         /* keep defaults */
       }
@@ -690,6 +701,23 @@ async function publishTimeline(
  * Who may unlist a share: the human author of a timeline_posts row, or an
  * admin (who can also clear bot_handle so bot shares leave the feed).
  */
+/**
+ * Apply the mint-time quality gate to an already-listed bot share.
+ * Protocol-echo / planning-only desks (share wnJWqa…) stay as unlisted
+ * capability URLs; the homepage Session snapshot must refresh afterward.
+ */
+export async function clearBotListing(db: D1Database, shareId: string): Promise<void> {
+  try {
+    await db.prepare(
+      `UPDATE shared_chats SET bot_handle = NULL, updated_at = ?2
+       WHERE share_id = ?1 AND bot_handle IS NOT NULL`,
+    ).bind(shareId, Date.now()).run();
+    await expireHomepageSession(db);
+  } catch (error) {
+    console.warn("bot listing clear failed", error);
+  }
+}
+
 export function resolveUnpublishAccess(input: {
   admin: boolean;
   userId: string;

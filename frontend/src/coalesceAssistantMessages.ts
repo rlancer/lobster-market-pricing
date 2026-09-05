@@ -4,6 +4,7 @@
  * stacks in live chat and on /share.
  */
 
+import { isDeskStubText } from './deskStub.ts';
 import { mergeSqlQueries } from './sqlQueries';
 
 export type CoalesceableAssistant = {
@@ -40,10 +41,16 @@ function hasSubstance(message: CoalesceableAssistant): boolean {
   );
 }
 
+function usableDeskOverview(desk: { overview?: string } | null | undefined): string {
+  const overview = desk && typeof desk.overview === 'string' ? desk.overview.trim() : '';
+  if (!overview || isDeskStubText(overview)) return '';
+  return overview;
+}
+
 function mergeAssistants<T extends CoalesceableAssistant>(earlier: T, later: T): T {
   const desk = later.desk ?? earlier.desk;
   const content = (
-    (desk && typeof desk.overview === 'string' && desk.overview.trim())
+    usableDeskOverview(desk)
     || later.content?.trim()
     || earlier.content
     || ''

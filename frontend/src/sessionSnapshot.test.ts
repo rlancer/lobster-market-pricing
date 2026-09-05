@@ -131,6 +131,18 @@ test('deskTakeaway only accepts @nowlobster with a real writeup', () => {
     messages: [{ role: 'user', content: 'Hourly market overview: lead with SPX/QQQ' }],
     excerpt: 'Hourly market overview: lead with SPX/QQQ',
   })), null);
+  assert.equal(deskTakeaway(post({
+    messages: [{
+      role: 'assistant',
+      content:
+        "Since this is a broad market overview ask, I should charter the index series. Let me grab sector ETF closes.",
+      desk: {
+        overview: "Received: ... first include Text 'Received'",
+        fundamental: "Received: ... first include Text & 'Received'",
+      },
+    }],
+    excerpt: "Received: ... first include Text 'Received'",
+  })), null);
 });
 
 test('deskTakeaway prefers desk overview over the raw assistant body', () => {

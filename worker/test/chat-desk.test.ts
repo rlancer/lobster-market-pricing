@@ -62,6 +62,19 @@ test("normalizeDeskBrief drops stub extras but keeps required takes", () => {
   assert.ok(desk.risk);
 });
 
+test("normalizeDeskBrief rejects protocol-echo Received stubs", () => {
+  // Regression: share wnJWqaRxtCu1I3CLJIgCiaon — DeepSeek echoed tool-call
+  // protocol crumbs that cleared the 40-char minimum and listed on the Floor.
+  assert.equal(normalizeDeskBrief({
+    fundamental: "Received: ... first include Text & 'Received'",
+    technical: "Received: ... first include Text Received",
+    options: "Received: ... first include the Text Received",
+    risk: "Received: ... first include Text Received",
+    macro: "Received: ... first include Text 'Received'",
+    overview: "Received: ... first include Text 'Received'",
+  }, { required: DESK_CORE_VIEWPOINT_IDS }), null);
+});
+
 test("normalizeDeskBrief rejects placeholder stubs", () => {
   // Regression: GME share ynQcuupDNBG04fcaYleY01hi — forced publish_desk emitted
   // literal "placeholder" and the loop sealed before a real desk could land.

@@ -7,7 +7,9 @@
  * dumps that should not pollute the home timeline.
  */
 import { generateText, type LanguageModel } from "ai";
+import { isDeskStubText, normalizeDeskBrief, type DeskBriefInput } from "./chat-desk";
 import { formatChatMetaTranscript } from "./chat-meta";
+import { isPlanningOnlyTakeaway } from "./share-turns";
 import { hasLeakedToolMarkup, stripLeakedToolMarkup } from "./tool-markup";
 
 /** Stable client-facing error when publish is refused for quality. */
@@ -61,14 +63,11 @@ export function lastAssistantView(messages: unknown): AssistantView | null {
     const desk = rec.desk && typeof rec.desk === "object" && !Array.isArray(rec.desk)
       ? rec.desk as Record<string, unknown>
       : null;
-    const deskOverview = typeof desk?.overview === "string" ? desk.overview.trim() : "";
-    const hasDesk = Boolean(deskOverview)
-      || Boolean(
-        desk
-        && (typeof desk.fundamental === "string" && desk.fundamental.trim()
-          || typeof desk.technical === "string" && desk.technical.trim()
-          || typeof desk.options === "string" && desk.options.trim()),
-      );
+    const deskBrief = desk ? normalizeDeskBrief(desk as DeskBriefInput) : null;
+    const rawOverview = typeof desk?.overview === "string" ? desk.overview.trim() : "";
+    const deskOverview = deskBrief?.overview?.trim()
+      || (rawOverview && !isDeskStubText(rawOverview) ? rawOverview : "");
+    const hasDesk = Boolean(deskBrief) || Boolean(deskOverview);
     const tradesObj = rec.trades && typeof rec.trades === "object" && !Array.isArray(rec.trades)
       ? rec.trades as Record<string, unknown>
       : null;
@@ -94,7 +93,7 @@ const CUTOFF_TAIL =
 
 /** Narration that never sealed into a reader-facing answer. */
 const TOOL_LOOP_VOICE =
-  /\b(?:let me (?:query|check|look|pull|run|re-?query|get|find|see|think|reconsider|define|structure|render|publish|also)|i(?:'ll| will) (?:query|check|look|pull|run|render|publish)|now i need to (?:publish|render|query))\b/i;
+  /\b(?:let me (?:query|check|look|pull|run|re-?query|get|find|see|think|reconsider|define|structure|render|publish|also|grab|charter)|i(?:'ll| will) (?:query|check|look|pull|run|render|publish)|now i need to (?:publish|render|query)|i should (?:charter|query|check|grab|pull|render|publish))\b/i;
 
 /** Explicit unfinished desk/chart intent even when the sentence has a period. */
 const UNFINISHED_SEAL_INTENT =
@@ -187,6 +186,15 @@ export function heuristicTimelineQuality(messages: unknown): TimelineModerationD
     && TOOL_LOOP_VOICE.test(body)
     && !/[.!?]["')\]]?\s*$/.test(body.trim())
   ) {
+    return {
+      allow: false,
+      reason: "assistant answer is unfinished tool-loop narration",
+      source: "heuristic",
+    };
+  }
+
+  // Planning-only body that happens to end with a period (share wnJWqa…).
+  if (!sealed && isPlanningOnlyTakeaway(body)) {
     return {
       allow: false,
       reason: "assistant answer is unfinished tool-loop narration",
