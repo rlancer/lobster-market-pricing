@@ -15,12 +15,15 @@ import {
   type TickerResearch,
 } from './api';
 import { ResearchBriefView, ResearchLoading } from './ResearchBrief';
+import { AsOfDateField } from './AsOfDateField';
 import { El5JargonButton } from './El5JargonDialog';
 import { usePageMeta } from './usePageMeta';
 import { whenIdle, isResearchBriefReady, pendingTickerResearch } from './researchLazy';
+import { useAsOfDate } from './useAsOfDate';
 import './Research.css';
 
 export default function ResearchPage() {
+  const { asOf } = useAsOfDate();
   const params = useParams({ strict: false }) as { ticker?: string };
   const tickerParam = params.ticker?.trim().toUpperCase() ?? '';
   const [research, setResearch] = useState<TickerResearch | null>(
@@ -292,6 +295,9 @@ export default function ResearchPage() {
             Spot, chart, the Lobster's take, and the options chain for one underlying.
             Search any ticker from the header — or jump to a common name below.
           </Text>
+          <AsOfDateField
+            description="Optional. Replay lake bars as of this ET date when you open a ticker."
+          />
         </VStack>
       )}
 
@@ -300,7 +306,13 @@ export default function ResearchPage() {
           <Text type="supporting">Common underlyings:</Text>
           <HStack gap={2}>
             {['AAPL', 'NVDA', 'SPY', 'IBIT', 'BTC-USD'].map((sym) => (
-              <Link key={sym} to="/research/$ticker" params={{ ticker: sym }} className="research-chip-link">
+              <Link
+                key={sym}
+                to="/research/$ticker"
+                params={{ ticker: sym }}
+                search={asOf ? { asof: asOf } : undefined}
+                className="research-chip-link"
+              >
                 {sym}
               </Link>
             ))}

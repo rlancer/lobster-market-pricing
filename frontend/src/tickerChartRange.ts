@@ -53,33 +53,71 @@ function monthStart(ymd: string): string {
   return `${ymd.slice(0, 7)}-01`;
 }
 
+/** Keep bars whose ET trade day is on or before `asOfDate`. */
+export function clipBarsToAsOf(bars: OhlcBar[], asOfDate: string): OhlcBar[] {
+  return bars.filter((bar) => {
+    const day = etTradeDay(bar.date) ?? bar.date.slice(0, 10);
+    return day <= asOfDate;
+  });
+}
+
+export type AsOfQuote = {
+  spot: number | null;
+  change_1d_pct: number | null;
+  change_5d_pct: number | null;
+  change_21d_pct: number | null;
+};
+
+function sessionChange(closes: number[], sessions: number): number | null {
+  if (closes.length <= sessions) return null;
+  const last = closes.at(-1);
+  const prev = closes.at(-1 - sessions);
+  if (last == null || prev == null || prev === 0) return null;
+  return ((last - prev) / prev) * 100;
+}
+
+/** Last lake close on/before as-of, plus 1d / 5d / 21d session returns. */
+export function asOfQuote(bars: OhlcBar[], asOfDate: string): AsOfQuote {
+  const closes = clipBarsToAsOf(bars, asOfDate)
+    .map((bar) => bar.close)
+    .filter((close): close is number => close != null && Number.isFinite(close));
+  return {
+    spot: closes.at(-1) ?? null,
+    change_1d_pct: sessionChange(closes, 1),
+    change_5d_pct: sessionChange(closes, 5),
+    change_21d_pct: sessionChange(closes, 21),
+  };
+}
+
 /**
- * Slice daily lake bars for the selected range.
- * - 1D: last session (intraday series is loaded separately in the chart).
+ * Slice daily lake bars for the selected range, relative to `asOfDate`.
+ * Bars after as-of are dropped first, then:
+ * - 1D: last session on/before as-of (intraday is live-only).
  * - MTD / YTD: calendar filters in America/New_York.
- * - 1M / 3M / 6M / 1Y: trailing session counts.
- * - ALL: full series.
+ * - 1M / 3M / 6M / 1Y: trailing session counts from the clipped end.
+ * - ALL: clipped series.
  */
 export function sliceBars(
   bars: OhlcBar[],
   range: ChartRange,
   asOfDate: string = etDateString(),
 ): OhlcBar[] {
-  if (range === 'ALL') return bars;
+  const clipped = clipBarsToAsOf(bars, asOfDate);
+  if (range === 'ALL') return clipped;
   if (range === 'YTD') {
     const start = yearStart(asOfDate);
-    return bars.filter((b) => b.date >= start);
+    return clipped.filter((b) => (etTradeDay(b.date) ?? b.date) >= start);
   }
   if (range === 'MTD') {
     const start = monthStart(asOfDate);
-    return bars.filter((b) => b.date >= start);
+    return clipped.filter((b) => (etTradeDay(b.date) ?? b.date) >= start);
   }
   if (range === '1D') {
-    return bars.length ? bars.slice(-1) : bars;
+    return clipped.length ? clipped.slice(-1) : clipped;
   }
   const n = RANGE_BARS[range];
-  if (n == null || bars.length <= n) return bars;
-  return bars.slice(-n);
+  if (n == null || clipped.length <= n) return clipped;
+  return clipped.slice(-n);
 }
 
 /** First→last close return over the visible bars (null when too thin). */

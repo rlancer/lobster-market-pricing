@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HStack, Text, Tooltip as AstryxTooltip, VStack } from '@astryxdesign/core';
 import type { ChainContract } from './api';
+import { etDateString } from './tickerChartRange';
 import './Research.css';
 
 function fmtNum(v: number | null | undefined, d = 2): string {
@@ -30,9 +31,9 @@ function buildChain(contracts: ChainContract[], expiration: string) {
     .map(([strike, pair]) => ({ strike, ...pair }));
 }
 
-function daysTo(expiration: string): number {
+function daysTo(expiration: string, asOf?: string): number {
   const d = new Date(`${expiration}T12:00:00`);
-  const now = new Date();
+  const now = asOf ? new Date(`${asOf}T12:00:00`) : new Date();
   return Math.round((d.getTime() - now.getTime()) / 86_400_000);
 }
 
@@ -49,6 +50,7 @@ export function TickerOptionsChain({
   contracts,
   expirations,
   spot,
+  asOf,
   expiration,
   nearSpot: nearSpotProp,
   onExpirationChange,
@@ -58,6 +60,8 @@ export function TickerOptionsChain({
   contracts: ChainContract[];
   expirations: string[];
   spot: number | null;
+  /** ET calendar day used for DTE and the first unexpired expiry. */
+  asOf?: string;
   /** Controlled expiration (server-scoped fetch). */
   expiration?: string;
   /** Controlled near-spot window; 0 = all strikes for the active expiry. */
@@ -78,13 +82,15 @@ export function TickerOptionsChain({
     if (nearSpotProp != null) setLocalNearSpot(String(nearSpotProp));
   }, [nearSpotProp]);
 
+  const today = asOf ?? etDateString();
+  const firstOpen = expirations.find((e) => e >= today);
   const activeExpiration = controlled
     ? (expiration && expirations.includes(expiration)
       ? expiration
-      : (expirations.find((e) => e >= new Date().toISOString().slice(0, 10)) ?? expirations[expirations.length - 1] ?? ''))
+      : (firstOpen ?? expirations[expirations.length - 1] ?? ''))
     : (localExpiration && expirations.includes(localExpiration)
       ? localExpiration
-      : (expirations.find((e) => e >= new Date().toISOString().slice(0, 10)) ?? expirations[0] ?? ''));
+      : (firstOpen ?? expirations[0] ?? ''));
 
   const nearSpot = controlled ? String(nearSpotProp ?? 50) : localNearSpot;
 
@@ -157,7 +163,7 @@ export function TickerOptionsChain({
           >
             {expirations.map((exp) => (
               <option key={exp} value={exp}>
-                {dteLabel(daysTo(exp))} · {exp}
+                {dteLabel(daysTo(exp, asOf))} · {exp}
               </option>
             ))}
           </select>
@@ -181,7 +187,7 @@ export function TickerOptionsChain({
         <Text type="supporting" className="research-chain-meta">
           {loading ? 'Refreshing… · ' : ''}
           {chain.length} strikes
-          {activeExpiration ? ` · ${dteLabel(daysTo(activeExpiration))}` : ''}
+          {activeExpiration ? ` · ${dteLabel(daysTo(activeExpiration, asOf))}` : ''}
         </Text>
       </HStack>
 

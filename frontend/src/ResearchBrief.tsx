@@ -24,9 +24,12 @@ import type {
   TickerResearch,
 } from './api';
 import { El5JargonButton } from './El5JargonDialog';
+import { AsOfDateField } from './AsOfDateField';
 import { TickerChart } from './TickerChart';
 import { TickerOptionsChain } from './TickerOptionsChain';
 import { observeOnce } from './researchLazy';
+import { asOfQuote } from './tickerChartRange';
+import { useAsOfDate } from './useAsOfDate';
 import './Research.css';
 
 function fmtPct(v: number | null | undefined): string {
@@ -297,6 +300,7 @@ export function ResearchBriefView({
   onChainNearSpotChange?: (nearSpot: number) => void;
 }) {
   const navigate = useNavigate();
+  const { asOf, asOfDate, historical } = useAsOfDate();
   const [followUp, setFollowUp] = useState('');
   const [filingsExpanded, setFilingsExpanded] = useState(false);
   const [relatedExpanded, setRelatedExpanded] = useState(false);
@@ -341,7 +345,11 @@ export function ResearchBriefView({
   const insufficientCommentary =
     research.commentary_source === 'insufficient'
     || Boolean(resolvedCommentary && /^not enough data\b/i.test(resolvedCommentary));
-  const spot = price.spot;
+  const replayed = historical ? asOfQuote(ohlc, asOfDate) : null;
+  const spot = replayed?.spot ?? price.spot;
+  const change1d = replayed?.change_1d_pct ?? price.change_1d_pct;
+  const change5d = replayed?.change_5d_pct ?? price.change_5d_pct;
+  const change21d = replayed?.change_21d_pct ?? price.change_21d_pct;
   const commentaryId = `research-lobster-${identity.ticker}`;
   const chainId = `research-chain-${identity.ticker}`;
 
@@ -382,13 +390,18 @@ export function ResearchBriefView({
         </HStack>
         <HStack gap={3} vAlign="end" className="research-price-row">
           <Text className="research-spot">{fmtSpot(spot)}</Text>
-          <Text className={`research-change ${changeClass(price.change_1d_pct)}`}>
-            {fmtPct(price.change_1d_pct)} 1d
+          <Text className={`research-change ${changeClass(change1d)}`}>
+            {fmtPct(change1d)} 1d
           </Text>
           <Text type="supporting" className="research-change-secondary">
-            {fmtPct(price.change_5d_pct)} 5d · {fmtPct(price.change_21d_pct)} 21d
+            {fmtPct(change5d)} 5d · {fmtPct(change21d)} 21d
           </Text>
         </HStack>
+        {historical ? (
+          <Text type="supporting">
+            Lake quote as of {asOfDate}. Live news, filings, and commentary stay current.
+          </Text>
+        ) : null}
         <Text type="supporting" className="research-id-line">
           {identity.sector ? `${identity.sector} · ` : ''}
           {identity.figi ? `FIGI ${identity.figi}` : (research.computed_at ? 'FIGI pending' : 'Loading brief…')}
@@ -474,6 +487,7 @@ export function ResearchBriefView({
                                 <Link
                                   to="/research/$ticker"
                                   params={{ ticker: sym }}
+                                  search={asOf ? { asof: asOf } : undefined}
                                   className="research-chip-link research-holding-link"
                                 >
                                   {sym}
@@ -494,6 +508,9 @@ export function ResearchBriefView({
             ) : null}
 
             <VStack gap={2} className="research-section" id={`research-chart-${identity.ticker}`}>
+              <AsOfDateField
+                description="Replay lake bars as of this ET date. Intraday, news, and live marks stay current."
+              />
               {ohlcLoading && ohlc.length === 0 ? (
                 <HStack gap={2} vAlign="center" className="research-chart research-chart-empty">
                   <Spinner size="sm" />
@@ -735,6 +752,7 @@ export function ResearchBriefView({
               contracts={contracts}
               expirations={expirations}
               spot={spot}
+              asOf={asOfDate}
               expiration={chainExpiration}
               nearSpot={chainNearSpot}
               onExpirationChange={onChainExpirationChange}

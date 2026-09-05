@@ -1902,12 +1902,18 @@ export const api = {
         symbol: opts?.symbol,
       })}`,
     ),
-  schwabPnl: (opts?: { range?: SchwabPnlRange; account?: string; symbol?: string }) =>
+  schwabPnl: (opts?: {
+    range?: SchwabPnlRange;
+    account?: string;
+    symbol?: string;
+    as_of?: string;
+  }) =>
     get<SchwabPnlResponse>(
       `/api/schwab/pnl${qs({
         range: opts?.range,
         account: opts?.account,
         symbol: opts?.symbol,
+        as_of: opts?.as_of,
       })}`,
     ),
   disconnectSchwab: () => post<{ ok: true; connected: false }>('/api/schwab/disconnect', {}),

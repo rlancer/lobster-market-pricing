@@ -12,6 +12,7 @@ import {
   normalizeSchwabDistribution,
   openMarkForTicker,
   parseOccOptionSymbol,
+  parseAsOfDate,
   resolvePnlRange,
   seriesFromLedger,
   synthesizeOptionAssignmentCloses,
@@ -71,6 +72,27 @@ test("resolvePnlRange accepts presets and defaults to YTD", () => {
 
   assert.ok("error" in resolvePnlRange("ALL", now));
   assert.deepEqual(SCHWAB_PNL_RANGES, ["MTD", "YTD", "1M", "3M", "6M", "1Y"]);
+});
+
+test("parseAsOfDate rejects impossible days and clamps the future", () => {
+  assert.equal(parseAsOfDate("2026-03-15", "2026-09-05"), "2026-03-15");
+  assert.equal(parseAsOfDate("2026-02-30", "2026-09-05"), null);
+  assert.equal(parseAsOfDate("2026-12-01", "2026-09-05"), "2026-09-05");
+});
+
+test("resolvePnlRange ends windows on a spoofed as-of day", () => {
+  const now = new Date("2026-03-15T16:00:00.000Z");
+  const ytd = resolvePnlRange("YTD", now);
+  assert.ok(!("error" in ytd));
+  if ("error" in ytd) return;
+  assert.equal(ytd.end, "2026-03-15");
+  assert.equal(ytd.start, "2026-01-01");
+
+  const mtd = resolvePnlRange("MTD", now);
+  assert.ok(!("error" in mtd));
+  if ("error" in mtd) return;
+  assert.equal(mtd.start, "2026-03-01");
+  assert.equal(mtd.end, "2026-03-15");
 });
 
 test("fetchWindowForPnl extends to Schwab max lookback for basis", () => {

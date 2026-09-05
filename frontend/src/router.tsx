@@ -26,7 +26,14 @@ import ChatExplorePage from './ChatExplore';
 import AdminPage from './AdminPage';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
+import { parseAsOfSearch } from './asOfDate';
 import { parseChatId } from './chatSession';
+import { etDateString } from './tickerChartRange';
+
+function asOfSearch(search: Record<string, unknown>): { asof?: string } {
+  const asof = parseAsOfSearch(search.asof, etDateString());
+  return asof ? { asof } : {};
+}
 
 function MonitorView() {
   return (
@@ -104,22 +111,26 @@ const marketRoute = createRoute({
 const researchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/research',
+  validateSearch: asOfSearch,
   component: ResearchPage,
 });
 
 const researchTickerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/research/$ticker',
+  validateSearch: asOfSearch,
   component: ResearchPage,
 });
 
 const symbolRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/symbol/$symbol',
-  beforeLoad: ({ params }) => {
+  validateSearch: asOfSearch,
+  beforeLoad: ({ params, search }) => {
     throw redirect({
       to: '/research/$ticker',
       params: { ticker: params.symbol.toUpperCase() },
+      search,
     });
   },
 });
@@ -193,10 +204,16 @@ const tradesRoute = createRoute({
 const portfolioRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/portfolio',
-  validateSearch: (search: Record<string, unknown>): { book?: 'schwab' | 'suggested' | 'paper' } => {
+  validateSearch: (search: Record<string, unknown>): {
+    book?: 'schwab' | 'suggested' | 'paper';
+    asof?: string;
+  } => {
+    const asof = asOfSearch(search);
     const book = search.book;
-    if (book === 'schwab' || book === 'suggested' || book === 'paper') return { book };
-    return {};
+    if (book === 'schwab' || book === 'suggested' || book === 'paper') {
+      return { book, ...asof };
+    }
+    return asof;
   },
   component: PortfolioPage,
 });

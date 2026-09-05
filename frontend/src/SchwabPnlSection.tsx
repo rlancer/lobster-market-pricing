@@ -40,7 +40,8 @@ import {
 } from './api';
 import { definePnlChart, type PnlChartMarker } from './charts/pnlChart';
 import { CHART_HOST_CLASS } from './charts/theme';
-import { etDateString } from './tickerChartRange';
+import { AsOfDateField } from './AsOfDateField';
+import { useAsOfDate } from './useAsOfDate';
 import './charts.css';
 import {
   applyEquityMarkPath,
@@ -259,6 +260,7 @@ export function SchwabPnlSection({
   /** Open positions (or other book UI) rendered directly under the chart. */
   afterChart?: ReactNode;
 }) {
+  const { asOf, asOfDate, historical } = useAsOfDate();
   const [range, setRange] = useState<SchwabPnlRange>('YTD');
   const isControlled = controlledSymbol !== undefined;
   const [internalDraft, setInternalDraft] = useState(initialSymbol);
@@ -296,7 +298,7 @@ export function SchwabPnlSection({
   const ytdKeyRef = useRef('');
   const isMobile = useMediaQuery('(max-width: 47.99rem)');
 
-  const returnKey = `${accountId ?? ''}|${symbol}`;
+  const returnKey = `${accountId ?? ''}|${symbol}|${asOf ?? ''}`;
 
   useEffect(() => {
     if (isControlled) return;
@@ -319,6 +321,7 @@ export function SchwabPnlSection({
     nextRange: SchwabPnlRange,
     nextAccount: string | null,
     nextSymbol: string,
+    nextAsOf?: string,
   ) => {
     const requestId = ++requestSequence.current;
     setLoading(true);
@@ -342,6 +345,7 @@ export function SchwabPnlSection({
         range: nextRange,
         account: nextAccount ?? undefined,
         symbol: nextSymbol.trim() || undefined,
+        as_of: nextAsOf,
       });
       if (requestId !== requestSequence.current) return;
       setPoints(res.points);
@@ -366,7 +370,7 @@ export function SchwabPnlSection({
       // lake/Yahoo — it often has no bars for the hold (CAR Apr 2026).
       setOhlc(schwabBars);
       if (nextRange === 'YTD') {
-        ytdKeyRef.current = `${nextAccount ?? ''}|${nextSymbol}`;
+        ytdKeyRef.current = `${nextAccount ?? ''}|${nextSymbol}|${nextAsOf ?? ''}`;
         setYtdSnapshot({
           key: ytdKeyRef.current,
           points: res.points,
@@ -396,15 +400,15 @@ export function SchwabPnlSection({
   }, []);
 
   useEffect(() => {
-    void load(range, accountId, symbol);
+    void load(range, accountId, symbol, asOf);
     return () => {
       requestSequence.current += 1;
     };
-  }, [accountId, range, symbol, load]);
+  }, [accountId, range, symbol, asOf, load]);
 
   useEffect(() => {
     if (range === 'YTD') return;
-    const key = `${accountId ?? ''}|${symbol}`;
+    const key = `${accountId ?? ''}|${symbol}|${asOf ?? ''}`;
     if (ytdKeyRef.current === key) return;
     let cancelled = false;
     void (async () => {
@@ -413,6 +417,7 @@ export function SchwabPnlSection({
           range: 'YTD',
           account: accountId ?? undefined,
           symbol: symbol || undefined,
+          as_of: asOf,
         });
         if (cancelled) return;
         ytdKeyRef.current = key;
@@ -426,13 +431,14 @@ export function SchwabPnlSection({
       }
     })();
     return () => { cancelled = true; };
-  }, [accountId, range, symbol]);
+  }, [accountId, range, symbol, asOf]);
 
-  const openMark = useMemo(() => {
+  const liveOpenMark = useMemo(() => {
     if (!symbol) return null;
     if (openMarkFromApi) return openMarkFromApi;
     return tickerOpenMark(positions, symbol);
   }, [openMarkFromApi, positions, symbol]);
+  const openMark = historical ? null : liveOpenMark;
 
   const optionLots = useMemo(
     () => (symbol ? optionLotsFromFills(fills, positions, symbol) : []),
@@ -650,7 +656,7 @@ export function SchwabPnlSection({
       includedOpenMark(ytdSnapshot.openMark, include),
     );
   }, [range, series, ytdSnapshot, returnKey, include]);
-  const returnAsOf = windowEnd ?? etDateString();
+  const returnAsOf = windowEnd ?? asOfDate;
   const mtdSource = range === 'YTD' ? series : ytdComposed;
   const mtdPnl = range === 'MTD'
     ? totals.period
@@ -660,10 +666,12 @@ export function SchwabPnlSection({
   const ytdPnl = range === 'YTD'
     ? totals.period
     : (ytdComposed.at(-1)?.cumulative ?? null);
-  const dtdPnl = returnBasis.day_pnl;
-  const dtdPct = !symbol && accountDayPnlPct != null && Number.isFinite(accountDayPnlPct)
-    ? accountDayPnlPct
-    : pnlPercent(dtdPnl, returnBasis.equity);
+  const dtdPnl = historical ? null : returnBasis.day_pnl;
+  const dtdPct = historical
+    ? null
+    : (!symbol && accountDayPnlPct != null && Number.isFinite(accountDayPnlPct)
+      ? accountDayPnlPct
+      : pnlPercent(dtdPnl, returnBasis.equity));
   const returnWindows = [
     { key: 'DTD' as const, pnl: dtdPnl, pct: dtdPct },
     { key: 'MTD' as const, pnl: mtdPnl, pct: pnlPercent(mtdPnl, returnBasis.equity) },
@@ -755,17 +763,27 @@ export function SchwabPnlSection({
             />
           </HStack>
         )}
-        <TabList
-          size="sm"
-          aria-label="PnL range"
-          value={range}
-          onChange={(value) => setRange(value as SchwabPnlRange)}
-        >
-          {PNL_RANGES.map((key) => (
-            <Tab key={key} value={key} label={key} />
-          ))}
-        </TabList>
+        <HStack gap={3} wrap="wrap" align="end">
+          <AsOfDateField
+            description="End performance windows on this ET date. Live day P&L and open marks stay current."
+          />
+          <TabList
+            size="sm"
+            aria-label="PnL range"
+            value={range}
+            onChange={(value) => setRange(value as SchwabPnlRange)}
+          >
+            {PNL_RANGES.map((key) => (
+              <Tab key={key} value={key} label={key} />
+            ))}
+          </TabList>
+        </HStack>
       </HStack>
+      {historical ? (
+        <Text type="supporting">
+          Realized window ends {asOfDate}. Live Schwab day P&L and open marks are hidden because they are as-of now.
+        </Text>
+      ) : null}
 
       {hideSymbolInput ? null : (
         <ToggleButtonGroup

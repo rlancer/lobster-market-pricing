@@ -25,7 +25,7 @@ import {
   type SchwabEnv,
 } from "./schwab";
 import { loadSchwabPortfolio } from "./schwab-portfolio";
-import { loadSchwabPnl, resolvePnlRange } from "./schwab-pnl";
+import { asOfInstant, loadSchwabPnl, parseAsOfDate, resolvePnlRange } from "./schwab-pnl";
 import { loadSchwabTrades, matchesTicker, parseTradeDateRange } from "./schwab-trader";
 import { getSessionUser } from "./auth";
 import { adminTokenAuthorized } from "./bots";
@@ -219,7 +219,11 @@ export async function handleSchwab(
     if (!user) return unauthorized();
 
     const url = new URL(req.url);
-    const range = resolvePnlRange(url.searchParams.get("range"));
+    const asOf = parseAsOfDate(url.searchParams.get("as_of"));
+    const range = resolvePnlRange(
+      url.searchParams.get("range"),
+      asOf ? asOfInstant(asOf) : new Date(),
+    );
     if ("error" in range) return json({ error: range.error }, 400);
 
     const result = await loadSchwabPnl(env, user.id, {
@@ -252,7 +256,11 @@ export async function handleSchwab(
     const url = new URL(req.url);
     const userId = url.searchParams.get("user_id")?.trim();
     if (!userId) return json({ error: "user_id is required" }, 400);
-    const range = resolvePnlRange(url.searchParams.get("range"));
+    const asOf = parseAsOfDate(url.searchParams.get("as_of"));
+    const range = resolvePnlRange(
+      url.searchParams.get("range"),
+      asOf ? asOfInstant(asOf) : new Date(),
+    );
     if ("error" in range) return json({ error: range.error }, 400);
 
     const status = await getSchwabConnectionStatus(env, { id: userId, email: "", name: "" });
