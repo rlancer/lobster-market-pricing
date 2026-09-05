@@ -122,7 +122,6 @@
 
 .timeline-post-byline,
 .timeline-post-meta,
-.timeline-post-flags,
 .timeline-tickers {
   flex-wrap: wrap;
   min-width: 0;
@@ -160,14 +159,6 @@
 .timeline-post-actions {
   margin-inline-start: auto;
   flex-shrink: 0;
-}
-
-.timeline-post-flags {
-  color: var(--color-text-secondary, var(--muted));
-}
-
-.timeline-flag {
-  color: var(--color-text-secondary, var(--muted));
 }
 
 .timeline-model {
