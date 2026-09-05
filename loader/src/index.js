@@ -75,10 +75,10 @@ async function handleRun(request, env) {
 
 /**
  * POST /symbols/enroll — durable on-demand enrollment.
- * Body: { symbol, source?, requested_by?, notes?, load_now?, security_type? }
- * Seeds enrolled_symbols + symbol_state / ohlc_backfill_state /
- * research_brief_state, optionally kicks an immediate CBOE+OHLC load
- * (and ETF profile/holdings when security_type is etf|fund).
+ * Body: { symbol, source?, requested_by?, notes?, load_now?, etl_scope?, security_type? }
+ * Seeds enrolled_symbols. Full scope also seeds symbol_state /
+ * ohlc_backfill_state / research_brief_state and optionally kicks an
+ * immediate CBOE+OHLC load. etl_scope=etf is holdings-only (etf-daily).
  */
 async function handleEnroll(request, env, ctx) {
   if (!env.LOADER_DB) {
@@ -96,6 +96,7 @@ async function handleEnroll(request, env, ctx) {
     return json({ error: `invalid enrollable ticker: ${raw || "(empty)"}` }, 400);
   }
   const loadNow = body.load_now !== false;
+  const etlScope = body.etl_scope === "etf" ? "etf" : "full";
   const securityType = typeof body.security_type === "string" ? body.security_type : null;
   try {
     const result = await enrollSymbol(env.LOADER_DB, symbol, {
@@ -104,30 +105,33 @@ async function handleEnroll(request, env, ctx) {
       notes: typeof body.notes === "string" ? body.notes : null,
       backoffBaseSeconds: Number(env.LOADER_BACKOFF_BASE_SECONDS) || 60,
       securityType,
+      etlScope,
     });
     armDriver(env, ctx);
     if (loadNow) {
       ctx.waitUntil(
         (async () => {
-          try {
-            await runSymbols([symbol], env);
-          } catch (error) {
-            console.log(JSON.stringify({
-              event: "enroll_run_symbols_error",
-              symbol,
-              error: String((error && error.message) || error),
-            }));
-          }
-          try {
-            if (env.PIPELINE_OHLC_URL || env.PIPELINE_REALIZED_VOL_URL) {
-              await publishOhlc(symbol, env);
+          if (etlScope === "full") {
+            try {
+              await runSymbols([symbol], env);
+            } catch (error) {
+              console.log(JSON.stringify({
+                event: "enroll_run_symbols_error",
+                symbol,
+                error: String((error && error.message) || error),
+              }));
             }
-          } catch (error) {
-            console.log(JSON.stringify({
-              event: "enroll_publish_ohlc_error",
-              symbol,
-              error: String((error && error.message) || error),
-            }));
+            try {
+              if (env.PIPELINE_OHLC_URL || env.PIPELINE_REALIZED_VOL_URL) {
+                await publishOhlc(symbol, env);
+              }
+            } catch (error) {
+              console.log(JSON.stringify({
+                event: "enroll_publish_ohlc_error",
+                symbol,
+                error: String((error && error.message) || error),
+              }));
+            }
           }
           const type = String(securityType || "").trim().toLowerCase();
           if (type === "etf" || type === "fund" || type === "mutualfund" || type === "mutual_fund") {
@@ -146,7 +150,7 @@ async function handleEnroll(request, env, ctx) {
         })(),
       );
     }
-    return json({ ...result, load_now: loadNow, security_type: securityType });
+    return json({ ...result, load_now: loadNow, etl_scope: etlScope, security_type: securityType });
   } catch (error) {
     return json({ error: (error && error.message) || String(error) }, 500);
   }

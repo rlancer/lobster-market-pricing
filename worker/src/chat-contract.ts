@@ -49,7 +49,7 @@ export const CHAT_TOOL_DESCRIPTIONS = {
     "Lake coverage is incomplete — use this before treating an unknown holding as a single-name " +
     "stock, and read the constituent weights before calling a fund concentrated. Accepts 1–20 symbols. " +
     "Prefers the in-process catalog, then Yahoo search + quoteSummary topHoldings. Looked-up funds " +
-    "are enrolled so options.etf_profiles / etf_holdings stay populated.",
+    "are enrolled for etf-daily holdings only — they do not join the public CBOE options tape.",
   web_search: "Search for current market commentary or events and return up to five citable links.",
   eco_calendar: "Fetch scheduled macro events for the next 7 to 90 days.",
   research_ticker:

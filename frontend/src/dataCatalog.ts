@@ -161,7 +161,7 @@ export const TOOLS: CatalogItem[] = [
     title: 'lookup_symbols',
     summary: 'Identify a ticker and, for funds, what it holds',
     description:
-      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto), issuer/fund name, and for funds Yahoo top-10 holdings with weights. Lake coverage is incomplete — many funds have no etf_profiles row in the default manifest — so this uses the in-process catalog first, then Yahoo search + quoteSummary. Looked-up funds are enrolled into etf-daily so constituents persist on options.etf_holdings. Call before treating an unknown holding as a single-name stock, and read the weights before calling a fund concentrated. Chat also prints Schwab asset kind + description on get_portfolio / get_schwab_quotes lines when the broker sent them.',
+      'Returns kind (equity vs ETF vs fund vs index vs future vs crypto), issuer/fund name, and for funds Yahoo top-10 holdings with weights. Lake coverage is incomplete — many funds have no etf_profiles row in the default manifest — so this uses the in-process catalog first, then Yahoo search + quoteSummary. Looked-up funds are enrolled for etf-daily holdings only (not the public CBOE options tape) so constituents persist on options.etf_holdings. Call before treating an unknown holding as a single-name stock, and read the weights before calling a fund concentrated. Chat also prints Schwab asset kind + description on get_portfolio / get_schwab_quotes lines when the broker sent them.',
     feeds: ['yahoo', 'yahoo-etf'],
     tables: ['etf_profiles', 'etf_holdings'],
     tools: ['get_portfolio', 'research_ticker', 'suggest_trades'],

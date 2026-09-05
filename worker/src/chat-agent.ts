@@ -1562,7 +1562,7 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
         const tools = this.createTools(tables, capture, status, turn, deskSpecialists);
         const result = streamText({
           model,
-          system: systemPrompt(schemaToPrompt(tables), { bot, deskSpecialists, reply, attachments }),
+          system: systemPrompt(schemaToPrompt(tables, { includeSamples: false }), { bot, deskSpecialists, reply, attachments }),
           messages,
           tools,
           stopWhen: isStepCount(AGENT_ITERATIONS_MAX),

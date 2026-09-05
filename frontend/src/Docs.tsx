@@ -118,7 +118,7 @@ const JOBS = [
   ['cboe-options', 'Continuous, market-gated', 'The screener\u2019s core feed: CBOE option contracts, underlying snapshots, and refresh runs.'],
   ['ohlc-daily', 'Daily', 'Yahoo daily OHLC (1-year window) + realized volatility computed off split-adjusted closes.'],
   ['ohlc-backfill', 'On demand (POST /jobs/ohlc-backfill/trigger)', 'Item-scoped, resumable historical OHLC backfill; Yahoo dividend/split events land in corporate_actions.'],
-  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 92 optionable ETFs plus enrolled funds (on-demand looked-up ETFs).'],
+  ['etf-daily', 'Daily', 'Yahoo fund profile (expense ratio, AUM, yield) + top-10 holdings for the 92 optionable ETFs plus enrolled funds (lookup_symbols holdings-only enrollments; not added to the CBOE options tape).'],
   ['fundamentals-daily', 'Daily', 'Yahoo equity fundamentals (market cap, P/E, debt, margins) for the universe equity sleeve.'],
   ['indices-ohlc-daily', 'Daily', 'Yahoo OHLC for CBOE vol indexes (^VIX, ^VVIX, …) into options.ohlc / realized_vol.'],
   ['crypto-spot-ohlc-daily', 'Daily', 'Yahoo OHLC for major spot cryptocurrencies (BTC-USD, ETH-USD, …) into options.ohlc / realized_vol.'],

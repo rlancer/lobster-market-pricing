@@ -15,8 +15,8 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 // `symbol_state`; the scheduler owns per-symbol due/backoff and this adapter
 // maps a due batch through runSymbols (items-in / failures-out).
 //
-// Universe = bundled symbols/universe.json ∪ enabled enrolled_symbols so
-// on-demand tickers stay in the continuous refresh loop after enrollment.
+// Universe = bundled symbols/universe.json ∪ enrolled_symbols with
+// seed_options=1. Holdings-only lookup enrollments stay off this tape.
 export function cboeOptionsJob(env: SchedulerEnv): ItemJob {
   return {
     id: "cboe-options",

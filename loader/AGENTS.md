@@ -78,10 +78,12 @@ are **not** in this option-chain universe; they land in `options.ohlc` via
 question about SOFI when it is not in the lake) are written to D1
 `enrolled_symbols` via `POST /symbols/enroll` (Bearer `LOADER_TOKEN`). The API
 Worker auto-calls this when research returns a thin brief for an out-of-universe
-equity, and when `lookup_symbols` identifies an ETF/fund (with `security_type=etf`)
-so holdings land in the lake. Enrollment also seeds `symbol_state`,
-`ohlc_backfill_state`, and `research_brief_state`, and optionally kicks an
-immediate CBOE + OHLC load (plus `publishEtf` for funds).
+equity (full ETL: CBOE options + OHLC + research item stores, `load_now`), and
+when `lookup_symbols` identifies an ETF/fund (`security_type=etf`,
+`etl_scope=etf`, `seed_options=0`) so etf-daily can persist holdings **without**
+adding the ticker to the public options tape. Identifying a private book must
+not jump `cboe-options` / `ohlc-daily`. Full enrollment still seeds
+`symbol_state`, `ohlc_backfill_state`, and `research_brief_state`.
 ETL jobs (`cboe-options`, `ohlc-daily`, `ohlc-backfill`, `earnings-daily`,
 `fundamentals-daily`, `research-briefs-daily`, `sec-filings-daily`) use the **effective universe** =
 bundled manifest ∪ enabled `enrolled_symbols`. `etf-daily` uses the bundled

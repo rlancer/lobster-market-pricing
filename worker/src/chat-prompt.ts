@@ -39,24 +39,18 @@ export const SCHEMA_PLACEHOLDER =
   "[Live Iceberg lake schema is injected at chat time from the cached /api/tables payload.]";
 
 export function schemaToPrompt(tables: LakeTable[], opts?: { includeSamples?: boolean }): string {
-  const includeSamples = opts?.includeSamples !== false;
+  // Samples stay out of the live chat prompt. Iceberg LIMIT n without a
+  // predicate returns recently written files — often just-enrolled private-book
+  // ETFs — and a 3-row sample cannot establish cardinality (it used to emit
+  // fake enums like `symbol in {"EWY"}` that steered public bots toward those names).
+  const includeSamples = opts?.includeSamples === true;
   return tables.map((table) => {
     const columns = table.columns.map((column) => `    ${column.name} ${column.type}`).join("\n");
     const samples = includeSamples && table.sample?.length
       ? `\n  sample rows:\n${table.sample.map((row) => `    ${JSON.stringify(row)}`).join("\n")}`
       : "";
-    const distinct: string[] = [];
-    if (includeSamples) {
-      for (const column of table.columns) {
-        const values = [...new Set((table.sample ?? []).map((row) => row[column.name]).filter((value) => value != null))];
-        if (values.length > 0 && values.length <= 6) {
-          distinct.push(`    ${column.name} in {${values.map((value) => JSON.stringify(value)).join(", ")}}`);
-        }
-      }
-    }
-    const enums = distinct.length ? `\n  low-cardinality values:\n${distinct.join("\n")}` : "";
     const rows = table.row_count == null ? "" : `\n  row_count: ${table.row_count.toLocaleString("en-US")}`;
-    return `TABLE options.${table.name}\n  columns:\n${columns}${samples}${enums}${rows}`;
+    return `TABLE options.${table.name}\n  columns:\n${columns}${samples}${rows}`;
   }).join("\n\n");
 }
 
@@ -96,6 +90,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "- Avoid expensive unfiltered joins, high-cardinality DISTINCT, ARRAY_AGG/STRING_AGG, and large window partitions. Filter before joining; use approx_* aggregates where possible.",
     `- Stop retrying the same failing SQL: fix it at most twice from the error, then simplify to a smaller, looser query. After ${QUERY_FORCE_FAILURES_MAX} failed queries the loop stops forcing SQL — write a Markdown answer (or say the data could not be retrieved) instead of probing further. Do not call check_schema repeatedly on the same SQL. If a query returns no rows, say so and suggest a looser criterion.`,
     "- For why-is-it-moving questions, compare implied vs realized vol, check upcoming options.earnings, then use get_news or web_search and cite links — and still publish the active non-technical specialists (fundamental / options / risk / macro as routed), not only technicals.",
+    "- Unusual options flow is a market-wide read. A single as_of_date in options.option_contracts with only a handful of distinct underlyings is incomplete ingest, not the tape — do not treat those names as flow leaders. Require a broad distinct-symbol count (or join options.instruments / the liquid index and sector sleeve) before calling something unusual volume.",
     "- When suggesting a trade or analyzing a specific ticker, MUST call research_ticker first. It lake-normalizes the symbol, links this chat to that security, and returns price/volume technicals, lake fundamentals, earnings, and news. Ground every specialist take in that brief plus follow-up SQL.",
     "- Identify holdings before concentration or single-name claims. Broker books include asset kind + description on each line (COLLECTIVE_INVESTMENT / etf means a fund, not a stock). If a ticker is unlabeled or you are unsure whether it is a single issuer vs an ETF/fund/index, MUST call lookup_symbols — it returns kind, fund name, and Yahoo top holdings with weights. Then query options.etf_holdings (latest-wins on ticker) when you need overlap across funds or a lake-backed book. Single-name concentration is one issuer (AAPL, SBNY). A diversified index/equal-weight/broad-market ETF whose top names are fractions of a percent each is sleeve/beta size — never label it \"single-holding\" or recommend trimming it as if it were a stock. Use the actual weights: the same stock appearing in several funds is issuer overlap; a large broad-market ETF sleeve is not. Sector/thematic ETFs are factor concentration; commodity products are commodity concentration.",
     "- If research_ticker reports thin/missing lake data for a ticker, the system auto-enrolls it into the continuous ETL so options, OHLC, and fundamentals start landing. Tell the user data is being loaded and they can retry shortly — do not invent chain or OHLC numbers.",

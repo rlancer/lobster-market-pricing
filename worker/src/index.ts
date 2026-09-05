@@ -177,6 +177,7 @@ import {
   isEnrollableEquityTicker,
   shouldEnrollForMissingLakeData,
 } from "./enroll-symbol";
+import { schemaSampleSql } from "./schema-sample";
 import { handlePortfolio } from "./paper-portfolio-http";
 import { autoTrackSuggestedTrades as applySuggestedTradesToPaper, listPortfolio, parseConviction, resolvePaperOwnerUserId } from "./paper-portfolio";
 import { listBotTrades, trackBotSuggestedTrades, ensureBotTradesBackfilled } from "./bot-trades";
@@ -787,7 +788,6 @@ async function symbolDetail(env: Env, symbol: string, opts: SymbolDetailOpts = {
 // performance layer only).
 const SCHEMA_TTL_MS = 10 * 60 * 1000; // schema structure is near-static
 const SCHEMA_CACHE_KEY = "lake_tables";
-const SCHEMA_SAMPLE_LIMIT = 3;
 // Background change-detection cadence: on fresh reads, diff the lake's shape
 // against the cached payload at most once per interval, per isolate.
 const SCHEMA_PROBE_INTERVAL_MS = 60 * 1000;
@@ -817,15 +817,16 @@ async function loadLakeTables(env: Env): Promise<LakeTable[]> {
       .map((t) => String(t.table_name))
       .filter(isPublicLakeTable)
       .map(async (name): Promise<LakeTable> => {
-        const [cols, cnt, sample] = await Promise.all([
-          r2sql(env, `DESCRIBE options.${name}`),
+        const cols = await r2sql(env, `DESCRIBE options.${name}`);
+        const columns = cols.map((c) => ({ name: String(c.column_name), type: String(c.type) }));
+        const [cnt, sample] = await Promise.all([
           r2sql(env, `SELECT COUNT(*) n FROM options.${name}`, "tbl_count_" + name),
-          r2sql(env, `SELECT * FROM options."${name}" LIMIT ${SCHEMA_SAMPLE_LIMIT}`, "tbl_sample_" + name),
+          r2sql(env, schemaSampleSql(name, columns), "tbl_sample_" + name),
         ]);
         return {
           name,
           row_count: num(cnt[0]?.n),
-          columns: cols.map((c) => ({ name: String(c.column_name), type: String(c.type) })),
+          columns,
           sample: sample as Record<string, unknown>[],
         };
       }),

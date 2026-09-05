@@ -11,6 +11,8 @@ const BUNDLED_SET = new Set(BUNDLED);
 export const ENROLLED_SECURITY_TYPES = ["equity", "etf", "fund"] as const;
 export type EnrolledSecurityType = (typeof ENROLLED_SECURITY_TYPES)[number];
 
+export type EnrollEtlScope = "full" | "etf";
+
 export interface EnrollOpts {
   source?: string;
   requestedBy?: string | null;
@@ -21,6 +23,12 @@ export interface EnrollOpts {
   backoffBaseSeconds?: number;
   /** equity | etf | fund — drives etf-daily + instruments classification. */
   securityType?: string | null;
+  /**
+   * full (default) seeds CBOE / OHLC / research item stores so the ticker
+   * joins the public options tape. etf writes enrolled_symbols only so
+   * etf-daily can persist holdings without jumping cboe-options.
+   */
+  etlScope?: EnrollEtlScope;
 }
 
 export interface EnrollResult {
@@ -100,6 +108,28 @@ export async function listEnrolledSymbols(db: D1Database): Promise<string[]> {
   }
 }
 
+/**
+ * Enrolled tickers that join the public CBOE / OHLC / research universe.
+ * Holdings-only rows (seed_options=0, from lookup_symbols) are excluded.
+ */
+export async function listOptionsEnrolledSymbols(db: D1Database): Promise<string[]> {
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT symbol FROM enrolled_symbols
+         WHERE enabled = 1 AND COALESCE(seed_options, 1) = 1
+         ORDER BY symbol ASC`,
+      )
+      .all<{ symbol: string }>();
+    return (rows.results || [])
+      .map((r) => String(r.symbol || "").toUpperCase())
+      .filter(Boolean);
+  } catch {
+    // Migration 0007 not applied yet — fall back to every enabled row.
+    return listEnrolledSymbols(db);
+  }
+}
+
 /** Enabled enrolled tickers whose security_type is one of `types`. */
 export async function listEnrolledSymbolsByType(
   db: D1Database,
@@ -162,9 +192,9 @@ export async function countEnrolledSymbols(db: D1Database): Promise<number> {
   }
 }
 
-/** Bundled ∪ enrolled, de-duplicated, uppercased, sorted. */
+/** Bundled ∪ options-seeded enrolled, de-duplicated, uppercased, sorted. */
 export async function effectiveUniverse(db?: D1Database): Promise<string[]> {
-  const enrolled = db ? await listEnrolledSymbols(db) : [];
+  const enrolled = db ? await listOptionsEnrolledSymbols(db) : [];
   const set = new Set(BUNDLED);
   for (const s of enrolled) set.add(s);
   return Array.from(set).sort();
@@ -172,7 +202,8 @@ export async function effectiveUniverse(db?: D1Database): Promise<string[]> {
 
 export async function expectedUniverseSize(db?: D1Database): Promise<number> {
   // Enrolled symbols already in the bundled list must not inflate seedSize.
-  const enrolled = db ? await listEnrolledSymbols(db) : [];
+  // Holdings-only enrollments (seed_options=0) stay out of the CBOE tape.
+  const enrolled = db ? await listOptionsEnrolledSymbols(db) : [];
   let extra = 0;
   for (const s of enrolled) {
     if (!BUNDLED_SET.has(s)) extra += 1;
@@ -201,6 +232,7 @@ export async function enrollSymbol(
   const requestedBy = opts.requestedBy ? String(opts.requestedBy).slice(0, 128) : null;
   const notes = opts.notes ? String(opts.notes).slice(0, 512) : null;
   const securityType = normalizeEnrolledSecurityType(opts.securityType);
+  const etlScope: EnrollEtlScope = opts.etlScope === "etf" ? "etf" : "full";
   const bundled = BUNDLED_SET.has(symbol);
 
   let already = false;
@@ -209,6 +241,7 @@ export async function enrollSymbol(
       .prepare(`SELECT symbol, enabled FROM enrolled_symbols WHERE symbol = ?`)
       .bind(symbol)
       .first();
+    const seedOptions = etlScope === "full" ? 1 : 0;
     if (existing) {
       already = true;
       await db
@@ -216,19 +249,20 @@ export async function enrollSymbol(
           `UPDATE enrolled_symbols
              SET enabled = 1, source = ?, requested_by = COALESCE(?, requested_by),
                  notes = COALESCE(?, notes), last_error = NULL,
-                 security_type = COALESCE(?, security_type)
+                 security_type = COALESCE(?, security_type),
+                 seed_options = CASE WHEN ? = 1 THEN 1 ELSE COALESCE(seed_options, 1) END
            WHERE symbol = ?`,
         )
-        .bind(source, requestedBy, notes, securityType, symbol)
+        .bind(source, requestedBy, notes, securityType, seedOptions, symbol)
         .run();
     } else {
       await db
         .prepare(
           `INSERT INTO enrolled_symbols
-             (symbol, source, requested_by, requested_at, enabled, last_error, notes, security_type)
-           VALUES (?, ?, ?, ?, 1, NULL, ?, ?)`,
+             (symbol, source, requested_by, requested_at, enabled, last_error, notes, security_type, seed_options)
+           VALUES (?, ?, ?, ?, 1, NULL, ?, ?, ?)`,
         )
-        .bind(symbol, source, requestedBy, now, notes, securityType)
+        .bind(symbol, source, requestedBy, now, notes, securityType, seedOptions)
         .run();
     }
   } catch (error) {
@@ -239,62 +273,66 @@ export async function enrollSymbol(
     );
   }
 
-  // Due immediately so the next cboe-options / backfill / research pass picks it up.
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO symbol_state
-         (symbol, enabled, last_success_at, last_attempt_at, consecutive_failures,
-          next_attempt_after, backoff_seconds, last_error, priority)
-       VALUES (?, 1, NULL, NULL, 0, 0, ?, NULL, 0)`,
-    )
-    .bind(symbol, base)
-    .run();
-  await db
-    .prepare(
-      `UPDATE symbol_state
-         SET enabled = 1, next_attempt_after = 0, last_error = NULL
-       WHERE symbol = ?`,
-    )
-    .bind(symbol)
-    .run();
+  // Identifying a fund (lookup_symbols) must not jump the public CBOE tape.
+  // etf-daily reads enrolled_symbols; cboe-options / ohlc-backfill / research
+  // only pick up full-scope enrollments (explicit research of a thin ticker).
+  if (etlScope === "full") {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO symbol_state
+           (symbol, enabled, last_success_at, last_attempt_at, consecutive_failures,
+            next_attempt_after, backoff_seconds, last_error, priority)
+         VALUES (?, 1, NULL, NULL, 0, 0, ?, NULL, 0)`,
+      )
+      .bind(symbol, base)
+      .run();
+    await db
+      .prepare(
+        `UPDATE symbol_state
+           SET enabled = 1, next_attempt_after = 0, last_error = NULL
+         WHERE symbol = ?`,
+      )
+      .bind(symbol)
+      .run();
 
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO ohlc_backfill_state
-         (symbol, security_id, enabled, last_success_at, last_attempt_at,
-          consecutive_failures, next_attempt_after, backoff_seconds,
-          last_error, priority)
-       VALUES (?, ?, 1, NULL, NULL, 0, 0, ?, NULL, 0)`,
-    )
-    .bind(symbol, securityIdForTicker(symbol), base)
-    .run();
-  await db
-    .prepare(
-      `UPDATE ohlc_backfill_state
-         SET enabled = 1, next_attempt_after = 0, last_error = NULL
-       WHERE symbol = ?`,
-    )
-    .bind(symbol)
-    .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO ohlc_backfill_state
+           (symbol, security_id, enabled, last_success_at, last_attempt_at,
+            consecutive_failures, next_attempt_after, backoff_seconds,
+            last_error, priority)
+         VALUES (?, ?, 1, NULL, NULL, 0, 0, ?, NULL, 0)`,
+      )
+      .bind(symbol, securityIdForTicker(symbol), base)
+      .run();
+    await db
+      .prepare(
+        `UPDATE ohlc_backfill_state
+           SET enabled = 1, next_attempt_after = 0, last_error = NULL
+         WHERE symbol = ?`,
+      )
+      .bind(symbol)
+      .run();
 
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO research_brief_state
-         (symbol, enabled, last_success_at, last_attempt_at,
-          consecutive_failures, next_attempt_after, backoff_seconds,
-          last_error, priority)
-       VALUES (?, 1, NULL, NULL, 0, 0, ?, NULL, 0)`,
-    )
-    .bind(symbol, base)
-    .run();
-  await db
-    .prepare(
-      `UPDATE research_brief_state
-         SET enabled = 1, next_attempt_after = 0, last_error = NULL
-       WHERE symbol = ?`,
-    )
-    .bind(symbol)
-    .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO research_brief_state
+           (symbol, enabled, last_success_at, last_attempt_at,
+            consecutive_failures, next_attempt_after, backoff_seconds,
+            last_error, priority)
+         VALUES (?, 1, NULL, NULL, 0, 0, ?, NULL, 0)`,
+      )
+      .bind(symbol, base)
+      .run();
+    await db
+      .prepare(
+        `UPDATE research_brief_state
+           SET enabled = 1, next_attempt_after = 0, last_error = NULL
+         WHERE symbol = ?`,
+      )
+      .bind(symbol)
+      .run();
+  }
 
   return {
     symbol,
