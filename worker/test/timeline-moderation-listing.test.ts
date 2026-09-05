@@ -49,6 +49,29 @@ test("bot listing decision allows a finished conclusive answer", () => {
   });
 });
 
+test("bot listing decision rejects protocol-echo Received desks", () => {
+  const messages = [
+    { role: "user", content: "Hourly market overview: lead with SPX/QQQ/IWM." },
+    {
+      role: "assistant",
+      content:
+        "Since this is a broad market overview ask, I should charter the index series and check a few sector ETFs. Let me grab sector ETF closes.",
+      desk: {
+        overview: "Received: ... first include Text 'Received'",
+        fundamental: "Received: ... first include Text & 'Received'",
+        technical: "Received: ... first include Text Received",
+        options: "Received: ... first include the Text Received",
+        risk: "Received: ... first include Text Received",
+      },
+    },
+  ];
+  assert.deepEqual(timelineListingDecision(messages), {
+    on_timeline: false,
+    moderation_rejected: true,
+    reason: "assistant answer is unfinished tool-loop narration",
+  });
+});
+
 test("moderateTimelineShare without a model still rejects placeholders", async () => {
   const decision = await moderateTimelineShare(
     [

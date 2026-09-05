@@ -1,4 +1,5 @@
 import { Markdown } from '@astryxdesign/core';
+import { isDeskStubText } from './deskStub.ts';
 
 export interface DeskBrief {
   fundamental?: string;
@@ -17,13 +18,13 @@ const VIEWPOINTS: { id: keyof Omit<DeskBrief, 'overview'>; label: string; hint: 
   { id: 'macro', label: 'Macro', hint: 'Rates, Fed, factor regime' },
 ];
 
-const STUB_RE = /^(placeholder|tbd|todo|n\/?a|none|null|undefined|\.{1,3}|x+|-+)$/i;
+export { isDeskStubText } from './deskStub.ts';
 
 function isPresentTake(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const trimmed = value.replace(/\s+/g, ' ').trim();
   if (!trimmed || trimmed.length < 40) return false;
-  if (STUB_RE.test(trimmed)) return false;
+  if (isDeskStubText(trimmed)) return false;
   return true;
 }
 

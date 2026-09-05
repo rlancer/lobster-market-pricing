@@ -91,9 +91,9 @@ import {
   publicReplyStyles,
   upsertReplyPref,
 } from "./reply-style";
-import { getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
+import { clearBotListing, getTimelineAuthor, handleTimeline, recordShareOwner } from "./timeline";
 import { serveHomepageSession, refreshHomepageSession, SESSION_CALENDAR_DAYS } from "./timeline-session";
-import { moderateTimelineShare } from "./timeline-moderation";
+import { heuristicTimelineQuality, moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
@@ -2471,6 +2471,10 @@ async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): 
       );
     }
     messages = healed;
+  }
+  if (row.bot_handle && heuristicTimelineQuality(messages)?.allow === false) {
+    ctx.waitUntil(clearBotListing(env.SCHEMA_DB, row.share_id));
+    row.bot_handle = null;
   }
   const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
   let tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];

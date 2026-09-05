@@ -132,6 +132,32 @@ test("heuristic rejects leaked DSML tool markup without a takeaway", () => {
   assert.match(decision?.reason ?? "", /tool-call markup|takeaway/i);
 });
 
+test("heuristic rejects protocol-echo desk plus planning-only body", () => {
+  // Regression: share wnJWqaRxtCu1I3CLJIgCiaon — garbage desk sealed the Floor.
+  const decision = heuristicTimelineQuality([
+    {
+      role: "user",
+      content: "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM.",
+    },
+    {
+      role: "assistant",
+      content:
+        "Since this is a broad market overview ask, I should charter the index series and check a few sector ETFs for leadership. Let me grab sector ETF closes (XLK tech, XLF financials) for the recent week, plus maybe EWY to explain the flow.",
+      desk: {
+        overview: "Received: ... first include Text 'Received'",
+        fundamental: "Received: ... first include Text & 'Received'",
+        technical: "Received: ... first include Text Received",
+        options: "Received: ... first include the Text Received",
+        risk: "Received: ... first include Text Received",
+        macro: "Received: ... first include Text 'Received'",
+      },
+    },
+  ]);
+  assert.equal(decision?.allow, false);
+  assert.equal(decision?.source, "heuristic");
+  assert.match(decision?.reason ?? "", /placeholder|tool-loop|narration|empty/i);
+});
+
 test("heuristic rejects unfinished publish/render intent after markup strip", () => {
   const decision = heuristicTimelineQuality([
     { role: "user", content: "Hourly market overview" },

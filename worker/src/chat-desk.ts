@@ -105,11 +105,17 @@ export function clipDeskMarkdown(text: string, max: number): string {
   return `${kept}…`;
 }
 
-/** True for empty / tiny / explicit stub strings models emit under forced toolChoice. */
+/**
+ * True for empty / tiny / explicit stub strings models emit under forced
+ * toolChoice — including DeepSeek protocol echoes that passed the min-length
+ * check (share wnJWqaRxtCu1I3CLJIgCiaon: `Received: ... first include Text`).
+ */
 export function isDeskStubText(text: string): boolean {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (!trimmed) return true;
   if (/^(placeholder|tbd|todo|n\/?a|none|null|undefined|\.{1,3}|x+|-+)$/i.test(trimmed)) return true;
+  if (/\breceived\b/i.test(trimmed) && /first include(?: the)? text/i.test(trimmed)) return true;
+  if (/^received:\s*\.{2,}/i.test(trimmed)) return true;
   return false;
 }
 

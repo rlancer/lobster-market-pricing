@@ -297,6 +297,32 @@ test("coalesceAssistantMessageRecords promotes leaked reasoning on public share 
   assert.doesNotMatch(String(out[1].content), /eco_calendar/);
 });
 
+test("coalesceAssistantMessageRecords drops protocol-echo desks and planning copy", () => {
+  const out = coalesceAssistantMessageRecords([
+    {
+      role: "user",
+      content: "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM.",
+    },
+    {
+      role: "assistant",
+      content:
+        "Since this is a broad market overview ask, I should charter the index series and check a few sector ETFs for leadership. Let me grab sector ETF closes (XLK tech, XLF financials, XLE energy, XLU utilities, XLV healthcare) for the recent week, plus maybe EWY to explain the flow.",
+      reasoning: "The latest data is around 2026-09-04. Let me re-query SPY and QQQ.",
+      desk: {
+        overview: "Received: ... first include Text 'Received'",
+        fundamental: "Received: ... first include Text & 'Received'",
+        technical: "Received: ... first include Text Received",
+        options: "Received: ... first include the Text Received",
+        risk: "Received: ... first include Text Received",
+        macro: "Received: ... first include Text 'Received'",
+      },
+    },
+  ]);
+  assert.equal(out.length, 2);
+  assert.equal(out[1]?.desk, undefined);
+  assert.equal(String(out[1]?.content ?? "").trim(), "");
+});
+
 test("applyCaptureToShareTurns promotes reasoning after recovering chart/sql", () => {
   const out = applyCaptureToShareTurns(
     [

@@ -22,6 +22,33 @@ test("excerptFromMessages prefers the first assistant answer", () => {
   );
 });
 
+test("excerptFromMessages skips planning-only assistant copy and the scheduled desk prompt", () => {
+  assert.equal(
+    excerptFromMessages(
+      [
+        {
+          role: "user",
+          content: "Hourly market overview: what's happening right now? Lead with SPX/QQQ/IWM posture.",
+        },
+        {
+          role: "assistant",
+          content:
+            "Since this is a broad market overview ask, I should charter the index series and check a few sector ETFs for leadership. Let me grab sector ETF closes.",
+          desk: {
+            overview: "Received: ... first include Text 'Received'",
+            fundamental: "Received: ... first include Text & 'Received'",
+            technical: "Received: ... first include Text Received",
+            options: "Received: ... first include the Text Received",
+            risk: "Received: ... first include Text Received",
+          },
+        },
+      ],
+      "SPX/QQQ/IWM posture: sector rotation and options flow",
+    ),
+    "SPX/QQQ/IWM posture: sector rotation and options flow",
+  );
+});
+
 test("excerptFromMessages falls back to the user turn, then the title", () => {
   assert.equal(
     excerptFromMessages([{ role: "user", content: "  Chart NVDA  " }], null),

@@ -31,6 +31,10 @@ function cacheDb(row?: { payload: string; expires_at: number }) {
               if (/FROM shared_chats/.test(sql)) return null;
               return null;
             },
+            async all() {
+              if (/FROM shared_chats/.test(sql)) return { results: [] };
+              return { results: [] };
+            },
             async run() {
               if (/INSERT INTO schema_cache/.test(sql)) {
                 store.set(String(args[0]), {
@@ -72,6 +76,33 @@ test("deskTakeawayFromShare only accepts @nowlobster with a real writeup", () =>
       share_id: "x",
       published_at: 1,
       messages: [{ role: "assistant", content: "SPX holds the 6500 handle while QQQ lags into the print today." }],
+    }),
+    null,
+  );
+});
+
+test("deskTakeawayFromShare rejects protocol-echo Received desks", () => {
+  assert.equal(
+    deskTakeawayFromShare({
+      handle: DESK_HANDLE,
+      share_id: "wnJWqaRxtCu1I3CLJIgCiaon",
+      published_at: THU_ET,
+      messages: [
+        { role: "user", content: "Hourly market overview: lead with SPX/QQQ." },
+        {
+          role: "assistant",
+          content:
+            "Since this is a broad market overview ask, I should charter the index series and check a few sector ETFs for leadership. Let me grab sector ETF closes.",
+          desk: {
+            overview: "Received: ... first include Text 'Received'",
+            fundamental: "Received: ... first include Text & 'Received'",
+            technical: "Received: ... first include Text Received",
+            options: "Received: ... first include the Text Received",
+            risk: "Received: ... first include Text Received",
+            macro: "Received: ... first include Text 'Received'",
+          },
+        },
+      ],
     }),
     null,
   );

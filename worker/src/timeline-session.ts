@@ -10,6 +10,8 @@
  * immediately and refreshes in the background when stale. Users never
  * wait on R2 SQL after the first fill.
  */
+import { isDeskStubText } from "./chat-desk";
+import { isPlanningOnlyTakeaway } from "./share-turns";
 import {
   loadMarketHighlights,
   type TimelineLakeQuery,
@@ -302,31 +304,34 @@ export async function serveHomepageSession(deps: HomepageSessionDeps): Promise<H
 }
 
 export async function loadDeskTakeaway(db: D1Database, now: number): Promise<DeskTakeaway | null> {
-  const row = await db.prepare(
+  const rows = await db.prepare(
     `SELECT s.share_id AS share_id, s.messages AS messages, s.created_at AS published_at, b.handle AS handle
      FROM shared_chats s
      JOIN bot_profiles b ON b.handle = s.bot_handle AND b.enabled = 1
      WHERE s.bot_handle = ?1
        AND (s.expires_at IS NULL OR s.expires_at > ?2)
      ORDER BY s.created_at DESC
-     LIMIT 1`,
-  ).bind(DESK_HANDLE, now).first<{
+     LIMIT 8`,
+  ).bind(DESK_HANDLE, now).all<{
     share_id: string;
     messages: string | null;
     published_at: number;
     handle: string;
   }>();
-  if (!row) return null;
-  let messages: unknown = row.messages;
-  if (typeof messages === "string") {
-    try { messages = JSON.parse(messages); } catch { messages = []; }
+  for (const row of rows.results ?? []) {
+    let messages: unknown = row.messages;
+    if (typeof messages === "string") {
+      try { messages = JSON.parse(messages); } catch { messages = []; }
+    }
+    const takeaway = deskTakeawayFromShare({
+      handle: row.handle,
+      share_id: row.share_id,
+      published_at: row.published_at,
+      messages,
+    });
+    if (takeaway) return takeaway;
   }
-  return deskTakeawayFromShare({
-    handle: row.handle,
-    share_id: row.share_id,
-    published_at: row.published_at,
-    messages,
-  });
+  return null;
 }
 
 async function readSessionRow(db: D1Database): Promise<{ payload: string; expires_at: number } | null> {
@@ -358,9 +363,16 @@ function deskSourceText(messages: unknown): string {
   }) as Array<{ content?: string; desk?: { overview?: string } }>;
   const last = assistants.at(-1);
   const overview = last?.desk?.overview?.trim();
-  if (overview && overview.length >= 40 && !isScheduledDeskPrompt(overview)) return overview;
+  if (
+    overview
+    && overview.length >= 40
+    && !isScheduledDeskPrompt(overview)
+    && !isDeskStubText(overview)
+  ) {
+    return overview;
+  }
   const content = last?.content?.trim();
-  if (content) return content;
+  if (content && !isDeskStubText(content) && !isPlanningOnlyTakeaway(content)) return content;
   return "";
 }
 

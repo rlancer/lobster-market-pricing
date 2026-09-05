@@ -3,6 +3,7 @@
  * Pure helpers so the card can stay a 5-second scan without extra Worker surface.
  */
 import type { EconCalendarEvent, TimelinePost, TimelineRailHighlight } from './api';
+import { isDeskStubText } from './deskStub.ts';
 
 export const DESK_HANDLE = 'nowlobster';
 export const TAKEAWAY_MAX_CHARS = 280;
@@ -137,6 +138,8 @@ export function plainTakeaway(raw: string, maxChars = TAKEAWAY_MAX_CHARS): strin
     .trim();
   if (!text) return '';
   if (isScheduledDeskPrompt(text)) return '';
+  if (isDeskStubText(text)) return '';
+  if (/^since this is\b/i.test(text) && /(?:let me |i should )/i.test(text)) return '';
   if (text.startsWith('{') || text.startsWith('[')) return '';
   if (text.length <= maxChars) return text;
   const window = text.slice(0, maxChars + 1);
@@ -197,9 +200,16 @@ function deskSourceText(post: TimelinePost): string {
   const assistants = (post.messages ?? []).filter((message) => message.role === 'assistant');
   const last = assistants.at(-1);
   const overview = last?.desk?.overview?.trim();
-  if (overview && overview.length >= 40 && !isScheduledDeskPrompt(overview)) return overview;
+  if (
+    overview
+    && overview.length >= 40
+    && !isScheduledDeskPrompt(overview)
+    && !isDeskStubText(overview)
+  ) {
+    return overview;
+  }
   const content = last?.content?.trim();
-  if (content) return content;
+  if (content && !isDeskStubText(content)) return content;
   return post.excerpt ?? '';
 }
 
