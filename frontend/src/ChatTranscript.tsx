@@ -1,9 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link } from '@tanstack/react-router';
 import { HStack, Markdown } from '@astryxdesign/core';
-import { CopyButton } from './CopyButton';
 import { ChartView } from './Chart';
-import { ResultTable } from './QueryResultView';
 import { chartFitsResult } from './chartSpec';
 import { api, type QueryResult, type SharedChatMessage } from './api';
 import { PostShareButton } from './PostShareButton';
@@ -32,78 +29,19 @@ const TOOL_LABELS: Record<string, string> = {
   get_bot_trades: 'Bot trade performance',
 };
 
-function SqlBlock({
-  sql,
-  label,
-  openInData,
-  collapse,
-}: {
-  sql: string;
-  label: string;
-  openInData: boolean;
-  collapse: boolean;
-}) {
-  const actions = (
-    <span
-      className="ai-sql-actions"
-      onClick={collapse ? (event) => event.stopPropagation() : undefined}
-      onKeyDown={collapse ? (event) => event.stopPropagation() : undefined}
-    >
-      <CopyButton text={sql} />
-      {openInData ? (
-        <Link to="/data" search={{ sql, item: 'query' }} className="ai-sql-open">
-          Open in Data ↗
-        </Link>
-      ) : null}
-    </span>
-  );
-  if (collapse) {
-    return (
-      <details className="ai-sql ai-sql-collapsible">
-        <summary className="ai-sql-head">
-          <span>{label}</span>
-          {actions}
-        </summary>
-        <pre>{sql}</pre>
-      </details>
-    );
-  }
-  return (
-    <div className="ai-sql">
-      <div className="ai-sql-head">
-        <span>{label}</span>
-        {actions}
-      </div>
-      <pre>{sql}</pre>
-    </div>
-  );
-}
-
 /**
  * Finished assistant turn body shared by live chat, /share/:id, and the
- * public timeline. Desk viewpoints, markdown, Thinking, Tools used, chart,
- * SQL, and query result (details when a chart is up).
+ * public timeline. Desk viewpoints, markdown, Thinking, Tools used, and
+ * chart. SQL and row results live in Tools used — not as standalone blocks.
  */
 export function AssistantMessageBody({
   message,
-  openInData = false,
-  hydrateResult = true,
-  collapseSql = false,
   hideThinking = false,
   hideTools = false,
   chatId,
   enableTrack = true,
 }: {
   message: SharedChatMessage;
-  /** When true, offer “Open in Data” next to Copy (live chat / timeline in-app). */
-  openInData?: boolean;
-  /**
-   * When false, skip live /api/query hydration (clamped timeline feed). SQL and
-   * Thinking still render; charts force a fetch so the figure can paint.
-   */
-  hydrateResult?: boolean;
-  /** Timeline / settled chat: SQL starts collapsed like Thinking. */
-  collapseSql?: boolean;
   /** Live streaming: TurnProgress already shows the open Thinking panel. */
   hideThinking?: boolean;
   /** Live streaming: TurnProgress already shows the tool feed. */
@@ -114,14 +52,13 @@ export function AssistantMessageBody({
   enableTrack?: boolean;
 }) {
   const wantsChart = Boolean(message.chart);
-  const shouldHydrate = hydrateResult || wantsChart;
   const queries = sqlQueriesFromMessage(message);
   const primarySql = (message.sql?.trim() || queries[queries.length - 1] || '');
   const [result, setResult] = useState<QueryResult | null>(message.result && !message.result.error ? message.result : null);
-  const [loading, setLoading] = useState(shouldHydrate && !message.result && Boolean(primarySql));
+  const [loading, setLoading] = useState(wantsChart && !message.result && Boolean(primarySql));
 
   useEffect(() => {
-    if (message.result || !primarySql || !shouldHydrate) {
+    if (message.result || !primarySql || !wantsChart) {
       setResult(message.result && !message.result.error ? message.result : null);
       setLoading(false);
       return;
@@ -133,7 +70,7 @@ export function AssistantMessageBody({
         if (!cancelled && !queryResult.error) setResult(queryResult);
       })
       .catch(() => {
-        // Snapshot-less shares still show SQL; a live query miss is not fatal.
+        // Snapshot-less shares still paint the chart when a live query misses.
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -141,7 +78,7 @@ export function AssistantMessageBody({
     return () => {
       cancelled = true;
     };
-  }, [message.result, primarySql, shouldHydrate]);
+  }, [message.result, primarySql, wantsChart]);
 
   const chart = message.chart && result?.columns && chartFitsResult(message.chart, result.columns)
     ? message.chart
@@ -205,26 +142,7 @@ export function AssistantMessageBody({
         </details>
       )}
       {chart && result && <ChartView result={result} spec={chart} />}
-      {queries.map((sql, index) => (
-        <SqlBlock
-          key={`${index}-${sql.slice(0, 48)}`}
-          sql={sql}
-          label={queries.length === 1 ? 'SQL' : `SQL ${index + 1} of ${queries.length}`}
-          openInData={openInData}
-          collapse={collapseSql}
-        />
-      ))}
-      {loading && <div className="ai-empty">Loading query result…</div>}
-      {result && (
-        chart ? (
-          <details className="ai-result-details">
-            <summary>Query result ({result.row_count.toLocaleString()} rows)</summary>
-            <ResultTable result={result} />
-          </details>
-        ) : (
-          <ResultTable result={result} />
-        )
-      )}
+      {loading && <div className="ai-empty">Loading chart…</div>}
       {message.role === 'assistant'
         && !overview
         && (message.sql || queries.length || result || chart || message.trades || desk)
@@ -247,9 +165,6 @@ export function framesFromMessages(messages: SharedChatMessage[]): NonNullable<S
 /** One transcript row — same bubble chrome as live AiChat / SharedChat / timeline. */
 export function TranscriptMessage({
   message,
-  openInData = false,
-  hydrateResult = true,
-  collapseSql = false,
   hideThinking = false,
   chatId,
   enableTrack = true,
@@ -262,9 +177,6 @@ export function TranscriptMessage({
   shareTitle,
 }: {
   message: SharedChatMessage;
-  openInData?: boolean;
-  hydrateResult?: boolean;
-  collapseSql?: boolean;
   hideThinking?: boolean;
   chatId?: string | null;
   enableTrack?: boolean;
@@ -325,9 +237,6 @@ export function TranscriptMessage({
         {header}
         <AssistantMessageBody
           message={message}
-          openInData={openInData}
-          hydrateResult={hydrateResult}
-          collapseSql={collapseSql}
           hideThinking={hideThinking}
           chatId={chatId}
           enableTrack={enableTrack}

@@ -1575,9 +1575,6 @@ function AiChatSession({
                             )}
                             <AssistantMessageBody
                               message={shared}
-                              openInData
-                              hydrateResult={false}
-                              collapseSql={!isLive}
                               hideThinking={isLive}
                               hideTools={isLive}
                               chatId={chatId}

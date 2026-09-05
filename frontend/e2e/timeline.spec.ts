@@ -169,13 +169,11 @@ test.describe('The Floor', () => {
     await expect(post.getByText('SQL query').first()).toBeVisible();
     await expect(post.getByText('Check schema')).toBeVisible();
     await expect(post.getByText('News')).toBeVisible();
-    await expect(post.locator('.ai-sql')).toHaveCount(2);
-    await expect(post.getByText('SQL 1 of 2')).toBeVisible();
-    await expect(post.getByText('SQL 2 of 2')).toBeVisible();
-    await post.getByText('SQL 1 of 2').click();
-    await expect(post.locator('.ai-sql pre').first()).toContainText("SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 5");
-    await post.getByText('SQL 2 of 2').click();
-    await expect(post.locator('.ai-sql pre').nth(1)).toContainText("SELECT expiration FROM options.option_contracts WHERE symbol = 'SPY' LIMIT 10");
+    await expect(post.locator('.ai-tool-args').first()).toContainText('SELECT date, close FROM options.ohlc');
+    await expect(post.locator('.ai-tool-args').nth(2)).toContainText('SELECT expiration FROM options.option_contracts');
+    await expect(post.locator('.ai-sql')).toHaveCount(0);
+    await expect(post.getByText('SQL 1 of 2')).toHaveCount(0);
+    await expect(post.locator('.ai-result')).toHaveCount(0);
   });
 
   test('forked follow-up turns show the asker when author differs from the post', async ({ page }) => {
