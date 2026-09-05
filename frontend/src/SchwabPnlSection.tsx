@@ -601,11 +601,13 @@ export function SchwabPnlSection({
         };
       })
   ), [activity, chartSeries]);
-  const chartValues = chartSeries.map((point) => point[chartMetric]);
-  const chartMin = Math.min(0, ...chartValues);
-  const chartMax = Math.max(0, ...chartValues);
-  const chartPad = Math.max((chartMax - chartMin) * 0.08, 1);
-  const chartDomain: [number, number] = [chartMin - chartPad, chartMax + chartPad];
+  const chartDomain = useMemo((): [number, number] => {
+    const values = chartSeries.map((point) => point[chartMetric]);
+    const min = Math.min(0, ...values);
+    const max = Math.max(0, ...values);
+    const pad = Math.max((max - min) * 0.08, 1);
+    return [min - pad, max + pad];
+  }, [chartSeries, chartMetric]);
   const chartDefinition = useMemo(
     () => definePnlChart({
       series: chartSeries,
@@ -613,7 +615,7 @@ export function SchwabPnlSection({
       metric: chartMetric,
       domain: chartDomain,
     }),
-    [chartSeries, chartMarkers, chartMetric, chartMin, chartMax, chartPad],
+    [chartSeries, chartMarkers, chartMetric, chartDomain],
   );
   const largestDay = chartSeries.reduce<(typeof chartSeries)[number] | null>(
     (largest, point) => (

@@ -11,9 +11,9 @@ import { scaleBand } from '@tanstack/charts/scales/band';
 import { scaleLinear } from '@tanstack/charts/scales/linear';
 import { scalePoint } from '@tanstack/charts/scales/point';
 import { tooltip } from '@tanstack/charts/tooltip';
-import type { QueryResult } from '../api';
-import type { ChartKind, ChartSpec } from '../chartSpec';
-import { lobsterChartTheme, monotoneX, mutedAxis, fmtPlotTick } from './theme';
+import type { QueryResult } from '../api.ts';
+import type { ChartKind, ChartSpec } from '../chartSpec.ts';
+import { lobsterChartTheme, monotoneX, mutedAxis, fmtPlotTick } from './theme.ts';
 
 export interface QueryPlotRow {
   x: string | number;

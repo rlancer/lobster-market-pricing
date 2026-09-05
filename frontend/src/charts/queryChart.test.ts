@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createChartScene } from '@tanstack/charts';
+import { createChartScene, renderChartSvg, type ChartScene } from '@tanstack/charts';
 import type { QueryResult } from '../api.ts';
 import type { ChartSpec } from '../chartSpec.ts';
 import { asPlotNumber, buildQueryPlotRows, defineQueryChart } from './queryChart.ts';
 import { definePnlChart } from './pnlChart.ts';
 import { defineTickerChart, tickerCloses } from './tickerChart.ts';
+
+function nodeKinds(nodes: ChartScene['nodes'], kinds = new Set<string>()): Set<string> {
+  for (const node of nodes) {
+    kinds.add(node.kind);
+    if ('children' in node && Array.isArray(node.children)) {
+      nodeKinds(node.children, kinds);
+    }
+  }
+  return kinds;
+}
 
 function result(columns: string[], rows: Record<string, unknown>[]): QueryResult {
   return { columns, rows, row_count: rows.length };
@@ -69,7 +79,8 @@ test('query line chart scene emits one point per valid row', () => {
     { width: 640, height: 280 },
   );
   assert.equal(scene.points.length, 3);
-  assert.ok(scene.nodes.some((node) => node.kind === 'polyline' || node.kind === 'line'));
+  assert.ok(nodeKinds(scene.nodes).has('polyline'));
+  assert.match(renderChartSvg(scene, { ariaLabel: 'IV vs strike' }), /<svg /);
 });
 
 test('ticker chart scene includes the close path and optional spot rule', () => {
@@ -83,8 +94,10 @@ test('ticker chart scene includes the close path and optional spot rule', () => 
     defineTickerChart({ rows, spot: 11, isIntraday: false }),
     { width: 640, height: 256 },
   );
-  assert.equal(scene.points.filter((point) => point.markId?.includes('line') || point.yValue === 11.2 || point.yValue === 10.5).length >= 2, true);
-  assert.ok(scene.nodes.some((node) => node.kind === 'rule' || node.kind === 'line'));
+  assert.equal(scene.points.length, 3);
+  const kinds = nodeKinds(scene.nodes);
+  assert.ok(kinds.has('polyline'));
+  assert.ok(kinds.has('rule'));
 });
 
 test('daily P&L scene paints signed bars and a zero rule', () => {
@@ -104,5 +117,7 @@ test('daily P&L scene paints signed bars and a zero rule', () => {
     { width: 720, height: 280 },
   );
   assert.ok(scene.points.length >= 3);
-  assert.ok(scene.nodes.some((node) => node.kind === 'rect' || node.kind === 'bar'));
+  const kinds = nodeKinds(scene.nodes);
+  assert.ok(kinds.has('rect'));
+  assert.ok(kinds.has('rule'));
 });

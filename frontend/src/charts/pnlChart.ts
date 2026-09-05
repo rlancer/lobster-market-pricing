@@ -4,8 +4,8 @@ import { scaleLinear } from '@tanstack/charts/scales/linear';
 import { scaleOrdinal } from '@tanstack/charts/scales/ordinal';
 import { scalePoint } from '@tanstack/charts/scales/point';
 import { tooltip } from '@tanstack/charts/tooltip';
-import { formatChartTick } from '../tickerChartRange';
-import { fmtUsd, lobsterChartTheme, mutedAxis, stepAfter } from './theme';
+import { formatChartTick } from '../tickerChartRange.ts';
+import { fmtUsd, lobsterChartTheme, mutedAxis, stepAfter } from './theme.ts';
 
 export type PnlMetric = 'daily' | 'cumulative';
 

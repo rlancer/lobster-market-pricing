@@ -2,9 +2,9 @@ import { defineChart, lineY, ruleY, text } from '@tanstack/charts';
 import { scaleLinear } from '@tanstack/charts/scales/linear';
 import { scalePoint } from '@tanstack/charts/scales/point';
 import { tooltip } from '@tanstack/charts/tooltip';
-import type { OhlcBar } from '../api';
-import { formatChartTick } from '../tickerChartRange';
-import { fmtPrice, lobsterChartTheme, monotoneX, mutedAxis } from './theme';
+import type { OhlcBar } from '../api.ts';
+import { formatChartTick } from '../tickerChartRange.ts';
+import { fmtPrice, lobsterChartTheme, monotoneX, mutedAxis } from './theme.ts';
 
 export function tickerCloses(bars: OhlcBar[]): Array<{ date: string; close: number }> {
   return bars.flatMap((bar) => (
