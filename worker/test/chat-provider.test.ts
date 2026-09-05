@@ -104,6 +104,7 @@ test('OpenRouter request and UI stream preserve Chat contracts', async () => {
     suggest_trades: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.suggest_trades, execute: async () => ({ ok: true }) }),
     get_paper_portfolio: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_paper_portfolio, execute: async () => ({ ok: true }) }),
     get_portfolio: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_portfolio, execute: async () => ({ ok: true }) }),
+    get_market_tape: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_market_tape, execute: async () => ({ ok: true }) }),
     get_schwab_quotes: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_schwab_quotes, execute: async () => ({ ok: true }) }),
     get_bot_trades: tool({ inputSchema: CHAT_TOOL_INPUT_SCHEMAS.get_bot_trades, execute: async () => ({ ok: true }) }),
   };

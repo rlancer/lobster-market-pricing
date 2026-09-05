@@ -36,8 +36,9 @@ test("schemaToPrompt never infers a universe from a 3-row sample", () => {
   assert.doesNotMatch(body, /symbol in \{"EWY"\}/);
 });
 
-test("systemPrompt tells the desk a thin option_contracts day is not the tape", () => {
+test("systemPrompt forces get_market_tape on overview / what's-going-on asks", () => {
   const body = systemPrompt("[schema]");
-  assert.match(body, /incomplete ingest/i);
-  assert.match(body, /do not treat those names as flow leaders/i);
+  assert.match(body, /MUST call get_market_tape first/);
+  assert.match(body, /unfiltered option_contracts GROUP BY/);
+  assert.doesNotMatch(body, /do not treat those names as flow leaders/);
 });

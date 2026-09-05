@@ -10,6 +10,10 @@
  * When the user attaches a portfolio, force `get_portfolio` first — lake SQL
  * is not the grounding evidence for brokerage/paper books (share
  * 1pQXi6YlgunqnHl5QCzgfsTgn: forced SELECT 1 ×3, never called get_portfolio).
+ *
+ * When the ask is a market overview / "what's going on", force `get_market_tape`
+ * first — an unfiltered option_contracts GROUP BY on a thin ingest day is not
+ * the tape (share wnJWqaRxtCu1I3CLJIgCiaon).
  */
 
 export const AGENT_ITERATIONS_MAX = 10;
@@ -19,6 +23,9 @@ export const QUERY_FORCE_FAILURES_MAX = 3;
 
 /** Forced get_portfolio attempts before sealing so the model can explain. */
 export const PORTFOLIO_FORCE_FAILURES_MAX = 2;
+
+/** Forced get_market_tape attempts before sealing so the model can explain. */
+export const TAPE_FORCE_FAILURES_MAX = 2;
 
 /** Forced suggest_trades attempts before sealing without structured trades. */
 export const TRADES_FORCE_FAILURES_MAX = 2;
@@ -41,6 +48,12 @@ export const AUTO_STEPS_AFTER_QUERY_BEFORE_DESK = 5;
  */
 export const AUTO_STEPS_AFTER_PORTFOLIO_BEFORE_DESK = 2;
 
+/**
+ * After get_market_tape already grounded the session, keep gather short —
+ * indexes / sectors / sleeve flow are already in the tool output.
+ */
+export const AUTO_STEPS_AFTER_TAPE_BEFORE_DESK = 2;
+
 export type ChatToolChoice =
   | "auto"
   | "none"
@@ -51,7 +64,8 @@ export type ChatToolChoice =
       | "filter_frame"
       | "publish_desk"
       | "suggest_trades"
-      | "get_portfolio";
+      | "get_portfolio"
+      | "get_market_tape";
   };
 
 export type ChatActiveToolName =
@@ -70,6 +84,7 @@ export type ChatActiveToolName =
   | "suggest_trades"
   | "get_paper_portfolio"
   | "get_portfolio"
+  | "get_market_tape"
   | "get_bot_trades";
 
 export interface ChatStepPolicy {
@@ -97,6 +112,14 @@ export function nextChatStepPolicy(opts: {
   portfolioLoaded?: boolean;
   failedPortfolioCount?: number;
   portfolioForceFailuresMax?: number;
+  /**
+   * Overview / "what's going on" — load the liquid sleeve before forcing
+   * lake SQL. Cleared once tapeLoaded (or successfulQuery) is true.
+   */
+  requireTape?: boolean;
+  tapeLoaded?: boolean;
+  failedTapeCount?: number;
+  tapeForceFailuresMax?: number;
   /** When true, force publish_desk once evidence exists and the desk is not yet published. */
   requireDesk?: boolean;
   deskPublished?: boolean;
@@ -115,6 +138,7 @@ export function nextChatStepPolicy(opts: {
   const maxSteps = opts.maxSteps ?? AGENT_ITERATIONS_MAX;
   const forceFailuresMax = opts.forceFailuresMax ?? QUERY_FORCE_FAILURES_MAX;
   const portfolioForceFailuresMax = opts.portfolioForceFailuresMax ?? PORTFOLIO_FORCE_FAILURES_MAX;
+  const tapeForceFailuresMax = opts.tapeForceFailuresMax ?? TAPE_FORCE_FAILURES_MAX;
   const tradesForceFailuresMax = opts.tradesForceFailuresMax ?? TRADES_FORCE_FAILURES_MAX;
   const deskForceFailuresMax = opts.deskForceFailuresMax ?? DESK_FORCE_FAILURES_MAX;
   const autoBeforeDesk = opts.autoStepsBeforeDesk ?? AUTO_STEPS_AFTER_QUERY_BEFORE_DESK;
@@ -129,8 +153,8 @@ export function nextChatStepPolicy(opts: {
   }
 
   const toolBudget = Math.max(256, Math.min(opts.toolRoundTokensMax, remaining - opts.finalTokenReserve));
-  // Portfolio load counts as grounding evidence (same post-evidence desk path).
-  const hasEvidence = opts.successfulQuery || Boolean(opts.portfolioLoaded);
+  // Portfolio / tape load counts as grounding evidence (same post-evidence desk path).
+  const hasEvidence = opts.successfulQuery || Boolean(opts.portfolioLoaded) || Boolean(opts.tapeLoaded);
 
   if (hasEvidence) {
     // Private account bots skip publish_desk and must write markdown. Keep
@@ -226,6 +250,20 @@ export function nextChatStepPolicy(opts: {
     return {
       maxOutputTokens: toolBudget,
       toolChoice: { type: "tool", toolName: "get_portfolio" },
+    };
+  }
+
+  // Overview asks: load the liquid sleeve before any lake SQL force.
+  // Without this, "what's going on" writes an unfiltered option_contracts
+  // GROUP BY and treats whatever enrolled today as flow leaders.
+  if (opts.requireTape && !opts.tapeLoaded) {
+    const failedTape = opts.failedTapeCount ?? 0;
+    if (failedTape >= tapeForceFailuresMax) {
+      return { toolChoice: "none", activeTools: [], maxOutputTokens: remaining };
+    }
+    return {
+      maxOutputTokens: toolBudget,
+      toolChoice: { type: "tool", toolName: "get_market_tape" },
     };
   }
 

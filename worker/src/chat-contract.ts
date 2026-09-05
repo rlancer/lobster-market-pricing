@@ -27,6 +27,7 @@ export const CHAT_TOOL_LABELS = {
   suggest_trades: "Suggested trades",
   get_paper_portfolio: "Paper portfolio",
   get_portfolio: "Portfolio",
+  get_market_tape: "Market tape",
   get_schwab_quotes: "Schwab quotes",
   get_bot_trades: "Bot trade performance",
 } as const;
@@ -85,6 +86,12 @@ export const CHAT_TOOL_DESCRIPTIONS = {
     "Optional account_id scopes Schwab to one linked account. " +
     "Paper-only filters: status and conviction. Requires sign-in; Schwab also requires a connected Schwab link. " +
     "If a line is still unlabeled, call lookup_symbols before treating it as a single-name stock.",
+  get_market_tape:
+    "Load the liquid market tape: index ETFs (SPY/QQQ/IWM/DIA/^VIX), sector SPDRs, and options flow " +
+    "restricted to that same sleeve (plus TLT/HYG/GLD/SMH/IBIT). " +
+    "MUST call this first for hourly / market overview / what's going on / what's happening asks. " +
+    "Ground the overview in this output — do not invent flow leaders from an unfiltered option_contracts GROUP BY. " +
+    "If coverage is incomplete, say so; do not treat just-enrolled names as unusual volume.",
   get_schwab_quotes:
     "Fetch live Charles Schwab market-data quotes (last, bid, ask, mark, change, volume) for 1–20 symbols " +
     "using THIS chat owner's connected Schwab token only. Pass symbols only — never a user id or token. " +
@@ -205,6 +212,7 @@ export const CHAT_TOOL_INPUT_SCHEMAS = {
     conviction: z.enum(["high", "medium", "low"]).optional()
       .describe("Paper only — optional conviction filter."),
   }).strict(),
+  get_market_tape: z.object({}).strict(),
   get_schwab_quotes: z.object({
     symbols: z.array(z.string().trim().min(1).max(32)).min(1).max(20)
       .describe("Tickers to quote (equities, $SPX, /ES, OCC options). Symbols only — never a user id."),
