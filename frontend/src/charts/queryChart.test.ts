@@ -56,6 +56,36 @@ test('buildQueryPlotRows emits long-form series rows sorted by numeric x', () =>
   ]);
 });
 
+test('buildQueryPlotRows keeps the last value per x and series', () => {
+  const spec: ChartSpec = { kind: 'bar', x: 'ticker', y: 'pct_chg' };
+  const data = buildQueryPlotRows(
+    result(
+      ['ticker', 'pct_chg'],
+      [
+        { ticker: 'SPY', pct_chg: 1.2 },
+        { ticker: 'XBI', pct_chg: 2.1 },
+        { ticker: 'XBI', pct_chg: 2.4 },
+      ],
+    ),
+    spec,
+  );
+  assert.deepEqual(data.rows, [
+    { x: 'SPY', y: 1.2, series: 'pct_chg' },
+    { x: 'XBI', y: 2.4, series: 'pct_chg' },
+  ]);
+  assert.doesNotThrow(() => {
+    createChartScene(
+      defineQueryChart({
+        rows: data.rows,
+        kind: 'bar',
+        numericX: data.numericX,
+        seriesNames: data.seriesNames,
+      }),
+      { width: 640, height: 280 },
+    );
+  });
+});
+
 test('query line chart scene emits one point per valid row', () => {
   const spec: ChartSpec = { kind: 'line', x: 'strike', y: 'implied_vol' };
   const plot = buildQueryPlotRows(

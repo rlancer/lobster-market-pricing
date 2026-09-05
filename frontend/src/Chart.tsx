@@ -4,7 +4,7 @@
 // chat bubble. Line/area/scatter/bar, plus multi-series grouping (series
 // column) — which is how the model renders a volatility surface: x=strike,
 // y=implied_vol, series=expiration → one curve per tenor.
-import { useMemo } from 'react';
+import { Component, useMemo, type ReactNode } from 'react';
 import { Chart } from '@tanstack/charts/react';
 import type { QueryResult } from './api';
 import { buildQueryPlotRows, defineQueryChart } from './charts/queryChart';
@@ -15,6 +15,28 @@ import './charts.css';
 export type { ChartKind, ChartSpec } from './chartSpec';
 
 const KINDS = new Set<ChartKind>(['line', 'area', 'scatter', 'bar']);
+
+class ChartPlotBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="ai-chart ai-chart-empty">
+          Couldn't chart — {this.state.error.message}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSpec }) {
   const kind: ChartKind = spec.kind && KINDS.has(spec.kind) ? spec.kind : 'line';
@@ -45,16 +67,18 @@ export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSp
   }
 
   return (
-    <div className="ai-chart">
-      {spec.title && <div className="ai-chart-title">{spec.title}</div>}
-      <div className="ai-chart-body">
-        <Chart
-          definition={definition}
-          height={280}
-          ariaLabel={spec.title ?? `${spec.y} vs ${spec.x}`}
-          className={CHART_HOST_CLASS}
-        />
+    <ChartPlotBoundary key={`${kind}:${spec.x}:${spec.y}:${spec.series ?? ''}:${data.rows.length}`}>
+      <div className="ai-chart">
+        {spec.title && <div className="ai-chart-title">{spec.title}</div>}
+        <div className="ai-chart-body">
+          <Chart
+            definition={definition}
+            height={280}
+            ariaLabel={spec.title ?? `${spec.y} vs ${spec.x}`}
+            className={CHART_HOST_CLASS}
+          />
+        </div>
       </div>
-    </div>
+    </ChartPlotBoundary>
   );
 }

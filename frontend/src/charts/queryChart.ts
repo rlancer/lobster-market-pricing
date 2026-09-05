@@ -45,21 +45,28 @@ export function buildQueryPlotRows(result: QueryResult, spec: ChartSpec): QueryP
     return String(a[spec.x]).localeCompare(String(b[spec.x]));
   });
 
-  const rows: QueryPlotRow[] = [];
+  const byKey = new Map<string, QueryPlotRow>();
+  const order: string[] = [];
   const seriesNames: string[] = [];
-  const seen = new Set<string>();
+  const seenSeries = new Set<string>();
   for (const row of sorted) {
     const y = asPlotNumber(row[spec.y]);
     if (y == null) continue;
     const x = numericX ? (asPlotNumber(row[spec.x]) ?? 0) : String(row[spec.x] ?? '');
     const series = spec.series ? String(row[spec.series]) : spec.y;
-    if (!seen.has(series)) {
-      seen.add(series);
+    if (!seenSeries.has(series)) {
+      seenSeries.add(series);
       seriesNames.push(series);
     }
-    rows.push({ x, y, series });
+    const id = `${series}\0${numericX ? String(x) : x}`;
+    if (!byKey.has(id)) order.push(id);
+    byKey.set(id, { x, y, series });
   }
-  return { rows, seriesNames, numericX };
+  return {
+    rows: order.map((id) => byKey.get(id)!),
+    seriesNames,
+    numericX,
+  };
 }
 
 export function defineQueryChart(input: {
@@ -79,6 +86,7 @@ export function defineQueryChart(input: {
         barY(input.rows, {
           x: xChannel,
           y: yChannel,
+          y1: 0,
           z: 'series',
           key: (row) => `${row.series}:${row.x}`,
           radius: 2,
