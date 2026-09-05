@@ -1,0 +1,141 @@
+name: Bot overview e2e
+
+# Headless @nowlobster (or another scheduled public bot) on api-dev.
+# Proves get_market_tape lands and the original unfiltered option_contracts
+# GROUP BY does not. Uses ADMIN_TOKEN from repo secrets — never printed.
+#
+#   gh workflow run "Bot overview e2e" --ref <branch> -f count=3
+
+on:
+  workflow_dispatch:
+    inputs:
+      handle:
+        description: Public bot handle with a schedule
+        type: string
+        default: nowlobster
+      count:
+        description: Sequential force-trigger runs
+        type: string
+        default: "3"
+      api_base:
+        description: API origin
+        type: string
+        default: https://api-dev.lobster.mp
+
+permissions:
+  contents: read
+
+jobs:
+  overview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker test runner
+        run: cd worker && npm ci
+
+      - name: Force-trigger overview runs and assert tape
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          HANDLE: ${{ inputs.handle }}
+          COUNT: ${{ inputs.count }}
+          API_BASE: ${{ inputs.api_base }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json")
+          HANDLE=$(printf '%s' "$HANDLE" | tr -d '@' | tr '[:upper:]' '[:lower:]')
+          COUNT=$(printf '%s' "$COUNT" | tr -cd '0-9')
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then COUNT=1; fi
+          if [ "$COUNT" -gt 5 ]; then COUNT=5; fi
+          API_BASE=${API_BASE%/}
+          echo "handle=$HANDLE count=$COUNT api=$API_BASE"
+
+          sched=$(curl -sS -o /tmp/bot.json -w '%{http_code}' "${AUTH[@]}" \
+            "$API_BASE/api/admin/bots/$HANDLE")
+          echo "GET /api/admin/bots/$HANDLE HTTP $sched"
+          python3 - <<'PY'
+          import json, os
+          body = json.load(open("/tmp/bot.json"))
+          bot = body.get("bot") or {}
+          schedule = body.get("schedule")
+          print("bot", bot.get("handle"), "enabled", bot.get("enabled"), "has_schedule", bool(schedule))
+          if not bot.get("enabled"):
+              raise SystemExit("bot missing or disabled")
+          if not schedule:
+              raise SystemExit("bot has no schedule — cannot headless-trigger")
+          print("schedule_prompt", (schedule.get("prompt") or "")[:180])
+          PY
+          if [ "$sched" != "200" ]; then
+            echo "::error::could not load bot $HANDLE"
+            exit 1
+          fi
+
+          mkdir -p /tmp/overview-e2e
+          fail=0
+          for i in $(seq 1 "$COUNT"); do
+            echo "::group::run $i / $COUNT"
+            # One in-flight run per handle. Retry if the previous share is still settling.
+            attempt=0
+            http=000
+            while [ "$attempt" -lt 8 ]; do
+              attempt=$((attempt + 1))
+              http=$(curl -sS --max-time 600 -o /tmp/trigger.json -w '%{http_code}' \
+                -X POST "${AUTH[@]}" \
+                "$API_BASE/api/admin/bots/$HANDLE/schedule/trigger?force=1")
+              echo "trigger HTTP $http attempt=$attempt"
+              python3 - <<'PY'
+          import json
+          body = json.load(open("/tmp/trigger.json"))
+          print("trigger", {k: body.get(k) for k in ("ok", "error", "run_id", "chat_id", "share_id", "deferred", "reason")})
+          PY
+              if [ "$http" = "200" ]; then
+                if python3 -c 'import json,sys; b=json.load(open("/tmp/trigger.json")); sys.exit(0 if b.get("ok") and b.get("share_id") else 1)'; then
+                  break
+                fi
+              fi
+              err=$(python3 -c 'import json; print((json.load(open("/tmp/trigger.json")).get("error") or ""))')
+              case "$err" in
+                *"in progress"*) echo "run in progress — wait 30s"; sleep 30 ;;
+                *) echo "::error::trigger failed: $err"; fail=1; break ;;
+              esac
+            done
+            if [ "$fail" -ne 0 ]; then
+              echo "::endgroup::"
+              break
+            fi
+            share_id=$(python3 -c 'import json; print(json.load(open("/tmp/trigger.json")).get("share_id") or "")')
+            echo "share https://lobster.mp/share/$share_id"
+            echo "share https://dev.lobster.mp/share/$share_id"
+            tools_http=$(curl -sS -o /tmp/tools.json -w '%{http_code}' \
+              "$API_BASE/api/tool_calls?share_id=${share_id}&ok=all&limit=100")
+            echo "GET /api/tool_calls HTTP $tools_http"
+            if [ "$tools_http" != "200" ]; then
+              echo "::error::tool_calls fetch failed"
+              fail=1
+              echo "::endgroup::"
+              break
+            fi
+            cp /tmp/trigger.json "/tmp/overview-e2e/trigger-$i.json"
+            cp /tmp/tools.json "/tmp/overview-e2e/tools-$i.json"
+            if ! (cd worker && node --import tsx tools/assert-bot-overview-e2e.ts \
+              "/tmp/overview-e2e/trigger-$i.json" "/tmp/overview-e2e/tools-$i.json"); then
+              echo "::error::overview assertions failed for run $i share=$share_id"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "all $COUNT overview run(s) called get_market_tape and skipped the leak SQL"
