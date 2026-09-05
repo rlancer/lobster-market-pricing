@@ -13,7 +13,12 @@ if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then COUNT=1; fi
 if [ "$COUNT" -gt 5 ]; then COUNT=5; fi
 API_BASE=${API_BASE:-https://api-dev.lobster.mp}
 API_BASE=${API_BASE%/}
-AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json")
+AUTH=(
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+  -H "Content-Type: application/json"
+  -H "User-Agent: Mozilla/5.0 (compatible; lobster-overview-e2e/1.0)"
+  -H "Accept: application/json"
+)
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 echo "handle=$HANDLE count=$COUNT api=$API_BASE"
@@ -71,6 +76,8 @@ PY
   echo "share https://dev.lobster.mp/share/$share_id"
   echo "share https://lobster.mp/share/$share_id"
   tools_http=$(curl -sS -o /tmp/tools.json -w '%{http_code}' \
+    -H "User-Agent: Mozilla/5.0 (compatible; lobster-overview-e2e/1.0)" \
+    -H "Accept: application/json" \
     "$API_BASE/api/tool_calls?share_id=${share_id}&ok=all&limit=100")
   echo "GET /api/tool_calls HTTP $tools_http"
   if [ "$tools_http" != "200" ]; then
