@@ -13,6 +13,7 @@ export const ADMIN_TOOL_PATHS = [
   '/trades',
   '/chat-capabilities',
   '/brand',
+  '/admin/test-runs',
 ] as const;
 
 export function isAdminEmail(email: string | null | undefined): boolean {

@@ -677,6 +677,32 @@ export interface AdminSuggestedTradesResponse {
   as_of: string;
 }
 
+/** One share inside an admin QA / test-run batch. */
+export interface QaItem {
+  item_id: string;
+  batch_id: string;
+  handle: string | null;
+  run_id: string | null;
+  share_id: string;
+  chat_id: string | null;
+  status: string;
+  listed_on_floor: boolean;
+  verdict_ok: boolean | null;
+  verdict_json: unknown | null;
+  created_at: number;
+}
+
+/** Admin test-run batch — bug/PR metadata plus the generated shares. */
+export interface QaBatch {
+  batch_id: string;
+  title: string;
+  description: string | null;
+  pr_url: string | null;
+  created_at: number;
+  item_count: number;
+  items?: QaItem[];
+}
+
 /** Paper portfolio position (tracked suggestion or manual). */
 export interface PaperPosition {
   id: string;
@@ -1756,7 +1782,11 @@ export const api = {
     ),
   deleteBotSchedule: (handle: string) =>
     request<{ ok: true }>(`/api/admin/bots/${encodeURIComponent(handle)}/schedule`, { method: 'DELETE' }),
-  triggerBotSchedule: (handle: string, force = false) =>
+  triggerBotSchedule: (
+    handle: string,
+    force = false,
+    body?: { list_on_floor?: boolean; qa_batch_id?: string },
+  ) =>
     post<{
       ok: true;
       deferred?: boolean;
@@ -1766,10 +1796,29 @@ export const api = {
       chat_id?: string;
       share_id?: string;
       share_url?: string;
+      list_on_floor?: boolean;
+      qa_batch_id?: string | null;
+      qa_item_id?: string | null;
     }>(
       `/api/admin/bots/${encodeURIComponent(handle)}/schedule/trigger${force ? '?force=1' : ''}`,
-      {},
+      body ?? {},
     ),
+  adminQaBatches: () => get<{ items: QaBatch[] }>('/api/admin/qa'),
+  adminQaBatch: (batchId: string) =>
+    get<{ batch: QaBatch }>(`/api/admin/qa/${encodeURIComponent(batchId)}`),
+  createQaBatch: (body: { title: string; description?: string; pr_url?: string }) =>
+    post<{ ok: true; batch: QaBatch }>('/api/admin/qa', body),
+  importQaShares: (batchId: string, shareIds: string[] | string) =>
+    post<{ ok: true; items: QaItem[]; missing: string[] }>(
+      `/api/admin/qa/${encodeURIComponent(batchId)}/items`,
+      { share_ids: shareIds },
+    ),
+  patchQaItem: (itemId: string, body: { verdict_ok?: boolean; verdict?: unknown }) =>
+    request<{ ok: true; item: QaItem }>(`/api/admin/qa/items/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   me: () => get<ProfileMe>('/api/me'),
   updateProfile: async (body: {
     handle?: string;

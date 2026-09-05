@@ -21,6 +21,18 @@ on:
         description: API origin
         type: string
         default: https://api-dev.lobster.mp
+      qa_title:
+        description: Test-run batch title (admin /admin/test-runs)
+        type: string
+        default: "@nowlobster overview tape"
+      qa_description:
+        description: Bug / assertion this batch is proving
+        type: string
+        default: "Assert get_market_tape and no unfiltered option_contracts GROUP BY (portfolio schema leak)."
+      qa_pr_url:
+        description: Associated pull request URL
+        type: string
+        default: "https://github.com/rlancer/lobster-market-pricing/pull/328"
 
 permissions:
   contents: read
@@ -47,4 +59,7 @@ jobs:
           HANDLE: ${{ inputs.handle }}
           COUNT: ${{ inputs.count }}
           API_BASE: ${{ inputs.api_base }}
+          QA_TITLE: ${{ inputs.qa_title }}
+          QA_DESCRIPTION: ${{ inputs.qa_description }}
+          QA_PR_URL: ${{ inputs.qa_pr_url }}
         run: bash worker/tools/run-bot-overview-e2e.sh

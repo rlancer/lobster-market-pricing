@@ -172,7 +172,11 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/admin/chat/capabilities', desc: 'Admin — live Chat system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
   { method: 'GET/PUT/DELETE', path: '/api/admin/bots/{handle}/schedule', desc: 'Admin — recurring headless schedule (cadence, market gate, fixed prompt)' },
-  { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours); auto-shares only when the quality gate allows Floor listing' },
+  { method: 'POST', path: '/api/admin/bots/{handle}/schedule/trigger', desc: 'Admin — run schedule now (?force=1 bypasses market hours). Optional JSON {list_on_floor, qa_batch_id}; QA batches stay off the Floor' },
+  { method: 'GET/POST', path: '/api/admin/qa', desc: 'Admin — list or create test-run batches (title, bug description, PR URL)' },
+  { method: 'GET', path: '/api/admin/qa/{batch_id}', desc: 'Admin — one test-run batch plus attached shares' },
+  { method: 'POST', path: '/api/admin/qa/{batch_id}/items', desc: 'Admin — attach share_ids and unlist them from the Floor' },
+  { method: 'PATCH', path: '/api/admin/qa/items/{item_id}', desc: 'Admin — record pass/fail verdict on a test run' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
   { method: 'POST', path: '/api/admin/dev-session', desc: 'Preview only (api-dev) — ADMIN_TOKEN mints a Better Auth cookie as an admin email so agents can test signed-in Chat/Bots. Production 404s.' },
@@ -229,7 +233,12 @@ const SURFACES = [
   {
     route: '/admin',
     title: 'Admin',
-    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+  },
+  {
+    route: '/admin/test-runs',
+    title: 'Test runs',
+    body: 'Admin-only QA ledger. Each batch records the bug under test and the associated PR. Headless e2e triggers attach unlisted /share/{id} links (no bot_handle, so they never appear on the Floor). Importing an existing share clears its Floor listing. Pass/fail verdicts live on the batch so operators can reopen the exact runs.',
   },
 ];
 
