@@ -15,6 +15,13 @@ export const EXPERIMENTS: ExperimentMeta[] = [
       'Can a multimodal model read synthetic equity panels better from AI-style text, labeled chart images, or textless charts with a markdown color key?',
     status: 'ready',
   },
+  {
+    slug: 'desk-approaches',
+    title: 'Analyst desk vs sessions',
+    subtitle:
+      'As-of snapshot bench: solo analyst vs production desk role-play vs a new session per specialist, graded on held-out 5d/20d direction.',
+    status: 'draft',
+  },
 ];
 
 /** @deprecated Use EXPERIMENTS */

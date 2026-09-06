@@ -293,7 +293,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Experiments'),
       description:
-        'Public experiments — text vs image context studies and other model-encoding probes, with server-saved runs from API or CI.',
+        'Public experiments — text vs image context studies, analyst-desk vs session structure, and other model-encoding probes, with server-saved runs from API or CI.',
       path: path === '/notebooks' ? '/notebooks' : '/experiments',
     };
   }
@@ -304,6 +304,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
       description:
         'Compare AI-style text, labeled chart images, and textless charts with a markdown color key in a versioned multimodal benchmark on synthetic equity panels.',
       path: path.startsWith('/notebooks') ? path : '/experiments/text-vs-image',
+    };
+  }
+
+  if (path === '/experiments/desk-approaches') {
+    return {
+      title: pageTitle('Analyst desk vs sessions'),
+      description:
+        'As-of snapshot bench of solo analyst vs production multi-analyst desk role-play vs a new session per specialist, graded on held-out 5- and 20-session direction.',
+      path: '/experiments/desk-approaches',
     };
   }
 

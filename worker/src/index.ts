@@ -86,6 +86,8 @@ import {
   parseSaveExperimentRunBody,
   saveExperimentRun,
 } from "./experiment-runs";
+import { deskExperimentDesignPublic } from "./desk-experiment";
+import { parseDeskExperimentProbeBody, runDeskExperimentProbe } from "./desk-experiment-probe";
 
 import { describeChatCapabilities } from "./chat-capabilities";
 import { CopilotAgentBase } from "./chat-agent";
@@ -4100,6 +4102,33 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       });
       return json(env, { ok: true, run: experimentRunToPublicJson(run) }, 200, "private");
     }
+  }
+
+  if (path === "/api/experiments/desk-approaches/design" && req.method === "GET") {
+    return json(env, {
+      ...deskExperimentDesignPublic(),
+      model: env.COPILOT_MODEL,
+    }, 200, "public");
+  }
+
+  if (path === "/api/admin/experiments/desk-approaches/probe" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    let deskProbeBody: unknown;
+    try {
+      deskProbeBody = await req.json();
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const deskParsed = parseDeskExperimentProbeBody(deskProbeBody);
+    if (!deskParsed.ok) {
+      return json(env, { error: deskParsed.error }, deskParsed.status, "private");
+    }
+    const deskOrigin = new URL(req.url).origin;
+    const { ok: _deskOk, ...deskInput } = deskParsed;
+    const deskResult = await runDeskExperimentProbe(env, deskOrigin, deskInput);
+    if (!deskResult.ok) return json(env, { error: deskResult.error }, deskResult.status, "private");
+    return json(env, deskResult, 200, "private");
   }
 
   if (path === "/api/admin/notebooks/probe" && req.method === "POST") {
