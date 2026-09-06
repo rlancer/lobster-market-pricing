@@ -4,13 +4,17 @@ import {
   buildIssueBody,
   canonicalizeImprovementFingerprint,
   fallbackRejectSuggestion,
+  fileImprovementIssue,
   IMPROVEMENT_LABEL,
   IMPROVEMENT_REVIEW_SYSTEM,
   isSyntheticImprovementFixture,
   normalizeFingerprint,
   parseImprovementSuggestions,
   scheduleImprovementReport,
+  shouldSkipDuplicateFingerprint,
   type ImprovementContext,
+  type ImprovementReporterEnv,
+  type ImprovementSuggestion,
 } from "../src/improvement-reporter.ts";
 
 test("improvement review system asks for JSON improvements", () => {
@@ -82,7 +86,36 @@ test("buildIssueBody includes gate metadata and share link", () => {
   assert.match(body, /https:\/\/lobster\.mp\/share\/abc123/);
   assert.match(body, /@nowlobster/);
   assert.match(body, /reject_bot_share/);
+  assert.match(body, /while that GitHub issue is still open/);
+  assert.doesNotMatch(body, /Previously:/);
   assert.equal(IMPROVEMENT_LABEL, "copilot-improvement");
+});
+
+test("buildIssueBody links the closed previous ticket on re-file", () => {
+  const body = buildIssueBody(
+    {
+      fingerprint: "overview-no-chart-called",
+      title: "Render key series when overview prompt requests chart",
+      category: "tool-use",
+      body: "Call render_chart.",
+    },
+    {
+      messages: [],
+      decision: { allow: true, reason: "moderator allowed", source: "llm" },
+      action: "allow_bot_share",
+      shareId: "newShare",
+    },
+    { previousIssueNumber: 330 },
+  );
+  assert.match(body, /Previously: #330 \(closed\)/);
+  assert.match(body, /new occurrence/);
+});
+
+test("shouldSkipDuplicateFingerprint only blocks open or unknown GitHub state", () => {
+  assert.equal(shouldSkipDuplicateFingerprint("open"), true);
+  assert.equal(shouldSkipDuplicateFingerprint("unknown"), true);
+  assert.equal(shouldSkipDuplicateFingerprint("closed"), false);
+  assert.equal(shouldSkipDuplicateFingerprint("missing"), false);
 });
 
 test("scheduleImprovementReport no-ops without a GitHub token", () => {
@@ -168,4 +201,190 @@ test("isSyntheticImprovementFixture skips test harness models and jailbreak dump
     }),
     false,
   );
+});
+
+type ReportRow = {
+  fingerprint: string;
+  issue_number: number | null;
+  issue_url: string | null;
+  title?: string;
+};
+
+function memoryReports(rows: ReportRow[] = []) {
+  return {
+    rows,
+    prepare(sql: string) {
+      let binds: unknown[] = [];
+      const stmt = {
+        bind(...args: unknown[]) {
+          binds = args;
+          return stmt;
+        },
+        async first() {
+          const fingerprint = String(binds[0]);
+          return rows.find((row) => row.fingerprint === fingerprint) ?? null;
+        },
+        async run() {
+          if (sql.includes("INSERT INTO improvement_reports")) {
+            const next: ReportRow = {
+              fingerprint: String(binds[0]),
+              title: String(binds[1]),
+              issue_number: binds[3] == null ? null : Number(binds[3]),
+              issue_url: binds[4] == null ? null : String(binds[4]),
+            };
+            const idx = rows.findIndex((row) => row.fingerprint === next.fingerprint);
+            if (idx >= 0) rows[idx] = next;
+            else rows.push(next);
+          }
+          return { success: true };
+        },
+      };
+      return stmt;
+    },
+  };
+}
+
+const SAMPLE_SUGGESTION: ImprovementSuggestion = {
+  fingerprint: "overview-no-chart-called",
+  title: "Render key series when overview prompt requests chart",
+  category: "tool-use",
+  body: "Always call render_chart.",
+};
+
+const SAMPLE_CONTEXT: ImprovementContext = {
+  messages: [],
+  decision: { allow: true, reason: "moderator allowed", source: "llm" },
+  action: "allow_bot_share",
+  shareId: "dOJQ1ZVU3trjvGLgbPptR4QZ",
+  runId: "run-new",
+  botHandle: "nowlobster",
+};
+
+async function withMockGithub(
+  handler: (input: string, init?: RequestInit) => { status: number; json: unknown } | Promise<{ status: number; json: unknown }>,
+  fn: () => Promise<void>,
+): Promise<Array<{ method: string; url: string; body: string | null }>> {
+  const orig = globalThis.fetch;
+  const calls: Array<{ method: string; url: string; body: string | null }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = typeof init?.body === "string" ? init.body : null;
+    calls.push({ method, url, body });
+    const result = await handler(url, init);
+    return new Response(JSON.stringify(result.json), { status: result.status });
+  }) as typeof fetch;
+  try {
+    await fn();
+    return calls;
+  } finally {
+    globalThis.fetch = orig;
+  }
+}
+
+function githubHandler(opts: { issueState?: string; issueStatus?: number; createNumber?: number }) {
+  const createNumber = opts.createNumber ?? 340;
+  return (url: string, init?: RequestInit) => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (method === "GET" && /\/labels\//.test(url)) {
+      return { status: 200, json: { name: "copilot-improvement" } };
+    }
+    if (method === "GET" && /\/issues\/\d+$/.test(url)) {
+      return {
+        status: opts.issueStatus ?? 200,
+        json: opts.issueStatus === 404 ? { message: "Not Found" } : { state: opts.issueState ?? "open", number: 330 },
+      };
+    }
+    if (method === "POST" && /\/issues$/.test(url)) {
+      return {
+        status: 201,
+        json: {
+          number: createNumber,
+          html_url: `https://github.com/rlancer/lobster-market-pricing/issues/${createNumber}`,
+        },
+      };
+    }
+    if (method === "POST" && /\/comments$/.test(url)) {
+      return { status: 201, json: { id: 1 } };
+    }
+    return { status: 404, json: { message: "Not Found" } };
+  };
+}
+
+test("fileImprovementIssue skips while the GitHub issue is still open", async () => {
+  const db = memoryReports([{
+    fingerprint: "overview-no-chart-called",
+    issue_number: 330,
+    issue_url: "https://github.com/rlancer/lobster-market-pricing/issues/330",
+  }]);
+  const env: ImprovementReporterEnv = {
+    SCHEMA_DB: db as unknown as D1Database,
+    IMPROVEMENT_ISSUE_TOKEN: "test-token",
+  };
+  const calls = await withMockGithub(githubHandler({ issueState: "open" }), async () => {
+    const filed = await fileImprovementIssue(env, SAMPLE_SUGGESTION, SAMPLE_CONTEXT);
+    assert.equal(filed.skipped, "duplicate");
+    assert.equal(filed.issueNumber, 330);
+  });
+  assert.equal(calls.some((call) => call.method === "POST" && /\/issues$/.test(call.url)), false);
+});
+
+test("fileImprovementIssue refiles after the GitHub issue is closed", async () => {
+  const db = memoryReports([{
+    fingerprint: "overview-no-chart-called",
+    issue_number: 330,
+    issue_url: "https://github.com/rlancer/lobster-market-pricing/issues/330",
+  }]);
+  const env: ImprovementReporterEnv = {
+    SCHEMA_DB: db as unknown as D1Database,
+    IMPROVEMENT_ISSUE_TOKEN: "test-token",
+  };
+  const calls = await withMockGithub(githubHandler({ issueState: "closed", createNumber: 340 }), async () => {
+    const filed = await fileImprovementIssue(env, SAMPLE_SUGGESTION, SAMPLE_CONTEXT);
+    assert.equal(filed.skipped, null);
+    assert.equal(filed.issueNumber, 340);
+  });
+  const created = calls.find((call) => call.method === "POST" && /\/issues$/.test(call.url));
+  assert.ok(created?.body);
+  assert.match(created!.body!, /Previously: #330 \(closed\)/);
+  assert.equal(
+    calls.some((call) => call.method === "POST" && call.url.endsWith("/issues/330/comments")),
+    true,
+  );
+  assert.equal(db.rows[0]?.issue_number, 340);
+});
+
+test("fileImprovementIssue refiles when the prior GitHub issue is gone", async () => {
+  const db = memoryReports([{
+    fingerprint: "overview-no-chart-called",
+    issue_number: 330,
+    issue_url: "https://github.com/rlancer/lobster-market-pricing/issues/330",
+  }]);
+  const env: ImprovementReporterEnv = {
+    SCHEMA_DB: db as unknown as D1Database,
+    IMPROVEMENT_ISSUE_TOKEN: "test-token",
+  };
+  await withMockGithub(githubHandler({ issueStatus: 404, createNumber: 341 }), async () => {
+    const filed = await fileImprovementIssue(env, SAMPLE_SUGGESTION, SAMPLE_CONTEXT);
+    assert.equal(filed.skipped, null);
+    assert.equal(filed.issueNumber, 341);
+  });
+});
+
+test("fileImprovementIssue stays quiet when GitHub status lookup fails", async () => {
+  const db = memoryReports([{
+    fingerprint: "overview-no-chart-called",
+    issue_number: 330,
+    issue_url: "https://github.com/rlancer/lobster-market-pricing/issues/330",
+  }]);
+  const env: ImprovementReporterEnv = {
+    SCHEMA_DB: db as unknown as D1Database,
+    IMPROVEMENT_ISSUE_TOKEN: "test-token",
+  };
+  const calls = await withMockGithub(githubHandler({ issueStatus: 500 }), async () => {
+    const filed = await fileImprovementIssue(env, SAMPLE_SUGGESTION, SAMPLE_CONTEXT);
+    assert.equal(filed.skipped, "duplicate");
+    assert.equal(filed.issueNumber, 330);
+  });
+  assert.equal(calls.some((call) => call.method === "POST" && /\/issues$/.test(call.url)), false);
 });

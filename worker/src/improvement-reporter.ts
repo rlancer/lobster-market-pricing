@@ -5,7 +5,9 @@
  * actionable product/engineering improvements (prompt gaps, tool-loop cutoffs,
  * bad desk seals, data bugs). When IMPROVEMENT_ISSUE_TOKEN is set, each novel
  * fingerprint becomes a GitHub issue. D1 `improvement_reports` dedupes so the
- * same failure mode does not open dozens of tickets.
+ * same failure mode does not open dozens of tickets while that GitHub issue is
+ * still open. Closing the issue (or deleting it) lets the next occurrence file
+ * a new ticket.
  *
  * Fire-and-forget via waitUntil — never blocks publish / share latency.
  */
@@ -213,6 +215,27 @@ async function githubRequest(
   return { ok: res.ok, status: res.status, json };
 }
 
+export type GithubIssueLookup = "open" | "closed" | "missing" | "unknown";
+
+export async function lookupGithubIssueState(
+  token: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<GithubIssueLookup> {
+  try {
+    const result = await githubRequest(token, "GET", `/repos/${owner}/${repo}/issues/${issueNumber}`);
+    if (result.status === 404) return "missing";
+    if (!result.ok) return "unknown";
+    const state = result.json?.state;
+    if (state === "open") return "open";
+    if (state === "closed") return "closed";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /** Ensure the tracking label exists (idempotent). */
 export async function ensureImprovementLabel(
   token: string,
@@ -228,14 +251,25 @@ export async function ensureImprovementLabel(
   });
 }
 
+/**
+ * Open tickets still cover this fingerprint. Unknown (GitHub down / auth)
+ * fails closed so a blip does not spam the tracker. Closed or missing
+ * (deleted) issues are eligible to re-file.
+ */
+export function shouldSkipDuplicateFingerprint(lookup: GithubIssueLookup): boolean {
+  return lookup === "open" || lookup === "unknown";
+}
+
 export function buildIssueBody(
   suggestion: ImprovementSuggestion,
   context: ImprovementContext,
+  opts?: { previousIssueNumber?: number | null },
 ): string {
   const origin = (context.publicOrigin || "https://lobster.mp").replace(/\/+$/, "");
   const shareLine = context.shareId
     ? `- Share: ${origin}/share/${context.shareId}`
     : "- Share: (none yet)";
+  const previous = opts?.previousIssueNumber;
   const lines = [
     "> Auto-filed by the chat timeline moderation improvement reporter.",
     "",
@@ -245,13 +279,16 @@ export function buildIssueBody(
     shareLine,
     context.runId ? `- Run id: \`${context.runId}\`` : null,
     context.botHandle ? `- Bot: \`@${context.botHandle}\`` : null,
+    typeof previous === "number" && previous > 0
+      ? `- Previously: #${previous} (closed). This is a new occurrence of the same fingerprint.`
+      : null,
     "",
     "## Suggestion",
     "",
     suggestion.body,
     "",
     "---",
-    `_Deduped by fingerprint \`${suggestion.fingerprint}\`. Closing this issue does not clear the fingerprint; delete the D1 row to allow a re-file._`,
+    `_Deduped by fingerprint \`${suggestion.fingerprint}\` while that GitHub issue is still open. Close it to allow a new ticket on the next occurrence._`,
   ];
   return lines.filter((line) => line !== null).join("\n");
 }
@@ -264,8 +301,8 @@ export type FiledImprovement = {
 };
 
 /**
- * Create a GitHub issue for one suggestion if the fingerprint is new.
- * Never throws.
+ * Create a GitHub issue for one suggestion if the fingerprint is new, or if
+ * the prior ticket for it is closed/gone. Never throws.
  */
 export async function fileImprovementIssue(
   env: ImprovementReporterEnv,
@@ -277,34 +314,51 @@ export async function fileImprovementIssue(
     return { fingerprint: suggestion.fingerprint, issueNumber: null, issueUrl: null, skipped: "no_token" };
   }
 
+  const { owner, repo, full } = repoFromEnv(env);
   const existing = await env.SCHEMA_DB.prepare(
     "SELECT fingerprint, issue_number, issue_url FROM improvement_reports WHERE fingerprint = ?1",
   ).bind(suggestion.fingerprint).first<{ fingerprint: string; issue_number: number | null; issue_url: string | null }>();
+
+  let previousIssueNumber: number | null = null;
   if (existing) {
+    const lookup = existing.issue_number != null
+      ? await lookupGithubIssueState(token, owner, repo, existing.issue_number)
+      : "missing";
+    if (shouldSkipDuplicateFingerprint(lookup)) {
+      console.info(JSON.stringify({
+        improvementReporter: true,
+        action: "skip_duplicate",
+        fingerprint: suggestion.fingerprint,
+        issue_number: existing.issue_number,
+        github_state: lookup,
+      }));
+      return {
+        fingerprint: suggestion.fingerprint,
+        issueNumber: existing.issue_number,
+        issueUrl: existing.issue_url,
+        skipped: "duplicate",
+      };
+    }
+    previousIssueNumber = existing.issue_number;
     console.info(JSON.stringify({
       improvementReporter: true,
-      action: "skip_duplicate",
+      action: "refile_closed",
       fingerprint: suggestion.fingerprint,
-      issue_number: existing.issue_number,
+      previous_issue_number: previousIssueNumber,
+      github_state: lookup,
     }));
-    return {
-      fingerprint: suggestion.fingerprint,
-      issueNumber: existing.issue_number,
-      issueUrl: existing.issue_url,
-      skipped: "duplicate",
-    };
   }
 
-  const { owner, repo, full } = repoFromEnv(env);
   try {
     await ensureImprovementLabel(token, owner, repo);
   } catch (error) {
     console.warn("improvement label ensure failed", error);
   }
 
+  const body = buildIssueBody(suggestion, context, { previousIssueNumber });
   const created = await githubRequest(token, "POST", `/repos/${owner}/${repo}/issues`, {
     title: suggestion.title,
-    body: buildIssueBody(suggestion, context),
+    body,
     labels: [IMPROVEMENT_LABEL, "enhancement"],
   });
 
@@ -313,11 +367,11 @@ export async function fileImprovementIssue(
     if (created.status === 422) {
       const retry = await githubRequest(token, "POST", `/repos/${owner}/${repo}/issues`, {
         title: suggestion.title,
-        body: buildIssueBody(suggestion, context),
+        body,
         labels: [IMPROVEMENT_LABEL],
       });
       if (retry.ok && retry.json) {
-        return recordFiled(env, suggestion, context, retry.json, full);
+        return recordFiled(env, suggestion, context, retry.json, full, token, owner, repo, previousIssueNumber);
       }
     }
     console.warn(JSON.stringify({
@@ -330,7 +384,7 @@ export async function fileImprovementIssue(
     return { fingerprint: suggestion.fingerprint, issueNumber: null, issueUrl: null, skipped: "create_failed" };
   }
 
-  return recordFiled(env, suggestion, context, created.json ?? {}, full);
+  return recordFiled(env, suggestion, context, created.json ?? {}, full, token, owner, repo, previousIssueNumber);
 }
 
 async function recordFiled(
@@ -339,6 +393,10 @@ async function recordFiled(
   context: ImprovementContext,
   issueJson: Record<string, unknown>,
   repoFull: string,
+  token: string,
+  owner: string,
+  repo: string,
+  previousIssueNumber: number | null,
 ): Promise<FiledImprovement> {
   const number = typeof issueJson.number === "number" ? issueJson.number : null;
   const htmlUrl = typeof issueJson.html_url === "string"
@@ -352,7 +410,18 @@ async function recordFiled(
       `INSERT INTO improvement_reports
          (fingerprint, title, category, issue_number, issue_url, share_id, run_id, bot_handle,
           moderation_action, moderation_allow, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+       ON CONFLICT(fingerprint) DO UPDATE SET
+         title = excluded.title,
+         category = excluded.category,
+         issue_number = excluded.issue_number,
+         issue_url = excluded.issue_url,
+         share_id = excluded.share_id,
+         run_id = excluded.run_id,
+         bot_handle = excluded.bot_handle,
+         moderation_action = excluded.moderation_action,
+         moderation_allow = excluded.moderation_allow,
+         created_at = excluded.created_at`,
     ).bind(
       suggestion.fingerprint,
       suggestion.title,
@@ -373,12 +442,29 @@ async function recordFiled(
     }
     console.warn("improvement_reports insert failed", error);
   }
+
+  if (
+    typeof previousIssueNumber === "number"
+    && previousIssueNumber > 0
+    && typeof number === "number"
+    && number !== previousIssueNumber
+  ) {
+    try {
+      await githubRequest(token, "POST", `/repos/${owner}/${repo}/issues/${previousIssueNumber}/comments`, {
+        body: `This failure mode recurred. Filed #${number}.`,
+      });
+    } catch (error) {
+      console.warn("improvement previous-issue comment failed", error);
+    }
+  }
+
   console.info(JSON.stringify({
     improvementReporter: true,
-    action: "filed",
+    action: previousIssueNumber ? "refiled" : "filed",
     fingerprint: suggestion.fingerprint,
     issue_number: number,
     issue_url: htmlUrl,
+    previous_issue_number: previousIssueNumber,
     gate_action: context.action,
   }));
   return { fingerprint: suggestion.fingerprint, issueNumber: number, issueUrl: htmlUrl, skipped: null };
