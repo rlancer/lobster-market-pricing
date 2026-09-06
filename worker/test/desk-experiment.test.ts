@@ -16,7 +16,7 @@ import {
   formatDeskSnapshot,
   snapshotAsOfViolations,
 } from "../src/desk-experiment-cases.ts";
-import { parseDeskExperimentProbeBody, resolveDeskExperimentModel, splitSystemMessages } from "../src/desk-experiment-probe.ts";
+import { parseDeskExperimentProbeBody, deskCompletionText, resolveDeskExperimentModel, splitSystemMessages } from "../src/desk-experiment-probe.ts";
 
 test("as-of snapshots never leak post-as-of OHLC or news", () => {
   const cases = buildDeskExperimentCases();
@@ -197,6 +197,15 @@ test("splitSystemMessages keeps system out of the OpenRouter messages array", ()
   assert.equal(split.system, "You are the chair.");
   assert.deepEqual(split.messages.map((m) => m.role), ["user", "assistant", "user"]);
   assert.ok(!split.messages.some((m) => (m.role as string) === "system"));
+});
+
+test("deskCompletionText grades DeepSeek reasoning when visible text is empty", () => {
+  assert.equal(deskCompletionText({ text: "", reasoningText: '{"lean_5d":"bearish"}' }), '{"lean_5d":"bearish"}');
+  assert.equal(
+    deskCompletionText({ text: "overview", reasoningText: '{"lean_5d":"bullish"}' }),
+    'overview\n\n{"lean_5d":"bullish"}',
+  );
+  assert.equal(deskCompletionText({ text: "only" }), "only");
 });
 
 test("resolveDeskExperimentModel follows Chat COPILOT_MODEL", () => {

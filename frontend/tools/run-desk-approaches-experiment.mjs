@@ -19,7 +19,7 @@ const MODEL = process.env.MODEL?.trim() || 'deepseek/deepseek-v4-flash-0731';
 const SLUG = 'desk-approaches';
 const DESIGN_ID = 'desk-approaches-v1';
 const RUNNER_VERSION = 1;
-const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 2) || 2));
+const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 3) || 3));
 const SOURCE_REVISION = process.env.GITHUB_SHA?.trim()
   || process.env.SOURCE_REVISION?.trim()
   || 'local';

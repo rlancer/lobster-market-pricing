@@ -46,6 +46,24 @@ function maxOutputTokenBudget(env: DeskExperimentProbeEnv, requested?: number): 
   return cap;
 }
 
+/** Per OpenRouter call. Hung DeepSeek seats were ~10 min and killed the Worker request. */
+const COMPLETE_ABORT_MS = 6 * 60_000;
+
+/**
+ * DeepSeek-v4 with high reasoning often puts the take (and the verdict JSON)
+ * in `reasoningText` while `text` is empty. Grade the union, not the visible
+ * channel alone.
+ */
+export function deskCompletionText(result: {
+  text?: string;
+  reasoningText?: string;
+}): string {
+  const visible = typeof result.text === "string" ? result.text.trim() : "";
+  const reasoning = typeof result.reasoningText === "string" ? result.reasoningText.trim() : "";
+  if (visible && reasoning && visible !== reasoning) return `${visible}\n\n${reasoning}`;
+  return visible || reasoning;
+}
+
 export interface DeskExperimentProbeInput {
   model?: string;
   approach_id: DeskApproachId;
@@ -149,11 +167,12 @@ export async function runDeskExperimentProbe(
       messages: split.messages,
       maxOutputTokens: maxOutputTokenBudget(env, maxOutputTokens),
       temperature: 0,
+      abortSignal: AbortSignal.timeout(COMPLETE_ABORT_MS),
       providerOptions: {
         openrouter: { reasoning: { effort: reasoningEffort } },
       },
     });
-    return { text: result.text, latency_ms: Date.now() - started };
+    return { text: deskCompletionText(result), latency_ms: Date.now() - started };
   };
 
   try {
