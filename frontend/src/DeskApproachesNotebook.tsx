@@ -6,6 +6,7 @@ import {
   DESK_EXPERIMENT_DESIGN_ID,
   DESK_EXPERIMENT_SLUG,
   approachLabel,
+  isChatDeskExperimentModel,
   pct,
 } from './notebooks/deskApproaches';
 import './Notebooks.css';
@@ -92,7 +93,10 @@ function Scoreboard({ runs }: { runs: ExperimentRunPayload[] }) {
           <tr>
             <th>Approach</th>
             {runs.map((run) => (
-              <th key={run.id}>{shortModel(run.model)}</th>
+              <th key={run.id}>
+                {shortModel(run.model)}
+                <div className="notebook-answer">{formatRunWhen(run.created_at)}</div>
+              </th>
             ))}
           </tr>
         </thead>
@@ -216,17 +220,23 @@ export default function DeskApproachesNotebookPage() {
     };
   }, []);
 
+  const scoredRuns = useMemo(() => {
+    return [...runs]
+      .filter((run) => isChatDeskExperimentModel(run.model, design?.model))
+      .sort((a, b) => b.created_at - a.created_at);
+  }, [runs, design]);
+
   const toc = useMemo<TocEntry[]>(() => {
     const entries: Array<{ id: string; label: string }> = [
       { id: 'overview', label: 'Overview' },
       { id: 'approaches', label: 'Approaches' },
       { id: 'cases', label: 'As-of cases' },
       { id: 'results', label: 'Results' },
-      ...runs.map((run) => ({ id: `model-${run.id}`, label: shortModel(run.model) })),
+      ...scoredRuns.map((run) => ({ id: `model-${run.id}`, label: shortModel(run.model) })),
       { id: 'reading', label: 'How to read' },
     ];
     return entries.map((entry, index) => ({ ...entry, num: padNum(index) }));
-  }, [runs]);
+  }, [scoredRuns]);
 
   useEffect(() => {
     const nodes = toc
@@ -360,18 +370,24 @@ export default function DeskApproachesNotebookPage() {
         </Section>
 
         <Section id="results" num={resultsNum} title="Results">
-          {runs.length ? (
-            <Scoreboard runs={runs} />
+          {scoredRuns.length ? (
+            <Scoreboard runs={scoredRuns} />
           ) : (
             <Text type="supporting">
-              No published run yet. Admin CI probes{' '}
+              No published Chat-model run yet. Admin CI probes{' '}
               <code>POST /api/admin/experiments/desk-approaches/probe</code> then saves a run
               so this page can grade approaches without spending OpenRouter credits in the browser.
             </Text>
           )}
+          {design?.model ? (
+            <Text type="supporting">
+              Scoreboard is live Chat only (<code>{design.model}</code>). Other probe models are
+              out of scope.
+            </Text>
+          ) : null}
         </Section>
 
-        {runs.map((run) => {
+        {scoredRuns.map((run) => {
           const entry = toc.find((t) => t.id === `model-${run.id}`);
           return (
             <Section

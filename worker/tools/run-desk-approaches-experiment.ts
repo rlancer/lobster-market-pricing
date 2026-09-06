@@ -9,7 +9,13 @@
  * COPILOT_MAX_OUTPUT_TOKENS
  */
 import { createHash } from "node:crypto";
-import { caseById, runDeskApproach, scoreDeskVerdict, type DeskApproachId } from "../src/desk-experiment.ts";
+import {
+  DESK_EXPERIMENT_RUNNER_VERSION,
+  caseById,
+  runDeskApproach,
+  scoreDeskVerdict,
+  type DeskApproachId,
+} from "../src/desk-experiment.ts";
 import { buildDeskExperimentCases } from "../src/desk-experiment-cases.ts";
 import {
   createDeskCompleteFn,
@@ -23,7 +29,7 @@ const OPEN_ROUTER_KEY = process.env.OPEN_ROUTER_KEY ?? "";
 const MODEL = process.env.MODEL?.trim() || "deepseek/deepseek-v4-flash-0731";
 const SLUG = "desk-approaches";
 const DESIGN_ID = "desk-approaches-v1";
-const RUNNER_VERSION = 1;
+const RUNNER_VERSION = DESK_EXPERIMENT_RUNNER_VERSION;
 const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 2) || 2));
 const SOURCE_REVISION = process.env.GITHUB_SHA?.trim()
   || process.env.SOURCE_REVISION?.trim()

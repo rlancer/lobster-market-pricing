@@ -83,6 +83,60 @@ test("parseLean and extractDeskVerdict read the closing JSON", () => {
   assert.ok(extractLastJsonObject("no json here") == null);
 });
 
+test("extractDeskVerdict takes the last object that has both leans, not the last brace", () => {
+  const buried = [
+    "scratch {not json",
+    '{"note":"coil","bias":"long"}',
+    "The tape is a spring.",
+    '{"lean_5d":"bullish","lean_20d":"bullish","confidence_5d":0.6,"confidence_20d":0.5,"thesis":"Coil."}',
+    "trailing {junk: true}",
+  ].join("\n");
+  const verdict = extractDeskVerdict(buried);
+  assert.equal(verdict?.lean_5d, "bullish");
+  assert.equal(verdict?.lean_20d, "bullish");
+  assert.equal(verdict?.thesis, "Coil.");
+
+  const incompleteFirst = [
+    '{"lean_5d":"bullish"}',
+    '{"lean_5d":"bearish","lean_20d":"neutral","confidence_5d":0.4,"confidence_20d":0.5,"thesis":"Event."}',
+  ].join("\n");
+  assert.equal(extractDeskVerdict(incompleteFirst)?.lean_5d, "bearish");
+  assert.equal(extractDeskVerdict(incompleteFirst)?.lean_20d, "neutral");
+});
+
+test("verdict turns request kind=verdict; specialists stay prose", async () => {
+  const cove = buildDeskExperimentCases().find((row) => row.id === "cove-event")!;
+  const verdict = '{"lean_5d":"neutral","lean_20d":"bearish","confidence_5d":0.4,"confidence_20d":0.6,"thesis":"Event IV."}';
+  const kinds: Array<string | undefined> = [];
+
+  await runDeskApproach("solo", cove, async (req) => {
+    kinds.push(req.kind);
+    return { text: `Take.\n${verdict}`, latency_ms: 1 };
+  });
+  assert.deepEqual(kinds, ["verdict"]);
+
+  kinds.length = 0;
+  await runDeskApproach("desk_shared_session", cove, async (req) => {
+    kinds.push(req.kind);
+    return { text: req.kind === "verdict" ? `Weigh.\n${verdict}` : TAKE, latency_ms: 1 };
+  });
+  assert.deepEqual(kinds, ["prose", "prose", "prose", "prose", "verdict"]);
+
+  kinds.length = 0;
+  await runDeskApproach("desk_fresh_sessions", cove, async (req) => {
+    kinds.push(req.kind);
+    return { text: req.kind === "verdict" ? `Chair.\n${verdict}` : TAKE, latency_ms: 1 };
+  });
+  assert.deepEqual(kinds, ["prose", "prose", "prose", "prose", "verdict"]);
+
+  kinds.length = 0;
+  await runDeskApproach("desk_roleplay", cove, async (req) => {
+    kinds.push(req.kind);
+    return { text: verdict, latency_ms: 1 };
+  });
+  assert.deepEqual(kinds, ["verdict"]);
+});
+
 test("scoreDeskVerdict grades both horizons against held-out returns", () => {
   const drift = buildDeskExperimentCases().find((row) => row.id === "drift-breakdown")!;
   const hit = scoreDeskVerdict({

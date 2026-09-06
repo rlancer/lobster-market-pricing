@@ -57,7 +57,7 @@ test("parseSaveExperimentRunBody accepts a desk-approaches run without images", 
 
   const parsed = await parseSaveExperimentRunBody({
     experiment_slug: "desk-approaches",
-    model: "openai/gpt-4o-mini",
+    model: "deepseek/deepseek-v4-flash-0731",
     seed: 0x4d45534b,
     results: {
       design_id: DESK_EXPERIMENT_DESIGN_ID,

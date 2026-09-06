@@ -25,7 +25,7 @@ import {
 
 export const DESK_EXPERIMENT_SLUG = "desk-approaches";
 export const DESK_EXPERIMENT_DESIGN_ID = "desk-approaches-v1";
-export const DESK_EXPERIMENT_RUNNER_VERSION = 1;
+export const DESK_EXPERIMENT_RUNNER_VERSION = 2;
 export const DESK_EXPERIMENT_DEADBAND_PCT = 1.5;
 
 export const DESK_APPROACH_IDS = [
@@ -105,6 +105,8 @@ export interface ChatTurn {
 export interface CompleteRequest {
   messages: ChatTurn[];
   maxOutputTokens?: number;
+  /** Verdict turns must close with lean_5d/lean_20d JSON. */
+  kind?: "prose" | "verdict";
 }
 
 export type CompleteFn = (input: CompleteRequest) => Promise<{ text: string; latency_ms: number }>;
@@ -162,29 +164,34 @@ function clamp01(value: unknown): number {
   return Math.min(1, Math.max(0, n));
 }
 
-/** Last JSON object in the text (fenced or brace-matched). */
-export function extractLastJsonObject(text: string): Record<string, unknown> | null {
+/** All brace-matched JSON objects in the text (fenced blocks first, then raw). */
+export function parseJsonObjects(text: string): Record<string, unknown>[] {
   const fences = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
   const blobs: string[] = fences.map((m) => m[1]!.trim());
   blobs.push(text);
-
-  let parsed: Record<string, unknown> | null = null;
+  const out: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
   for (const blob of blobs) {
-    const candidates = collectJsonCandidates(blob);
-    for (let i = candidates.length - 1; i >= 0; i--) {
+    for (const candidate of collectJsonCandidates(blob)) {
+      if (seen.has(candidate)) continue;
       try {
-        const value = JSON.parse(candidates[i]!) as unknown;
+        const value = JSON.parse(candidate) as unknown;
         if (value && typeof value === "object" && !Array.isArray(value)) {
-          parsed = value as Record<string, unknown>;
-          break;
+          seen.add(candidate);
+          out.push(value as Record<string, unknown>);
         }
       } catch {
-        /* try previous candidate */
+        /* skip */
       }
     }
-    if (parsed) break;
   }
-  return parsed;
+  return out;
+}
+
+/** Last JSON object in the text (fenced or brace-matched). */
+export function extractLastJsonObject(text: string): Record<string, unknown> | null {
+  const objects = parseJsonObjects(text);
+  return objects.at(-1) ?? null;
 }
 
 function collectJsonCandidates(text: string): string[] {
@@ -225,19 +232,22 @@ function collectJsonCandidates(text: string): string[] {
 }
 
 export function extractDeskVerdict(text: string): DeskVerdict | null {
-  const obj = extractLastJsonObject(text);
-  if (!obj) return null;
-  const lean_5d = parseLean(obj.lean_5d);
-  const lean_20d = parseLean(obj.lean_20d);
-  if (!lean_5d || !lean_20d) return null;
-  const thesis = typeof obj.thesis === "string" ? obj.thesis.trim().slice(0, 480) : "";
-  return {
-    lean_5d,
-    lean_20d,
-    confidence_5d: clamp01(obj.confidence_5d),
-    confidence_20d: clamp01(obj.confidence_20d),
-    thesis: thesis || "No thesis.",
-  };
+  const objects = parseJsonObjects(text);
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i]!;
+    const lean_5d = parseLean(obj.lean_5d);
+    const lean_20d = parseLean(obj.lean_20d);
+    if (!lean_5d || !lean_20d) continue;
+    const thesis = typeof obj.thesis === "string" ? obj.thesis.trim().slice(0, 480) : "";
+    return {
+      lean_5d,
+      lean_20d,
+      confidence_5d: clamp01(obj.confidence_5d),
+      confidence_20d: clamp01(obj.confidence_20d),
+      thesis: thesis || "No thesis.",
+    };
+  }
+  return null;
 }
 
 export function extractDeskFromText(text: string, required = DESK_CORE_VIEWPOINT_IDS): DeskBrief | null {
@@ -334,8 +344,9 @@ async function call(
   complete: CompleteFn,
   messages: ChatTurn[],
   maxOutputTokens = 1_200,
+  kind: "prose" | "verdict" = "prose",
 ): Promise<{ text: string; latency_ms: number }> {
-  return complete({ messages, maxOutputTokens });
+  return complete({ messages, maxOutputTokens, kind });
 }
 
 export async function runDeskApproach(
@@ -364,7 +375,7 @@ async function runSolo(
     },
     { role: "user", content: userPacket(experimentCase) },
   ];
-  const result = await call(complete, messages);
+  const result = await call(complete, messages, 2_400, "verdict");
   return finalize(experimentCase, "solo", [{
     id: "solo",
     specialist: "solo",
@@ -390,7 +401,7 @@ async function runRoleplay(
     },
     { role: "user", content: userPacket(experimentCase) },
   ];
-  const result = await call(complete, messages, 2_400);
+  const result = await call(complete, messages, 2_400, "verdict");
   const desk = extractDeskFromText(result.text);
   return finalize(experimentCase, "desk_roleplay", [{
     id: "desk",
@@ -450,7 +461,7 @@ async function runShared(
       DESK_VERDICT_INSTRUCTIONS,
     ].join("\n"),
   });
-  const chair = await call(complete, messages, 1_600);
+  const chair = await call(complete, messages, 1_600, "verdict");
   latency += chair.latency_ms;
   sessions.push({
     id: "chair",
@@ -506,7 +517,7 @@ async function runFresh(
       ].join("\n"),
     },
   ];
-  const chair = await call(complete, chairMessages, 1_600);
+  const chair = await call(complete, chairMessages, 1_600, "verdict");
   latency += chair.latency_ms;
   sessions.push({
     id: "chair",
