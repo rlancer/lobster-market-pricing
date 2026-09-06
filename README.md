@@ -143,7 +143,9 @@ OpenRouter pass can propose **product improvements** and open GitHub issues on
 this repo. Store a fine-grained PAT with **Issues: Read and write** on
 `rlancer/lobster-market-pricing` (Contents not required). Unset = gate still
 runs; no issues are filed. D1 `improvement_reports` dedupes by fingerprint so
-the same failure mode does not spam the tracker. Issues are labeled
+the same failure mode does not spam the tracker while its GitHub issue is
+still open. Close that issue to allow a new ticket on the next occurrence
+(no D1 delete needed). Issues are labeled
 `copilot-improvement`. Cutoff variants collapse to
 `assistant-answer-cutoff` / `unfinished-overview-no-final-answer`. The
 reporter skips jailbreak/spam rejects (gate working as intended), synthetic
@@ -686,7 +688,8 @@ until someone opens it. Admins watch that monitor at `/admin/quality-gate`
 (ledger in D1 `quality_gate_events` plus `improvement_reports`). When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
 pass (`worker/src/improvement-reporter.ts`) may open a deduped GitHub issue for
 actionable product fixes (skips jailbreak/spam rejects, synthetic `test/*`
-fixtures, and vague LLM-only "unfinished" fallbacks). Admins can unpublish any feed post from the Floor UI (same
+fixtures, and vague LLM-only "unfinished" fallbacks). Closing an improvement
+issue lets the same fingerprint file again if it recurs. Admins can unpublish any feed post from the Floor UI (same
 DELETE): human listings drop out of `timeline_posts`, bot shares clear
 `bot_handle` and leave the feed while the share URL stays live. Server-side guards: per-message trims (content ≤ 5,000 chars, sql ≤
 10,000 chars), a byte budget on the serialized transcript (≤ 1.2 MB of UTF-8
