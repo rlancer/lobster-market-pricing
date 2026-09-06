@@ -81,7 +81,10 @@ test("previewMessagesFromShare returns the full slimmed conversation with sql an
       sql: "SELECT 1",
       result: { columns: ["a"], rows: [{ a: 1 }], row_count: 1 },
       chart: { kind: "bar", x: "a", y: "a" },
-      desk: { overview: "FISV leads.", fundamental: "Solid." },
+      desk: {
+        overview: "FISV leads the tape on unusual call buying into the weekly.",
+        fundamental: "Payments mix and guidance still look constructive on the last print.",
+      },
       trades: { trades: [] },
       tools: [{ name: "run_query", args: "SELECT 1", ok: true }],
       queries: ["SELECT 1", "SELECT 2"],
@@ -97,7 +100,10 @@ test("previewMessagesFromShare returns the full slimmed conversation with sql an
   assert.equal(preview[1]?.reasoning, "Scan ATM calls by OI.");
   assert.equal(preview[1]?.sql, "SELECT 1");
   assert.deepEqual(preview[1]?.chart, { kind: "bar", x: "a", y: "a" });
-  assert.deepEqual(preview[1]?.desk, { overview: "FISV leads.", fundamental: "Solid." });
+  assert.deepEqual(preview[1]?.desk, {
+    overview: "FISV leads the tape on unusual call buying into the weekly.",
+    fundamental: "Payments mix and guidance still look constructive on the last print.",
+  });
   assert.deepEqual(preview[1]?.trades, { trades: [] });
   assert.deepEqual(preview[1]?.tools, [{ name: "run_query", args: "SELECT 1", ok: true }]);
   assert.deepEqual(preview[1]?.queries, ["SELECT 1", "SELECT 2"]);

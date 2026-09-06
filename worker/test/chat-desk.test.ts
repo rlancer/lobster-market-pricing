@@ -6,6 +6,7 @@ import {
   deskAnalystBlock,
   deskViewpointsFromBrief,
   formatDeskToolSummary,
+  isDeskStubText,
   normalizeDeskBrief,
 } from "../src/chat-desk.ts";
 import { selectDeskSpecialists } from "../src/chat-desk-route.ts";
@@ -73,6 +74,13 @@ test("normalizeDeskBrief rejects protocol-echo Received stubs", () => {
     macro: "Received: ... first include Text 'Received'",
     overview: "Received: ... first include Text 'Received'",
   }, { required: DESK_CORE_VIEWPOINT_IDS }), null);
+});
+
+test("isDeskStubText treats blocked-null sanitizer tokens as stubs", () => {
+  // Regression: share 1qKRZL7BSEpll6HDPoypuU8bS — publish_desk leftover.
+  assert.equal(isDeskStubText("REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:"), true);
+  assert.equal(isDeskStubText("replace_with_null_value_blocked_invalid"), true);
+  assert.equal(isDeskStubText("Mild-bullish: ride the 310/320 bull call into the weekly."), false);
 });
 
 test("normalizeDeskBrief rejects placeholder stubs", () => {

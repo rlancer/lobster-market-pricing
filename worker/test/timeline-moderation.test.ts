@@ -38,12 +38,15 @@ test("lastAssistantView prefers the newest assistant turn with payload", () => {
       role: "assistant",
       content: "(see reasoning)",
       reasoning: "mid thought wait,",
-      desk: { overview: "Mild bullish on AAPL near 317." },
+      desk: {
+        overview: "Mild bullish on AAPL near 317 with a defined-risk call.",
+        options: "Near-ATM calls still quote two-sided into the next weekly.",
+      },
     },
   ]);
   assert.equal(view?.content, "(see reasoning)");
   assert.equal(view?.hasDesk, true);
-  assert.equal(view?.deskOverview, "Mild bullish on AAPL near 317.");
+  assert.equal(view?.deskOverview, "Mild bullish on AAPL near 317 with a defined-risk call.");
 });
 
 test("heuristic rejects the cut-off (see reasoning) share pattern", () => {
@@ -156,6 +159,73 @@ test("heuristic rejects protocol-echo desk plus planning-only body", () => {
   assert.equal(decision?.allow, false);
   assert.equal(decision?.source, "heuristic");
   assert.match(decision?.reason ?? "", /placeholder|tool-loop|narration|empty/i);
+});
+
+test("heuristic rejects null-token desk plus tool-loop body (share 1qKRZL7)", () => {
+  // Regression: macrolobster share 1qKRZL7BSEpll6HDPoypuU8bS — rejected
+  // publish_desk leftover (REPLACE_WITH_NULL…) counted as a sealed desk, so
+  // period-ending scratchpad listed on the Floor.
+  const decision = heuristicTimelineQuality([
+    {
+      role: "user",
+      content:
+        "Macro / rates desk hourly: pull options.yields for the Treasury curve (DGS2/DGS10/DGS30).",
+    },
+    {
+      role: "assistant",
+      content: [
+        "Chart: x=date, series=DGS10 (or multiple series). render_chart series param — probably series=series_id?",
+        "Actually for multi-series need to specify. Let me chart value with series=series_id, x=date, y=value.",
+        "Let me publish desk (fundamental not relevant here — this is macro desk; active: Technical, Options, Risk, Macro).",
+        "The prompt says active specialists fill ONLY these: Fundamental, Technical, Options, Risk, Macro.",
+        "Looking at routing examples: broad beta / rates ETFs or Fed/CPI asks → include macro.",
+        "I think I should keep it relevant — I can give Fundamental a thin-but-real take on the inflation cycle. Good.",
+      ].join(" "),
+      desk: {
+        overview: "REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:",
+        fundamental: "REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:",
+        macro:
+          "The frame 'last' was overwritten by fed_odds. I need to specify the frame in render_chart. Let me refresh the curve frame first.",
+      },
+    },
+  ]);
+  assert.equal(decision?.allow, false);
+  assert.equal(decision?.source, "heuristic");
+  assert.match(decision?.reason ?? "", /tool-loop|narration|placeholder|empty/i);
+});
+
+test("heuristic rejects reasoning promoted into suggest_trades scratch (share 1qKRZL7 heal)", () => {
+  // coalesce lifts a reasoning paragraph; that lift must still fail the gate.
+  const decision = heuristicTimelineQuality([
+    { role: "user", content: "Macro / rates desk hourly." },
+    {
+      role: "assistant",
+      content: [
+        "Also suggest_trades — this is a macro timeline post with a tradable lean.",
+        "I could offer a Kalshi KXFED-26SEP-T3.75 contract (yes/no) as the binary play.",
+        "Actually I can suggest a Kalshi trade: buy NO on KXFED-26SEP-T3.75.",
+        "That is tradable with real two-sided quotes. Good.",
+      ].join(" "),
+    },
+  ]);
+  assert.equal(decision?.allow, false);
+  assert.match(decision?.reason ?? "", /tool-loop|narration|empty/i);
+});
+
+test("lastAssistantView does not treat a null-token desk as sealed", () => {
+  const view = lastAssistantView([
+    {
+      role: "assistant",
+      content: "Let me re-run the curve query first, then render_chart.",
+      desk: {
+        overview: "REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:",
+        fundamental: "REPLACE_WITH_NULL_VALUE_BLOCKED_INVALID:",
+        macro: "Let me refresh the curve frame first.",
+      },
+    },
+  ]);
+  assert.equal(view?.hasDesk, false);
+  assert.equal(view?.deskOverview, "");
 });
 
 test("heuristic rejects unfinished publish/render intent after markup strip", () => {

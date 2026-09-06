@@ -137,7 +137,8 @@ cd worker && npx wrangler secret put OPEN_ROUTER_KEY
 
 ### Worker — `IMPROVEMENT_ISSUE_TOKEN` (secret, optional)
 
-After the timeline quality gate runs (human publish or bot share), a cheap
+After the timeline quality gate runs (human publish or bot share), and after
+the cron remediator unlists a share the heuristics now reject, a cheap
 OpenRouter pass can propose **product improvements** and open GitHub issues on
 this repo. Store a fine-grained PAT with **Issues: Read and write** on
 `rlancer/lobster-market-pricing` (Contents not required). Unset = gate still
@@ -673,9 +674,13 @@ share onto the **Floor** (`POST /api/timeline`) — the home feed at
 switch off removes the listing (`DELETE /api/timeline/{id}`) without revoking
 the link. Before a share is listed — human publish or bot auto-share — a
 **timeline quality gate** (`worker/src/timeline-moderation.ts`) rejects cut-off
-mid-tool narrations, `(see reasoning)` placeholders, and other unfinished
-answers; humans get 422, bot runs mint an unlisted share without `bot_handle`
-and mark the run failed. When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
+mid-tool narrations, `(see reasoning)` placeholders, null-token / sanitizer
+desk leftovers, and other unfinished answers; humans get 422, bot runs mint an
+unlisted share without `bot_handle` and mark the run failed. GET `/share/{id}`
+and the Floor already re-run the heuristics on listed bot shares and unlist
+junk on read. The every-5-minute Worker cron also sweeps recent listed bot
+shares (`remoderateListedBotShares`) so a bad post does not sit on the feed
+until someone opens it. When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
 pass (`worker/src/improvement-reporter.ts`) may open a deduped GitHub issue for
 actionable product fixes (skips jailbreak/spam rejects, synthetic `test/*`
 fixtures, and vague LLM-only "unfinished" fallbacks). Admins can unpublish any feed post from the Floor UI (same

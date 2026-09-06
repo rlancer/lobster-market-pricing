@@ -116,6 +116,8 @@ export function isDeskStubText(text: string): boolean {
   if (/^(placeholder|tbd|todo|n\/?a|none|null|undefined|\.{1,3}|x+|-+)$/i.test(trimmed)) return true;
   if (/\breceived\b/i.test(trimmed) && /first include(?: the)? text/i.test(trimmed)) return true;
   if (/^received:\s*\.{2,}/i.test(trimmed)) return true;
+  // Sanitizer / structured-output null tokens (share 1qKRZL7… overview).
+  if (/replace_with_null|blocked_invalid/i.test(trimmed)) return true;
   return false;
 }
 

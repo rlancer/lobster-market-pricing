@@ -702,10 +702,49 @@ async function publishTimeline(
  * admin (who can also clear bot_handle so bot shares leave the feed).
  */
 /**
- * Apply the mint-time quality gate to an already-listed bot share.
- * Protocol-echo / planning-only desks (share wnJWqa…) stay as unlisted
- * capability URLs; the homepage Session snapshot must refresh afterward.
+ * Periodic monitor: re-run mint-time heuristics on recent listed bot shares
+ * and clear bot_handle when the gate would now reject. GET /share and the
+ * Floor already do this on read; the cron catches junk nobody has opened
+ * (share 1qKRZL7… sat listed with a null-token desk).
  */
+export async function remoderateListedBotShares(
+  db: D1Database,
+  opts?: { limit?: number; newerThanMs?: number },
+): Promise<{ scanned: number; unlisted: number }> {
+  const limit = Math.max(1, Math.min(opts?.limit ?? 80, 120));
+  const newerThan = opts?.newerThanMs ?? (Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const rows = await db.prepare(
+    `SELECT share_id, messages FROM shared_chats
+     WHERE bot_handle IS NOT NULL AND created_at > ?1
+     ORDER BY created_at DESC
+     LIMIT ?2`,
+  ).bind(newerThan, limit).all<{ share_id: string; messages: string }>();
+
+  let scanned = 0;
+  let unlisted = 0;
+  for (const row of rows.results ?? []) {
+    scanned += 1;
+    let messages: unknown;
+    try {
+      messages = JSON.parse(row.messages);
+    } catch {
+      continue;
+    }
+    const healed = coalesceAssistantMessageRecords(messages);
+    const decision = heuristicTimelineQuality(healed);
+    if (!decision || decision.allow) continue;
+    await clearBotListing(db, row.share_id);
+    unlisted += 1;
+    console.info(JSON.stringify({
+      timelineModeration: true,
+      action: "remoderate_unlist",
+      share_id: row.share_id,
+      reason: decision.reason,
+    }));
+  }
+  return { scanned, unlisted };
+}
+
 export async function clearBotListing(db: D1Database, shareId: string): Promise<void> {
   try {
     await db.prepare(
