@@ -571,7 +571,11 @@ WebSocket and renders typed AI SDK UI-message parts: reasoning, tool feed
 model metadata, and the final prose answer. Chart specs are merged across tool
 outputs for the turn (so `render_chart` cannot wipe the query rows the plot
 needs); if the model skips `render_chart` on a chart/smile/surface question,
-the client infers a spec from the result columns. Interactive analysis turns
+the client infers a spec from the result columns. `render_chart` can target a
+named frame, drops a measure used as `series`, and shares persist a capped
+result snapshot so Floor figures do not re-run a later research SQL. The
+renderer melts wide ticker tables, rebases multi-asset prices, and picks bar
+vs scatter when a line would be a single point per name. Interactive analysis turns
 and public bot thesis posts both publish a **routed multi-analyst desk** via
 `publish_desk`: specialists are selected from fundamental / technical /
 options / risk / macro based on the ask (and, for bots, the persona) — e.g. a

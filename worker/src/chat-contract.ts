@@ -42,7 +42,7 @@ export const CHAT_TOOL_DESCRIPTIONS = {
     "Filter, sort, project, limit, or reduce a cached frame without querying the lake. where and sort use expressions over column names with ==, !=, <, <=, >, >=, &&, ||, !, abs, min, max, and round. aggregations (avg/sum/count/min/max) with optional group_by compile to the same parameterized SQLite path. Use frame 'last' for the most recent run_query result.",
   refresh_frame: "Re-run a cached frame's source query after it becomes stale.",
   render_chart:
-    "Validate a chart specification for the most recent query result (or a named frame). Call after run_query or filter_frame when the user requested a chart. The UI only draws a chart from this tool.",
+    "Validate a chart specification against a named frame or the most recent query result. Call after run_query or filter_frame. Pass frame when 'last' is not the series you want. The UI only draws a chart from this tool. series must be a low-cardinality category (symbol, type, expiration, series_id) — never the y measure. Prefer long-form rows (one row per x/series), not a wide table of ticker columns.",
   get_news: "Fetch recent headlines for one ticker when explaining why a stock, option volume, or implied volatility moved.",
   lookup_symbols:
     "Identify what tickers actually are (equity vs ETF vs fund vs index vs future vs crypto) " +
@@ -127,9 +127,11 @@ export const CHAT_TOOL_INPUT_SCHEMAS = {
     kind: z.enum(["line", "area", "scatter", "bar"]).default("line"),
     x: z.string().min(1),
     y: z.string().min(1),
-    series: z.string().optional(),
+    series: z.string().optional().describe("Category that splits series (symbol, type, expiration, series_id). Never a numeric measure."),
     xLabel: z.string().max(80).optional(),
     yLabel: z.string().max(80).optional(),
+    frame: z.string().trim().min(1).max(80).optional()
+      .describe("Named frame to chart. Use when the figure is not the most recent query result."),
   }).strict(),
   get_news: z.object({ symbol: z.string().trim().min(1), limit: z.number().int().min(1).max(20).default(8) }).strict(),
   web_search: z.object({ query: z.string().trim().min(1).max(200), max_results: z.number().int().min(1).max(5).default(5) }).strict(),

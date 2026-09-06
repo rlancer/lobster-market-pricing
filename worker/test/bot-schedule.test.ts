@@ -220,6 +220,73 @@ test("extractShareTurns keeps render_chart specs for timeline shares", () => {
   assert.equal(turns.length, 2);
   assert.equal(turns[1].sql, "SELECT date, close FROM options.ohlc WHERE symbol = 'SPY' LIMIT 7");
   assert.deepEqual(turns[1].chart, { kind: "line", x: "date", y: "close", title: "SPY closes" });
+  assert.deepEqual(turns[1].result, {
+    columns: ["date", "close"],
+    rows: [
+      { date: "2026-08-18", close: 640 },
+      { date: "2026-08-19", close: 642 },
+    ],
+  });
+});
+
+test("extractShareTurns keeps the chart result when a later query has different columns", () => {
+  const messages = [
+    {
+      id: "1",
+      role: "user",
+      parts: [{ type: "text", text: "Chart CYTK spot." }],
+    },
+    {
+      id: "2",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-run_query",
+          toolCallId: "q1",
+          state: "output-available",
+          input: { sql: "SELECT ticker, spot_price, as_of_date FROM options.underlying_snapshots" },
+          output: {
+            ok: true,
+            sql: "SELECT ticker, spot_price, as_of_date FROM options.underlying_snapshots",
+            result: {
+              columns: ["ticker", "spot_price", "as_of_date"],
+              rows: [{ ticker: "CYTK", spot_price: 40, as_of_date: "2026-09-04" }],
+            },
+          },
+        },
+        {
+          type: "tool-render_chart",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { kind: "line", x: "as_of_date", y: "spot_price" },
+          output: {
+            ok: true,
+            sql: "SELECT ticker, spot_price, as_of_date FROM options.underlying_snapshots",
+            result: {
+              columns: ["ticker", "spot_price", "as_of_date"],
+              rows: [{ ticker: "CYTK", spot_price: 40, as_of_date: "2026-09-04" }],
+            },
+            chart: { kind: "line", x: "as_of_date", y: "spot_price" },
+          },
+        },
+        {
+          type: "tool-run_query",
+          toolCallId: "q2",
+          state: "output-available",
+          input: { sql: "SELECT strike, implied_vol FROM options.option_contracts LIMIT 1" },
+          output: {
+            ok: true,
+            sql: "SELECT strike, implied_vol FROM options.option_contracts LIMIT 1",
+            result: { columns: ["strike", "implied_vol"], rows: [{ strike: 40, implied_vol: 0.5 }] },
+          },
+        },
+        { type: "text", text: "CYTK is the ticket." },
+      ],
+    },
+  ] as UIMessage[];
+  const turns = extractShareTurns(messages);
+  assert.deepEqual(turns[1].chart, { kind: "line", x: "as_of_date", y: "spot_price" });
+  assert.deepEqual(turns[1].result?.columns, ["ticker", "spot_price", "as_of_date"]);
 });
 
 test("extractShareTurns reads render_chart input when tool output was stripped", () => {

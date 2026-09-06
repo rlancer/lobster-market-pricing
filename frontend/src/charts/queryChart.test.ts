@@ -130,6 +130,134 @@ test('ticker chart scene includes the close path and optional spot rule', () => 
   assert.ok(kinds.has('rule'));
 });
 
+test('wide sector table melts into one series per ticker', () => {
+  const spec: ChartSpec = {
+    kind: 'line',
+    x: 'trade_date',
+    y: 'xlk',
+    series: 'xlk',
+    title: 'Sector rotation — XLK vs XLF vs XLE vs XLU (8/31–9/4)',
+  };
+  const data = buildQueryPlotRows(
+    result(
+      ['trade_date', 'xlk', 'xlf', 'xle', 'xlu'],
+      [
+        { trade_date: '2026-08-31', xlk: 200, xlf: 50, xle: 90, xlu: 70 },
+        { trade_date: '2026-09-01', xlk: 210, xlf: 52, xle: 88, xlu: 71 },
+        { trade_date: '2026-09-02', xlk: 205, xlf: 53, xle: 91, xlu: 72 },
+      ],
+    ),
+    spec,
+  );
+  assert.deepEqual(data.seriesNames.sort(), ['XLE', 'XLF', 'XLK', 'XLU']);
+  assert.equal(data.rebased, true);
+  assert.equal(data.yLabel, 'Indexed (first = 100)');
+  const xlk = data.rows.filter((row) => row.series === 'XLK');
+  assert.equal(xlk[0]?.y, 100);
+  assert.equal(xlk[1]?.y, 105);
+});
+
+test('index closes on incomparable scales rebase to 100', () => {
+  const spec: ChartSpec = {
+    kind: 'line',
+    x: 'date',
+    y: 'close',
+    series: 'symbol',
+    title: 'Index closes: SPY / QQQ / IWM',
+  };
+  const data = buildQueryPlotRows(
+    result(
+      ['date', 'symbol', 'close'],
+      [
+        { date: '2026-08-24', symbol: 'SPY', close: 770 },
+        { date: '2026-08-25', symbol: 'SPY', close: 777 },
+        { date: '2026-08-24', symbol: 'IWM', close: 220 },
+        { date: '2026-08-25', symbol: 'IWM', close: 222 },
+      ],
+    ),
+    spec,
+  );
+  assert.equal(data.rebased, true);
+  assert.deepEqual(
+    data.rows.filter((row) => row.series === 'SPY').map((row) => row.y),
+    [100, 100.9090909090909],
+  );
+});
+
+test('drops series=value on a single yield line', () => {
+  const spec: ChartSpec = { kind: 'line', x: 'date', y: 'value', series: 'value', title: 'US 10Y' };
+  const data = buildQueryPlotRows(
+    result(
+      ['date', 'value'],
+      [
+        { date: '2026-06-01', value: 4.2 },
+        { date: '2026-07-01', value: 4.3 },
+        { date: '2026-08-01', value: 4.1 },
+        { date: '2026-09-01', value: 4.4 },
+        { date: '2026-09-02', value: 4.35 },
+      ],
+    ),
+    spec,
+  );
+  assert.deepEqual(data.seriesNames, ['value']);
+  assert.equal(data.kind, 'line');
+  assert.equal(data.rebased, false);
+});
+
+test('one point per name on a line becomes a scatter', () => {
+  const spec: ChartSpec = { kind: 'line', x: 'startpx', y: 'endpx', series: 'symbol', title: 'endpx vs startpx' };
+  const data = buildQueryPlotRows(
+    result(
+      ['symbol', 'startpx', 'endpx'],
+      [
+        { symbol: 'XLK', startpx: 230, endpx: 228 },
+        { symbol: 'XLE', startpx: 90, endpx: 94 },
+        { symbol: 'XLF', startpx: 50, endpx: 51 },
+        { symbol: 'XLU', startpx: 70, endpx: 72 },
+        { symbol: 'XLV', startpx: 140, endpx: 138 },
+      ],
+    ),
+    spec,
+  );
+  assert.equal(data.kind, 'scatter');
+  assert.equal(data.rows.length, 5);
+  assert.deepEqual(data.seriesNames.sort(), ['XLE', 'XLF', 'XLK', 'XLU', 'XLV']);
+});
+
+test('volume bar with open interest becomes grouped bars', () => {
+  const spec: ChartSpec = { kind: 'bar', x: 'symbol', y: 'volume', title: 'volume vs open interest' };
+  const data = buildQueryPlotRows(
+    result(
+      ['symbol', 'volume', 'open_interest', 'delta_pct'],
+      [
+        { symbol: 'NVDA', volume: 40_000, open_interest: 12_000, delta_pct: 18 },
+        { symbol: 'TSLA', volume: 22_000, open_interest: 8_000, delta_pct: 22 },
+      ],
+    ),
+    spec,
+  );
+  assert.deepEqual(data.seriesNames, ['Volume', 'Open interest']);
+  assert.equal(data.kind, 'bar');
+  assert.equal(data.rows.length, 4);
+});
+
+test('treasury tenors sort in maturity order', () => {
+  const spec: ChartSpec = { kind: 'line', x: 'x', y: 'y', title: 'US Treasury nominal curve' };
+  const data = buildQueryPlotRows(
+    result(
+      ['x', 'y'],
+      [
+        { x: '10Y', y: 4.2 },
+        { x: '2Y', y: 3.6 },
+        { x: '30Y', y: 4.5 },
+        { x: '5Y', y: 3.9 },
+      ],
+    ),
+    spec,
+  );
+  assert.deepEqual(data.rows.map((row) => row.x), ['2Y', '5Y', '10Y', '30Y']);
+});
+
 test('daily P&L scene paints signed bars and a zero rule', () => {
   const scene = createChartScene(
     definePnlChart({

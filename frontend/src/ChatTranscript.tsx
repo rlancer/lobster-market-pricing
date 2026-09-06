@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { HStack, Markdown } from '@astryxdesign/core';
 import { ChartView } from './Chart';
 import { chartFitsResult } from './chartSpec';
+import { pickChartSqlCandidates } from './chartSql';
 import { api, type QueryResult, type SharedChatMessage } from './api';
 import { PostShareButton } from './PostShareButton';
 import { AssistantMark } from './Sunglasses';
@@ -54,32 +55,40 @@ export function AssistantMessageBody({
 }) {
   const wantsChart = Boolean(message.chart);
   const queries = sqlQueriesFromMessage(message);
-  const primarySql = (message.sql?.trim() || queries[queries.length - 1] || '');
+  const sqlCandidates = pickChartSqlCandidates(message);
   const [result, setResult] = useState<QueryResult | null>(message.result && !message.result.error ? message.result : null);
-  const [loading, setLoading] = useState(wantsChart && !message.result && Boolean(primarySql));
+  const [loading, setLoading] = useState(wantsChart && !message.result && sqlCandidates.length > 0);
 
   useEffect(() => {
-    if (message.result || !primarySql || !wantsChart) {
-      setResult(message.result && !message.result.error ? message.result : null);
+    const snapshot = message.result && !message.result.error ? message.result : null;
+    if (snapshot || !wantsChart || !sqlCandidates.length) {
+      setResult(snapshot);
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    api.query(primarySql, 200)
-      .then((queryResult) => {
-        if (!cancelled && !queryResult.error) setResult(queryResult);
-      })
-      .catch(() => {
-        // Snapshot-less shares still paint the chart when a live query misses.
-      })
+    (async () => {
+      for (const sql of sqlCandidates.slice(0, 4)) {
+        try {
+          const queryResult = await api.query(sql, 200);
+          if (cancelled) return;
+          if (queryResult.error) continue;
+          if (message.chart && !chartFitsResult(message.chart, queryResult.columns)) continue;
+          setResult(queryResult);
+          return;
+        } catch {
+          // Try the next candidate — last SQL is often a later research hit.
+        }
+      }
+    })()
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [message.result, primarySql, wantsChart]);
+  }, [message.result, message.chart, wantsChart, sqlCandidates.join('\0')]);
 
   const chart = message.chart && result?.columns && chartFitsResult(message.chart, result.columns)
     ? message.chart

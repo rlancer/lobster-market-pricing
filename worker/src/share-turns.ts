@@ -71,6 +71,8 @@ export type ShareTurn = {
   /** Every lake query this turn ran (run_query / check_schema / frame slice). */
   queries?: string[];
   chart?: ChartSpec;
+  /** Capped query snapshot so Floor/share can paint the figure without re-running last SQL. */
+  result?: { columns: string[]; rows: Record<string, unknown>[] };
   desk?: DeskBrief;
   trades?: SuggestedTrades;
   tools?: ShareToolRow[];
@@ -79,6 +81,18 @@ export type ShareTurn = {
   author?: { handle: string; name: string; is_bot?: boolean; avatar_url?: string | null };
   ts?: number;
 };
+
+export const SHARE_RESULT_MAX_ROWS = 160;
+
+export function boundedShareResult(
+  result: { columns: string[]; rows: Record<string, unknown>[] } | null | undefined,
+): { columns: string[]; rows: Record<string, unknown>[] } | undefined {
+  if (!result || !result.columns.length) return undefined;
+  return {
+    columns: result.columns,
+    rows: result.rows.slice(0, SHARE_RESULT_MAX_ROWS),
+  };
+}
 
 export type ShareCapture = {
   sql?: string | null;
@@ -136,6 +150,8 @@ export function mergeAssistantShareTurns(earlier: ShareTurn, later: ShareTurn): 
   );
   if (queries.length) merged.queries = queries;
   if (later.chart || earlier.chart) merged.chart = later.chart ?? earlier.chart;
+  const result = later.result ?? earlier.result;
+  if (result) merged.result = result;
   if (desk) merged.desk = desk;
   if (later.trades || earlier.trades) merged.trades = later.trades ?? earlier.trades;
   // Prefer the later catalog (session frames accumulate); fall back to earlier.
@@ -209,6 +225,7 @@ function shareTurnFromRecord(rec: Record<string, unknown>): ShareTurn {
     ...(typeof rec.sql === "string" ? { sql: rec.sql } : {}),
     ...(queries ? { queries } : {}),
     ...(rec.chart && typeof rec.chart === "object" ? { chart: rec.chart as ChartSpec } : {}),
+    ...(asQueryResult(rec.result) ? { result: asQueryResult(rec.result)! } : {}),
     ...(desk ? { desk } : {}),
     ...(rec.trades && typeof rec.trades === "object" ? { trades: rec.trades as SuggestedTrades } : {}),
     ...(Array.isArray(rec.tools) ? { tools: rec.tools as ShareToolRow[] } : {}),
@@ -223,6 +240,7 @@ function recordFromShareTurn(turn: ShareTurn, result?: unknown): Record<string, 
   if (turn.sql) next.sql = turn.sql;
   if (turn.queries?.length) next.queries = turn.queries;
   if (turn.chart) next.chart = turn.chart;
+  if (turn.result) next.result = turn.result;
   if (turn.desk) next.desk = turn.desk;
   if (turn.trades) next.trades = turn.trades;
   if (turn.tools?.length) next.tools = turn.tools;
@@ -637,11 +655,13 @@ export function applyCaptureToShareTurns(
   if (captureQueries.length) turn.queries = captureQueries;
   let chart = turn.chart ?? asChartSpec(capture.chart);
   const result = asQueryResult(capture.result);
-  if (chart && result && !chartFitsResult(chart, result.columns)) chart = null;
   if (!chart && result && wantsChart(question)) {
     chart = inferChartSpec(result.columns, result.rows);
   }
   if (chart) turn.chart = chart;
+  if (result && (!chart || chartFitsResult(chart, result.columns))) {
+    turn.result = boundedShareResult(result);
+  }
   if (!turn.desk && capture.desk) {
     const desk = normalizeDeskBrief(capture.desk);
     if (desk) {
@@ -682,6 +702,7 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     let queries: string[] = [];
     let chart: ChartSpec | null = null;
     let result: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
+    let chartResult: { columns: string[]; rows: Record<string, unknown>[] } | null = null;
     let desk: DeskBrief | null = null;
     let trades: SuggestedTrades | null = null;
     let frames: ShareFrame[] | null = null;
@@ -741,12 +762,16 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
       const nextResult = asQueryResult(output.result);
       if (nextResult) {
         result = nextResult;
-        if (chart && !chartFitsResult(chart, result.columns)) chart = null;
+        if (!chart || chartFitsResult(chart, nextResult.columns) || toolName === "render_chart") {
+          chartResult = nextResult;
+        }
       }
       const nextChart = asChartSpec(output.chart) ?? (toolName === "render_chart" ? asChartSpec(input) : null);
       if (nextChart) {
         chart = nextChart;
-        if (result && !chartFitsResult(chart, result.columns)) chart = null;
+        if (chartResult && !chartFitsResult(chart, chartResult.columns)) {
+          chartResult = result && chartFitsResult(chart, result.columns) ? result : null;
+        }
       }
       if (output.desk && typeof output.desk === "object") {
         const fromOutput = normalizeDeskBrief(output.desk as DeskBriefInput);
@@ -806,6 +831,13 @@ export function extractShareTurns(messages: UIMessage[]): ShareTurn[] {
     if (sql) turn.sql = sql;
     if (queries.length) turn.queries = queries;
     if (chart) turn.chart = chart;
+    const snapshot = chart
+      ? (chartResult && chartFitsResult(chart, chartResult.columns) ? chartResult : null)
+      : result;
+    if (snapshot) {
+      const kept = boundedShareResult(snapshot);
+      if (kept) turn.result = kept;
+    }
     if (desk) turn.desk = desk;
     if (trades) turn.trades = trades;
     if (tools.length) turn.tools = tools;

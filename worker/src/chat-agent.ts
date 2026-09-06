@@ -9,7 +9,7 @@ import {
   type ModelMessage,
   type UIMessage,
 } from "ai";
-import { chartFitsResult, resolveColumn } from "./chart-spec";
+import { chartFitsResult, critiqueChartSpec } from "./chart-spec";
 import { CHAT_TOOL_DESCRIPTIONS, CHAT_TOOL_INPUT_SCHEMAS, CHAT_TOOL_LABELS, FRAME_QUERY_LIMIT, LAST_FRAME_NAME, createChatModel } from "./chat-contract";
 import {
   MAX_TOOL_SUMMARY_CHARS,
@@ -498,6 +498,12 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
     const expired = this.sql<{ name: string }>`SELECT name FROM frames WHERE fetched_at < ${cutoff}`;
     for (const frame of expired) this.sql`DELETE FROM frame_rows WHERE frame_name = ${frame.name}`;
     this.sql`DELETE FROM cf_ai_chat_agent_messages WHERE created_at < datetime('now', ${`-${CONVERSATION_RETENTION_DAYS} days`})`;
+  }
+
+  private loadFrameRows(name: string): Record<string, unknown>[] {
+    return this.sql<{ row_json: string }>`
+      SELECT row_json FROM frame_rows WHERE frame_name = ${name} ORDER BY row_index
+    `.map((row) => JSON.parse(row.row_json) as Record<string, unknown>);
   }
 
   private getFrame(name: string): StoredFrame | null {
@@ -1183,31 +1189,30 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
         description: CHAT_TOOL_DESCRIPTIONS.render_chart,
         inputSchema: CHAT_TOOL_INPUT_SCHEMAS.render_chart,
         execute: async (args) => runTool("render_chart", TOOL_LABELS.render_chart, args, () => {
-          const result = capture.result;
-          if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
-          const x = resolveColumn(result.columns, args.x);
-          const y = resolveColumn(result.columns, args.y);
-          if (!x || !y) {
-            const error = `Result lacks '${args.x}' or '${args.y}'. Available columns: ${result.columns.join(", ")}.`;
-            return this.output(false, error, { error });
+          let result = capture.result;
+          let sql = capture.sql;
+          if (args.frame) {
+            const frame = this.getFrame(args.frame);
+            if (!frame) return this.output(false, `No cached frame '${args.frame}'.`, { error: `No frame '${args.frame}'.` });
+            const rows = this.loadFrameRows(frame.name);
+            result = { columns: frame.columns, rows, row_count: rows.length, truncated: false, limit: rows.length };
+            sql = frame.sql;
+            this.setCapturedResult(capture, result, frame.sql);
           }
-          const series = args.series ? resolveColumn(result.columns, args.series) ?? undefined : undefined;
-          capture.chart = {
-            kind: args.kind,
-            x,
-            y,
-            ...(args.title ? { title: args.title } : {}),
-            ...(series ? { series } : {}),
-            ...(args.xLabel ? { xLabel: args.xLabel } : {}),
-            ...(args.yLabel ? { yLabel: args.yLabel } : {}),
-          };
+          if (!result || result.error) return this.output(false, "No successful result to chart.", { error: "No successful result to chart." });
+          const judged = critiqueChartSpec(args, result.columns, result.rows);
+          if (!judged.ok) return this.output(false, judged.error, { error: judged.error });
+          capture.chart = judged.spec;
           persist();
           // Include sql+result so the client can plot even if it only reads the
           // last tool output (render_chart used to return chart-only and wiped
           // the rows the Recharts view needs).
-          return this.output(true, "Chart specification validated.", {
+          const summary = judged.notes.length
+            ? `Chart specification validated. ${judged.notes.join(" ")}`
+            : "Chart specification validated.";
+          return this.output(true, summary, {
             error: null,
-            sql: capture.sql,
+            sql,
             result,
             chart: capture.chart,
             frames: this.frameMetadata(),

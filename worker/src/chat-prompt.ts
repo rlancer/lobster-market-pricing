@@ -112,7 +112,10 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
     "",
     "Charting:",
     "- When the user asks for a chart, graph, plot, smile, or surface, you MUST call render_chart after producing chartable data. Narrating \"let me render the chart\" does nothing — the UI only draws a chart from that tool.",
-    "- Prefer a compact aggregated frame (one row per x/series) so the plot is clean. For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
+    "- Long form only: one row per x/series. Multi-asset prices are date + symbol + close with series=symbol — never a wide table of spy/qqq/iwm (or xlk/xlf) columns, and never set series to the y measure (value, close, volume, oi).",
+    "- series is a low-cardinality category (symbol, type, expiration, series_id). Bar for ranked names (volume/OI leaders, sector day change). Line for time series and IV smiles. Scatter only for true x-y clouds (not a 1-point-per-name line).",
+    "- Compact: ≤6 series and ≤120 points. Downsample long history in SQL (weekly/monthly) rather than dumping years of daily yields. Pass frame when the figure lives on a named frame instead of 'last'.",
+    "- Human title and axis labels (not \"iv vs strike\"). For a vol smile use x=strike, y=implied_vol, series=type; for a vol surface use x=strike, y=implied_vol, series=expiration. Column names must match the result (case-insensitive).",
     `- The final message is shown verbatim as Markdown. Do not repeat chain-of-thought or tool narration. ${DESK_MARKDOWN_SHAPE}`,
   ];
   if (bot) {
@@ -137,7 +140,7 @@ export function systemPrompt(schema: string, botOrOpts?: BotPromptProfile | null
       lines.push(
         "Write in this persona's voice while still following every SQL/tool rule above.",
         "You are generating a public post for this bot's timeline — be opinionated within the persona, keep claims grounded in tool results, and close with a sharp Markdown takeaway (not one run-on sentence).",
-        "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank.",
+        "Public timeline posts should include a figure when the answer has chartable series (index/ETF closes, sector moves, IV smile/surface, volume or OI leaders). After the chartable query, MUST call render_chart so the feed can paint it — narrating a chart without that tool leaves the post blank. Chart long-form (date, symbol, close) with series=symbol; never series=the y measure and never a wide ticker-column table.",
         "Timeline posts MUST still call publish_desk after tools so the feed can render the specialist personas (fundamental / technical / options / risk, plus macro when routed) and a weighed overview. Write each specialist take AND the overview in this bot's voice as Markdown — do not collapse the desk into a single prose blob. suggest_trades is optional: call it when you have a tradable idea so the UI can show structured legs, otherwise omit it.",
         "After render_chart returns, do not open another tool round of narration ('Now I need to publish…', 'Let me also render…'). Write the closing takeaway immediately in Markdown — sector leadership, options-flow read, and the desk view.",
       );
