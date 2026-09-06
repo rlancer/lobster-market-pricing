@@ -30,7 +30,9 @@ const MODEL = process.env.MODEL?.trim() || "deepseek/deepseek-v4-flash-0731";
 const SLUG = "desk-approaches";
 const DESIGN_ID = "desk-approaches-v1";
 const RUNNER_VERSION = DESK_EXPERIMENT_RUNNER_VERSION;
-const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 2) || 2));
+const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 1) || 1));
+/** Hard cap so a hung OpenRouter call cannot freeze the remaining matrix. */
+const CELL_TIMEOUT_MS = Math.max(60_000, Number(process.env.CELL_TIMEOUT_MS ?? 15 * 60_000) || 15 * 60_000);
 const SOURCE_REVISION = process.env.GITHUB_SHA?.trim()
   || process.env.SOURCE_REVISION?.trim()
   || "local";
@@ -46,6 +48,20 @@ if (!OPEN_ROUTER_KEY.trim()) {
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 interface Cell {
   rep_id: string;
@@ -221,22 +237,28 @@ async function main() {
   };
 
   process.on("SIGTERM", () => {
-    void publish("saved-on-sigterm").finally(() => process.exit(1));
+    console.log("SIGTERM — skipping partial publish");
+    process.exit(1);
   });
   process.on("SIGINT", () => {
-    void publish("saved-on-sigint").finally(() => process.exit(1));
+    console.log("SIGINT — skipping partial publish");
+    process.exit(1);
   });
 
   for (const approach of design.approaches) {
     for (const experimentCase of design.cases) {
       const key = `${approach.id}::${experimentCase.id}`;
-      process.stdout.write(`probe ${key}… `);
+      console.log(`probe ${key} start`);
       const local = caseById(experimentCase.id, localCases);
       if (!local) throw new Error(`unknown case ${experimentCase.id}`);
       let lastError: unknown = null;
       for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
         try {
-          const run = await runDeskApproach(approach.id as DeskApproachId, local, complete);
+          const run = await withTimeout(
+            runDeskApproach(approach.id as DeskApproachId, local, complete),
+            CELL_TIMEOUT_MS,
+            key,
+          );
           const score = scoreDeskVerdict(run.verdict, local);
           cells.push({
             rep_id: approach.id,
@@ -266,7 +288,7 @@ async function main() {
           lastError = error;
           if (attempt >= PROBE_ATTEMPTS) break;
           const delay = 4_000 * attempt;
-          process.stdout.write(`retry ${attempt}/${PROBE_ATTEMPTS} in ${delay}ms… `);
+          console.log(`probe ${key} retry ${attempt}/${PROBE_ATTEMPTS} in ${delay}ms`);
           await sleep(delay);
         }
       }
@@ -282,7 +304,7 @@ async function main() {
           attempts: PROBE_ATTEMPTS,
           session_count: approach.id === "desk_fresh_sessions" ? 5 : 1,
         });
-        console.log("fail", (lastError as Error).message ?? lastError);
+        console.log(`probe ${key} fail`, (lastError as Error).message ?? lastError);
       }
     }
   }

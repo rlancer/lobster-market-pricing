@@ -28,7 +28,7 @@ on:
 
 concurrency:
   group: run-desk-approaches-experiment
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read

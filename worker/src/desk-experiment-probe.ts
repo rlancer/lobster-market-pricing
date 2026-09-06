@@ -2,8 +2,7 @@
  * Admin probe: run one desk-approaches cell (approach × as-of case).
  */
 
-import { generateObject, generateText, type LanguageModel } from "ai";
-import { z } from "zod";
+import { generateText, type LanguageModel } from "ai";
 import { createChatModel, type ChatModelEnv } from "./chat-contract";
 import {
   DESK_APPROACH_IDS,
@@ -50,18 +49,10 @@ function maxOutputTokenBudget(env: DeskExperimentProbeEnv, requested?: number): 
 }
 
 /** Per OpenRouter call. Hung DeepSeek seats were ~10 min and killed the Worker request. */
-const COMPLETE_ABORT_MS = 6 * 60_000;
+const COMPLETE_ABORT_MS = 4 * 60_000;
 /** Close-out after high-reasoning CoT — small budget, no extra chain-of-thought. */
-const VERDICT_CLOSE_ABORT_MS = 2 * 60_000;
+const VERDICT_CLOSE_ABORT_MS = 45_000;
 const VERDICT_CLOSE_MAX_TOKENS = 384;
-
-const deskVerdictSchema = z.object({
-  lean_5d: z.enum(["bullish", "bearish", "neutral"]),
-  lean_20d: z.enum(["bullish", "bearish", "neutral"]),
-  confidence_5d: z.number().min(0).max(1).optional(),
-  confidence_20d: z.number().min(0).max(1).optional(),
-  thesis: z.string().max(480).optional(),
-});
 
 /**
  * DeepSeek-v4 with high reasoning often puts the take (and the verdict JSON)
@@ -152,19 +143,10 @@ export function splitSystemMessages(messages: Array<{ role: string; content: str
   return { system: systemParts.join("\n\n"), messages: rest };
 }
 
-function serializeClosedVerdict(value: z.infer<typeof deskVerdictSchema>): string {
-  return JSON.stringify({
-    lean_5d: value.lean_5d,
-    lean_20d: value.lean_20d,
-    confidence_5d: value.confidence_5d ?? 0,
-    confidence_20d: value.confidence_20d ?? 0,
-    thesis: value.thesis ?? "",
-  });
-}
-
 /**
  * High-reasoning DeepSeek often dumps CoT and never closes lean_5d/lean_20d.
- * One follow-up with reasoning none, then generateObject — same model, not a hide.
+ * One generateText follow-up with reasoning none. Do not use generateObject —
+ * flash models lack structured-output and that call hangs past AbortSignal.
  */
 async function closeDeskVerdict(
   model: LanguageModel,
@@ -178,7 +160,7 @@ async function closeDeskVerdict(
   ].filter((part) => part.trim()).join("\n\n");
   const closeMessages: Array<{ role: "user" | "assistant"; content: string }> = [
     ...split.messages,
-    { role: "assistant", content: firstText.slice(0, 6_000) },
+    { role: "assistant", content: firstText.slice(0, 2_000) },
     {
       role: "user",
       content: "Emit the verdict JSON now. ONLY the JSON object with lean_5d and lean_20d.",
@@ -186,6 +168,7 @@ async function closeDeskVerdict(
   ];
 
   try {
+    console.log("[desk] verdict close-out generateText");
     const follow = await generateText({
       model,
       ...(closeSystem ? { system: closeSystem } : {}),
@@ -199,38 +182,12 @@ async function closeDeskVerdict(
     });
     const extra = deskCompletionText(follow);
     const combined = extra ? `${firstText}\n\n${extra}` : firstText;
-    if (extractDeskVerdict(combined)) return combined;
+    console.log(`[desk] verdict close-out done parsed=${Boolean(extractDeskVerdict(combined))}`);
+    return combined;
   } catch (error) {
     console.warn(JSON.stringify({
       deskVerdict: true,
       phase: "generateText",
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  }
-
-  try {
-    const result = await generateObject({
-      model,
-      schema: deskVerdictSchema,
-      ...(closeSystem ? { system: closeSystem } : {}),
-      prompt: [
-        "Prior analysis:",
-        firstText.slice(-4_000),
-        "",
-        "Emit lean_5d, lean_20d, confidence_5d, confidence_20d, thesis.",
-      ].join("\n"),
-      maxOutputTokens: VERDICT_CLOSE_MAX_TOKENS,
-      temperature: 0,
-      abortSignal: AbortSignal.timeout(VERDICT_CLOSE_ABORT_MS),
-      providerOptions: {
-        openrouter: { reasoning: { effort: "none" } },
-      },
-    });
-    return `${firstText}\n\n${serializeClosedVerdict(result.object)}`;
-  } catch (error) {
-    console.warn(JSON.stringify({
-      deskVerdict: true,
-      phase: "generateObject",
       error: error instanceof Error ? error.message : String(error),
     }));
     return firstText;
@@ -250,6 +207,8 @@ export function createDeskCompleteFn(
   return async ({ messages, maxOutputTokens, kind }) => {
     const started = Date.now();
     const split = splitSystemMessages(messages);
+    const seat = kind ?? "prose";
+    console.log(`[desk] ${seat} generateText start`);
     const result = await generateText({
       model,
       ...(split.system ? { system: split.system } : {}),
@@ -262,7 +221,9 @@ export function createDeskCompleteFn(
       },
     });
     let text = deskCompletionText(result);
-    if (kind === "verdict" && !extractDeskVerdict(text)) {
+    const parsed = Boolean(extractDeskVerdict(text));
+    console.log(`[desk] ${seat} generateText ${Date.now() - started}ms parsed=${parsed}`);
+    if (kind === "verdict" && !parsed) {
       text = await closeDeskVerdict(model, split, text);
     }
     return { text, latency_ms: Date.now() - started };
