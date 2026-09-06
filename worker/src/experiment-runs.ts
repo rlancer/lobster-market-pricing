@@ -27,6 +27,14 @@ export interface ExperimentRunCell {
   error?: string;
   model?: string;
   attempts?: number;
+  /** Desk-approaches cells: directional lean vs held-out as-of outcome. */
+  lean_5d?: string;
+  lean_20d?: string;
+  actual_5d?: string;
+  actual_20d?: string;
+  correct_5d?: boolean;
+  correct_20d?: boolean;
+  session_count?: number;
 }
 
 export interface ExperimentRunQuestion {
@@ -54,6 +62,8 @@ export interface ExperimentRunManifest {
   design_fingerprint_sha256: string;
   execution_order: string[];
   max_probe_attempts: number;
+  /** Desk-approaches: sha256 of each frozen as-of snapshot (keyed by case id). */
+  snapshot_sha256?: Record<string, string>;
 }
 
 /** JSON stored in experiment_runs.results_json (no image blobs). */
@@ -114,6 +124,12 @@ export async function parseSaveExperimentRunBody(
 ): Promise<ParseSaveResult> {
   if (!isRecord(body)) {
     return { ok: false, error: "JSON body required", status: 400 };
+  }
+
+  if (isRecord(body.results) && typeof body.results.design_id === "string"
+    && body.results.design_id.startsWith("desk-approaches")) {
+    const { parseSaveDeskExperimentRunBody } = await import("./desk-experiment-save");
+    return parseSaveDeskExperimentRunBody(body, slugFromPath);
   }
 
   const slug = asString(body.experiment_slug, 80) ?? slugFromPath;

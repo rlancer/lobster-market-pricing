@@ -180,6 +180,11 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/admin/quality-gate', desc: 'Admin — Floor quality-gate ledger (summary, recent decisions, improvement tickets). Optional ?action=&source=&limit=' },
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
+  { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
+  { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d grades)' },
+  { method: 'POST', path: '/api/admin/notebooks/probe', desc: 'Admin — single OpenRouter probe for the text-vs-image experiment' },
+  { method: 'POST', path: '/api/admin/experiments/desk-approaches/probe', desc: 'Admin — run one desk-approaches cell (approach × as-of case) against the frozen snapshot' },
+  { method: 'POST', path: '/api/admin/experiments/{slug}/runs', desc: 'Admin — publish a completed experiment run (text-vs-image or desk-approaches)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
   { method: 'POST', path: '/api/admin/dev-session', desc: 'Preview only (api-dev) — ADMIN_TOKEN mints a Better Auth cookie as an admin email so agents can test signed-in Chat/Bots. Production 404s.' },
   { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
@@ -221,6 +226,11 @@ const SURFACES = [
     route: '/portfolio',
     title: 'Portfolio',
     body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. Schwab opens on a combined Portfolio pane (performance chart plus open positions; search a ticker to scope both) with Trade history beside it. `/portfolio?book=schwab` (and `book=suggested`) deep-links the tab — the Floor Your book card uses that. A portfolio bot on /my-bots can review this book on a schedule.',
+  },
+  {
+    route: '/experiments',
+    title: 'Experiments',
+    body: 'Public studies of how we present market data to models. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction. Published runs load from the Worker so visitors do not spend OpenRouter credits.',
   },
   {
     route: '/data',

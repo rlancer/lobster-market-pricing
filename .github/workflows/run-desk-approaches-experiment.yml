@@ -1,0 +1,58 @@
+name: Run desk-approaches experiment
+
+# Probes solo / desk role-play / shared session / fresh specialist sessions
+# against frozen as-of snapshots, then publishes a server-saved run.
+#
+# Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
+# already be set on the target Worker.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'OpenRouter model slug'
+        type: string
+        default: 'openai/gpt-4o-mini'
+      api_base:
+        description: 'Worker API origin'
+        type: choice
+        options:
+          - https://api-dev.lobster.mp
+          - https://api.lobster.mp
+        default: https://api-dev.lobster.mp
+
+concurrency:
+  group: run-desk-approaches-experiment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run-experiment:
+    name: desk-approaches (${{ inputs.model }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      MODEL: ${{ inputs.model }}
+      API_BASE: ${{ inputs.api_base }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require ADMIN_TOKEN
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Run matrix and publish
+        run: node frontend/tools/run-desk-approaches-experiment.mjs

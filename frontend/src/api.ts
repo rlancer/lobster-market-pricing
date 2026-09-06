@@ -1580,6 +1580,13 @@ export interface ExperimentRunPayload {
       error?: string;
       model?: string;
       attempts?: number;
+      lean_5d?: string;
+      lean_20d?: string;
+      actual_5d?: string;
+      actual_20d?: string;
+      correct_5d?: boolean;
+      correct_20d?: boolean;
+      session_count?: number;
     }>;
     rep_order: string[];
   };
@@ -1784,6 +1791,33 @@ export const api = {
         })
       }`,
     ),
+  deskExperimentDesign: () =>
+    get<{
+      design_id: string;
+      production_note: string;
+      as_of_rules: string;
+      deadband_pct: number;
+      approaches: Array<{
+        id: string;
+        label: string;
+        description: string;
+        session_mode: string;
+      }>;
+      cases: Array<{
+        id: string;
+        ticker: string;
+        name: string;
+        as_of: string;
+        prompt: string;
+        notes: string;
+        expected_5d: string;
+        expected_20d: string;
+        return_5d_pct: number;
+        return_20d_pct: number;
+        what_happened: string;
+        snapshot_text: string;
+      }>;
+    }>('/api/experiments/desk-approaches/design'),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
     post<{ ok: true; run: ExperimentRunPayload }>(
