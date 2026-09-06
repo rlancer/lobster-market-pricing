@@ -179,6 +179,15 @@ async function mockAdminQualityGate(page: Page) {
   });
 }
 
+if (process.env.PLAYWRIGHT_CHROME_PATH) {
+  test.use({
+    launchOptions: {
+      executablePath: process.env.PLAYWRIGHT_CHROME_PATH,
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    },
+  });
+}
+
 test.describe('Admin quality gate', () => {
   test('hub lists the monitor and the page filters, sweeps, and shows tickets', async ({ page }) => {
     await mockAdminQualityGate(page);
