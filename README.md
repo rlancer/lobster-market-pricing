@@ -517,7 +517,9 @@ book** (when Chat `suggest_trades` lands concrete legs in a signed-in chat,
 those ideas auto-open paper positions at lake mid; Close realizes against
 $100k starting cash) and **Schwab** when OAuth is configured — live linked
 brokerage accounts, balances, and positions via `GET /api/schwab/portfolio`
-(connect from Account or the Schwab tab). Anonymous visitors get a sign-in
+(connect from Account or the Schwab tab). Hide dollars on the Schwab tab
+replaces cash, marks, and P&L with percentages for screenshot sharing.
+Anonymous visitors get a sign-in
 empty state. After sign-in, **Suggested trades** still shows public bot idea
 PnL (same book as `/u/{handle}` — no cash). Paper + suggested filter by status
 and conviction (high / medium / low). Share/Floor viewers can still

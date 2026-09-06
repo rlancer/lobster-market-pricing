@@ -61,9 +61,12 @@ function sideTone(side: SchwabTrade['side']): 'green' | 'red' | 'gray' {
  */
 export function SchwabTradesSection({
   accountId,
+  hideDollars = false,
 }: {
   /** Opaque portfolio account id (`schwab-0-1234`). */
   accountId: string | null;
+  /** Screenshot mode: omit fill price, net cash, fees, and size. */
+  hideDollars?: boolean;
 }) {
   const [range, setRange] = useState<DateRange | null>(() => defaultRange());
   const [symbol, setSymbol] = useState('');
@@ -225,7 +228,7 @@ export function SchwabTradesSection({
               header: 'Qty',
               width: pixel(72),
               renderCell: (row) => (
-                <Text hasTabularNumbers>{qty(row.quantity)}</Text>
+                <Text hasTabularNumbers>{hideDollars ? '—' : qty(row.quantity)}</Text>
               ),
             },
             {
@@ -233,7 +236,7 @@ export function SchwabTradesSection({
               header: 'Price',
               width: pixel(88),
               renderCell: (row) => (
-                <Text hasTabularNumbers>{money(row.price)}</Text>
+                <Text hasTabularNumbers>{hideDollars ? '—' : money(row.price)}</Text>
               ),
             },
             {
@@ -241,7 +244,7 @@ export function SchwabTradesSection({
               header: 'Net',
               width: pixel(100),
               renderCell: (row) => (
-                <Text hasTabularNumbers>{money(row.net_amount)}</Text>
+                <Text hasTabularNumbers>{hideDollars ? '—' : money(row.net_amount)}</Text>
               ),
             },
             {
@@ -249,7 +252,7 @@ export function SchwabTradesSection({
               header: 'Fees',
               width: pixel(72),
               renderCell: (row) => (
-                <Text hasTabularNumbers>{money(row.fees)}</Text>
+                <Text hasTabularNumbers>{hideDollars ? '—' : money(row.fees)}</Text>
               ),
             },
             {
