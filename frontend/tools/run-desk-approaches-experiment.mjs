@@ -12,9 +12,9 @@
  */
 import { createHash } from 'node:crypto';
 
-const API_BASE = (process.env.API_BASE ?? 'https://api-dev.lobster.mp').replace(/\/$/, '');
+const API_BASE = (process.env.API_BASE?.trim() || 'https://api-dev.lobster.mp').replace(/\/$/, '');
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
-const MODEL = process.env.MODEL ?? 'openai/gpt-4o-mini';
+const MODEL = process.env.MODEL?.trim() || 'openai/gpt-4o-mini';
 const SLUG = 'desk-approaches';
 const DESIGN_ID = 'desk-approaches-v1';
 const RUNNER_VERSION = 1;

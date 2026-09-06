@@ -40,16 +40,24 @@ permissions:
 
 jobs:
   run-experiment:
-    name: desk-approaches (${{ inputs.model }})
+    name: desk-approaches (${{ github.event_name == 'workflow_dispatch' && inputs.model || 'openai/gpt-4o-mini' }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      MODEL: ${{ inputs.model }}
-      API_BASE: ${{ inputs.api_base }}
+      # `inputs.*` is empty on push (not missing) — do not read it unless dispatch.
+      MODEL: openai/gpt-4o-mini
+      API_BASE: https://api-dev.lobster.mp
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+
+      - name: Apply workflow_dispatch inputs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          echo "MODEL=${{ inputs.model }}" >> "$GITHUB_ENV"
+          echo "API_BASE=${{ inputs.api_base }}" >> "$GITHUB_ENV"
 
       - name: Require ADMIN_TOKEN
         run: |
