@@ -5,6 +5,11 @@ name: Run desk-approaches experiment
 #
 # Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
 # already be set on the target Worker.
+#
+# Trigger: workflow_dispatch, or push to this experiment's branches.
+# gh workflow_dispatch may 403 / omit workflows that are not on main —
+# push is the reliable path. Probes wait for Deploy on the same SHA so
+# api-dev is running this commit (system messages must be `instructions`).
 
 on:
   workflow_dispatch:
@@ -20,6 +25,10 @@ on:
           - https://api-dev.lobster.mp
           - https://api.lobster.mp
         default: https://api-dev.lobster.mp
+  push:
+    branches:
+      - 'cursor/*desk-approaches*'
+      - 'cursor/desk-approaches-experiment-294f'
 
 concurrency:
   group: run-desk-approaches-experiment
@@ -27,6 +36,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   run-experiment:
@@ -53,6 +63,32 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
+
+      - name: Wait for screener-api-dev deploy
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for Deploy on ${GITHUB_SHA}"
+          for i in $(seq 1 90); do
+            json="$(gh run list --workflow Deploy --commit "${GITHUB_SHA}" --json status,conclusion,event,name,databaseId)"
+            echo "$json"
+            status="$(echo "$json" | jq -r '[.[] | select(.event=="push")][0].status // empty')"
+            conclusion="$(echo "$json" | jq -r '[.[] | select(.event=="push")][0].conclusion // empty')"
+            echo "attempt ${i}: status=${status:-pending} conclusion=${conclusion:-}"
+            if [ "${status}" = "completed" ] && [ "${conclusion}" = "success" ]; then
+              echo "Deploy succeeded"
+              exit 0
+            fi
+            if [ "${status}" = "completed" ] && [ -n "${conclusion}" ] && [ "${conclusion}" != "success" ]; then
+              echo "::error::Deploy concluded ${conclusion} — not probing a stale Worker"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for Deploy"
+          exit 1
 
       - name: Run matrix and publish
         run: node frontend/tools/run-desk-approaches-experiment.mjs

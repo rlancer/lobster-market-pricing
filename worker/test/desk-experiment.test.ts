@@ -16,7 +16,7 @@ import {
   formatDeskSnapshot,
   snapshotAsOfViolations,
 } from "../src/desk-experiment-cases.ts";
-import { parseDeskExperimentProbeBody } from "../src/desk-experiment-probe.ts";
+import { parseDeskExperimentProbeBody, splitSystemMessages } from "../src/desk-experiment-probe.ts";
 
 test("as-of snapshots never leak post-as-of OHLC or news", () => {
   const cases = buildDeskExperimentCases();
@@ -185,6 +185,18 @@ test("role-play is one session and not a per-specialist agent", async () => {
   assert.ok(run.desk?.risk);
   const score = scoreDeskVerdict(run.verdict, dune);
   assert.equal(score.correct, true);
+});
+
+test("splitSystemMessages keeps system out of the OpenRouter messages array", () => {
+  const split = splitSystemMessages([
+    { role: "system", content: "You are the chair." },
+    { role: "user", content: "snapshot" },
+    { role: "assistant", content: "take" },
+    { role: "user", content: "overview" },
+  ]);
+  assert.equal(split.system, "You are the chair.");
+  assert.deepEqual(split.messages.map((m) => m.role), ["user", "assistant", "user"]);
+  assert.ok(!split.messages.some((m) => (m.role as string) === "system"));
 });
 
 test("parseDeskExperimentProbeBody rejects unknown ids", () => {

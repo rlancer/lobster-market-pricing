@@ -71,6 +71,28 @@ export function parseDeskExperimentProbeBody(body: unknown): DeskExperimentProbe
   };
 }
 
+/**
+ * OpenRouter / Responses-API rejects `role: "system"` inside `messages`.
+ * Fold those into `system` (mapped to `instructions`) and keep user/assistant turns.
+ */
+export function splitSystemMessages(messages: Array<{ role: string; content: string }>): {
+  system: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+} {
+  const systemParts: string[] = [];
+  const rest: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const message of messages) {
+    if (message.role === "system") {
+      if (message.content.trim()) systemParts.push(message.content);
+      continue;
+    }
+    if (message.role === "user" || message.role === "assistant") {
+      rest.push({ role: message.role, content: message.content });
+    }
+  }
+  return { system: systemParts.join("\n\n"), messages: rest };
+}
+
 export async function runDeskExperimentProbe(
   env: ChatModelEnv,
   origin: string,
@@ -92,9 +114,11 @@ export async function runDeskExperimentProbe(
 
   const complete: CompleteFn = async ({ messages, maxOutputTokens }) => {
     const started = Date.now();
+    const split = splitSystemMessages(messages);
     const result = await generateText({
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      ...(split.system ? { system: split.system } : {}),
+      messages: split.messages,
       maxOutputTokens: maxOutputTokens ?? 1_200,
       temperature: 0,
     });
