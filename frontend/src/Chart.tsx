@@ -9,12 +9,10 @@ import { Chart } from '@tanstack/charts/react';
 import type { QueryResult } from './api';
 import { buildQueryPlotRows, defineQueryChart } from './charts/queryChart';
 import { CHART_HOST_CLASS } from './charts/theme';
-import type { ChartKind, ChartSpec } from './chartSpec';
+import { resolveColumn, type ChartSpec } from './chartSpec';
 import './charts.css';
 
 export type { ChartKind, ChartSpec } from './chartSpec';
-
-const KINDS = new Set<ChartKind>(['line', 'area', 'scatter', 'bar']);
 
 class ChartPlotBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -39,42 +37,48 @@ class ChartPlotBoundary extends Component<{ children: ReactNode }, { error: Erro
 }
 
 export function ChartView({ result, spec }: { result: QueryResult; spec: ChartSpec }) {
-  const kind: ChartKind = spec.kind && KINDS.has(spec.kind) ? spec.kind : 'line';
-  const data = useMemo(() => buildQueryPlotRows(result, { ...spec, kind }), [result, spec, kind]);
-
-  const colSet = new Set(result.columns);
-  const definition = useMemo(
-    () => defineQueryChart({
-      rows: data.rows,
-      kind,
-      numericX: data.numericX,
-      seriesNames: data.seriesNames,
-      xLabel: spec.xLabel,
-      yLabel: spec.yLabel,
-    }),
-    [data, kind, spec.xLabel, spec.yLabel],
+  const x = resolveColumn(result.columns, spec.x);
+  const y = resolveColumn(result.columns, spec.y);
+  const data = useMemo(
+    () => (x && y ? buildQueryPlotRows(result, spec) : null),
+    [result, spec, x, y],
   );
 
-  if (!colSet.has(spec.x) || !colSet.has(spec.y)) {
+  const definition = useMemo(
+    () => data
+      ? defineQueryChart({
+          rows: data.rows,
+          kind: data.kind,
+          numericX: data.numericX,
+          seriesNames: data.seriesNames,
+          xLabel: data.xLabel,
+          yLabel: data.yLabel,
+        })
+      : null,
+    [data],
+  );
+
+  if (!x || !y) {
     return (
       <div className="ai-chart ai-chart-empty">
         Couldn't chart — the query result has no column(s) {spec.x}/{spec.y}.
       </div>
     );
   }
-  if (data.rows.length === 0) {
+  if (!data || data.rows.length === 0) {
     return <div className="ai-chart ai-chart-empty">No data to chart.</div>;
   }
 
+  const title = data.title ?? spec.title;
   return (
-    <ChartPlotBoundary key={`${kind}:${spec.x}:${spec.y}:${spec.series ?? ''}:${data.rows.length}`}>
+    <ChartPlotBoundary key={`${data.kind}:${spec.x}:${spec.y}:${spec.series ?? ''}:${data.rows.length}:${data.rebased}`}>
       <div className="ai-chart">
-        {spec.title && <div className="ai-chart-title">{spec.title}</div>}
+        {title && <div className="ai-chart-title">{title}</div>}
         <div className="ai-chart-body">
           <Chart
-            definition={definition}
+            definition={definition!}
             height={280}
-            ariaLabel={spec.title ?? `${spec.y} vs ${spec.x}`}
+            ariaLabel={title ?? `${spec.y} vs ${spec.x}`}
             className={CHART_HOST_CLASS}
           />
         </div>

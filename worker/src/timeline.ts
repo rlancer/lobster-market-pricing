@@ -140,6 +140,18 @@ function slimPreviewMessage(rec: Record<string, unknown>): Record<string, unknow
   }
   if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) out.ts = rec.ts;
   if (rec.chart && typeof rec.chart === "object" && !Array.isArray(rec.chart)) out.chart = rec.chart;
+  // Keep a capped result when the post has a figure so the feed does not
+  // re-run last SQL (often a later research hit that no longer fits the spec).
+  if (out.chart && rec.result && typeof rec.result === "object" && !Array.isArray(rec.result)) {
+    const raw = rec.result as { columns?: unknown; rows?: unknown };
+    if (Array.isArray(raw.columns) && raw.columns.every((column) => typeof column === "string") && Array.isArray(raw.rows)) {
+      out.result = {
+        columns: raw.columns,
+        rows: raw.rows.filter((row) => row && typeof row === "object" && !Array.isArray(row)).slice(0, 160),
+        row_count: Math.min(Array.isArray(raw.rows) ? raw.rows.length : 0, 160),
+      };
+    }
+  }
   // Desk / trades / tools / frames are compact — keep them so the feed can reuse
   // the same AssistantMessageBody + Sources exploration as live chat /share.
   if (rec.desk && typeof rec.desk === "object" && !Array.isArray(rec.desk)) out.desk = rec.desk;
@@ -163,8 +175,8 @@ function slimPreviewMessage(rec: Record<string, unknown>): Record<string, unknow
       };
     }
   }
-  // Omit result rows from the list payload — AssistantMessageBody re-runs SQL
-  // when needed, same path as snapshot-less shares.
+  // Result rows stay only when a chart needs them (see above). Snapshot-less
+  // shares still re-run SQL from queries[] / frames.
   if (!out.content && !out.sql && !out.reasoning && !out.chart && !out.desk && !out.trades && !out.tools && !out.frames && !out.queries) {
     return null;
   }

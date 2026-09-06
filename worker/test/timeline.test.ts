@@ -108,7 +108,7 @@ test("previewMessagesFromShare returns the full slimmed conversation with sql an
   assert.deepEqual(preview[1]?.tools, [{ name: "run_query", args: "SELECT 1", ok: true }]);
   assert.deepEqual(preview[1]?.queries, ["SELECT 1", "SELECT 2"]);
   assert.deepEqual(preview[1]?.frames, [{ name: "last", columns: ["a"], row_count: 1, sql: "SELECT 1", fetched_at: 1 }]);
-  assert.equal("result" in (preview[1] ?? {}), false);
+  assert.deepEqual(preview[1]?.result, { columns: ["a"], rows: [{ a: 1 }], row_count: 1 });
   assert.deepEqual(preview[2], { role: "user", content: "More?" });
   assert.deepEqual(preview[3], { role: "assistant", content: "Later turn." });
 });
