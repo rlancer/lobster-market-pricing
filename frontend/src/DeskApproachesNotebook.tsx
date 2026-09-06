@@ -34,6 +34,7 @@ interface DesignApproach {
 interface DesignPayload {
   design_id: string;
   production_note: string;
+  model?: string;
   as_of_rules: string;
   deadband_pct: number;
   approaches: DesignApproach[];
@@ -281,6 +282,11 @@ export default function DeskApproachesNotebookPage() {
             sees the same snapshot text. The only variable is session structure.
           </Text>
           {design ? <Text type="supporting">{design.production_note}</Text> : null}
+          {design?.model ? (
+            <Text type="supporting">
+              Probes use the same model as live Chat: <code>{design.model}</code>
+            </Text>
+          ) : null}
         </Section>
 
         <Section id="approaches" num={approachesNum} title="Approaches">

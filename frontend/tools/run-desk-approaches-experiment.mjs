@@ -8,13 +8,14 @@
  * Env:
  *   ADMIN_TOKEN  — Bearer for /api/admin/* (required)
  *   API_BASE     — Worker origin (default https://api-dev.lobster.mp)
- *   MODEL        — OpenRouter model slug (default openai/gpt-4o-mini)
+ *   MODEL        — OpenRouter model slug (default: live Chat COPILOT_MODEL,
+ *                  currently deepseek/deepseek-v4-flash-0731)
  */
 import { createHash } from 'node:crypto';
 
 const API_BASE = (process.env.API_BASE?.trim() || 'https://api-dev.lobster.mp').replace(/\/$/, '');
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
-const MODEL = process.env.MODEL?.trim() || 'openai/gpt-4o-mini';
+const MODEL = process.env.MODEL?.trim() || 'deepseek/deepseek-v4-flash-0731';
 const SLUG = 'desk-approaches';
 const DESIGN_ID = 'desk-approaches-v1';
 const RUNNER_VERSION = 1;

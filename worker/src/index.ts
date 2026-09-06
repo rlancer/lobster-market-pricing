@@ -4105,7 +4105,10 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
   }
 
   if (path === "/api/experiments/desk-approaches/design" && req.method === "GET") {
-    return json(env, deskExperimentDesignPublic(), 200, "public");
+    return json(env, {
+      ...deskExperimentDesignPublic(),
+      model: env.COPILOT_MODEL,
+    }, 200, "public");
   }
 
   if (path === "/api/admin/experiments/desk-approaches/probe" && req.method === "POST") {

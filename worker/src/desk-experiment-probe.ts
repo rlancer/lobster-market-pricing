@@ -17,7 +17,34 @@ import {
 } from "./desk-experiment";
 import { buildDeskExperimentCases } from "./desk-experiment-cases";
 
-export const DEFAULT_DESK_EXPERIMENT_MODEL = "openai/gpt-4o-mini";
+/** Fallback when the Worker has no COPILOT_MODEL — same slug as wrangler.jsonc. */
+export const DEFAULT_DESK_EXPERIMENT_MODEL = "deepseek/deepseek-v4-flash-0731";
+
+export interface DeskExperimentProbeEnv extends ChatModelEnv {
+  COPILOT_REASONING_EFFORT?: string;
+  COPILOT_MAX_OUTPUT_TOKENS?: string;
+}
+
+export function resolveDeskExperimentModel(
+  env: { COPILOT_MODEL?: string },
+  inputModel?: string,
+): string {
+  return inputModel?.trim() || env.COPILOT_MODEL?.trim() || DEFAULT_DESK_EXPERIMENT_MODEL;
+}
+
+function normalizeReasoningEffort(value: string | undefined): "xhigh" | "high" | "medium" | "low" | "minimal" | "none" {
+  const effort = value?.trim() || "high";
+  return ["xhigh", "high", "medium", "low", "minimal", "none"].includes(effort)
+    ? effort as "xhigh" | "high" | "medium" | "low" | "minimal" | "none"
+    : "high";
+}
+
+function maxOutputTokenBudget(env: DeskExperimentProbeEnv, requested?: number): number {
+  const fromEnv = Number.parseInt(env.COPILOT_MAX_OUTPUT_TOKENS || "8192", 10);
+  const cap = Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 8192;
+  if (typeof requested === "number" && requested > 0) return Math.max(requested, cap);
+  return cap;
+}
 
 export interface DeskExperimentProbeInput {
   model?: string;
@@ -94,7 +121,7 @@ export function splitSystemMessages(messages: Array<{ role: string; content: str
 }
 
 export async function runDeskExperimentProbe(
-  env: ChatModelEnv,
+  env: DeskExperimentProbeEnv,
   origin: string,
   input: DeskExperimentProbeInput,
 ): Promise<DeskExperimentProbeSuccess | DeskExperimentProbeFailure> {
@@ -106,11 +133,12 @@ export async function runDeskExperimentProbe(
     return { ok: false, error: "unknown case_id", status: 400 };
   }
 
-  const modelId = input.model?.trim() || DEFAULT_DESK_EXPERIMENT_MODEL;
+  const modelId = resolveDeskExperimentModel(env, input.model);
   const model = createChatModel(
     { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: modelId },
     origin,
   ) as LanguageModel;
+  const reasoningEffort = normalizeReasoningEffort(env.COPILOT_REASONING_EFFORT);
 
   const complete: CompleteFn = async ({ messages, maxOutputTokens }) => {
     const started = Date.now();
@@ -119,8 +147,11 @@ export async function runDeskExperimentProbe(
       model,
       ...(split.system ? { system: split.system } : {}),
       messages: split.messages,
-      maxOutputTokens: maxOutputTokens ?? 1_200,
+      maxOutputTokens: maxOutputTokenBudget(env, maxOutputTokens),
       temperature: 0,
+      providerOptions: {
+        openrouter: { reasoning: { effort: reasoningEffort } },
+      },
     });
     return { text: result.text, latency_ms: Date.now() - started };
   };

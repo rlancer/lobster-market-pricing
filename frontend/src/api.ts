@@ -1795,6 +1795,7 @@ export const api = {
     get<{
       design_id: string;
       production_note: string;
+      model?: string;
       as_of_rules: string;
       deadband_pct: number;
       approaches: Array<{

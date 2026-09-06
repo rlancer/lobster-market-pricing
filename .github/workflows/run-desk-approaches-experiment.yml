@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: 'OpenRouter model slug'
+        description: 'OpenRouter model slug (default: live Chat COPILOT_MODEL)'
         type: string
-        default: 'openai/gpt-4o-mini'
+        default: 'deepseek/deepseek-v4-flash-0731'
       api_base:
         description: 'Worker API origin'
         type: choice
@@ -40,13 +40,13 @@ permissions:
 
 jobs:
   run-experiment:
-    name: desk-approaches (${{ github.event_name == 'workflow_dispatch' && inputs.model || 'openai/gpt-4o-mini' }})
+    name: desk-approaches (${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash-0731' }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
       # `inputs.*` is empty on push (not missing) — do not read it unless dispatch.
-      MODEL: openai/gpt-4o-mini
+      MODEL: deepseek/deepseek-v4-flash-0731
       API_BASE: https://api-dev.lobster.mp
     steps:
       - name: Check out repository

@@ -16,7 +16,7 @@ import {
   formatDeskSnapshot,
   snapshotAsOfViolations,
 } from "../src/desk-experiment-cases.ts";
-import { parseDeskExperimentProbeBody, splitSystemMessages } from "../src/desk-experiment-probe.ts";
+import { parseDeskExperimentProbeBody, resolveDeskExperimentModel, splitSystemMessages } from "../src/desk-experiment-probe.ts";
 
 test("as-of snapshots never leak post-as-of OHLC or news", () => {
   const cases = buildDeskExperimentCases();
@@ -199,17 +199,30 @@ test("splitSystemMessages keeps system out of the OpenRouter messages array", ()
   assert.ok(!split.messages.some((m) => (m.role as string) === "system"));
 });
 
+test("resolveDeskExperimentModel follows Chat COPILOT_MODEL", () => {
+  assert.equal(
+    resolveDeskExperimentModel({ COPILOT_MODEL: "deepseek/deepseek-v4-flash-0731" }),
+    "deepseek/deepseek-v4-flash-0731",
+  );
+  assert.equal(
+    resolveDeskExperimentModel({ COPILOT_MODEL: "deepseek/deepseek-v4-flash-0731" }, "openai/gpt-4o-mini"),
+    "openai/gpt-4o-mini",
+  );
+  assert.equal(resolveDeskExperimentModel({}), "deepseek/deepseek-v4-flash-0731");
+});
+
 test("parseDeskExperimentProbeBody rejects unknown ids", () => {
   const bad = parseDeskExperimentProbeBody({ approach_id: "solo", case_id: "nope" });
   assert.equal(bad.ok, false);
   const ok = parseDeskExperimentProbeBody({
     approach_id: "desk_fresh_sessions",
     case_id: "drift-breakdown",
-    model: "openai/gpt-4o-mini",
+    model: "deepseek/deepseek-v4-flash-0731",
   });
   assert.equal(ok.ok, true);
   if (ok.ok) {
     assert.equal(ok.approach_id, "desk_fresh_sessions");
     assert.equal(ok.case_id, "drift-breakdown");
+    assert.equal(ok.model, "deepseek/deepseek-v4-flash-0731");
   }
 });
