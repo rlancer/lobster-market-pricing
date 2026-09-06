@@ -192,4 +192,43 @@ test.describe('Schwab portfolio returns', () => {
       fullPage: true,
     });
   });
+
+  test('hide dollars swaps cash and marks for percentages', async ({ page }) => {
+    await mockSignedInSchwabBook(page);
+    await page.goto('/portfolio?book=schwab');
+
+    await expect(page.getByText('$12,000.00')).toBeVisible();
+    await expect(page.getByText('$54,321.50')).toBeVisible();
+    await expect(page.getByText('$240.25')).toBeVisible();
+    await expect(page.getByText('+$350.00').first()).toBeVisible();
+    await expect(page.getByText('$8,400.00')).toBeVisible();
+    await expect(page.getByText('40', { exact: true })).toBeVisible();
+
+    await page.getByRole('switch', { name: 'Hide dollars' }).click();
+
+    await expect(page.getByText('$12,000.00')).toHaveCount(0);
+    await expect(page.getByText('$54,321.50')).toHaveCount(0);
+    await expect(page.getByText('$240.25')).toHaveCount(0);
+    await expect(page.getByText('+$350.00')).toHaveCount(0);
+    await expect(page.getByText('$8,400.00')).toHaveCount(0);
+
+    await expect(page.getByText('22.1%')).toBeVisible();
+    await expect(page.getByText('100%')).toBeVisible();
+    await expect(page.getByText('36.8%')).toBeVisible();
+    await expect(page.getByText('+0.50%').first()).toBeVisible();
+    await expect(page.getByText('+3.53%')).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Weight' })).toBeVisible();
+    await expect(page.getByText('15.5%')).toBeVisible();
+    await expect(page.getByText('+16.7%')).toBeVisible();
+    await expect(page.getByText('+1.46%')).toBeVisible();
+
+    const returns = page.getByRole('group', { name: 'Portfolio return' });
+    await expect(returns.getByText('DTD +0.50%')).toBeVisible();
+    await expect(returns.getByText('YTD +0.65%')).toBeVisible();
+
+    await page.screenshot({
+      path: '/opt/cursor/artifacts/schwab_portfolio_hide_dollars.png',
+      fullPage: true,
+    });
+  });
 });
