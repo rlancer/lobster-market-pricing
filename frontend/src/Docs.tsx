@@ -177,6 +177,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/admin/qa/{batch_id}', desc: 'Admin — one test-run batch plus attached shares' },
   { method: 'POST', path: '/api/admin/qa/{batch_id}/items', desc: 'Admin — attach share_ids and unlist them from the Floor' },
   { method: 'PATCH', path: '/api/admin/qa/items/{item_id}', desc: 'Admin — record pass/fail verdict on a test run' },
+  { method: 'GET', path: '/api/admin/quality-gate', desc: 'Admin — Floor quality-gate ledger (summary, recent decisions, improvement tickets). Optional ?action=&source=&limit=' },
+  { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
   { method: 'POST', path: '/api/admin/dev-session', desc: 'Preview only (api-dev) — ADMIN_TOKEN mints a Better Auth cookie as an admin email so agents can test signed-in Chat/Bots. Production 404s.' },
@@ -233,7 +235,12 @@ const SURFACES = [
   {
     route: '/admin',
     title: 'Admin',
-    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), the quality-gate monitor, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+  },
+  {
+    route: '/admin/quality-gate',
+    title: 'Quality gate',
+    body: 'Admin ledger for the Floor content monitor. Shows mint-time allow/reject, fail-open (the cheap moderator could not decide), remediator unlists of already-listed junk, and GitHub improvement tickets. Run remediator now re-checks recent listed bot shares. Events start after this Worker ships — older posts are not backfilled.',
   },
   {
     route: '/admin/test-runs',

@@ -32,6 +32,7 @@ import { createChatModel } from "./chat-contract";
 import type { ShareTurn } from "./share-turns";
 import { moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
+import { recordQualityGateEvent } from "./quality-gate-log";
 import { clipTitle, TITLE_MAX } from "./user-chats";
 import { linkBotTradesShare, ensureBotTradesBackfilled } from "./bot-trades";
 import { DESK_HANDLE, expireHomepageSession } from "./timeline-session";
@@ -224,6 +225,19 @@ async function mintBotShare(
       floor.stampHandle ? args.botHandle : null,
       args.runId,
     ).run();
+    const gateAction = !listOnFloor
+      ? "unlist_qa_share"
+      : floor.stampHandle
+        ? "allow_bot_share"
+        : "reject_bot_share";
+    await recordQualityGateEvent(env.SCHEMA_DB, {
+      action: gateAction,
+      decision: listOnFloor ? moderation : { allow: false, source: "skip", reason: "qa unlisted" },
+      shareId,
+      runId: args.runId,
+      botHandle: args.botHandle,
+      model: args.model,
+    });
     scheduleImprovementReport(
       env,
       moderationModel,

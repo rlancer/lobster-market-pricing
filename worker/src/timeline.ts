@@ -30,6 +30,7 @@ import {
 } from "./timeline-moderation";
 import { expireHomepageSession, isScheduledDeskPrompt } from "./timeline-session";
 import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
+import { recordQualityGateEvent } from "./quality-gate-log";
 
 const SHARE_ID_RE = /^[0-9A-Za-z]{1,48}$/;
 const LIST_DEFAULT = 30;
@@ -533,6 +534,12 @@ async function listTimeline(env: TimelineEnv, req: Request, ctx: ExecutionContex
         const decision = heuristicTimelineQuality(healed);
         if (decision && !decision.allow) {
           ctx.waitUntil(clearBotListing(env.SCHEMA_DB, row.share_id));
+          ctx.waitUntil(recordQualityGateEvent(env.SCHEMA_DB, {
+            action: "read_unlist",
+            decision,
+            shareId: row.share_id,
+            botHandle: row.handle,
+          }));
           continue;
         }
         const flags = flagsFromMessages(parsed);
@@ -639,6 +646,12 @@ async function publishTimeline(
     },
     { waitUntil: (p) => ctx.waitUntil(p) },
   );
+  ctx.waitUntil(recordQualityGateEvent(env.SCHEMA_DB, {
+    action: moderation.allow ? "allow_publish" : "reject_publish",
+    decision: moderation,
+    shareId,
+    model: typeof share.model === "string" ? share.model : null,
+  }));
   if (!moderation.allow) {
     console.info(JSON.stringify({
       timelineModeration: true,
@@ -735,6 +748,11 @@ export async function remoderateListedBotShares(
     if (!decision || decision.allow) continue;
     await clearBotListing(db, row.share_id);
     unlisted += 1;
+    await recordQualityGateEvent(db, {
+      action: "remoderate_unlist",
+      decision,
+      shareId: row.share_id,
+    });
     console.info(JSON.stringify({
       timelineModeration: true,
       action: "remoderate_unlist",
@@ -742,6 +760,10 @@ export async function remoderateListedBotShares(
       reason: decision.reason,
     }));
   }
+  await recordQualityGateEvent(db, {
+    action: "remediator_sweep",
+    extra: { scanned, unlisted },
+  });
   return { scanned, unlisted };
 }
 

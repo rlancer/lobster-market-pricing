@@ -692,6 +692,50 @@ export interface QaItem {
   created_at: number;
 }
 
+/** One persisted quality-gate / remediator decision. */
+export interface QualityGateEvent {
+  event_id: string;
+  created_at: number;
+  action: string;
+  allow: boolean | null;
+  source: string | null;
+  reason: string | null;
+  share_id: string | null;
+  run_id: string | null;
+  bot_handle: string | null;
+  model: string | null;
+  extra: Record<string, unknown> | null;
+}
+
+export interface QualityGateSummary {
+  window_ms: number;
+  decisions: number;
+  allowed: number;
+  rejected: number;
+  fail_open: number;
+  remediator_unlisted: number;
+  last_sweep: { created_at: number; scanned: number; unlisted: number } | null;
+}
+
+export interface QualityGateImprovement {
+  fingerprint: string;
+  title: string;
+  category: string | null;
+  issue_number: number | null;
+  issue_url: string | null;
+  share_id: string | null;
+  bot_handle: string | null;
+  moderation_action: string | null;
+  moderation_allow: boolean | null;
+  created_at: number;
+}
+
+export interface QualityGateMonitor {
+  summary: QualityGateSummary;
+  events: QualityGateEvent[];
+  improvements: QualityGateImprovement[];
+}
+
 /** Admin test-run batch — bug/PR metadata plus the generated shares. */
 export interface QaBatch {
   batch_id: string;
@@ -1819,6 +1863,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  adminQualityGate: (opts?: { limit?: number; action?: string; source?: string }) =>
+    get<QualityGateMonitor>(
+      `/api/admin/quality-gate${qs({ limit: opts?.limit, action: opts?.action, source: opts?.source })}`,
+    ),
+  adminQualityGateRemoderate: () =>
+    post<{ ok: true; scanned: number; unlisted: number }>('/api/admin/quality-gate/remoderate', {}),
   me: () => get<ProfileMe>('/api/me'),
   updateProfile: async (body: {
     handle?: string;

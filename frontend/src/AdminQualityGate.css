@@ -1,0 +1,21 @@
+.admin-quality-gate-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.admin-quality-gate-error {
+  color: var(--color-error);
+}
+
+.admin-quality-gate-table {
+  width: 100%;
+}
+
+.admin-quality-gate-link {
+  color: var(--color-text-accent);
+  text-decoration: none;
+}
+
+.admin-quality-gate-link:hover {
+  text-decoration: underline;
+}

@@ -108,6 +108,13 @@ import { clearBotListing, getTimelineAuthor, handleTimeline, recordShareOwner, r
 import { serveHomepageSession, refreshHomepageSession, SESSION_CALENDAR_DAYS } from "./timeline-session";
 import { heuristicTimelineQuality, moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
+import {
+  listImprovementReports,
+  listQualityGateEvents,
+  parseQualityGateListQuery,
+  recordQualityGateEvent,
+  summarizeQualityGate,
+} from "./quality-gate-log";
 import { fetchYahooIntraday } from "./yahoo-intraday";
 import {
   authorizeChatAgent,
@@ -2380,6 +2387,16 @@ async function createShare(env: Env, req: Request, ctx: ExecutionContext): Promi
         },
         { waitUntil: (p) => ctx.waitUntil(p) },
       );
+      ctx.waitUntil(recordQualityGateEvent(env.SCHEMA_DB, {
+        action: pendingBotImprovement.moderation.allow
+          ? "allow_bot_create_share"
+          : "reject_bot_create_share",
+        decision: pendingBotImprovement.moderation,
+        shareId,
+        runId: linkedRunId,
+        botHandle: pendingBotImprovement.handle,
+        model: pass1.model ? String(pass1.model) : null,
+      }));
     }
     if (user && !botHandle && !botModerationReject) await recordShareOwner(env.SCHEMA_DB, shareId, user.id);
     if (linkedRunId) {
@@ -2491,9 +2508,20 @@ async function getSharedChat(env: Env, shareId: string, ctx: ExecutionContext): 
     }
     messages = healed;
   }
-  if (row.bot_handle && heuristicTimelineQuality(messages)?.allow === false) {
-    ctx.waitUntil(clearBotListing(env.SCHEMA_DB, row.share_id));
-    row.bot_handle = null;
+  if (row.bot_handle) {
+    const listedDecision = heuristicTimelineQuality(messages);
+    if (listedDecision?.allow === false) {
+      const listedHandle = row.bot_handle;
+      ctx.waitUntil(clearBotListing(env.SCHEMA_DB, row.share_id));
+      ctx.waitUntil(recordQualityGateEvent(env.SCHEMA_DB, {
+        action: "read_unlist",
+        decision: listedDecision,
+        shareId: row.share_id,
+        botHandle: listedHandle,
+        model: row.model,
+      }));
+      row.bot_handle = null;
+    }
   }
   const linked = row.chat_id ? await listChatTickers(env.SCHEMA_DB, row.chat_id) : [];
   let tickers = [...new Set(linked.map((row) => row.ticker.trim().toUpperCase()).filter(Boolean))];
@@ -3814,6 +3842,35 @@ async function handleAvatarGet(env: Env, req: Request, path: string): Promise<Re
   return serveAvatar(env, decodeURIComponent(match[1]));
 }
 
+/** Admin ledger for the timeline quality gate + remediator. */
+async function handleQualityGate(
+  env: Env,
+  req: Request,
+  path: string,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
+  if (path === "/api/admin/quality-gate" && req.method === "GET") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const query = parseQualityGateListQuery(new URL(req.url));
+    const [summary, events, improvements] = await Promise.all([
+      summarizeQualityGate(env.SCHEMA_DB),
+      listQualityGateEvents(env.SCHEMA_DB, query),
+      listImprovementReports(env.SCHEMA_DB),
+    ]);
+    return json(env, { summary, events, improvements }, 200, "private");
+  }
+
+  if (path === "/api/admin/quality-gate/remoderate" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    const result = await remoderateListedBotShares(env.SCHEMA_DB);
+    return json(env, { ok: true, ...result }, 200, "private");
+  }
+
+  return null;
+}
+
 /** Admin QA / test-run batches — unlisted bot shares with bug + PR metadata. */
 async function handleQaRuns(env: Env, req: Request, path: string): Promise<Response | null> {
   if (path === "/api/admin/qa" && req.method === "GET") {
@@ -4617,6 +4674,9 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const timeline = await handleTimeline(env, req, path, ctx, (sql, key) => r2sql(env, sql, key));
   if (timeline) return timeline;
+
+  const qualityGate = await handleQualityGate(env, req, path, ctx);
+  if (qualityGate) return qualityGate;
 
   const qaRuns = await handleQaRuns(env, req, path);
   if (qaRuns) return qaRuns;
