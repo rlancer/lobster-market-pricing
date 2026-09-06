@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Banner, Button, Heading, HStack, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
-import { Bot, ChevronRight, FlaskConical, Mail, MessagesSquare, Palette, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import { Bot, ChevronRight, FlaskConical, Mail, MessagesSquare, Palette, ShieldCheck, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
 import { api } from './api';
 import { authClient } from './auth';
@@ -60,6 +60,12 @@ const ADMIN_TOOLS: AdminTool[] = [
     description: 'QA and e2e bot shares — bug, PR, verdict — kept off the Floor.',
     icon: FlaskConical,
   },
+  {
+    to: '/admin/quality-gate',
+    label: 'Quality gate',
+    description: 'Watch the Floor monitor — allows, rejects, fail-open, remediator unlists.',
+    icon: ShieldCheck,
+  },
 ];
 
 type EmailTestState =
@@ -97,7 +103,7 @@ export default function AdminPage() {
       <VStack gap={2}>
         <Heading level={1}>Admin</Heading>
         <Text type="supporting">
-          Operator tools for bots, users, chats, suggested trades, Chat capabilities, brand, and test runs. Open one from here instead of crowding the left nav.
+          Operator tools for bots, users, chats, suggested trades, Chat capabilities, brand, test runs, and the quality gate. Open one from here instead of crowding the left nav.
         </Text>
       </VStack>
 

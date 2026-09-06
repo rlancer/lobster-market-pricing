@@ -433,7 +433,9 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/timeline/rail` | Desktop Floor companion column: trending public tags (`chat_tickers` on listed posts), breaking market headlines (Tavily), and an index tape (SPY/QQQ/IWM/DIA 1d from `options.ohlc` plus the front two VX monthals from `options.futures_quotes`). `{tags, news, highlights, fetched_at}` — section failures land as empty lists plus `news_error` / `highlights_error`, never a 500. |
 | `GET /api/timeline/session` | Precomputed homepage Session card: index tape + near VX futures, next high-impact print, latest `@nowlobster` takeaway, and an ask prompt. Stored in D1 `schema_cache` (`homepage_session_v2`), warmed by the Worker’s 5-minute cron, served stale-while-revalidate so `/` never waits on the lake. `{tape, events, takeaway, ask_prompt, fetched_at}`. |
 | `GET /api/chats/{id}/rail` | Desktop chat companion column (same envelope as `/api/timeline/rail`, plus `chat_id`). When the chat has linked tickers, tags / related news / session tape follow those symbols; otherwise tags stay empty and news+tape fall back to the market rail. |
-| `POST /api/timeline` | List a share on the Floor (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. A quality gate (heuristics + cheap OpenRouter moderator) rejects incomplete / cut-off / placeholder transcripts with **422** — the unlisted `/share/{id}` link is unchanged. |
+| `POST /api/timeline` | List a share on the Floor (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. A quality gate (heuristics + cheap OpenRouter moderator) rejects incomplete / cut-off / placeholder transcripts with **422** — the unlisted `/share/{id}` link is unchanged. Each decision is written to D1 `quality_gate_events` and shown on `/admin/quality-gate`. |
+| `GET /api/admin/quality-gate` | Admin — Floor quality-gate ledger (`{summary, events, improvements}`). Optional `?action=`, `?source=`, `?limit=`. |
+| `POST /api/admin/quality-gate/remoderate` | Admin — run `remoderateListedBotShares` now (`{ok, scanned, unlisted}`). |
 | `DELETE /api/timeline/{id}` | Remove a share from the Floor. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
@@ -680,7 +682,8 @@ unlisted share without `bot_handle` and mark the run failed. GET `/share/{id}`
 and the Floor already re-run the heuristics on listed bot shares and unlist
 junk on read. The every-5-minute Worker cron also sweeps recent listed bot
 shares (`remoderateListedBotShares`) so a bad post does not sit on the feed
-until someone opens it. When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
+until someone opens it. Admins watch that monitor at `/admin/quality-gate`
+(ledger in D1 `quality_gate_events` plus `improvement_reports`). When `IMPROVEMENT_ISSUE_TOKEN` is set, a follow-up
 pass (`worker/src/improvement-reporter.ts`) may open a deduped GitHub issue for
 actionable product fixes (skips jailbreak/spam rejects, synthetic `test/*`
 fixtures, and vague LLM-only "unfinished" fallbacks). Admins can unpublish any feed post from the Floor UI (same

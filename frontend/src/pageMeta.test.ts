@@ -74,6 +74,8 @@ test('chat, monitor, admin, brand, bots, users, chats, account, and share have r
   assert.match(pageMetaForUrl('/admin').description ?? '', /Admin hub/);
   assert.equal(pageMetaForUrl('/admin/test-runs').title, `Test runs · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/admin/test-runs').description ?? '', /off the Floor/);
+  assert.equal(pageMetaForUrl('/admin/quality-gate').title, `Quality gate · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/admin/quality-gate').description ?? '', /quality monitor/);
   assert.equal(pageMetaForUrl('/brand').title, `Brand · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/bots').title, `Bots · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/users').title, `Users · ${SITE_NAME}`);

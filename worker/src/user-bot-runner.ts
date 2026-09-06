@@ -16,6 +16,7 @@ import { getHandle } from "./profiles";
 import type { ShareTurn } from "./share-turns";
 import { excerptFromMessages, flagsFromMessages, recordShareOwner } from "./timeline";
 import { moderateTimelineShare } from "./timeline-moderation";
+import { recordQualityGateEvent } from "./quality-gate-log";
 import { claimChat, clipTitle } from "./user-chats";
 import {
   accountBotPublishDecision,
@@ -138,6 +139,15 @@ async function mintHumanShare(
        VALUES (?1, ?2, ?3, 'funded', ?4, ?5, ?6, 'user-bot', 'user-bot-runner', ?7, ?7, NULL, ?8)`,
     ).bind(shareId, args.chatId, title, args.model, messagesJson, sourceSql, now, args.runId).run();
     await recordShareOwner(env.SCHEMA_DB, shareId, args.userId);
+    if (args.listOnTimeline) {
+      await recordQualityGateEvent(env.SCHEMA_DB, {
+        action: moderation.allow ? "allow_publish" : "reject_publish",
+        decision: moderation,
+        shareId,
+        runId: args.runId,
+        model: args.model,
+      });
+    }
     if (args.listOnTimeline && moderation.allow) {
       const excerpt = excerptFromMessages(messages, title);
       const flags = flagsFromMessages(messages);

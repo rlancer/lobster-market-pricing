@@ -25,6 +25,7 @@ import PortfolioPage from './Portfolio';
 import ChatExplorePage from './ChatExplore';
 import AdminPage from './AdminPage';
 import AdminTestRunsPage from './AdminTestRuns';
+import AdminQualityGatePage from './AdminQualityGate';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import { parseAsOfSearch } from './asOfDate';
@@ -251,6 +252,16 @@ const adminTestRunsRoute = createRoute({
   component: AdminTestRunsPage,
 });
 
+const adminQualityGateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/quality-gate',
+  validateSearch: (search: Record<string, unknown>): { action?: string; source?: string } => ({
+    action: typeof search.action === 'string' ? search.action : undefined,
+    source: typeof search.source === 'string' ? search.source : undefined,
+  }),
+  component: AdminQualityGatePage,
+});
+
 
 const experimentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -381,6 +392,7 @@ const routeTree = rootRoute.addChildren([
   copilotRedirectRoute,
   adminRoute,
   adminTestRunsRoute,
+  adminQualityGateRoute,
   experimentsRoute,
   textVsImageExperimentRoute,
   notebooksRedirectRoute,
