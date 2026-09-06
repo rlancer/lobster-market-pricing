@@ -177,6 +177,43 @@ export function formatSignedPercent(pct: number | null | undefined): string {
   return `${abs}%`;
 }
 
+/** Share of a book: cash, buying power, or a position mark versus equity. */
+export function allocationPercent(
+  part: number | null | undefined,
+  whole: number | null | undefined,
+): number | null {
+  if (part == null || !Number.isFinite(part)) return null;
+  if (whole == null || !Number.isFinite(whole) || whole === 0) return null;
+  return (part / Math.abs(whole)) * 100;
+}
+
+/** Unsigned weight, e.g. cash as 8.2% of equity. Negatives keep a minus glyph. */
+export function formatWeightPercent(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  const digits = Math.abs(pct) >= 10 ? 1 : 2;
+  const abs = Math.abs(pct).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  if (pct < 0) return `−${abs}%`;
+  return `${abs}%`;
+}
+
+/** Open P&L versus the position's prior mark (same basis as day %). */
+export function positionOpenPercent(
+  row: Pick<SchwabPortfolioPosition, 'open_pnl' | 'market_value'>,
+): number | null {
+  return pnlPercent(row.open_pnl, row.market_value);
+}
+
+/** Rescale a dollar P&L figure to percent of current equity (chart / screenshot). */
+export function dollarsToBookPercent(
+  dollars: number | null | undefined,
+  equity: number | null | undefined,
+): number | null {
+  return allocationPercent(dollars, equity);
+}
+
 export function calendarWindowStart(window: 'MTD' | 'YTD', asOf: string = etDateString()): string {
   if (window === 'YTD') return `${asOf.slice(0, 4)}-01-01`;
   return `${asOf.slice(0, 7)}-01`;

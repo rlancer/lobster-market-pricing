@@ -27,10 +27,13 @@ import { Briefcase, RefreshCw, Search } from 'lucide-react';
 import type { SchwabPortfolioAccount, SchwabPortfolioPosition } from './api';
 import { SchwabPnlSection } from './SchwabPnlSection';
 import {
+  allocationPercent,
   formatSignedPercent,
+  formatWeightPercent,
   pnlPercent,
   positionDayPercent,
   positionMatchesQuery,
+  positionOpenPercent,
   positionTicker,
   positionTickerOptions,
 } from './schwabPnlView';
@@ -149,6 +152,7 @@ export function SchwabBookSection({
   positions,
   error,
   loading,
+  hideDollars = false,
   onRefresh,
 }: {
   account: SchwabPortfolioAccount | null;
@@ -163,6 +167,8 @@ export function SchwabBookSection({
   positions: SchwabPortfolioPosition[];
   error: string | null;
   loading: boolean;
+  /** Screenshot mode: cash and marks become weights / returns. */
+  hideDollars?: boolean;
   onRefresh: () => void;
 }) {
   const [symbol, setSymbol] = useState('');
@@ -184,18 +190,43 @@ export function SchwabBookSection({
   const dayPct = summary
     ? (summary.day_pnl_pct ?? pnlPercent(summary.day_pnl, summary.equity))
     : null;
+  const bookEquity = summary?.equity ?? null;
+  const hasBook = bookEquity != null && Number.isFinite(bookEquity) && bookEquity !== 0;
   const kpiItems = summary
     ? [
-        { label: 'Cash', value: money(summary.cash) },
-        { label: 'Equity', value: money(summary.equity) },
-        { label: 'Buying power', value: money(summary.buying_power) },
+        {
+          label: 'Cash',
+          value: hideDollars
+            ? formatWeightPercent(allocationPercent(summary.cash, bookEquity))
+            : money(summary.cash),
+        },
+        {
+          label: 'Equity',
+          value: hideDollars ? (hasBook ? '100%' : '—') : money(summary.equity),
+        },
+        {
+          label: 'Buying power',
+          value: hideDollars
+            ? formatWeightPercent(allocationPercent(summary.buying_power, bookEquity))
+            : money(summary.buying_power),
+        },
         {
           label: 'Day PnL',
-          value: money(summary.day_pnl),
+          value: hideDollars
+            ? (dayPct != null ? formatSignedPercent(dayPct) : '—')
+            : money(summary.day_pnl),
           tone: pnlTone(summary.day_pnl),
-          percent: dayPct != null ? formatSignedPercent(dayPct) : undefined,
+          percent: hideDollars
+            ? undefined
+            : (dayPct != null ? formatSignedPercent(dayPct) : undefined),
         },
-        { label: 'Open PnL', value: money(summary.open_pnl), tone: pnlTone(summary.open_pnl) },
+        {
+          label: 'Open PnL',
+          value: hideDollars
+            ? formatSignedPercent(pnlPercent(summary.open_pnl, bookEquity))
+            : money(summary.open_pnl),
+          tone: pnlTone(summary.open_pnl),
+        },
       ] as const
     : [];
 
@@ -250,7 +281,9 @@ export function SchwabBookSection({
                       hasTabularNumbers
                       className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
                     >
-                      {money(row.open_pnl)}
+                      {hideDollars
+                        ? formatSignedPercent(positionOpenPercent(row))
+                        : money(row.open_pnl)}
                     </Text>
                     <Text
                       type="supporting"
@@ -317,7 +350,9 @@ export function SchwabBookSection({
               header: 'Qty',
               width: pixel(88),
               renderCell: (row) => (
-                <Text hasTabularNumbers size="sm">{qty(row.quantity)}</Text>
+                <Text hasTabularNumbers size="sm">
+                  {hideDollars ? '—' : qty(row.quantity)}
+                </Text>
               ),
             },
             {
@@ -325,15 +360,21 @@ export function SchwabBookSection({
               header: 'Avg',
               width: pixel(100),
               renderCell: (row) => (
-                <Text hasTabularNumbers size="sm">{money(row.average_price)}</Text>
+                <Text hasTabularNumbers size="sm">
+                  {hideDollars ? '—' : money(row.average_price)}
+                </Text>
               ),
             },
             {
               key: 'market_value',
-              header: 'Mark',
+              header: hideDollars ? 'Weight' : 'Mark',
               width: proportional(1),
               renderCell: (row) => (
-                <Text hasTabularNumbers size="sm">{money(row.market_value)}</Text>
+                <Text hasTabularNumbers size="sm">
+                  {hideDollars
+                    ? formatWeightPercent(allocationPercent(row.market_value, bookEquity))
+                    : money(row.market_value)}
+                </Text>
               ),
             },
             {
@@ -342,13 +383,15 @@ export function SchwabBookSection({
               width: pixel(100),
               renderCell: (row) => (
                 <VStack gap={0}>
-                  <Text
-                    hasTabularNumbers
-                    size="sm"
-                    className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
-                  >
-                    {money(row.day_pnl)}
-                  </Text>
+                  {hideDollars ? null : (
+                    <Text
+                      hasTabularNumbers
+                      size="sm"
+                      className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
+                    >
+                      {money(row.day_pnl)}
+                    </Text>
+                  )}
                   <Text
                     type="supporting"
                     size="sm"
@@ -370,7 +413,9 @@ export function SchwabBookSection({
                   size="sm"
                   className={`portfolio-pnl-${pnlTone(row.open_pnl)}`}
                 >
-                  {money(row.open_pnl)}
+                  {hideDollars
+                    ? formatSignedPercent(positionOpenPercent(row))
+                    : money(row.open_pnl)}
                 </Text>
               ),
             },
@@ -482,6 +527,7 @@ export function SchwabBookSection({
           symbol={symbol}
           onSymbolChange={setTicker}
           hideSymbolInput
+          hideDollars={hideDollars}
           positions={positions}
           accountEquity={summary?.equity ?? null}
           accountDayPnl={summary?.day_pnl ?? null}

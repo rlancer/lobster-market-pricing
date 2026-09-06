@@ -220,7 +220,7 @@ const SURFACES = [
   {
     route: '/portfolio',
     title: 'Portfolio',
-    body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. Schwab opens on a combined Portfolio pane (performance chart plus open positions; search a ticker to scope both) with Trade history beside it. `/portfolio?book=schwab` (and `book=suggested`) deep-links the tab — the Floor Your book card uses that. A portfolio bot on /my-bots can review this book on a schedule.',
+    body: 'Left-nav signed-in page for your paper book ($100k starting cash) and linked Schwab accounts. Anonymous visitors see a sign-in empty state; public bot suggested-trade PnL stays on /u/{handle} and on the Suggested trades tab after sign-in. Filter books by open/closed status and conviction (high / medium / low). Close realizes paper positions against the current lake mark. Schwab opens on a combined Portfolio pane (performance chart plus open positions; search a ticker to scope both) with Trade history beside it. Hide dollars swaps cash, marks, and P&L for percentages (weights and returns) so a screenshot can be shared without dollar amounts — the choice stays in the browser. `/portfolio?book=schwab` (and `book=suggested`) deep-links the tab — the Floor Your book card uses that. A portfolio bot on /my-bots can review this book on a schedule.',
   },
   {
     route: '/data',
@@ -622,6 +622,9 @@ export function DocsSchwabPnl() {
         Open <Link to="/portfolio" search={{ book: 'schwab' }}>Portfolio</Link>, choose the Schwab tab.
         The book opens on the performance chart and your open positions.
         Connect Schwab from Account if you have not already.
+        Hide dollars (next to Portfolio / Trade history) replaces cash, marks,
+        and P&amp;L with percentages so a screenshot can be shared without
+        dollar amounts. The choice stays in this browser.
       </p>
 
       <h3>Search — stocks and options together</h3>
