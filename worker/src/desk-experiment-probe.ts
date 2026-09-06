@@ -138,27 +138,17 @@ export function splitSystemMessages(messages: Array<{ role: string; content: str
   return { system: systemParts.join("\n\n"), messages: rest };
 }
 
-export async function runDeskExperimentProbe(
+export function createDeskCompleteFn(
   env: DeskExperimentProbeEnv,
   origin: string,
-  input: DeskExperimentProbeInput,
-): Promise<DeskExperimentProbeSuccess | DeskExperimentProbeFailure> {
-  if (!env.OPEN_ROUTER_KEY?.trim()) {
-    return { ok: false, error: "OPEN_ROUTER_KEY is not configured", status: 503 };
-  }
-  const experimentCase = caseById(input.case_id, buildDeskExperimentCases());
-  if (!experimentCase) {
-    return { ok: false, error: "unknown case_id", status: 400 };
-  }
-
-  const modelId = resolveDeskExperimentModel(env, input.model);
+  modelId: string,
+): CompleteFn {
   const model = createChatModel(
     { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: modelId },
     origin,
   ) as LanguageModel;
   const reasoningEffort = normalizeReasoningEffort(env.COPILOT_REASONING_EFFORT);
-
-  const complete: CompleteFn = async ({ messages, maxOutputTokens }) => {
+  return async ({ messages, maxOutputTokens }) => {
     const started = Date.now();
     const split = splitSystemMessages(messages);
     const result = await generateText({
@@ -174,6 +164,23 @@ export async function runDeskExperimentProbe(
     });
     return { text: deskCompletionText(result), latency_ms: Date.now() - started };
   };
+}
+
+export async function runDeskExperimentProbe(
+  env: DeskExperimentProbeEnv,
+  origin: string,
+  input: DeskExperimentProbeInput,
+): Promise<DeskExperimentProbeSuccess | DeskExperimentProbeFailure> {
+  if (!env.OPEN_ROUTER_KEY?.trim()) {
+    return { ok: false, error: "OPEN_ROUTER_KEY is not configured", status: 503 };
+  }
+  const experimentCase = caseById(input.case_id, buildDeskExperimentCases());
+  if (!experimentCase) {
+    return { ok: false, error: "unknown case_id", status: 400 };
+  }
+
+  const modelId = resolveDeskExperimentModel(env, input.model);
+  const complete = createDeskCompleteFn(env, origin, modelId);
 
   try {
     const run = await runDeskApproach(input.approach_id, experimentCase, complete);

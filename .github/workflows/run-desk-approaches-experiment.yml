@@ -3,13 +3,9 @@ name: Run desk-approaches experiment
 # Probes solo / desk role-play / shared session / fresh specialist sessions
 # against frozen as-of snapshots, then publishes a server-saved run.
 #
-# Required GitHub secrets: ADMIN_TOKEN (Worker bearer). OPEN_ROUTER_KEY must
-# already be set on the target Worker.
-#
-# Trigger: workflow_dispatch, or push to this experiment's branches.
-# gh workflow_dispatch may 403 / omit workflows that are not on main —
-# push is the reliable path. Probes wait for Deploy on the same SHA so
-# api-dev is running this commit (system messages must be `instructions`).
+# Required GitHub secrets: ADMIN_TOKEN, OPEN_ROUTER_KEY.
+# Seats run in this job (not one Worker HTTP request) so 5-call DeepSeek
+# cells can finish. Results are POSTed to api-dev experiment_runs.
 
 on:
   workflow_dispatch:
@@ -42,12 +38,14 @@ jobs:
   run-experiment:
     name: desk-approaches (${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash-0731' }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
-      # `inputs.*` is empty on push (not missing) — do not read it unless dispatch.
+      OPEN_ROUTER_KEY: ${{ secrets.OPEN_ROUTER_KEY }}
       MODEL: deepseek/deepseek-v4-flash-0731
       API_BASE: https://api-dev.lobster.mp
+      COPILOT_REASONING_EFFORT: high
+      COPILOT_MAX_OUTPUT_TOKENS: "8192"
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -59,11 +57,15 @@ jobs:
           echo "MODEL=${{ inputs.model }}" >> "$GITHUB_ENV"
           echo "API_BASE=${{ inputs.api_base }}" >> "$GITHUB_ENV"
 
-      - name: Require ADMIN_TOKEN
+      - name: Require secrets
         run: |
           set -euo pipefail
           if [ -z "${ADMIN_TOKEN:-}" ]; then
             echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          if [ -z "${OPEN_ROUTER_KEY:-}" ]; then
+            echo "::error::OPEN_ROUTER_KEY secret is not set on this repository"
             exit 1
           fi
 
@@ -71,6 +73,11 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker deps
+        run: cd worker && npm ci
 
       - name: Wait for screener-api-dev deploy
         if: github.event_name == 'push'
@@ -99,4 +106,4 @@ jobs:
           exit 1
 
       - name: Run matrix and publish
-        run: node frontend/tools/run-desk-approaches-experiment.mjs
+        run: cd worker && node --import tsx tools/run-desk-approaches-experiment.ts
