@@ -17,6 +17,10 @@ import {
   type DeskViewpointId,
 } from "./chat-desk";
 import {
+  DESK_EXPERIMENT_AS_OF_INDEX,
+  DESK_EXPERIMENT_SEED,
+  DESK_EXPERIMENT_START_DATE,
+  DESK_EXPERIMENT_TRADING_DAYS,
   buildDeskExperimentCases,
   formatDeskSnapshot,
   type DeskExperimentCase,
@@ -27,6 +31,13 @@ export const DESK_EXPERIMENT_SLUG = "desk-approaches";
 export const DESK_EXPERIMENT_DESIGN_ID = "desk-approaches-v2";
 export const DESK_EXPERIMENT_RUNNER_VERSION = 2;
 export const DESK_EXPERIMENT_DEADBAND_PCT = 1.5;
+/** Per OpenRouter seat. 4 min aborted live 5-seat DeepSeek cells mid-matrix. */
+export const DESK_SEAT_ABORT_MS = 6 * 60_000;
+/** Close-out after high-reasoning CoT — small budget, no extra chain-of-thought. */
+export const DESK_VERDICT_CLOSE_ABORT_MS = 45_000;
+export const DESK_VERDICT_CLOSE_MAX_TOKENS = 384;
+/** Hard cap so a hung OpenRouter call cannot freeze the remaining matrix. */
+export const DESK_CELL_TIMEOUT_MS = 30 * 60_000;
 
 export const DESK_APPROACH_IDS = [
   "solo",
@@ -304,7 +315,7 @@ export function scoreDeskVerdict(
   };
 }
 
-function userPacket(experimentCase: DeskExperimentCase): string {
+export function deskExperimentUserPacket(experimentCase: DeskExperimentCase): string {
   return [
     formatDeskSnapshot(experimentCase.snapshot),
     "",
@@ -313,21 +324,10 @@ function userPacket(experimentCase: DeskExperimentCase): string {
   ].join("\n");
 }
 
-function specialistSystem(id: DeskViewpointId): string {
+export function deskSoloSystemPrompt(): string {
   return [
     DESK_EXPERIMENT_AS_OF_RULES,
-    `You are the ${DESK_VIEWPOINT_LABELS[id]} specialist only.`,
-    DESK_SPECIALIST_SUMMARIES[id],
-    "Write a distinct take grounded in the snapshot. Do not speak for other specialists.",
-    "Do not emit the verdict JSON — the chair will do that.",
-  ].join("\n");
-}
-
-function chairSystem(): string {
-  return [
-    DESK_EXPERIMENT_AS_OF_RULES,
-    "You are the desk chair. Weigh the specialist takes. Do not invent facts they did not have.",
-    "Write an overview, then the verdict JSON.",
+    "You are a single market analyst. No specialist panels. Write a tight Markdown take, then the verdict JSON.",
     DESK_VERDICT_INSTRUCTIONS,
   ].join("\n");
 }
@@ -338,6 +338,61 @@ function deskJsonHint(): string {
     '{"fundamental":"...","technical":"...","options":"...","risk":"...","overview":"...","lean_5d":"...","lean_20d":"...","confidence_5d":0,"confidence_20d":0,"thesis":"..."}',
     "Each specialist field must be a real take (not placeholder), distinct from the others.",
   ].join(" ");
+}
+
+export function deskRoleplaySystemPrompt(): string {
+  return [
+    DESK_EXPERIMENT_AS_OF_RULES,
+    deskAnalystBlock(DESK_CORE_VIEWPOINT_IDS),
+    "This is a single session. Do not pretend other agents exist — you write every specialist take yourself.",
+    deskJsonHint(),
+    DESK_VERDICT_INSTRUCTIONS,
+  ].join("\n");
+}
+
+export function deskSharedSystemPrompt(): string {
+  return [
+    DESK_EXPERIMENT_AS_OF_RULES,
+    "This is one shared conversation. You will be asked to speak as one specialist at a time, then as chair.",
+    "Stay in the requested seat. Later seats may disagree with earlier ones.",
+  ].join("\n");
+}
+
+export function deskSharedSpecialistUser(id: DeskViewpointId, packet: string | null): string {
+  return [
+    packet ?? "Same frozen snapshot as the first turn.",
+    "",
+    `Now speak only as the ${DESK_VIEWPOINT_LABELS[id]} specialist.`,
+    DESK_SPECIALIST_SUMMARIES[id],
+    "Do not emit verdict JSON yet.",
+  ].join("\n");
+}
+
+export function deskSharedChairUser(): string {
+  return [
+    "Now speak as the desk chair. Weigh the specialist takes above.",
+    "Write overview Markdown, then the verdict JSON.",
+    DESK_VERDICT_INSTRUCTIONS,
+  ].join("\n");
+}
+
+export function deskSpecialistSystemPrompt(id: DeskViewpointId): string {
+  return [
+    DESK_EXPERIMENT_AS_OF_RULES,
+    `You are the ${DESK_VIEWPOINT_LABELS[id]} specialist only.`,
+    DESK_SPECIALIST_SUMMARIES[id],
+    "Write a distinct take grounded in the snapshot. Do not speak for other specialists.",
+    "Do not emit the verdict JSON — the chair will do that.",
+  ].join("\n");
+}
+
+export function deskChairSystemPrompt(): string {
+  return [
+    DESK_EXPERIMENT_AS_OF_RULES,
+    "You are the desk chair. Weigh the specialist takes. Do not invent facts they did not have.",
+    "Write an overview, then the verdict JSON.",
+    DESK_VERDICT_INSTRUCTIONS,
+  ].join("\n");
 }
 
 async function call(
@@ -365,15 +420,8 @@ async function runSolo(
   complete: CompleteFn,
 ): Promise<DeskApproachRun> {
   const messages: ChatTurn[] = [
-    {
-      role: "system",
-      content: [
-        DESK_EXPERIMENT_AS_OF_RULES,
-        "You are a single market analyst. No specialist panels. Write a tight Markdown take, then the verdict JSON.",
-        DESK_VERDICT_INSTRUCTIONS,
-      ].join("\n"),
-    },
-    { role: "user", content: userPacket(experimentCase) },
+    { role: "system", content: deskSoloSystemPrompt() },
+    { role: "user", content: deskExperimentUserPacket(experimentCase) },
   ];
   const result = await call(complete, messages, 2_400, "verdict");
   return finalize(experimentCase, "solo", [{
@@ -389,17 +437,8 @@ async function runRoleplay(
   complete: CompleteFn,
 ): Promise<DeskApproachRun> {
   const messages: ChatTurn[] = [
-    {
-      role: "system",
-      content: [
-        DESK_EXPERIMENT_AS_OF_RULES,
-        deskAnalystBlock(DESK_CORE_VIEWPOINT_IDS),
-        "This is a single session. Do not pretend other agents exist — you write every specialist take yourself.",
-        deskJsonHint(),
-        DESK_VERDICT_INSTRUCTIONS,
-      ].join("\n"),
-    },
-    { role: "user", content: userPacket(experimentCase) },
+    { role: "system", content: deskRoleplaySystemPrompt() },
+    { role: "user", content: deskExperimentUserPacket(experimentCase) },
   ];
   const result = await call(complete, messages, 2_400, "verdict");
   const desk = extractDeskFromText(result.text);
@@ -417,29 +456,16 @@ async function runShared(
 ): Promise<DeskApproachRun> {
   const sessions: DeskSessionTrace[] = [];
   const messages: ChatTurn[] = [
-    {
-      role: "system",
-      content: [
-        DESK_EXPERIMENT_AS_OF_RULES,
-        "This is one shared conversation. You will be asked to speak as one specialist at a time, then as chair.",
-        "Stay in the requested seat. Later seats may disagree with earlier ones.",
-      ].join("\n"),
-    },
+    { role: "system", content: deskSharedSystemPrompt() },
   ];
   let latency = 0;
-  const packet = userPacket(experimentCase);
+  const packet = deskExperimentUserPacket(experimentCase);
   const takes: Partial<Record<DeskViewpointId, string>> = {};
 
   for (const id of DESK_CORE_VIEWPOINT_IDS) {
     messages.push({
       role: "user",
-      content: [
-        messages.length === 1 ? packet : "Same frozen snapshot as the first turn.",
-        "",
-        `Now speak only as the ${DESK_VIEWPOINT_LABELS[id]} specialist.`,
-        DESK_SPECIALIST_SUMMARIES[id],
-        "Do not emit verdict JSON yet.",
-      ].join("\n"),
+      content: deskSharedSpecialistUser(id, messages.length === 1 ? packet : null),
     });
     const result = await call(complete, messages);
     latency += result.latency_ms;
@@ -455,11 +481,7 @@ async function runShared(
 
   messages.push({
     role: "user",
-    content: [
-      "Now speak as the desk chair. Weigh the specialist takes above.",
-      "Write overview Markdown, then the verdict JSON.",
-      DESK_VERDICT_INSTRUCTIONS,
-    ].join("\n"),
+    content: deskSharedChairUser(),
   });
   const chair = await call(complete, messages, 1_600, "verdict");
   latency += chair.latency_ms;
@@ -488,11 +510,11 @@ async function runFresh(
   const sessions: DeskSessionTrace[] = [];
   const takes: Partial<Record<DeskViewpointId, string>> = {};
   let latency = 0;
-  const packet = userPacket(experimentCase);
+  const packet = deskExperimentUserPacket(experimentCase);
 
   for (const id of DESK_CORE_VIEWPOINT_IDS) {
     const messages: ChatTurn[] = [
-      { role: "system", content: specialistSystem(id) },
+      { role: "system", content: deskSpecialistSystemPrompt(id) },
       { role: "user", content: packet },
     ];
     const result = await call(complete, messages);
@@ -502,7 +524,7 @@ async function runFresh(
   }
 
   const chairMessages: ChatTurn[] = [
-    { role: "system", content: chairSystem() },
+    { role: "system", content: deskChairSystemPrompt() },
     {
       role: "user",
       content: [
@@ -590,7 +612,66 @@ export function deskExperimentDesignPublic() {
     production_note:
       "Live Chat Analyst desk is one CopilotAgent Durable Object per conversation. Specialists are role-play via publish_desk in that single session — we do not spawn a new agent session per specialist. Probes use the same OpenRouter model as Chat (COPILOT_MODEL, currently deepseek/deepseek-v4-flash-0731). Held-out 5d/20d continues the as-of tape — it is not a hidden sequel. This experiment tests whether that desk structure is actually the better take.",
     as_of_rules: DESK_EXPERIMENT_AS_OF_RULES,
+    verdict_instructions: DESK_VERDICT_INSTRUCTIONS,
+    system_prompt: deskExperimentSystemPrompt(),
     deadband_pct: DESK_EXPERIMENT_DEADBAND_PCT,
+    seed: DESK_EXPERIMENT_SEED,
+    seed_hex: `0x${DESK_EXPERIMENT_SEED.toString(16)}`,
+    start_date: DESK_EXPERIMENT_START_DATE,
+    trading_days: DESK_EXPERIMENT_TRADING_DAYS,
+    as_of_index: DESK_EXPERIMENT_AS_OF_INDEX,
+    scoring: {
+      rule:
+        "A cell is correct only when both lean_5d and lean_20d match the held-out tape. Neutral is the grade when the subsequent move is inside the deadband — not a hedge for a missed direction.",
+      deadband_pct: DESK_EXPERIMENT_DEADBAND_PCT,
+      both_horizons_required: true,
+    },
+    runner: {
+      execution:
+        "Seats run in-process against OpenRouter from GitHub Actions. The Worker HTTP probe cannot finish a 5-seat DeepSeek cell inside one request.",
+      seat_abort_ms: DESK_SEAT_ABORT_MS,
+      verdict_close_abort_ms: DESK_VERDICT_CLOSE_ABORT_MS,
+      verdict_close_max_tokens: DESK_VERDICT_CLOSE_MAX_TOKENS,
+      cell_timeout_ms: DESK_CELL_TIMEOUT_MS,
+      openrouter_system:
+        "OpenRouter rejects role:system inside messages. System turns fold into generateText({ system }).",
+      verdict_close_out:
+        "If the first verdict turn has no parseable lean_5d/lean_20d JSON, one generateText follow-up with reasoning none. generateObject is not used — flash models hang past AbortSignal.",
+      completion_text:
+        "Grade the union of text and reasoningText. DeepSeek high reasoning often puts the take in the reasoning channel.",
+    },
+    specialists: DESK_CORE_VIEWPOINT_IDS.map((id) => ({
+      id,
+      label: DESK_VIEWPOINT_LABELS[id],
+      summary: DESK_SPECIALIST_SUMMARIES[id],
+    })),
+    approach_inputs: DESK_APPROACHES.map((row) => {
+      if (row.id === "solo") {
+        return { id: row.id, system_prompt: deskSoloSystemPrompt() };
+      }
+      if (row.id === "desk_roleplay") {
+        return { id: row.id, system_prompt: deskRoleplaySystemPrompt() };
+      }
+      if (row.id === "desk_shared_session") {
+        return {
+          id: row.id,
+          system_prompt: deskSharedSystemPrompt(),
+          specialist_turns: DESK_CORE_VIEWPOINT_IDS.map((id) => ({
+            id,
+            label: DESK_VIEWPOINT_LABELS[id],
+            user_instruction: deskSharedSpecialistUser(id, null),
+          })),
+          chair_turn: deskSharedChairUser(),
+        };
+      }
+      return {
+        id: row.id,
+        specialist_system: Object.fromEntries(
+          DESK_CORE_VIEWPOINT_IDS.map((id) => [id, deskSpecialistSystemPrompt(id)]),
+        ),
+        chair_system: deskChairSystemPrompt(),
+      };
+    }),
     approaches: DESK_APPROACHES,
     cases: cases.map((row) => ({
       id: row.id,
@@ -605,6 +686,7 @@ export function deskExperimentDesignPublic() {
       return_20d_pct: row.outcome.return_20d_pct,
       what_happened: row.outcome.what_happened,
       snapshot_text: formatDeskSnapshot(row.snapshot),
+      user_packet: deskExperimentUserPacket(row),
     })),
   };
 }

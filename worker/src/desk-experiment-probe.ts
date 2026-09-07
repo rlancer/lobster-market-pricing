@@ -6,6 +6,9 @@ import { generateText, type LanguageModel } from "ai";
 import { createChatModel, type ChatModelEnv } from "./chat-contract";
 import {
   DESK_APPROACH_IDS,
+  DESK_SEAT_ABORT_MS,
+  DESK_VERDICT_CLOSE_ABORT_MS,
+  DESK_VERDICT_CLOSE_MAX_TOKENS,
   DESK_VERDICT_INSTRUCTIONS,
   approachById,
   caseById,
@@ -47,12 +50,6 @@ function maxOutputTokenBudget(env: DeskExperimentProbeEnv, requested?: number): 
   if (typeof requested === "number" && requested > 0) return Math.max(requested, cap);
   return cap;
 }
-
-/** Per OpenRouter call. 4 min aborted live 5-seat DeepSeek cells mid-matrix. */
-const COMPLETE_ABORT_MS = 6 * 60_000;
-/** Close-out after high-reasoning CoT — small budget, no extra chain-of-thought. */
-const VERDICT_CLOSE_ABORT_MS = 45_000;
-const VERDICT_CLOSE_MAX_TOKENS = 384;
 
 /**
  * DeepSeek-v4 with high reasoning often puts the take (and the verdict JSON)
@@ -173,9 +170,9 @@ async function closeDeskVerdict(
       model,
       ...(closeSystem ? { system: closeSystem } : {}),
       messages: closeMessages,
-      maxOutputTokens: VERDICT_CLOSE_MAX_TOKENS,
+      maxOutputTokens: DESK_VERDICT_CLOSE_MAX_TOKENS,
       temperature: 0,
-      abortSignal: AbortSignal.timeout(VERDICT_CLOSE_ABORT_MS),
+      abortSignal: AbortSignal.timeout(DESK_VERDICT_CLOSE_ABORT_MS),
       providerOptions: {
         openrouter: { reasoning: { effort: "none" } },
       },
@@ -215,7 +212,7 @@ export function createDeskCompleteFn(
       messages: split.messages,
       maxOutputTokens: maxOutputTokenBudget(env, maxOutputTokens),
       temperature: 0,
-      abortSignal: AbortSignal.timeout(COMPLETE_ABORT_MS),
+      abortSignal: AbortSignal.timeout(DESK_SEAT_ABORT_MS),
       providerOptions: {
         openrouter: { reasoning: { effort: reasoningEffort } },
       },

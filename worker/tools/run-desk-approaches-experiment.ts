@@ -10,6 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  DESK_CELL_TIMEOUT_MS,
   DESK_EXPERIMENT_DESIGN_ID,
   DESK_EXPERIMENT_RUNNER_VERSION,
   caseById,
@@ -33,7 +34,10 @@ const DESIGN_ID = DESK_EXPERIMENT_DESIGN_ID;
 const RUNNER_VERSION = DESK_EXPERIMENT_RUNNER_VERSION;
 const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 1) || 1));
 /** Hard cap so a hung OpenRouter call cannot freeze the remaining matrix. */
-const CELL_TIMEOUT_MS = Math.max(60_000, Number(process.env.CELL_TIMEOUT_MS ?? 30 * 60_000) || 30 * 60_000);
+const CELL_TIMEOUT_MS = Math.max(
+  60_000,
+  Number(process.env.CELL_TIMEOUT_MS ?? DESK_CELL_TIMEOUT_MS) || DESK_CELL_TIMEOUT_MS,
+);
 const SOURCE_REVISION = process.env.GITHUB_SHA?.trim()
   || process.env.SOURCE_REVISION?.trim()
   || "local";

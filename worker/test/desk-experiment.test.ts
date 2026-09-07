@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DESK_CELL_TIMEOUT_MS,
   DESK_EXPERIMENT_DEADBAND_PCT,
+  DESK_EXPERIMENT_DESIGN_ID,
+  DESK_SEAT_ABORT_MS,
+  deskExperimentDesignPublic,
   extractDeskVerdict,
   extractLastJsonObject,
   leanFromReturn,
@@ -290,6 +294,28 @@ test("resolveDeskExperimentModel follows Chat COPILOT_MODEL", () => {
     "openai/gpt-4o-mini",
   );
   assert.equal(resolveDeskExperimentModel({}), "deepseek/deepseek-v4-flash-0731");
+});
+
+test("deskExperimentDesignPublic exposes every as-of packet and session prompt", () => {
+  const design = deskExperimentDesignPublic();
+  assert.equal(design.design_id, DESK_EXPERIMENT_DESIGN_ID);
+  assert.equal(design.seed, 0x4d45534b);
+  assert.equal(design.as_of_index, 69);
+  assert.equal(design.runner.seat_abort_ms, DESK_SEAT_ABORT_MS);
+  assert.equal(design.runner.cell_timeout_ms, DESK_CELL_TIMEOUT_MS);
+  assert.ok(design.verdict_instructions.includes("lean_5d"));
+  assert.equal(design.specialists.length, 4);
+  assert.equal(design.approach_inputs.length, 4);
+  const solo = design.approach_inputs.find((row) => row.id === "solo");
+  assert.ok(solo && "system_prompt" in solo && solo.system_prompt.includes("single market analyst"));
+  assert.equal(design.cases.length, 4);
+  for (const row of design.cases) {
+    assert.ok(row.snapshot_text.includes(`AS OF ${row.as_of}`));
+    assert.ok(row.user_packet.includes("QUESTION:"));
+    assert.ok(row.user_packet.includes(row.prompt));
+    assert.match(row.snapshot_text, /=== ohlc/);
+    assert.ok(!row.user_packet.includes(row.what_happened));
+  }
 });
 
 test("parseDeskExperimentProbeBody rejects unknown ids", () => {

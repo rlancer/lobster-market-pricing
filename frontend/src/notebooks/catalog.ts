@@ -20,7 +20,7 @@ export const EXPERIMENTS: ExperimentMeta[] = [
     title: 'Analyst desk vs sessions',
     subtitle:
       'As-of snapshot bench: solo analyst vs production desk role-play vs a new session per specialist, graded on held-out 5d/20d direction.',
-    status: 'draft',
+    status: 'ready',
   },
 ];
 
