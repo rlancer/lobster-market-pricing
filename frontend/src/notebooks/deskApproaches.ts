@@ -4,7 +4,7 @@
  */
 
 export const DESK_EXPERIMENT_SLUG = 'desk-approaches';
-export const DESK_EXPERIMENT_DESIGN_ID = 'desk-approaches-v1';
+export const DESK_EXPERIMENT_DESIGN_ID = 'desk-approaches-v2';
 /** Chat COPILOT_MODEL — scoreboard ignores other probe models (e.g. gpt-4o-mini). */
 export const DESK_EXPERIMENT_CHAT_MODEL = 'deepseek/deepseek-v4-flash-0731';
 

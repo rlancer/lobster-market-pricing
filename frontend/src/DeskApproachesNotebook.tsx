@@ -288,8 +288,9 @@ export default function DeskApproachesNotebookPage() {
             leans against those held-out returns.
           </Text>
           <Text>
-            Tickers are invented so the model cannot recall a real outcome. Every approach
-            sees the same snapshot text. The only variable is session structure.
+            Tickers are invented so the model cannot recall a real name. The held-out
+            5d/20d path continues the as-of tape — there is no hidden sequel. Every
+            approach sees the same snapshot text. The only variable is session structure.
           </Text>
           {design ? <Text type="supporting">{design.production_note}</Text> : null}
           {design?.model ? (
@@ -407,8 +408,9 @@ export default function DeskApproachesNotebookPage() {
         <Section id="reading" num={readingNum} title="How to read">
           <Text>
             A cell is correct only when both the 5-session and 20-session leans match the
-            held-out tape. Neutral is the right call when the subsequent move is inside the
-            deadband — not a hedge for a missed direction.
+            held-out tape. That tape continues what is already visible at as-of. Neutral
+            is the right call when the subsequent move is inside the deadband — not a
+            hedge for a missed direction.
           </Text>
           <Text>
             If role-play matches or beats fresh sessions, the production desk is doing real

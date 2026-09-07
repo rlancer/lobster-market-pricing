@@ -15,6 +15,7 @@ import {
   buildDeskExperimentCases,
   formatDeskSnapshot,
   snapshotAsOfViolations,
+  snapshotTapeStats,
 } from "../src/desk-experiment-cases.ts";
 import { parseDeskExperimentProbeBody, deskCompletionText, resolveDeskExperimentModel, splitSystemMessages } from "../src/desk-experiment-probe.ts";
 
@@ -49,13 +50,30 @@ test("held-out 5d/20d closes differ from as-of and produce a lean", () => {
   assert.equal(leanFromReturn(bolt.outcome.return_5d_pct), "bullish");
   assert.equal(leanFromReturn(bolt.outcome.return_20d_pct), "bullish");
   assert.equal(leanFromReturn(cove.outcome.return_5d_pct), "neutral");
-  assert.equal(leanFromReturn(cove.outcome.return_20d_pct), "bearish");
+  assert.equal(leanFromReturn(cove.outcome.return_20d_pct), "neutral");
   assert.equal(leanFromReturn(dune.outcome.return_5d_pct), "bearish");
   assert.equal(leanFromReturn(dune.outcome.return_20d_pct), "bearish");
 
   assert.ok(Math.abs(cove.outcome.return_5d_pct) <= DESK_EXPERIMENT_DEADBAND_PCT);
+  assert.ok(Math.abs(cove.outcome.return_20d_pct) <= DESK_EXPERIMENT_DEADBAND_PCT);
   assert.ok(drift.outcome.return_5d_pct < -DESK_EXPERIMENT_DEADBAND_PCT);
   assert.ok(bolt.outcome.return_5d_pct > DESK_EXPERIMENT_DEADBAND_PCT);
+});
+
+test("held-out leans continue the as-of tape, not a hidden sequel", () => {
+  const cases = buildDeskExperimentCases();
+  for (const row of cases) {
+    const stats = snapshotTapeStats(row.snapshot.ohlc);
+    const vis21 = leanFromReturn(stats.change_21d_pct);
+    const out5 = leanFromReturn(row.outcome.return_5d_pct);
+    const out20 = leanFromReturn(row.outcome.return_20d_pct);
+    assert.equal(out20, vis21, `${row.id} 20d ${out20} must match visible 21d ${vis21} (${stats.change_21d_pct.toFixed(2)}%)`);
+    if (vis21 === "neutral") {
+      assert.equal(out5, "neutral", `${row.id} stays inside the deadband after a flat tape`);
+    } else {
+      assert.equal(out5, vis21, `${row.id} 5d ${out5} must continue visible 21d ${vis21}`);
+    }
+  }
 });
 
 test("cases are deterministic across builds", () => {

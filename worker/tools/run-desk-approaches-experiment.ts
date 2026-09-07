@@ -10,6 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  DESK_EXPERIMENT_DESIGN_ID,
   DESK_EXPERIMENT_RUNNER_VERSION,
   caseById,
   runDeskApproach,
@@ -28,7 +29,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "";
 const OPEN_ROUTER_KEY = process.env.OPEN_ROUTER_KEY ?? "";
 const MODEL = process.env.MODEL?.trim() || "deepseek/deepseek-v4-flash-0731";
 const SLUG = "desk-approaches";
-const DESIGN_ID = "desk-approaches-v1";
+const DESIGN_ID = DESK_EXPERIMENT_DESIGN_ID;
 const RUNNER_VERSION = DESK_EXPERIMENT_RUNNER_VERSION;
 const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 1) || 1));
 /** Hard cap so a hung OpenRouter call cannot freeze the remaining matrix. */

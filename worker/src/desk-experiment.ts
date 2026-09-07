@@ -24,7 +24,7 @@ import {
 } from "./desk-experiment-cases";
 
 export const DESK_EXPERIMENT_SLUG = "desk-approaches";
-export const DESK_EXPERIMENT_DESIGN_ID = "desk-approaches-v1";
+export const DESK_EXPERIMENT_DESIGN_ID = "desk-approaches-v2";
 export const DESK_EXPERIMENT_RUNNER_VERSION = 2;
 export const DESK_EXPERIMENT_DEADBAND_PCT = 1.5;
 
@@ -588,7 +588,7 @@ export function deskExperimentDesignPublic() {
     slug: DESK_EXPERIMENT_SLUG,
     runner_version: DESK_EXPERIMENT_RUNNER_VERSION,
     production_note:
-      "Live Chat Analyst desk is one CopilotAgent Durable Object per conversation. Specialists are role-play via publish_desk in that single session — we do not spawn a new agent session per specialist. Probes use the same OpenRouter model as Chat (COPILOT_MODEL, currently deepseek/deepseek-v4-flash-0731). This experiment tests whether that desk structure is actually the better take.",
+      "Live Chat Analyst desk is one CopilotAgent Durable Object per conversation. Specialists are role-play via publish_desk in that single session — we do not spawn a new agent session per specialist. Probes use the same OpenRouter model as Chat (COPILOT_MODEL, currently deepseek/deepseek-v4-flash-0731). Held-out 5d/20d continues the as-of tape — it is not a hidden sequel. This experiment tests whether that desk structure is actually the better take.",
     as_of_rules: DESK_EXPERIMENT_AS_OF_RULES,
     deadband_pct: DESK_EXPERIMENT_DEADBAND_PCT,
     approaches: DESK_APPROACHES,

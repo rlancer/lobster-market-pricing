@@ -758,14 +758,16 @@ Its probe workflow rebuilds and redeploys that snapshot after a matrix finishes.
 
 The desk-approaches experiment (`/experiments/desk-approaches`) freezes a
 research-shaped snapshot at an as-of date (invented tickers, OHLC/news clipped
-to that date) and grades four session structures against the held-out 5- and
-20-session direction: solo analyst, production Analyst desk role-play (one
-CopilotAgent session, `publish_desk`), specialists taking turns in one shared
-session, and a **new session per specialist** plus a chair. Production Chat
-does not spawn Durable Objects per specialist — that is one of the arms under
-test. Probe with `POST /api/admin/experiments/desk-approaches/probe` (admin)
-or the `Run desk-approaches experiment` workflow; published runs load on the
-public page.
+to that date) and grades four session structures against the next 5- and
+20-session direction. The held-out path **continues the as-of tape** — it is
+not a hidden sequel after a random walk. Arms: solo analyst, production
+Analyst desk role-play (one CopilotAgent session, `publish_desk`), specialists
+taking turns in one shared session, and a **new session per specialist** plus
+a chair. Production Chat does not spawn Durable Objects per specialist — that
+is one of the arms under test. Probe with
+`POST /api/admin/experiments/desk-approaches/probe` (admin) or the
+`Run desk-approaches experiment` workflow; published runs load on the public
+page.
 
 Each route sets its own `<title>`, description, canonical URL, and Open Graph /
 Twitter tags from the path (e.g. `/research/SPY` → `SPY – Research · Lobster MP`).

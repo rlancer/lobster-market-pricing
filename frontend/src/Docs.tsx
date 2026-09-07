@@ -181,7 +181,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
-  { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d grades)' },
+  { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
   { method: 'POST', path: '/api/admin/notebooks/probe', desc: 'Admin — single OpenRouter probe for the text-vs-image experiment' },
   { method: 'POST', path: '/api/admin/experiments/desk-approaches/probe', desc: 'Admin — run one desk-approaches cell (approach × as-of case) against the frozen snapshot' },
   { method: 'POST', path: '/api/admin/experiments/{slug}/runs', desc: 'Admin — publish a completed experiment run (text-vs-image or desk-approaches)' },

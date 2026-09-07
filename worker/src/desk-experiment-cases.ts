@@ -1,9 +1,9 @@
 /**
  * Frozen as-of cases for the desk-approaches experiment.
  *
- * Invented tickers + a seeded tape so models cannot recall a real outcome.
- * Each case keeps a full series; the snapshot is clipped to as_of, and the
- * 5d/20d closes after that date are the held-out grade.
+ * Invented tickers so models cannot recall a real name. The full series is one
+ * authored path: the snapshot is clipped at as_of, and the next 5d/20d closes
+ * continue that same tape. There is no hidden sequel after as-of.
  */
 
 export const DESK_EXPERIMENT_SEED = 0x4d45534b; // 'DESK'
@@ -68,17 +68,20 @@ export interface DeskExperimentCase {
   outcome: DeskExperimentOutcome;
 }
 
+type VolumeHint = "distribution" | "breakout" | "quiet" | "grind";
+
 interface CaseSpec {
   id: string;
   ticker: string;
   name: string;
   sector: string;
-  start: number;
-  mu: number;
-  sigma: number;
-  /** Held-out simple returns from the as-of close (not shown to the model). */
-  return_5d: number;
-  return_20d: number;
+  wick_sigma: number;
+  volume: VolumeHint;
+  /**
+   * Skeleton closes at session indices. Must pin 0, as_of, as_of+5, as_of+20
+   * (last session). Held-out closes continue the same path as the visible tape.
+   */
+  waypoints: Array<{ i: number; close: number }>;
   news: Array<{ days_before: number; title: string }>;
   earnings_offset: number | null;
   research_extra: string[];
@@ -140,17 +143,28 @@ function fmtPct(v: number): string {
   return `${sign}${v.toFixed(1)}%`;
 }
 
+const AS_OF = DESK_EXPERIMENT_AS_OF_INDEX;
+
 const CASE_SPECS: CaseSpec[] = [
   {
     id: "drift-breakdown",
     ticker: "DRIFT",
     name: "Drift Payments",
     sector: "Financials",
-    start: 64,
-    mu: -0.08,
-    sigma: 0.32,
-    return_5d: -0.12,
-    return_20d: -0.18,
+    wick_sigma: 0.28,
+    volume: "distribution",
+    waypoints: [
+      { i: 0, close: 68 },
+      { i: 25, close: 70 },
+      { i: 45, close: 64 },
+      { i: 48, close: 62 },
+      { i: 60, close: 58 },
+      { i: 64, close: 56 },
+      { i: 68, close: 54.8 },
+      { i: AS_OF, close: 54 },
+      { i: AS_OF + 5, close: 47.5 },
+      { i: AS_OF + 20, close: 44.3 },
+    ],
     news: [
       { days_before: 1, title: "Payments volume growth slows for a third month" },
       { days_before: 4, title: "Chargeback ratio ticks up; CFO cites 'noisy mix'" },
@@ -159,73 +173,101 @@ const CASE_SPECS: CaseSpec[] = [
     earnings_offset: 18,
     research_extra: [
       "Short interest elevated vs 90d; days-to-cover 4.8.",
-      "Management commentary on the last print stressed 'stabilizing', not accelerating.",
+      "Last month of tape is already lower highs / lower lows — not a one-day dip.",
     ],
     prompt:
-      "As of the snapshot date, what is the tradable lean in DRIFT for the next 5 and 20 sessions? Direction only — do not invent prints after as-of.",
-    notes: "Weakening tape into as-of; a sharp post-as-of gap lower is held out.",
-    what_happened: "Sold off hard over the next four sessions, then leaked lower through day 20.",
+      "As of the snapshot date, DRIFT has already rolled over. What is the tradable lean for the next 5 and 20 sessions? Direction only — do not invent prints after as-of.",
+    notes: "Breakdown is in the as-of OHLC. Held-out 5d/20d continue that fade.",
+    what_happened: "Kept selling: as-of close 54 → 47.5 in five sessions, 44.3 by day 20.",
   },
   {
     id: "bolt-coil",
     ticker: "BOLT",
     name: "Bolt Robotics",
     sector: "Technology",
-    start: 41,
-    mu: 0.06,
-    sigma: 0.22,
-    return_5d: 0.11,
-    return_20d: 0.16,
+    wick_sigma: 0.2,
+    volume: "breakout",
+    waypoints: [
+      { i: 0, close: 39 },
+      { i: 20, close: 40.5 },
+      { i: 45, close: 41.2 },
+      { i: 55, close: 40.9 },
+      { i: 63, close: 41.1 },
+      { i: 66, close: 41 },
+      { i: 67, close: 41.9 },
+      { i: 68, close: 42.8 },
+      { i: AS_OF, close: 44 },
+      { i: AS_OF + 5, close: 48.8 },
+      { i: AS_OF + 20, close: 51 },
+    ],
     news: [
       { days_before: 2, title: "FINRA short interest prints a 18-month high" },
       { days_before: 5, title: "Warehouse utilization cited as 'tight' on the earnings call replay" },
-      { days_before: 11, title: "Quiet period: no new product news, range continues to compress" },
+      { days_before: 11, title: "Quiet period: no new product news, range compressed for weeks" },
     ],
     earnings_offset: 22,
     research_extra: [
-      "20-session range is tight; volume drying vs 20d average.",
+      "Multi-week range lived near 41. The last three sessions closed through that ceiling on rising volume.",
       "Borrow is special; short interest ~19% of float.",
     ],
     prompt:
-      "As of the snapshot date, what is the tradable lean in BOLT for the next 5 and 20 sessions? Coil vs breakdown — pick a side.",
-    notes: "Compression + elevated short interest into as-of; the squeeze/rally is held out.",
-    what_happened: "Broke up on expanding volume two sessions later and held the higher range.",
+      "As of the snapshot date, BOLT has already closed through the coil. What is the 5-session and 20-session lean — follow-through or fail?",
+    notes: "Breakout is on the as-of bar. Held-out 5d/20d are follow-through, not a surprise squeeze.",
+    what_happened: "Followed through: 44 → 48.8 in five sessions, 51 by day 20.",
   },
   {
     id: "cove-event",
     ticker: "COVE",
     name: "Cove Retail",
     sector: "Consumer",
-    start: 58,
-    mu: 0.04,
-    sigma: 0.18,
-    return_5d: 0.004,
-    return_20d: -0.06,
-    news: [
-      { days_before: 1, title: "Street sits 2c wide on EPS; implied move ~7%" },
-      { days_before: 3, title: "Same-store sales preview: in-line traffic, mix mixed" },
-      { days_before: 8, title: "Peer print overnight was a nothing-burger; IV still bid in COVE" },
+    wick_sigma: 0.16,
+    volume: "quiet",
+    waypoints: [
+      { i: 0, close: 58 },
+      { i: 20, close: 57.4 },
+      { i: 40, close: 58.6 },
+      { i: 50, close: 57.8 },
+      { i: 60, close: 58.3 },
+      { i: 66, close: 58.1 },
+      { i: 67, close: 58 },
+      { i: 68, close: 57.9 },
+      { i: AS_OF, close: 58 },
+      { i: AS_OF + 5, close: 58.2 },
+      { i: AS_OF + 20, close: 57.5 },
     ],
-    earnings_offset: 1,
+    news: [
+      { days_before: 3, title: "COVE prints in-line EPS; implied move expired, spot unchanged" },
+      { days_before: 4, title: "Same-store sales preview had been in-line traffic, mix mixed" },
+      { days_before: 8, title: "Peer print a week earlier was a nothing-burger; COVE IV was the story" },
+    ],
+    earnings_offset: -3,
     research_extra: [
-      "Front-week ATM IV is rich vs 30d realized.",
-      "Spot has gone nowhere for three weeks; the event is the whole tape.",
+      "The print is already out. Spot has not left the three-week box.",
+      "Leftover IV is not a spot directional tell.",
     ],
     prompt:
-      "As of the snapshot date, COVE reports after the next session. What is the 5-session and 20-session directional lean — not the IV trade?",
-    notes: "Rich IV into a scheduled print; spot goes nowhere in 5d and drifts down in 20d (held out).",
-    what_happened: "Print was in-line; spot chopped, then leaked over the following three weeks.",
+      "As of the snapshot date, COVE already reported in-line. What is the 5-session and 20-session directional lean in spot — not the IV trade?",
+    notes: "Event is behind the as-of date. Spot is dead in the box; held-out stays inside the deadband.",
+    what_happened: "Spot stayed in the box (58 → 58.2 in five sessions, 57.5 by day 20).",
   },
   {
     id: "dune-duration",
     ticker: "DUNE",
     name: "Dune Treasury Duration ETF",
     sector: "Rates",
-    start: 92,
-    mu: -0.04,
-    sigma: 0.12,
-    return_5d: -0.04,
-    return_20d: -0.09,
+    wick_sigma: 0.1,
+    volume: "grind",
+    waypoints: [
+      { i: 0, close: 96 },
+      { i: 20, close: 94 },
+      { i: 40, close: 92 },
+      { i: 48, close: 91 },
+      { i: 60, close: 88.5 },
+      { i: 64, close: 87.2 },
+      { i: AS_OF, close: 85.5 },
+      { i: AS_OF + 5, close: 82.1 },
+      { i: AS_OF + 20, close: 77.8 },
+    ],
     news: [
       { days_before: 0, title: "10y yield +18bp over 10 sessions; curve bear-steepens" },
       { days_before: 3, title: "Auction tails; duration ETFs see a second week of outflows" },
@@ -234,12 +276,12 @@ const CASE_SPECS: CaseSpec[] = [
     earnings_offset: null,
     research_extra: [
       "Duration sleeve, not a single issuer. Treat as rates beta.",
-      "Realized vol is low; the move is in yields, not in an earnings print.",
+      "NAV has already been grinding lower with yields — this is not a one-day dip.",
     ],
     prompt:
-      "As of the snapshot date, what is the tradable lean in DUNE (long-duration Treasury ETF) for the next 5 and 20 sessions?",
-    notes: "Yields already rising into as-of; further price erosion after as-of is held out.",
-    what_happened: "Yields kept rising; NAV grinded lower through both horizons.",
+      "As of the snapshot date, DUNE (long-duration Treasury ETF) is already marking down with yields. What is the tradable lean for the next 5 and 20 sessions?",
+    notes: "The duration fade is in the as-of OHLC. Held-out 5d/20d continue that grind.",
+    what_happened: "Yields kept rising; NAV continued lower (85.5 → 82.1 / 77.8).",
   },
 ];
 
@@ -263,30 +305,58 @@ function barAt(
   };
 }
 
-function buildBars(spec: CaseSpec, dates: string[], rng: () => number): DeskBar[] {
-  const dt = 1 / 252;
-  const asOf = DESK_EXPERIMENT_AS_OF_INDEX;
-  const bars: DeskBar[] = [];
-  let price = spec.start;
-  for (let i = 0; i <= asOf; i++) {
-    const shock = boxMuller(rng);
-    const ret = (spec.mu - 0.5 * spec.sigma * spec.sigma) * dt + spec.sigma * Math.sqrt(dt) * shock;
-    const open = price;
-    const close = price * Math.exp(ret);
-    bars.push(barAt(dates[i]!, open, close, spec.sigma, rng, i >= asOf - 3));
-    price = close;
+function closesFromWaypoints(
+  n: number,
+  waypoints: Array<{ i: number; close: number }>,
+  rng: () => number,
+  noiseFrac: number,
+): number[] {
+  const sorted = [...waypoints].sort((a, b) => a.i - b.i);
+  if (sorted[0]?.i !== 0 || sorted.at(-1)?.i !== n - 1) {
+    throw new Error("waypoints must pin session 0 and the last session");
   }
+  const pinned = new Map(sorted.map((row) => [row.i, row.close]));
+  const out = new Array<number>(n);
+  for (let s = 0; s < sorted.length - 1; s++) {
+    const a = sorted[s]!;
+    const b = sorted[s + 1]!;
+    const span = b.i - a.i;
+    for (let i = a.i; i <= b.i; i++) {
+      const t = span === 0 ? 0 : (i - a.i) / span;
+      let px = a.close + (b.close - a.close) * t;
+      if (!pinned.has(i) && noiseFrac > 0) {
+        px *= 1 + (rng() - 0.5) * 2 * noiseFrac;
+      }
+      out[i] = round2(Math.max(0.01, px));
+    }
+  }
+  for (const [i, close] of pinned) {
+    out[i] = round2(close);
+  }
+  return out;
+}
 
-  const p0 = bars[asOf]!.close;
-  const p5 = p0 * (1 + spec.return_5d);
-  const p20 = p0 * (1 + spec.return_20d);
-  for (let i = asOf + 1; i < dates.length; i++) {
-    const offset = i - asOf;
-    const target = offset <= 5
-      ? p0 + (p5 - p0) * (offset / 5)
-      : p5 + (p20 - p5) * ((offset - 5) / 15);
-    const open = bars[i - 1]!.close;
-    bars.push(barAt(dates[i]!, open, target, spec.sigma, rng, offset <= 5));
+function volumeBoostAt(hint: VolumeHint, index: number, asOf: number, down: boolean): boolean {
+  if (hint === "distribution") return index >= asOf - 10 && down;
+  if (hint === "breakout") return index >= asOf - 2;
+  if (hint === "grind") return index >= asOf - 15 && down;
+  return false;
+}
+
+function buildBars(spec: CaseSpec, dates: string[], rng: () => number): DeskBar[] {
+  const closes = closesFromWaypoints(dates.length, spec.waypoints, rng, 0.004);
+  const bars: DeskBar[] = [];
+  for (let i = 0; i < dates.length; i++) {
+    const close = closes[i]!;
+    const open = i === 0 ? close : bars[i - 1]!.close;
+    bars.push(barAt(
+      dates[i]!,
+      open,
+      close,
+      spec.wick_sigma,
+      rng,
+      volumeBoostAt(spec.volume, i, AS_OF, close < open),
+    ));
   }
   return bars;
 }
@@ -317,7 +387,8 @@ function buildOptions(spot: number, dates: string[], asOfIndex: number, rng: () 
   return out;
 }
 
-function analyze(bars: DeskBar[]): {
+/** Visible-tape stats from a clipped as-of OHLC series. */
+export function snapshotTapeStats(bars: DeskBar[]): {
   spot: number;
   change_1d_pct: number;
   change_5d_pct: number;
@@ -396,12 +467,15 @@ export function formatDeskSnapshot(snapshot: DeskExperimentSnapshot): string {
     lines.push(`- ${item.date} — ${item.title}`);
   }
   if (snapshot.earnings_date) {
-    lines.push("", `=== earnings (scheduled) ===`, snapshot.earnings_date);
+    const label = snapshot.earnings_date > snapshot.as_of
+      ? "earnings (scheduled)"
+      : "earnings (already printed)";
+    lines.push("", `=== ${label} ===`, snapshot.earnings_date);
   }
   return lines.join("\n");
 }
 
-function researchSummary(spec: CaseSpec, stats: ReturnType<typeof analyze>, asOf: string): string {
+function researchSummary(spec: CaseSpec, stats: ReturnType<typeof snapshotTapeStats>, asOf: string): string {
   const lines = [
     `${spec.ticker} — ${spec.name} (${spec.sector})`,
     `Spot ${stats.spot.toFixed(2)}, 1d ${fmtPct(stats.change_1d_pct)}, 5d ${fmtPct(stats.change_5d_pct)}, 21d ${fmtPct(stats.change_21d_pct)}`,
@@ -419,7 +493,7 @@ function buildCase(spec: CaseSpec, dates: string[], seed: number): DeskExperimen
   const asOfIndex = DESK_EXPERIMENT_AS_OF_INDEX;
   const asOf = dates[asOfIndex]!;
   const clipped = bars.slice(0, asOfIndex + 1);
-  const stats = analyze(clipped);
+  const stats = snapshotTapeStats(clipped);
   const options = buildOptions(stats.spot, dates, asOfIndex, rng);
   const news: DeskNewsItem[] = spec.news.map((item) => ({
     date: shiftTradingDate(dates, asOfIndex, -item.days_before) ?? asOf,
