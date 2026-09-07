@@ -11,6 +11,7 @@ import {
   MetadataListItem,
   Skeleton,
   Text,
+  Token,
   VStack,
 } from '@astryxdesign/core';
 import { Sparkles } from 'lucide-react';
@@ -25,7 +26,12 @@ import {
   positionDescription,
   rankFloorPositions,
 } from './floorPositions';
-import { positionTicker } from './schwabPnlView';
+import {
+  formatSignedPercent,
+  pnlPercent,
+  positionDayPercent,
+  positionTicker,
+} from './schwabPnlView';
 import './FloorPositionsCard.css';
 import './Portfolio.css';
 
@@ -46,18 +52,30 @@ function FloorBookSkeleton() {
 function KpiValue({
   value,
   tone,
+  percent,
 }: {
   value: string;
   tone?: 'green' | 'red' | 'gray';
+  /** DTD / return label shown beside the dollar figure. */
+  percent?: string;
 }) {
   return (
-    <Text
-      hasTabularNumbers
-      weight="bold"
-      className={tone ? `portfolio-pnl-${tone}` : undefined}
-    >
-      {value}
-    </Text>
+    <HStack gap={2} vAlign="center" wrap="wrap">
+      <Text
+        hasTabularNumbers
+        weight="bold"
+        className={tone ? `portfolio-pnl-${tone}` : undefined}
+      >
+        {value}
+      </Text>
+      {percent ? (
+        <Token
+          size="sm"
+          color={tone === 'green' ? 'green' : tone === 'red' ? 'red' : 'gray'}
+          label={percent}
+        />
+      ) : null}
+    </HStack>
   );
 }
 
@@ -134,6 +152,8 @@ export function FloorPositionsCard({
   }
 
   const totals = book.totals;
+  const dayPct = totals.day_pnl_pct ?? pnlPercent(totals.day_pnl, totals.equity);
+  const dayPctLabel = dayPct != null ? formatSignedPercent(dayPct) : undefined;
   const moreLabel = hiddenCount === 1
     ? '1 more on Portfolio'
     : `${hiddenCount.toLocaleString()} more on Portfolio`;
@@ -168,7 +188,11 @@ export function FloorPositionsCard({
                 <KpiValue value={formatMoney(totals.equity)} />
               </MetadataListItem>
               <MetadataListItem label="Day PnL">
-                <KpiValue value={formatMoney(totals.day_pnl)} tone={pnlTone(totals.day_pnl)} />
+                <KpiValue
+                  value={formatMoney(totals.day_pnl)}
+                  tone={pnlTone(totals.day_pnl)}
+                  percent={dayPctLabel}
+                />
               </MetadataListItem>
               <MetadataListItem label="Open PnL">
                 <KpiValue value={formatMoney(totals.open_pnl)} tone={pnlTone(totals.open_pnl)} />
@@ -200,15 +224,20 @@ export function FloorPositionsCard({
                     label={row.symbol}
                     description={positionDescription(row)}
                     endContent={(
-                      <VStack gap={0}>
+                      <VStack gap={0} align="end">
                         <Text
                           hasTabularNumbers
                           className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
                         >
                           {formatMoney(row.day_pnl)}
                         </Text>
-                        <Text type="supporting" size="sm" hasTabularNumbers>
-                          {formatMoney(row.market_value)}
+                        <Text
+                          type="supporting"
+                          size="sm"
+                          hasTabularNumbers
+                          className={`portfolio-pnl-${pnlTone(row.day_pnl)}`}
+                        >
+                          {formatSignedPercent(positionDayPercent(row))} DTD
                         </Text>
                       </VStack>
                     )}
