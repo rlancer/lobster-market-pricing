@@ -644,6 +644,7 @@ test.describe('The Floor', () => {
             equity: 54_321.5,
             buying_power: 20_000,
             day_pnl: 240.25,
+            day_pnl_pct: 0.44,
             open_pnl: 1_850,
             positions: [
               {
@@ -656,6 +657,7 @@ test.describe('The Floor', () => {
                 average_price: 180,
                 market_value: 8_400,
                 day_pnl: 120.5,
+                day_pnl_pct: 1.46,
                 open_pnl: 1_200,
               },
               {
@@ -668,6 +670,7 @@ test.describe('The Floor', () => {
                 average_price: 400,
                 market_value: 4_200,
                 day_pnl: -40,
+                day_pnl_pct: -0.94,
                 open_pnl: 200,
               },
             ],
@@ -677,6 +680,7 @@ test.describe('The Floor', () => {
             equity: 54_321.5,
             buying_power: 20_000,
             day_pnl: 240.25,
+            day_pnl_pct: 0.44,
             open_pnl: 1_850,
             position_count: 2,
             account_count: 1,
@@ -690,8 +694,11 @@ test.describe('The Floor', () => {
     await expect(card).toBeVisible();
     await expect(card.getByRole('heading', { name: 'Your book' })).toBeVisible();
     await expect(card.getByText('$54,321.50')).toBeVisible();
+    await expect(card.getByText('+0.44%')).toBeVisible();
     await expect(card.getByText('AAPL')).toBeVisible();
     await expect(card.getByText('MSFT')).toBeVisible();
+    await expect(card.getByText('+1.46% DTD')).toBeVisible();
+    await expect(card.getByText('−0.94% DTD')).toBeVisible();
 
     await card.getByText('AAPL').click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/research/AAPL');
