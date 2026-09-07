@@ -5,6 +5,7 @@ import {
   Heading,
   HStack,
   Spinner,
+  Switch,
   Tab,
   TabList,
   Text,
@@ -28,6 +29,7 @@ import { BotTradesSection } from './BotTradesSection';
 import { SchwabBookSection } from './SchwabBookSection';
 import { SchwabTradesSection } from './SchwabTradesSection';
 import { formatTradeLeg } from './SuggestedTrades';
+import { useHideDollars } from './useHideDollars';
 import './Portfolio.css';
 
 type PositionRow = PaperPosition & Record<string, unknown>;
@@ -97,6 +99,7 @@ export default function PortfolioPage() {
   const [schwabNeedsConnect, setSchwabNeedsConnect] = useState(false);
   const [schwabNeedsReauth, setSchwabNeedsReauth] = useState(false);
   const [schwabPane, setSchwabPane] = useState<SchwabPane>('book');
+  const { hideDollars, setHideDollars } = useHideDollars();
   const isMobile = useMediaQuery('(max-width: 47.99rem)');
   const pageGap = isMobile ? 3 : 5;
   const pagePaddingBlock = isMobile ? 2 : 6;
@@ -430,22 +433,34 @@ export default function PortfolioPage() {
               </TabList>
             ) : null}
 
-            <TabList
-              size="sm"
-              aria-label="Schwab view"
-              value={schwabPane}
-              onChange={(value) => setSchwabPane(value as SchwabPane)}
-            >
-              <Tab value="book" label="Portfolio" />
-              <Tab value="trades" label="Trade history" />
-            </TabList>
+            <HStack gap={3} wrap="wrap" justify="between" vAlign="center">
+              <TabList
+                size="sm"
+                aria-label="Schwab view"
+                value={schwabPane}
+                onChange={(value) => setSchwabPane(value as SchwabPane)}
+              >
+                <Tab value="book" label="Portfolio" />
+                <Tab value="trades" label="Trade history" />
+              </TabList>
+              <Switch
+                size="sm"
+                label="Hide dollars"
+                labelTooltip="Show percentages only so a screenshot omits cash amounts"
+                value={hideDollars}
+                onChange={setHideDollars}
+              />
+            </HStack>
 
             {loading && !schwabBook ? (
               <HStack gap={3} align="center" paddingBlock={8}>
                 <Spinner size="md" label="Loading Schwab portfolio" />
               </HStack>
             ) : schwabPane === 'trades' ? (
-              <SchwabTradesSection accountId={schwabAccount?.id ?? null} />
+              <SchwabTradesSection
+                accountId={schwabAccount?.id ?? null}
+                hideDollars={hideDollars}
+              />
             ) : (
               <SchwabBookSection
                 key={schwabAccount?.id ?? 'none'}
@@ -454,6 +469,7 @@ export default function PortfolioPage() {
                 positions={schwabAccount?.positions ?? []}
                 error={error}
                 loading={loading}
+                hideDollars={hideDollars}
                 onRefresh={() => void loadSchwab()}
               />
             )}

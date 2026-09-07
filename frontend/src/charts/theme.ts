@@ -44,6 +44,17 @@ export function fmtUsd(value: number, digits = 2): string {
   });
 }
 
+/** Compact signed percent for chart axes and tooltips. */
+export function fmtPct(value: number, digits = 1): string {
+  if (!Number.isFinite(value)) return '—';
+  const abs = Math.abs(value).toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+  });
+  if (value > 0) return `+${abs}%`;
+  if (value < 0) return `−${abs}%`;
+  return `${abs}%`;
+}
+
 export function mutedAxis<TValue>(
   format: (value: TValue) => string,
   options?: { label?: string; minGap?: number },

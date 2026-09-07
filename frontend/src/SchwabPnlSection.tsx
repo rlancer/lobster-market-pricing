@@ -54,6 +54,7 @@ import {
   densifyWithOhlc,
   equityLotsFromFills,
   filterActivity,
+  dollarsToBookPercent,
   formatSignedPercent,
   includedOpenMark,
   optionLegDailyPath,
@@ -92,6 +93,20 @@ function moneySigned(n: number): string {
   if (n > 0) return `+${abs}`;
   if (n < 0) return `−${abs}`;
   return abs;
+}
+
+function moneyOrDash(hideDollars: boolean, n: number | null | undefined): string {
+  return hideDollars ? '—' : money(n);
+}
+
+function signedOrBookPct(
+  hideDollars: boolean,
+  n: number,
+  equity: number | null | undefined,
+): string {
+  return hideDollars
+    ? formatSignedPercent(dollarsToBookPercent(n, equity))
+    : moneySigned(n);
 }
 
 function qty(n: number | null | undefined): string {
@@ -236,6 +251,7 @@ export function SchwabPnlSection({
   symbol: controlledSymbol,
   onSymbolChange,
   hideSymbolInput = false,
+  hideDollars = false,
   positions = [],
   accountEquity = null,
   accountDayPnl = null,
@@ -250,6 +266,8 @@ export function SchwabPnlSection({
   onSymbolChange?: (symbol: string) => void;
   /** Hide the local ticker field when the parent already renders search. */
   hideSymbolInput?: boolean;
+  /** Screenshot mode: dollar P&L becomes percent of book equity. */
+  hideDollars?: boolean;
   positions?: SchwabPortfolioPosition[];
   /** Live account equity for DTD / period-return percentages. */
   accountEquity?: number | null;
@@ -583,21 +601,36 @@ export function SchwabPnlSection({
   );
   const effectiveChartWindow: ChartWindow =
     chartWindow === 'focus' && focusIsNarrower ? 'focus' : 'range';
+  const returnBasis = useMemo(
+    () => scopedPortfolioBasis(positions, symbol, {
+      equity: accountEquity,
+      day_pnl: accountDayPnl,
+    }),
+    [positions, symbol, accountEquity, accountDayPnl],
+  );
   const chartSeries = useMemo(() => {
     if (effectiveChartWindow !== 'focus' || !focusWindow) return series;
     return series.filter((point) => (
       point.date >= focusWindow.start && point.date <= focusWindow.end
     ));
   }, [series, effectiveChartWindow, focusWindow]);
+  const displaySeries = useMemo(() => {
+    if (!hideDollars) return chartSeries;
+    return chartSeries.map((point) => ({
+      ...point,
+      daily: dollarsToBookPercent(point.daily, returnBasis.equity) ?? 0,
+      cumulative: dollarsToBookPercent(point.cumulative, returnBasis.equity) ?? 0,
+    }));
+  }, [chartSeries, hideDollars, returnBasis.equity]);
   const chartMarkers = useMemo((): PnlChartMarker[] => (
     activity
       .filter((row) => (
-        chartSeries.length > 0
-        && row.date >= chartSeries[0]!.date
-        && row.date <= chartSeries.at(-1)!.date
+        displaySeries.length > 0
+        && row.date >= displaySeries[0]!.date
+        && row.date <= displaySeries.at(-1)!.date
       ))
       .map((row) => {
-        const point = chartSeries.find((candidate) => candidate.date === row.date);
+        const point = displaySeries.find((candidate) => candidate.date === row.date);
         return {
           date: row.date,
           daily: point?.daily ?? 0,
@@ -606,22 +639,23 @@ export function SchwabPnlSection({
           label: row.symbol ?? row.description ?? row.kind,
         };
       })
-  ), [activity, chartSeries]);
+  ), [activity, displaySeries]);
   const chartDomain = useMemo((): [number, number] => {
-    const values = chartSeries.map((point) => point[chartMetric]);
+    const values = displaySeries.map((point) => point[chartMetric]);
     const min = Math.min(0, ...values);
     const max = Math.max(0, ...values);
-    const pad = Math.max((max - min) * 0.08, 1);
+    const pad = Math.max((max - min) * 0.08, hideDollars ? 0.05 : 1);
     return [min - pad, max + pad];
-  }, [chartSeries, chartMetric]);
+  }, [displaySeries, chartMetric, hideDollars]);
   const chartDefinition = useMemo(
     () => definePnlChart({
-      series: chartSeries,
+      series: displaySeries,
       markers: chartMarkers,
       metric: chartMetric,
       domain: chartDomain,
+      valueFormat: hideDollars ? 'percent' : 'usd',
     }),
-    [chartSeries, chartMarkers, chartMetric, chartDomain],
+    [displaySeries, chartMarkers, chartMetric, chartDomain, hideDollars],
   );
   const largestDay = chartSeries.reduce<(typeof chartSeries)[number] | null>(
     (largest, point) => (
@@ -640,13 +674,6 @@ export function SchwabPnlSection({
   const activeLegTotal = activeLegPath.at(-1)?.cumulative_pnl ?? 0;
 
   const periodPnl = totals.period;
-  const returnBasis = useMemo(
-    () => scopedPortfolioBasis(positions, symbol, {
-      equity: accountEquity,
-      day_pnl: accountDayPnl,
-    }),
-    [positions, symbol, accountEquity, accountDayPnl],
-  );
   const ytdComposed = useMemo(() => {
     if (range === 'YTD') return series;
     if (!ytdSnapshot || ytdSnapshot.key !== returnKey) return [];
@@ -812,16 +839,20 @@ export function SchwabPnlSection({
               hasTabularNumbers
               className={`portfolio-stat portfolio-pnl-${pnlTone(periodPnl)}`}
             >
-              {moneySigned(periodPnl)}
+              {hideDollars
+                ? formatSignedPercent(pnlPercent(periodPnl, returnBasis.equity))
+                : moneySigned(periodPnl)}
             </Text>
-            <Text
-              type="large"
-              weight="semibold"
-              hasTabularNumbers
-              className={`portfolio-pnl-${pnlTone(periodPnl)}`}
-            >
-              {formatSignedPercent(pnlPercent(periodPnl, returnBasis.equity))}
-            </Text>
+            {hideDollars ? null : (
+              <Text
+                type="large"
+                weight="semibold"
+                hasTabularNumbers
+                className={`portfolio-pnl-${pnlTone(periodPnl)}`}
+              >
+                {formatSignedPercent(pnlPercent(periodPnl, returnBasis.equity))}
+              </Text>
+            )}
           </HStack>
           {windowLabel ? (
             <Text type="supporting" size="sm">{windowLabel}</Text>
@@ -911,7 +942,7 @@ export function SchwabPnlSection({
             <Text type="supporting">
               {chartMetric === 'daily'
                 ? largestDay
-                  ? `Each bar is one session. Largest visible move: ${moneySigned(largestDay.daily)} on ${largestDay.date}.`
+                  ? `Each bar is one session. Largest visible move: ${signedOrBookPct(hideDollars, largestDay.daily, returnBasis.equity)} on ${largestDay.date}.`
                   : 'Each bar is one session.'
                 : `The step line is the running total through the visible window. The ${range} headline above always uses the full selected period.`}
             </Text>
@@ -950,7 +981,7 @@ export function SchwabPnlSection({
                 weight="semibold"
                 className={`portfolio-pnl-${pnlTone(totals.stocks)}`}
               >
-                {moneySigned(totals.stocks)}
+                {signedOrBookPct(hideDollars, totals.stocks, returnBasis.equity)}
               </Text>
             </MetadataListItem>
           ) : null}
@@ -961,7 +992,7 @@ export function SchwabPnlSection({
                 weight="semibold"
                 className={`portfolio-pnl-${pnlTone(totals.options)}`}
               >
-                {moneySigned(totals.options)}
+                {signedOrBookPct(hideDollars, totals.options, returnBasis.equity)}
               </Text>
             </MetadataListItem>
           ) : null}
@@ -972,7 +1003,7 @@ export function SchwabPnlSection({
                 weight="semibold"
                 className={`portfolio-pnl-${pnlTone(totals.dividends)}`}
               >
-                {moneySigned(totals.dividends)}
+                {signedOrBookPct(hideDollars, totals.dividends, returnBasis.equity)}
               </Text>
             </MetadataListItem>
           ) : null}
@@ -985,7 +1016,7 @@ export function SchwabPnlSection({
                 weight="semibold"
                 className={`portfolio-pnl-${pnlTone(totals.fees)}`}
               >
-                {moneySigned(totals.fees)}
+                {signedOrBookPct(hideDollars, totals.fees, returnBasis.equity)}
               </Text>
             </MetadataListItem>
           ) : null}
@@ -996,7 +1027,7 @@ export function SchwabPnlSection({
                 weight="semibold"
                 className={`portfolio-pnl-${pnlTone(summary.prior_open_pnl)}`}
               >
-                {moneySigned(summary.prior_open_pnl)}
+                {signedOrBookPct(hideDollars, summary.prior_open_pnl, returnBasis.equity)}
               </Text>
             </MetadataListItem>
           ) : null}
@@ -1059,7 +1090,7 @@ export function SchwabPnlSection({
                   weight="semibold"
                   className={`portfolio-pnl-${pnlTone(activeLegTotal)}`}
                 >
-                  {moneySigned(activeLegTotal)}
+                  {signedOrBookPct(hideDollars, activeLegTotal, returnBasis.equity)}
                 </Text>
               </VStack>
             </HStack>
@@ -1070,13 +1101,13 @@ export function SchwabPnlSection({
                   <ListItem
                     key={point.date}
                     label={point.date}
-                    description={`Mark ${money(point.mark)} · Day MTM ${moneySigned(point.daily_pnl)}`}
+                    description={`Mark ${moneyOrDash(hideDollars, point.mark)} · Day MTM ${signedOrBookPct(hideDollars, point.daily_pnl, returnBasis.equity)}`}
                     endContent={(
                       <Text
                         hasTabularNumbers
                         className={`portfolio-pnl-${pnlTone(point.cumulative_pnl)}`}
                       >
-                        {moneySigned(point.cumulative_pnl)}
+                        {signedOrBookPct(hideDollars, point.cumulative_pnl, returnBasis.equity)}
                       </Text>
                     )}
                   />
@@ -1104,7 +1135,7 @@ export function SchwabPnlSection({
                     header: 'Option mark',
                     width: proportional(1),
                     renderCell: (row) => (
-                      <Text hasTabularNumbers>{money(row.mark)}</Text>
+                      <Text hasTabularNumbers>{moneyOrDash(hideDollars, row.mark)}</Text>
                     ),
                   },
                   {
@@ -1117,7 +1148,7 @@ export function SchwabPnlSection({
                         weight="semibold"
                         className={`portfolio-pnl-${pnlTone(row.daily_pnl)}`}
                       >
-                        {moneySigned(row.daily_pnl)}
+                        {signedOrBookPct(hideDollars, row.daily_pnl, returnBasis.equity)}
                       </Text>
                     ),
                   },
@@ -1130,7 +1161,7 @@ export function SchwabPnlSection({
                         hasTabularNumbers
                         className={`portfolio-pnl-${pnlTone(row.cumulative_pnl)}`}
                       >
-                        {moneySigned(row.cumulative_pnl)}
+                        {signedOrBookPct(hideDollars, row.cumulative_pnl, returnBasis.equity)}
                       </Text>
                     ),
                   },
@@ -1165,11 +1196,13 @@ export function SchwabPnlSection({
                   ? ` · ${strikeLabel(row.strike)} ${row.option_right ?? 'option'}`
                   : '';
                 const fillDetail = row.quantity != null || row.price != null
-                  ? `Qty ${qty(row.quantity)} at ${money(row.price)}`
+                  ? (hideDollars
+                    ? 'Fill hidden'
+                    : `Qty ${qty(row.quantity)} at ${money(row.price)}`)
                   : row.description ?? 'Cash activity';
                 const realized = row.realized_pnl == null
                   ? 'FIFO realized —'
-                  : `FIFO realized ${moneySigned(row.realized_pnl)}`;
+                  : `FIFO realized ${signedOrBookPct(hideDollars, row.realized_pnl, returnBasis.equity)}`;
                 return (
                   <ListItem
                     key={row.id}
@@ -1178,7 +1211,10 @@ export function SchwabPnlSection({
                       <VStack gap={0}>
                         <Text weight="semibold">{row.symbol ?? row.description ?? '—'}</Text>
                         <Text type="supporting">
-                          {fillDetail} · Net {money(row.net_amount)} · {realized}
+                          {fillDetail}
+                          {hideDollars
+                            ? ` · ${realized}`
+                            : ` · Net ${money(row.net_amount)} · ${realized}`}
                         </Text>
                         {hasMarks ? (
                           <Text type="supporting">Tap to show this leg&apos;s daily MTM.</Text>
@@ -1246,20 +1282,30 @@ export function SchwabPnlSection({
                   width: pixel(110),
                   renderCell: (row) => (
                     <VStack gap={0}>
-                      <Text hasTabularNumbers>Qty {qty(row.quantity)}</Text>
-                      <Text type="supporting" hasTabularNumbers>{money(row.price)}</Text>
+                      <Text hasTabularNumbers>
+                        {hideDollars ? '—' : `Qty ${qty(row.quantity)}`}
+                      </Text>
+                      <Text type="supporting" hasTabularNumbers>
+                        {moneyOrDash(hideDollars, row.price)}
+                      </Text>
                     </VStack>
                   ),
                 },
                 {
                   key: 'net_amount',
-                  header: 'Cash',
+                  header: hideDollars ? 'Cash %' : 'Cash',
                   width: pixel(110),
                   renderCell: (row) => (
                     <VStack gap={0}>
-                      <Text hasTabularNumbers>{money(row.net_amount)}</Text>
+                      <Text hasTabularNumbers>
+                        {hideDollars
+                          ? formatSignedPercent(dollarsToBookPercent(row.net_amount, returnBasis.equity))
+                          : money(row.net_amount)}
+                      </Text>
                       <Text type="supporting" hasTabularNumbers>
-                        Fees {money(row.fees)}
+                        {hideDollars
+                          ? `Fees ${formatSignedPercent(dollarsToBookPercent(row.fees, returnBasis.equity))}`
+                          : `Fees ${money(row.fees)}`}
                       </Text>
                     </VStack>
                   ),
@@ -1277,7 +1323,7 @@ export function SchwabPnlSection({
                         weight="semibold"
                         className={`portfolio-pnl-${pnlTone(row.realized_pnl)}`}
                       >
-                        {moneySigned(row.realized_pnl)}
+                        {signedOrBookPct(hideDollars, row.realized_pnl, returnBasis.equity)}
                       </Text>
                     )
                   ),

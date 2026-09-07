@@ -20,6 +20,9 @@ import {
   equityLotsFromFills,
   filterActivity,
   formatSignedPercent,
+  formatWeightPercent,
+  allocationPercent,
+  dollarsToBookPercent,
   includedOpenMark,
   optionLotsFromFills,
   optionLegDailyPath,
@@ -28,6 +31,7 @@ import {
   periodPnlSince,
   pnlPercent,
   positionDayPercent,
+  positionOpenPercent,
   positionMatchesQuery,
   positionTicker,
   positionTickerOptions,
@@ -1298,6 +1302,26 @@ test('formatSignedPercent uses a minus glyph and one or two decimals', () => {
   assert.equal(formatSignedPercent(-12.34), '−12.3%');
   assert.equal(formatSignedPercent(0), '0.00%');
   assert.equal(formatSignedPercent(null), '—');
+});
+
+test('allocationPercent is part of the book, not a return', () => {
+  assert.equal(allocationPercent(8_000, 100_000), 8);
+  assert.equal(allocationPercent(-2_000, 100_000), -2);
+  assert.equal(allocationPercent(50, 0), null);
+  assert.equal(allocationPercent(null, 100), null);
+  assert.equal(dollarsToBookPercent(250, 10_000), 2.5);
+});
+
+test('formatWeightPercent omits a plus and keeps a minus glyph', () => {
+  assert.equal(formatWeightPercent(8.2), '8.20%');
+  assert.equal(formatWeightPercent(12.34), '12.3%');
+  assert.equal(formatWeightPercent(-1.5), '−1.50%');
+  assert.equal(formatWeightPercent(null), '—');
+});
+
+test('positionOpenPercent is open P&L versus the prior mark', () => {
+  assert.equal(positionOpenPercent({ open_pnl: 50, market_value: 1_050 }), 5);
+  assert.equal(positionOpenPercent({ open_pnl: null, market_value: 1_000 }), null);
 });
 
 test('calendarWindowStart and periodPnlSince slice MTD out of a YTD series', () => {

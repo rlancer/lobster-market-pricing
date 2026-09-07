@@ -5,7 +5,7 @@ import { scaleOrdinal } from '@tanstack/charts/scales/ordinal';
 import { scalePoint } from '@tanstack/charts/scales/point';
 import { tooltip } from '@tanstack/charts/tooltip';
 import { formatChartTick } from '../tickerChartRange.ts';
-import { fmtUsd, lobsterChartTheme, mutedAxis, stepAfter } from './theme.ts';
+import { fmtPct, fmtUsd, lobsterChartTheme, mutedAxis, stepAfter } from './theme.ts';
 
 export type PnlMetric = 'daily' | 'cumulative';
 
@@ -93,8 +93,13 @@ export function definePnlChart(input: {
   markers: readonly PnlChartMarker[];
   metric: PnlMetric;
   domain: readonly [number, number];
+  /** Axis + tooltip units. Percent series must already be scaled to percentage points. */
+  valueFormat?: 'usd' | 'percent';
 }) {
   const valueLabel = input.metric === 'cumulative' ? 'Cumulative P&L' : 'Day P&L';
+  const formatValue = (value: number, digits = 0) => (
+    input.valueFormat === 'percent' ? fmtPct(value, digits || 1) : fmtUsd(value, digits)
+  );
   const scales = {
     x: {
       scale: input.metric === 'daily'
@@ -105,7 +110,7 @@ export function definePnlChart(input: {
     y: {
       scale: scaleLinear().domain([input.domain[0], input.domain[1]]),
       grid: true,
-      axis: mutedAxis((value: number) => fmtUsd(Number(value), 0)),
+      axis: mutedAxis((value: number) => formatValue(Number(value), 0)),
     },
   };
   const shared = {
@@ -121,7 +126,7 @@ export function definePnlChart(input: {
         {
           channel: 'y' as const,
           label: valueLabel,
-          text: (point: { yValue: unknown }) => fmtUsd(Number(point.yValue)),
+          text: (point: { yValue: unknown }) => formatValue(Number(point.yValue), 2),
         },
       ],
     },
