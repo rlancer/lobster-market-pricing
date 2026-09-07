@@ -127,6 +127,22 @@ test('buildDeskApproachesConclusion treats a fresh DUNE abort as operational, no
   assert.match(conclusion.wrapUp, /operational/);
 });
 
+test('buildDeskApproachesConclusion reads a timeout saved as status=done detail', () => {
+  const cells = perfectMatrix().map((row) => (
+    row.rep_id === 'desk_fresh_sessions' && row.question_id === 'dune-duration'
+      ? {
+        ...cell(row.rep_id, row.question_id, { status: 'done', correct: false }),
+        detail: 'The operation was aborted due to timeout',
+      }
+      : row
+  ));
+  const conclusion = buildDeskApproachesConclusion(runWithCells(cells));
+  assert.equal(conclusion.cells_wrong, 0);
+  assert.equal(conclusion.cells_aborted, 1);
+  assert.match(conclusion.wrapUp, /operational/);
+  assert.ok(!conclusion.wrapUp.includes('missed dune-duration'));
+});
+
 test('buildDeskApproachesConclusion names a wrong finished lean', () => {
   const cells = perfectMatrix().map((row) => (
     row.rep_id === 'solo' && row.question_id === 'cove-event'

@@ -15,6 +15,7 @@ import {
   buildDeskApproachesConclusion,
   formatDurationMs,
   isChatDeskExperimentModel,
+  isDeskCellAborted,
   pct,
   pickLatestChatDeskRun,
 } from './notebooks/deskApproaches';
@@ -126,11 +127,17 @@ function Scoreboard({ runs }: { runs: ExperimentRunPayload[] }) {
                 const cells = questions.map(
                   (q) => run.results.cells.find((c) => c.rep_id === repId && c.question_id === q.id),
                 );
-                const done = cells.filter((c) => c?.status === 'done');
+                const aborted = cells.filter((c) => isDeskCellAborted(c ?? null)).length;
+                const done = cells.filter((c) => c && !isDeskCellAborted(c));
                 const correct = done.filter((c) => c?.correct).length;
                 return (
                   <td key={run.id} className="num">
                     {done.length ? `${correct}/${done.length} · ${pct(correct, done.length)}` : '—'}
+                    {aborted ? (
+                      <div className="notebook-answer">
+                        {aborted} abort
+                      </div>
+                    ) : null}
                   </td>
                 );
               })}
@@ -171,12 +178,12 @@ function RunMatrix({ run }: { run: ExperimentRunPayload }) {
                   const cell = run.results.cells.find(
                     (c) => c.rep_id === repId && c.question_id === q.id,
                   );
-                  if (!cell || cell.status !== 'done') {
+                  if (!cell || isDeskCellAborted(cell)) {
                     return (
                       <td key={q.id}>
-                        <Token label="err" color="red" size="sm" />
-                        {cell?.error ? (
-                          <span className="notebook-answer">{cell.error}</span>
+                        <Token label="abort" color="red" size="sm" />
+                        {cell?.detail || cell?.error ? (
+                          <span className="notebook-answer">{cell.detail ?? cell.error}</span>
                         ) : null}
                       </td>
                     );
@@ -217,7 +224,7 @@ function CellDetails({ run }: { run: ExperimentRunPayload }) {
         <Accordion
           key={repId}
           title={approachLabel(repId)}
-          meta={`${run.results.cells.filter((c) => c.rep_id === repId && c.status === 'done').length}/${questions.length} finished`}
+          meta={`${run.results.cells.filter((c) => c.rep_id === repId && !isDeskCellAborted(c)).length}/${questions.length} finished`}
         >
           {questions.map((q) => {
             const cell = run.results.cells.find(
@@ -227,7 +234,11 @@ function CellDetails({ run }: { run: ExperimentRunPayload }) {
               <Accordion
                 key={`${repId}-${q.id}`}
                 title={q.id}
-                meta={cell?.status === 'done' ? (cell.correct ? 'ok' : 'miss') : 'err'}
+                meta={
+                  !cell || isDeskCellAborted(cell)
+                    ? 'abort'
+                    : (cell.correct ? 'ok' : 'miss')
+                }
               >
                 <Text type="supporting">{q.prompt}</Text>
                 {cell?.detail ? <Text type="supporting">{cell.detail}</Text> : null}
@@ -470,7 +481,7 @@ export default function DeskApproachesNotebookPage() {
         {scoredRuns.map((run) => {
           const entry = tocById.get(`model-${run.id}`);
           const expanded = expandedRuns.has(run.id);
-          const done = run.results.cells.filter((cell) => cell.status === 'done');
+          const done = run.results.cells.filter((cell) => !isDeskCellAborted(cell));
           const correct = done.filter((cell) => cell.correct).length;
           const meta = [
             formatRunWhen(run.created_at),

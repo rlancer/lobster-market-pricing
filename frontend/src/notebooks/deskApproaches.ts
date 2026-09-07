@@ -100,10 +100,12 @@ export function pickLatestChatDeskRun<T extends { model: string; created_at: num
   return filtered[0] ?? null;
 }
 
-function isAbortedCell(cell: DeskRunCell): boolean {
-  if (cell.status !== 'done') return true;
-  const err = (cell.error ?? '').toLowerCase();
-  return err.includes('abort') || err.includes('timed out') || err.includes('timeout');
+/** Seat abort / cell cap — including published rows saved as status=done with a timeout detail. */
+export function isDeskCellAborted(cell: DeskRunCell | null | undefined): boolean {
+  if (!cell) return false;
+  const blob = `${cell.error ?? ''} ${cell.detail ?? ''}`.toLowerCase();
+  if (blob.includes('abort') || blob.includes('timed out') || blob.includes('timeout')) return true;
+  return cell.status !== 'done';
 }
 
 function scoreApproach(approachId: string, cells: DeskRunCell[]): DeskApproachScore {
@@ -114,7 +116,7 @@ function scoreApproach(approachId: string, cells: DeskRunCell[]): DeskApproachSc
   let aborted = 0;
   let wrong = 0;
   for (const cell of cells) {
-    if (isAbortedCell(cell)) {
+    if (isDeskCellAborted(cell)) {
       aborted += 1;
       abortedCases.push(cell.question_id);
       continue;

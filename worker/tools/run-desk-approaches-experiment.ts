@@ -71,10 +71,11 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 interface Cell {
   rep_id: string;
   question_id: string;
-  status: "done";
+  status: "done" | "error";
   answer: string;
   correct: boolean;
   detail: string;
+  error?: string;
   latency_ms?: number;
   model: string;
   attempts: number;
@@ -178,10 +179,11 @@ async function main() {
       cells.push({
         rep_id: repId!,
         question_id: questionId!,
-        status: "done",
+        status: "error",
         answer: "[no answer]",
         correct: false,
         detail: reason.slice(0, 500),
+        error: reason.slice(0, 500),
         model: modelId,
         attempts: PROBE_ATTEMPTS,
         session_count: repId === "desk_fresh_sessions" ? 5 : 1,
@@ -298,13 +300,15 @@ async function main() {
         }
       }
       if (lastError) {
+        const message = String((lastError as Error).message ?? lastError).slice(0, 500);
         cells.push({
           rep_id: approach.id,
           question_id: experimentCase.id,
-          status: "done",
+          status: "error",
           answer: "[no answer]",
           correct: false,
-          detail: String((lastError as Error).message ?? lastError).slice(0, 500),
+          detail: message,
+          error: message,
           model: modelId,
           attempts: PROBE_ATTEMPTS,
           session_count: approach.id === "desk_fresh_sessions" ? 5 : 1,
