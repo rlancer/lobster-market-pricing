@@ -147,6 +147,48 @@
   font-size: var(--font-size-sm);
 }
 
+.notebook-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: 100%;
+  padding-block: var(--spacing-2);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.notebook-accordion-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--spacing-1) 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.notebook-accordion-toggle:hover .notebook-accordion-title {
+  color: var(--accent);
+}
+
+.notebook-accordion-toggle:focus-visible {
+  outline: var(--spacing-0-5) solid var(--accent);
+  outline-offset: var(--spacing-0-5);
+  border-radius: var(--radius-element);
+}
+
+.notebook-accordion-title {
+  margin: 0;
+  font-family: var(--font-family-heading);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text);
+}
+
 .notebook-section {
   display: flex;
   flex-direction: column;

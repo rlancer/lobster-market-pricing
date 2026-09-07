@@ -28,6 +28,7 @@ import AdminTestRunsPage from './AdminTestRuns';
 import AdminQualityGatePage from './AdminQualityGate';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
+import DeskApproachesNotebookPage from './DeskApproachesNotebook';
 import { parseAsOfSearch } from './asOfDate';
 import { parseChatId } from './chatSession';
 import { etDateString } from './tickerChartRange';
@@ -275,6 +276,12 @@ const textVsImageExperimentRoute = createRoute({
   component: TextVsImageNotebookPage,
 });
 
+const deskApproachesExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/desk-approaches',
+  component: DeskApproachesNotebookPage,
+});
+
 /** Legacy /notebooks paths redirect to /experiments. */
 const notebooksRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -395,6 +402,7 @@ const routeTree = rootRoute.addChildren([
   adminQualityGateRoute,
   experimentsRoute,
   textVsImageExperimentRoute,
+  deskApproachesExperimentRoute,
   notebooksRedirectRoute,
   textVsImageNotebookRedirectRoute,
   docsRoute,

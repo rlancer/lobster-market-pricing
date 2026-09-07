@@ -1580,6 +1580,13 @@ export interface ExperimentRunPayload {
       error?: string;
       model?: string;
       attempts?: number;
+      lean_5d?: string;
+      lean_20d?: string;
+      actual_5d?: string;
+      actual_20d?: string;
+      correct_5d?: boolean;
+      correct_20d?: boolean;
+      session_count?: number;
     }>;
     rep_order: string[];
   };
@@ -1610,6 +1617,70 @@ export interface ExperimentRunSummary {
   /** Present on newer Worker deploys — used for cross-model results. */
   rep_accuracy?: Array<{ rep_id: string; correct: number; done: number }>;
   rep_order?: string[];
+}
+
+export interface DeskExperimentApproachInput {
+  id: string;
+  system_prompt?: string;
+  chair_system?: string;
+  chair_turn?: string;
+  specialist_system?: Record<string, string>;
+  specialist_turns?: Array<{ id: string; label: string; user_instruction: string }>;
+}
+
+export interface DeskExperimentDesign {
+  design_id: string;
+  slug?: string;
+  runner_version?: number;
+  production_note: string;
+  model?: string;
+  as_of_rules: string;
+  verdict_instructions?: string;
+  system_prompt?: string;
+  deadband_pct: number;
+  seed?: number;
+  seed_hex?: string;
+  start_date?: string;
+  trading_days?: number;
+  as_of_index?: number;
+  scoring?: {
+    rule: string;
+    deadband_pct: number;
+    both_horizons_required: boolean;
+  };
+  runner?: {
+    execution: string;
+    seat_abort_ms: number;
+    verdict_close_abort_ms: number;
+    verdict_close_max_tokens: number;
+    cell_timeout_ms: number;
+    openrouter_system: string;
+    verdict_close_out: string;
+    completion_text: string;
+  };
+  specialists?: Array<{ id: string; label: string; summary: string }>;
+  approach_inputs?: DeskExperimentApproachInput[];
+  approaches: Array<{
+    id: string;
+    label: string;
+    description: string;
+    session_mode: string;
+  }>;
+  cases: Array<{
+    id: string;
+    ticker: string;
+    name: string;
+    as_of: string;
+    prompt: string;
+    notes: string;
+    expected_5d: string;
+    expected_20d: string;
+    return_5d_pct: number;
+    return_20d_pct: number;
+    what_happened: string;
+    snapshot_text: string;
+    user_packet?: string;
+  }>;
 }
 
 export interface SaveExperimentRunBody {
@@ -1784,6 +1855,8 @@ export const api = {
         })
       }`,
     ),
+  deskExperimentDesign: () =>
+    get<DeskExperimentDesign>('/api/experiments/desk-approaches/design'),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
     post<{ ok: true; run: ExperimentRunPayload }>(

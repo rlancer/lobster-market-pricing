@@ -1,0 +1,109 @@
+name: Run desk-approaches experiment
+
+# Probes solo / desk role-play / shared session / fresh specialist sessions
+# against frozen as-of snapshots, then publishes a server-saved run.
+#
+# Required GitHub secrets: ADMIN_TOKEN, OPEN_ROUTER_KEY.
+# Seats run in this job (not one Worker HTTP request) so 5-call DeepSeek
+# cells can finish. Results are POSTed to api-dev experiment_runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'OpenRouter model slug (default: live Chat COPILOT_MODEL)'
+        type: string
+        default: 'deepseek/deepseek-v4-flash-0731'
+      api_base:
+        description: 'Worker API origin'
+        type: choice
+        options:
+          - https://api-dev.lobster.mp
+          - https://api.lobster.mp
+        default: https://api-dev.lobster.mp
+  push:
+    branches:
+      - 'cursor/*desk-approaches*'
+      - 'cursor/desk-approaches-experiment-294f'
+
+concurrency:
+  group: run-desk-approaches-experiment
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  run-experiment:
+    name: desk-approaches (${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash-0731' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+      OPEN_ROUTER_KEY: ${{ secrets.OPEN_ROUTER_KEY }}
+      MODEL: deepseek/deepseek-v4-flash-0731
+      API_BASE: https://api-dev.lobster.mp
+      COPILOT_REASONING_EFFORT: high
+      COPILOT_MAX_OUTPUT_TOKENS: "8192"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Apply workflow_dispatch inputs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          echo "MODEL=${{ inputs.model }}" >> "$GITHUB_ENV"
+          echo "API_BASE=${{ inputs.api_base }}" >> "$GITHUB_ENV"
+
+      - name: Require secrets
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set on this repository"
+            exit 1
+          fi
+          if [ -z "${OPEN_ROUTER_KEY:-}" ]; then
+            echo "::error::OPEN_ROUTER_KEY secret is not set on this repository"
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker deps
+        run: cd worker && npm ci
+
+      - name: Wait for screener-api-dev deploy
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for Deploy on ${GITHUB_SHA}"
+          for i in $(seq 1 90); do
+            json="$(gh run list --workflow Deploy --commit "${GITHUB_SHA}" --json status,conclusion,event,name,databaseId)"
+            echo "$json"
+            status="$(echo "$json" | jq -r '[.[] | select(.event=="push")][0].status // empty')"
+            conclusion="$(echo "$json" | jq -r '[.[] | select(.event=="push")][0].conclusion // empty')"
+            echo "attempt ${i}: status=${status:-pending} conclusion=${conclusion:-}"
+            if [ "${status}" = "completed" ] && [ "${conclusion}" = "success" ]; then
+              echo "Deploy succeeded"
+              exit 0
+            fi
+            if [ "${status}" = "completed" ] && [ -n "${conclusion}" ] && [ "${conclusion}" != "success" ]; then
+              echo "::error::Deploy concluded ${conclusion} — not probing a stale Worker"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for Deploy"
+          exit 1
+
+      - name: Run matrix and publish
+        run: cd worker && node --import tsx tools/run-desk-approaches-experiment.ts

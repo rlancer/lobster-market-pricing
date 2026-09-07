@@ -37,11 +37,11 @@ export default function ExperimentsPage() {
               </>
             )}
             onClick={() => {
-              void navigate({
-                to: experiment.slug === 'text-vs-image'
-                  ? '/experiments/text-vs-image'
-                  : '/experiments',
-              });
+              if (experiment.slug === 'desk-approaches') {
+                void navigate({ to: '/experiments/desk-approaches' });
+                return;
+              }
+              void navigate({ to: '/experiments/text-vs-image' });
             }}
           />
         ))}

@@ -127,4 +127,7 @@ test('experiments routes have titles', () => {
   assert.equal(experiment.title, `Text vs image experiment · ${SITE_NAME}`);
   assert.match(experiment.description ?? '', /AI-style text/);
   assert.doesNotMatch(experiment.description ?? '', /Chat-style/);
+  const desk = pageMetaForUrl('/experiments/desk-approaches');
+  assert.equal(desk.title, `Analyst desk vs sessions · ${SITE_NAME}`);
+  assert.match(desk.description ?? '', /as-of snapshot/i);
 });
