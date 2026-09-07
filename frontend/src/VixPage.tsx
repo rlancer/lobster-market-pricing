@@ -118,7 +118,6 @@ function historyRows(term: VixTerm): { rows: HistoryRow[]; maxTenor: number } {
 export default function VixPage() {
   const { asOf, historical } = useAsOfDate();
   const [term, setTerm] = useState<VixTerm | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pane, setPane] = useState<Pane>('term');
   const [overlay, setOverlay] = useState<string[]>([]);
@@ -130,7 +129,6 @@ export default function VixPage() {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     setError(null);
     api.vixTerm({ asof: asOf })
       .then((next) => {
@@ -143,41 +141,40 @@ export default function VixPage() {
         if (!active) return;
         setTerm(null);
         setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
       });
     return () => { active = false; };
   }, [asOf]);
 
-  const primaryLabel = term
-    ? (term.source === 'quotes' && !historical ? 'Live' : term.as_of)
+  const stale = Boolean(asOf && term && term.as_of !== asOf);
+  const view = term && !stale ? term : null;
+  const primaryLabel = view
+    ? (view.source === 'quotes' && !historical ? 'Live' : view.as_of)
     : 'Live';
   const plotRows = useMemo(
-    () => term
+    () => view
       ? vixTermPlotRows({
         primaryLabel,
-        curve: term.curve,
-        history: term.history,
+        curve: view.curve,
+        history: view.history,
         overlayDates: overlay,
       })
       : [],
-    [term, primaryLabel, overlay],
+    [view, primaryLabel, overlay],
   );
   const chart = useMemo(
     () => (plotRows.length ? defineVixTermChart(plotRows) : null),
     [plotRows],
   );
-  const contracts = term ? contractRows(term.curve) : [];
-  const history = term ? historyRows(term) : { rows: [], maxTenor: 0 };
-  const overlayChoices = (term?.settlement_dates ?? []).filter((date) => date !== term?.as_of).slice(0, 12);
+  const contracts = view ? contractRows(view.curve) : [];
+  const history = view ? historyRows(view) : { rows: [], maxTenor: 0 };
+  const overlayChoices = (view?.settlement_dates ?? []).filter((date) => date !== view?.as_of).slice(0, 12);
 
   return (
     <VStack className="vix-page content-column" gap={4}>
       <VStack gap={2}>
         <HStack gap={3} vAlign="center" wrap="wrap">
           <Heading level={1}>VIX term structure</Heading>
-          {term ? <Token {...shapeToken(term.metrics.shape)} size="sm" /> : null}
+          {view ? <Token {...shapeToken(view.metrics.shape)} size="sm" /> : null}
         </HStack>
         <Text type="supporting">
           Cash VIX is a calculated index, not a tradable contract. Calculation noise can look like
@@ -187,24 +184,24 @@ export default function VixPage() {
         <AsOfDateField description="Replay official VX settlements as of this ET date." />
       </VStack>
 
-      {loading && !term ? (
+      {!view && !error ? (
         <HStack gap={3} vAlign="center">
           <Spinner size="md" label="Loading VIX term structure" />
         </HStack>
       ) : null}
       {error ? <Text>{error}</Text> : null}
 
-      {term ? (
+      {view ? (
         <VStack gap={4}>
           <Grid
             gap={3}
             columns={{ minWidth: 160, max: 4, repeat: 'fit' }}
             aria-label="Vol indexes"
           >
-            <IndexCard print={term.indexes.vix} note="Not tradable" />
-            <IndexCard print={term.indexes.vix9d} />
-            <IndexCard print={term.indexes.vix3m} />
-            <IndexCard print={term.indexes.vvix} />
+            <IndexCard print={view.indexes.vix} note="Not tradable" />
+            <IndexCard print={view.indexes.vix9d} />
+            <IndexCard print={view.indexes.vix3m} />
+            <IndexCard print={view.indexes.vvix} />
           </Grid>
 
           <Grid
@@ -214,30 +211,30 @@ export default function VixPage() {
           >
             <MetricCard
               label="M1–M2"
-              value={`${formatVixPts(term.metrics.m1_m2_pts)}  ${formatVixPct(term.metrics.m1_m2_pct)}`}
+              value={`${formatVixPts(view.metrics.m1_m2_pts)}  ${formatVixPct(view.metrics.m1_m2_pct)}`}
               hint="Front two VX monthals — tradable vol"
-              tone={changeTone(term.metrics.m1_m2_pct)}
+              tone={changeTone(view.metrics.m1_m2_pct)}
             />
             <MetricCard
               label="M2–M3"
-              value={formatVixPct(term.metrics.m2_m3_pct)}
+              value={formatVixPct(view.metrics.m2_m3_pct)}
               hint="Second to third monthly"
-              tone={changeTone(term.metrics.m2_m3_pct)}
+              tone={changeTone(view.metrics.m2_m3_pct)}
             />
             <MetricCard
               label="M4–M7"
-              value={formatVixPct(term.metrics.m4_m7_pct)}
+              value={formatVixPct(view.metrics.m4_m7_pct)}
               hint="Mid-curve contango (month 7 vs 4)"
-              tone={changeTone(term.metrics.m4_m7_pct)}
+              tone={changeTone(view.metrics.m4_m7_pct)}
             />
             <MetricCard
               label="Cash vs M1"
-              value={formatVixPct(term.metrics.vix_vs_m1_pct)}
+              value={formatVixPct(view.metrics.vix_vs_m1_pct)}
               hint="Spot VIX basis vs the front monthly — not a vol change"
             />
             <MetricCard
               label="VIX vs VIX3M"
-              value={formatVixPct(term.metrics.vix_vs_vix3m_pct)}
+              value={formatVixPct(view.metrics.vix_vs_vix3m_pct)}
               hint="Cash 30-day vs 3-month vol indexes"
             />
           </Grid>
@@ -291,9 +288,9 @@ export default function VixPage() {
                   <Text type="supporting">No VX monthals in the lake for this date yet.</Text>
                 )}
                 <Text type="supporting">
-                  {term.source === 'quotes'
-                    ? `Delayed CFE monthals as of ${term.as_of}. X-axis is constant-maturity tenor (Spot, M1, M2…), not calendar month.`
-                    : `Official VX settlements as of ${term.as_of}. X-axis is constant-maturity tenor (Spot, M1, M2…).`}
+                  {view.source === 'quotes'
+                    ? `Delayed CFE monthals as of ${view.as_of}. X-axis is constant-maturity tenor (Spot, M1, M2…), not calendar month.`
+                    : `Official VX settlements as of ${view.as_of}. X-axis is constant-maturity tenor (Spot, M1, M2…).`}
                 </Text>
               </VStack>
 
@@ -424,8 +421,8 @@ export default function VixPage() {
             </VStack>
           )}
 
-          {term.errors.length > 0 ? (
-            <Text type="supporting">Notes: {term.errors.join('; ')}</Text>
+          {view.errors.length > 0 ? (
+            <Text type="supporting">Notes: {view.errors.join('; ')}</Text>
           ) : null}
         </VStack>
       ) : null}

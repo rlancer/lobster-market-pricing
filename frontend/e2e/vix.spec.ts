@@ -57,6 +57,28 @@ test.describe('VIX term structure', () => {
     await expect(page.getByRole('img', { name: 'VX futures term structure' })).toBeVisible();
   });
 
+  test('as-of replay uses official settlements, not a stale live curve', async ({ page }) => {
+    const historical = {
+      ...SAMPLE,
+      as_of: '2026-09-04',
+      source: 'settlements',
+      metrics: { ...SAMPLE.metrics, shape: 'contango', m4_m7_pct: 9.24 },
+    };
+    await page.route((url) => url.pathname === '/api/vix', async (route) => {
+      const asof = new URL(route.request().url()).searchParams.get('asof');
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(asof === '2026-09-04' ? historical : SAMPLE),
+      });
+    });
+
+    await page.goto('/vix?asof=2026-09-04');
+    await expect(page.getByText(/Official VX settlements as of 2026-09-04/)).toBeVisible();
+    await expect(page.getByText(/Delayed CFE monthals as of/)).toHaveCount(0);
+    await expect(page.getByText('Contango', { exact: true })).toBeVisible();
+  });
+
   test('research ^VIX redirects to /vix', async ({ page }) => {
     await page.route((url) => url.pathname === '/api/vix', async (route) => {
       await route.fulfill({
