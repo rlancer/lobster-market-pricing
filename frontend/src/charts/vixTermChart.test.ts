@@ -5,7 +5,7 @@ import {
   defineVixTermChart,
   vixTermFutureLeg,
   vixTermPlotRows,
-  vixTermSpotLeg,
+  vixTermSpotLevel,
 } from './vixTermChart.ts';
 
 function pt(tenor: number, last: number, label: string): VixCurvePoint {
@@ -42,14 +42,11 @@ test('vixTermPlotRows overlay selected settlement dates on constant-maturity ten
     rows.map((row) => `${row.series}:${row.x}:${row.y}`),
     ['Live:Spot:15', '2026-09-04:Spot:16', 'Live:M1:16.4', '2026-09-04:M1:17', 'Live:M2:17.1'],
   );
-  const chart = defineVixTermChart(rows);
-  assert.ok(chart);
-  assert.deepEqual(
-    vixTermSpotLeg(rows).map((row) => `${row.series}:${row.x}`),
-    ['Live:Spot', 'Live:M1', '2026-09-04:Spot', '2026-09-04:M1'],
-  );
+  assert.equal(vixTermSpotLevel(rows, 'Live'), 15);
   assert.deepEqual(
     vixTermFutureLeg(rows).map((row) => `${row.series}:${row.x}`),
     ['Live:M1', '2026-09-04:M1', 'Live:M2'],
   );
+  const chart = defineVixTermChart(rows, 'Live');
+  assert.ok(chart);
 });

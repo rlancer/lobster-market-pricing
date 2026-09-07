@@ -162,7 +162,7 @@ export default function VixPage() {
     [view, primaryLabel, overlay],
   );
   const chart = useMemo(
-    () => (plotRows.length ? defineVixTermChart(plotRows) : null),
+    () => (plotRows.some((row) => row.tenor >= 1) ? defineVixTermChart(plotRows, primaryLabel) : null),
     [plotRows],
   );
   const contracts = view ? contractRows(view.curve) : [];
@@ -289,8 +289,8 @@ export default function VixPage() {
                 )}
                 <Text type="supporting">
                   {view.source === 'quotes'
-                    ? `Delayed CFE monthals as of ${view.as_of}. Dashed is cash VIX to M1; solid is the VX monthals. X-axis is constant-maturity tenor, not calendar month.`
-                    : `Official VX settlements as of ${view.as_of}. Dashed is cash VIX to M1; solid is the VX monthals. X-axis is constant-maturity tenor.`}
+                    ? `Delayed CFE monthals as of ${view.as_of}. Dashed line is cash VIX; solid is VX monthals — the gap is the spot basis. X-axis is constant-maturity tenor, not calendar month.`
+                    : `Official VX settlements as of ${view.as_of}. Dashed line is cash VIX; solid is VX monthals — the gap is the spot basis.`}
                 </Text>
               </VStack>
 
