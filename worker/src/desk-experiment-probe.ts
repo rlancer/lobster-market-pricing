@@ -48,8 +48,8 @@ function maxOutputTokenBudget(env: DeskExperimentProbeEnv, requested?: number): 
   return cap;
 }
 
-/** Per OpenRouter call. Hung DeepSeek seats were ~10 min and killed the Worker request. */
-const COMPLETE_ABORT_MS = 4 * 60_000;
+/** Per OpenRouter call. 4 min aborted live 5-seat DeepSeek cells mid-matrix. */
+const COMPLETE_ABORT_MS = 6 * 60_000;
 /** Close-out after high-reasoning CoT — small budget, no extra chain-of-thought. */
 const VERDICT_CLOSE_ABORT_MS = 45_000;
 const VERDICT_CLOSE_MAX_TOKENS = 384;
