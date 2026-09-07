@@ -54,6 +54,7 @@ test.describe('VIX term structure', () => {
     await expect(page.getByText(/Front two VX monthals/)).toBeVisible();
     await expect(page.getByText("Sep'26")).toBeVisible();
     await expect(page.getByText('VXU26')).toBeVisible();
+    await expect(page.getByText(/Dashed is cash VIX to M1/)).toBeVisible();
     await expect(page.getByRole('img', { name: 'VX futures term structure' })).toBeVisible();
   });
 
