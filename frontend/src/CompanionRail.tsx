@@ -13,6 +13,7 @@ import type {
   TimelineRailNewsItem,
   TimelineRailTag,
 } from './api';
+import { tickerLink } from './vixPage';
 import './CompanionRail.css';
 
 export interface CompanionRailTag extends TimelineRailTag {
@@ -103,11 +104,21 @@ export function CompanionRail({
                 {tags.map((tag) => {
                   const noun = tag.countNoun ?? 'post';
                   const count = tag.posts;
-                  return (
+                  const dest = tickerLink(tag.ticker);
+                  return dest.to === '/vix' ? (
+                    <Link
+                      key={tag.ticker}
+                      to="/vix"
+                      className="companion-rail-ticker"
+                      aria-label={`${tag.ticker}, ${count} ${noun}${count === 1 ? '' : 's'}`}
+                    >
+                      {tag.ticker}
+                    </Link>
+                  ) : (
                     <Link
                       key={tag.ticker}
                       to="/research/$ticker"
-                      params={{ ticker: tag.ticker }}
+                      params={dest.params}
                       className="companion-rail-ticker"
                       aria-label={`${tag.ticker}, ${count} ${noun}${count === 1 ? '' : 's'}`}
                     >
@@ -164,7 +175,9 @@ export function CompanionRail({
                     label={item.ticker}
                     description={`${item.name} · ${fmtSpot(item.spot)}`}
                     onClick={() => {
-                      void navigate({ to: '/research/$ticker', params: { ticker: item.ticker } });
+                      const dest = tickerLink(item.ticker);
+                      if (dest.to === '/vix') void navigate({ to: '/vix' });
+                      else void navigate({ to: dest.to, params: dest.params });
                     }}
                     endContent={
                       <Text

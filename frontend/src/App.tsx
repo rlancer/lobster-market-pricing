@@ -19,7 +19,7 @@ import {
   useFocusTrap,
   useScrollLock,
 } from '@astryxdesign/core';
-import { BookOpen, Bot, Briefcase, ChevronDown, ChevronRight, Database, FlaskConical, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, Briefcase, ChevronDown, ChevronRight, Database, FlaskConical, Lock, Menu, Newspaper, Search, Sparkles, SquarePen, Wrench, Activity, type LucideIcon } from 'lucide-react';
 import './App.css';
 import { isAdminNavPath, isExperimentsNavPath } from './admin';
 import { useIsAdmin } from './useAdmin';
@@ -38,6 +38,7 @@ import {
   sortUserChats,
 } from './chatSession';
 import { DocumentMeta } from './DocumentMeta';
+import { isVixPageTicker } from './vixPage';
 import { WorkspaceContext, type WorkspaceValue } from './workspace';
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ type Section = {
 const SECTIONS: Section[] = [
   { to: '/', label: 'Floor', heading: 'Floor', icon: Newspaper, exact: true },
   { to: '/chat', label: 'Chat', heading: 'Chat', icon: Sparkles },
+  { to: '/vix', label: 'VIX', heading: 'VIX term structure', icon: Activity },
   { to: '/portfolio', label: 'Portfolio', heading: 'Portfolio', icon: Briefcase },
   { to: '/my-bots', label: 'Bots', heading: 'My bots', icon: Bot },
 ];
@@ -90,9 +92,11 @@ function ResearchSearch({
   const { asOf } = useAsOfDate();
   const asofSearch = asOf ? { asof: asOf } : {};
   const tickerMatch = location.pathname.match(/^\/research\/([^/]+)$/);
-  const ticker = tickerMatch?.[1]
-    ? decodeURIComponent(tickerMatch[1]).trim().toUpperCase()
-    : null;
+  const ticker = location.pathname === '/vix'
+    ? 'VIX'
+    : tickerMatch?.[1]
+      ? decodeURIComponent(tickerMatch[1]).trim().toUpperCase()
+      : null;
 
   return (
     <TickerTypeahead
@@ -100,6 +104,10 @@ function ResearchSearch({
       value={ticker}
       onSelect={(symbol) => {
         onSelectSymbol?.(symbol);
+        if (isVixPageTicker(symbol)) {
+          void navigate({ to: '/vix', search: asofSearch });
+          return;
+        }
         void navigate({
           to: '/research/$ticker',
           params: { ticker: symbol },
@@ -107,7 +115,7 @@ function ResearchSearch({
         });
       }}
       onClear={() => {
-        if (location.pathname.startsWith('/research')) {
+        if (location.pathname === '/vix' || location.pathname.startsWith('/research')) {
           void navigate({ to: '/research', search: asofSearch });
         }
       }}
@@ -162,6 +170,9 @@ const RouterLink = forwardRef<HTMLAnchorElement, ComponentProps<'a'>>(
     }
     if (href === '/research') {
       return <Link ref={ref} to="/research" {...props} />;
+    }
+    if (href === '/vix') {
+      return <Link ref={ref} to="/vix" {...props} />;
     }
     return <Link ref={ref} to={href as '/'} {...props} />;
   },
@@ -234,6 +245,14 @@ function WorkspaceNavItems({
         label="Chat"
         icon={Sparkles}
         isSelected={isChat && !historySelected}
+        onClick={closeMobileNav}
+      />
+      <SideNavItem
+        as={RouterLink}
+        href="/vix"
+        label="VIX"
+        icon={Activity}
+        isSelected={activeTo === '/vix'}
         onClick={closeMobileNav}
       />
       <SideNavItem

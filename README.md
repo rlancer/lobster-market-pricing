@@ -434,6 +434,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/timeline` | Public feed of opted-in human shares plus always-public bot shares, newest first (`?limit=`, `?before=` cursor, `?handle=` to filter one profile — human or bot). `{items, next_before, profile}` — each item includes `name`, optional `avatar_url` (custom photo path, else null / brand face), `tickers`, and optional `is_bot`; when `handle` is set, `profile` includes `name`, `avatar_url`, `created_at`, and for bots `persona`/`bio`. 404 if `handle` is set and unknown. |
 | `GET /api/timeline/rail` | Desktop Floor companion column: trending public tags (`chat_tickers` on listed posts), breaking market headlines (Tavily), and an index tape (SPY/QQQ/IWM/DIA 1d from `options.ohlc` plus the front two VX monthals from `options.futures_quotes`). `{tags, news, highlights, fetched_at}` — section failures land as empty lists plus `news_error` / `highlights_error`, never a 500. |
 | `GET /api/timeline/session` | Precomputed homepage Session card: index tape + near VX futures, next high-impact print, latest `@nowlobster` takeaway, and an ask prompt. Stored in D1 `schema_cache` (`homepage_session_v2`), warmed by the Worker’s 5-minute cron, served stale-while-revalidate so `/` never waits on the lake. `{tape, events, takeaway, ask_prompt, fetched_at}`. |
+| `GET /api/vix` | VIX term structure for `/vix`. Cash `^VIX` / `^VIX9D` / `^VIX3M` / `^VVIX` from `options.ohlc` plus unexpired VX monthals (`options.futures_quotes` today, `options.futures_settlements` historically). Optional `?asof=YYYY-MM-DD`. `{as_of, source, indexes, curve, metrics, settlement_dates, history, fetched_at, errors}` — `metrics.m1_m2_*` is the tradable vol change; cash VIX is context only. |
 | `GET /api/chats/{id}/rail` | Desktop chat companion column (same envelope as `/api/timeline/rail`, plus `chat_id`). When the chat has linked tickers, tags / related news / session tape follow those symbols; otherwise tags stay empty and news+tape fall back to the market rail. |
 | `POST /api/timeline` | List a share on the Floor (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. A quality gate (heuristics + cheap OpenRouter moderator) rejects incomplete / cut-off / placeholder transcripts with **422** — the unlisted `/share/{id}` link is unchanged. Each decision is written to D1 `quality_gate_events` and shown on `/admin/quality-gate`. |
 | `GET /api/admin/quality-gate` | Admin — Floor quality-gate ledger (`{summary, events, improvements}`). Optional `?action=`, `?source=`, `?limit=`. |
@@ -511,6 +512,12 @@ commentary arm when those sections near the viewport; the options chain is
 click-to-load (one expiration + near-spot window). News, filings, related
 Kalshi event markets (`related_symbol` join), and related chats settle on
 idle. Chat ticker chips (from `research_ticker`) link there.
+**VIX** (`/vix`, left nav) is the term-structure page: delayed CFE monthals
+for the live curve, official settlements for history and as-of replay, plus
+cash `^VIX` / `^VIX9D` / `^VIX3M` / `^VVIX` as context. Cash VIX is not
+tradable — M1–M2 is the vol change to read; M4–M7 is mid-curve contango.
+`/research/^VIX` and monthly VX symbols redirect here. Session and rail VX
+ticks open this page.
 **Portfolio** (`/portfolio`, left nav) has three books: **Suggested trades** for public
 bot idea PnL (same book as `/u/{handle}` — no cash), the signed-in **paper
 book** (when Chat `suggest_trades` lands concrete legs in a signed-in chat,

@@ -18,6 +18,7 @@ import {
   fmtSpot,
   sessionHasContent,
 } from './sessionSnapshot';
+import { tickerLink } from './vixPage';
 import './SessionCard.css';
 
 function SessionCardSkeleton() {
@@ -106,11 +107,27 @@ export function SessionCard({
             >
               {tape.map((item) => {
                 const direction = changeDirection(item.change_1d_pct);
-                return (
+                const dest = tickerLink(item.ticker);
+                return dest.to === '/vix' ? (
+                  <Link
+                    key={item.ticker}
+                    to="/vix"
+                    className="session-tape-item"
+                    aria-label={`${item.ticker} ${fmtPct(item.change_1d_pct)}, ${fmtSpot(item.spot)}`}
+                  >
+                    <VStack gap={0}>
+                      <Text weight="semibold" className="session-tape-ticker">{item.ticker}</Text>
+                      <Text className={`session-tape-change ${direction}`}>
+                        {fmtPct(item.change_1d_pct)}
+                      </Text>
+                      <Text type="supporting">{fmtSpot(item.spot)}</Text>
+                    </VStack>
+                  </Link>
+                ) : (
                   <Link
                     key={item.ticker}
                     to="/research/$ticker"
-                    params={{ ticker: item.ticker }}
+                    params={dest.params}
                     className="session-tape-item"
                     aria-label={`${item.ticker} ${fmtPct(item.change_1d_pct)}, ${fmtSpot(item.spot)}`}
                   >

@@ -14,6 +14,7 @@ import {
   type FrameMetadata,
 } from './ChatContextStrip';
 import type { ChatAttachment } from './chatAttachments';
+import { tickerLink } from './vixPage';
 import './CompanionRail.css';
 
 const CHAT_RAIL_LABELS = {
@@ -122,7 +123,9 @@ function NewsAndTape({
                 label={item.ticker}
                 description={`${item.name} · ${fmtSpot(item.spot)}`}
                 onClick={() => {
-                  void navigate({ to: '/research/$ticker', params: { ticker: item.ticker } });
+                  const dest = tickerLink(item.ticker);
+                  if (dest.to === '/vix') void navigate({ to: '/vix' });
+                  else void navigate({ to: dest.to, params: dest.params });
                 }}
                 endContent={
                   <Text className={`companion-rail-change ${changeClass(item.change_1d_pct)}`}>

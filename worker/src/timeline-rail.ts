@@ -6,6 +6,8 @@
  * never 500 on a Tavily or lake outage.
  */
 import { listChatTickers } from "./chat-tickers";
+import { isMonthlyVxQuote, vxFuturesDisplayName } from "./vx-symbols";
+export { vxFuturesDisplayName };
 
 export const TIMELINE_RAIL_TAGS_LIMIT = 16;
 export const TIMELINE_RAIL_NEWS_LIMIT = 6;
@@ -28,22 +30,6 @@ export const MARKET_HIGHLIGHT_WATCHLIST: ReadonlyArray<{ ticker: string; name: s
 
 /** How many front VX monthals to pin on the Session / market tape. */
 export const NEAR_MONTH_VX_LIMIT = 2;
-
-/** CFE month codes on monthly VX quote symbols (e.g. VXU26 → Sep '26). */
-const VX_MONTH_CODES: Readonly<Record<string, string>> = {
-  F: "Jan",
-  G: "Feb",
-  H: "Mar",
-  J: "Apr",
-  K: "May",
-  M: "Jun",
-  N: "Jul",
-  Q: "Aug",
-  U: "Sep",
-  V: "Oct",
-  X: "Nov",
-  Z: "Dec",
-};
 
 export interface TimelineRailTag {
   ticker: string;
@@ -138,15 +124,6 @@ export function highlightsFromOhlcRows(
   });
 }
 
-/** Friendly tape label for a monthly VX quote symbol (`VXU26` → `VX Sep'26`). */
-export function vxFuturesDisplayName(contractSymbol: string): string {
-  const symbol = contractSymbol.trim().toUpperCase();
-  const match = /^VX([FGHJKMNQUVXZ])(\d{2})$/.exec(symbol);
-  if (!match) return symbol || "VX";
-  const month = VX_MONTH_CODES[match[1]!] ?? match[1]!;
-  return `VX ${month}'${match[2]}`;
-}
-
 /**
  * Map latest `options.futures_quotes` rows (already ordered nearest-expiry first)
  * onto the shared highlight shape. Spot prefers last → close → settlement.
@@ -162,7 +139,7 @@ export function highlightsFromVxQuoteRows(
     const ticker = String(row.symbol ?? row.contract_symbol ?? row.ticker ?? "")
       .trim()
       .toUpperCase();
-    if (!ticker || seen.has(ticker) || !/^VX[FGHJKMNQUVXZ]\d{2}$/.test(ticker)) continue;
+    if (!ticker || seen.has(ticker) || !isMonthlyVxQuote(ticker)) continue;
     seen.add(ticker);
     const spot = numOrNull(row.spot ?? row.last ?? row.close ?? row.settlement_price);
     const prev = numOrNull(row.prev_close);

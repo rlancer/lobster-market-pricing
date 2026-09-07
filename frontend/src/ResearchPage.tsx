@@ -316,6 +316,13 @@ export default function ResearchPage() {
                 {sym}
               </Link>
             ))}
+            <Link
+              to="/vix"
+              search={asOf ? { asof: asOf } : undefined}
+              className="research-chip-link"
+            >
+              VIX
+            </Link>
           </HStack>
         </VStack>
       )}
