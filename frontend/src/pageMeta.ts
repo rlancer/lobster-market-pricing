@@ -49,7 +49,7 @@ const DOCS: Record<string, { title: string; description: string }> = {
   frontend: {
     title: 'Frontend surfaces',
     description:
-      'Floor, Chat, Research, the Data catalog, monitor, and brand — the React UI on top of the screener API.',
+      'Floor, Chat, VIX term structure, Research, the Data catalog, monitor, and brand — the React UI on top of the screener API.',
   },
   run: {
     title: 'Run it locally',
@@ -170,6 +170,14 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
   }
 
   if (path === '/research') return researchMeta(null);
+  if (path === '/vix') {
+    return {
+      title: pageTitle('VIX term structure'),
+      description:
+        'VX futures term structure — front two monthals for tradable vol, cash VIX as context only.',
+      path: '/vix',
+    };
+  }
   if (segments[0] === 'research' && segments.length === 2) {
     return researchMeta(tickerFromSegment(segments[1]));
   }

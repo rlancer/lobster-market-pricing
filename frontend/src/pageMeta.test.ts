@@ -69,6 +69,8 @@ test('docs pages name the topic', () => {
 
 test('chat, monitor, admin, brand, bots, users, chats, account, and share have route titles', () => {
   assert.equal(pageMetaForUrl('/chat').title, `Chat · ${SITE_NAME}`);
+  assert.equal(pageMetaForUrl('/vix').title, `VIX term structure · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/vix').description ?? '', /VX futures/);
   assert.equal(pageMetaForUrl('/monitor').title, `Dataset monitor · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/admin').title, `Admin · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/admin').description ?? '', /Admin hub/);

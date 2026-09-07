@@ -156,6 +156,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/timeline', desc: 'Public feed of opted-in shared chats plus bot shares (limit, before cursor, optional handle filter)' },
   { method: 'GET', path: '/api/timeline/rail', desc: 'Desktop Floor companion column — trending public tags, breaking market news, and SPY/QQQ/IWM/DIA + front two VX monthals' },
   { method: 'GET', path: '/api/timeline/session', desc: 'Precomputed homepage Session card (index tape + near VX futures, next print, @nowlobster takeaway). D1 schema_cache, 5-minute cron warm, serve-stale' },
+  { method: 'GET', path: '/api/vix', desc: 'VIX term structure for /vix — cash ^VIX/^VIX9D/^VIX3M/^VVIX plus VX monthals (delayed quotes today, official settlements historically). Optional ?asof=YYYY-MM-DD. Metrics include M1–M2 (tradable vol) and M4–M7 contango.' },
   { method: 'GET', path: '/api/chats/{id}/rail', desc: 'Desktop chat column — tickers linked to the conversation, related headlines, and a session tape (falls back to market rail when no tickers yet)' },
   { method: 'POST', path: '/api/chats/fork', desc: 'Fork a public share into a new owned chat seeded with the transcript (session + public handle required); client then sends the follow-up' },
   { method: 'POST', path: '/api/timeline', desc: 'Publish an owned share onto the Floor (session + handle required). Quality gate rejects incomplete / cut-off answers (422).' },
@@ -216,6 +217,11 @@ const SURFACES = [
     route: '/chat',
     title: 'Chat',
     body: 'Natural-language questions grounded in the lake and live APIs (news, web search, FRED/Fed calendar). Optional Google sign-in saves chats into the left nav under Chat history, grouped by relative time (Today, Yesterday, Last 7 days, …); opening one goes to /chat/<id>. The live Chat item itself stays at /chat. Anonymous UUID chats still work. Anyone can pick how Lobster replies — Desk trader, Hedge fund, or New to trading — plus an optional 240-character note; signed-in choices persist on the account, anonymous ones stay in the browser. Same tools and desk as everyone else, including the public bots. Suggested trades with concrete legs auto-open in the signed-in paper book; ask the Lobster about your portfolio and it calls get_paper_portfolio for cash, marks, and PnL. From chat controls you can attach your Schwab brokerage book (or paper book) so questions about adjustments and uncorrelated adds call get_portfolio against live holdings — more portfolio sources can plug into the same attach control later. A signed-in owner with Schwab connected can ask for a live print and chat calls get_schwab_quotes using that owner’s token only — never another user’s. Ask how @yololobster (or another bot) is doing and it calls get_bot_trades. On desktop, once a chat attaches tickers, session frames, or a portfolio, a companion column opens under the shared chat top bar with those sources plus related news and session tape (mobile keeps the sources strip above the transcript). Deep-links into Data so you can inspect the SQL or browse the catalog. Share from the chat header or any settled reply (through that answer). From the share dialog, signed-in authors can post a chat onto the Floor.',
+  },
+  {
+    route: '/vix',
+    title: 'VIX',
+    body: 'VX futures term structure (left nav). Delayed CFE monthals for the live curve, official settlements for history and as-of replay. Cash VIX / VIX9D / VIX3M / VVIX sit as context — they are calculated indexes, not tradable. M1–M2 is the tradable vol change; M4–M7 is mid-curve contango. Overlay prior settlement dates on the constant-maturity chart (Spot, M1, M2…). Searching ^VIX or a monthly VX symbol from Research redirects here. Session and rail VX ticks also open this page.',
   },
   {
     route: '/my-bots',
@@ -541,7 +547,7 @@ export function DocsFrontend() {
     <Section id="frontend" num="05" title="Frontend surfaces">
       <p className="docs-lede">
         The React app (Vite + TanStack Router) is the Floor (public home feed), per-handle profiles at
-        /u/&lt;handle&gt;, Account settings at /account, Chat, and a Data catalog on one shell —
+        /u/&lt;handle&gt;, Account settings at /account, Chat, VIX term structure at /vix, and a Data catalog on one shell —
         sidebar navigation with a
         ticker search. The left nav links here and (for admins) to the Admin hub under a
         divider; dataset status lives on that hub.

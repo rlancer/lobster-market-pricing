@@ -25,4 +25,9 @@ test.describe('Per-route document meta', () => {
     await page.goto('/');
     await expect(page).toHaveTitle(/Ask the Lobster/);
   });
+
+  test('VIX term structure is in the title', async ({ page }) => {
+    await page.goto('/vix');
+    await expect(page).toHaveTitle(/VIX term structure/);
+  });
 });

@@ -439,11 +439,12 @@ export const FEEDS: CatalogItem[] = [
     title: 'Cboe Futures Exchange (CFE)',
     summary: 'VX settlements and delayed monthals',
     description:
-      'Official daily settlement CSV plus delayed monthals for CFE products (VX curve and siblings). Lands in options.futures_settlements and options.futures_quotes. Complements ^VIX spot (indices-ohlc-daily) and VIX ETPs in the equity/ETF universe.',
+      'Official daily settlement CSV plus delayed monthals for CFE products (VX curve and siblings). Lands in options.futures_settlements and options.futures_quotes. Powers GET /api/vix and the /vix term-structure page. Complements ^VIX spot (indices-ohlc-daily) and VIX ETPs in the equity/ETF universe.',
     provider: 'CBOE',
     cadence: 'Daily (cfe-futures-daily job)',
     tables: ['futures_settlements', 'futures_quotes'],
     tools: ['run_query'],
+    endpoint: 'GET /api/vix',
   },
   {
     id: 'feed:yahoo-fundamentals',
@@ -678,14 +679,14 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   futures_settlements: {
     summary: 'CFE daily settlement prices (VX curve)',
     description:
-      'Official Cboe Futures Exchange settlement CSV rows: product, contract_symbol, expiration_date, settle_price. Includes VX monthals and weeklies. Join to futures_quotes on contract_symbol for the live delayed book.',
+      'Official Cboe Futures Exchange settlement CSV rows: product, contract_symbol, expiration_date, settle_price. Includes VX monthals and weeklies. Join to futures_quotes on contract_symbol for the live delayed book. Historical curves on /vix read monthly VX rows only.',
     feeds: ['cfe-futures'],
     tools: ['run_query'],
   },
   futures_quotes: {
     summary: 'CFE delayed monthals (bid/ask/OI)',
     description:
-      'Delayed quotes for CFE monthals (e.g. VXU26): last, bid/ask, OHLC, volume, open interest, settlement_price. Derived from monthly settlement symbols; weeklies that 403 are skipped.',
+      'Delayed quotes for CFE monthals (e.g. VXU26): last, bid/ask, OHLC, volume, open interest, settlement_price. Derived from monthly settlement symbols; weeklies that 403 are skipped. Live /vix curve prefers this table; expired contracts are dropped.',
     feeds: ['cfe-futures'],
     tools: ['run_query'],
   },

@@ -108,6 +108,7 @@ import {
 } from "./reply-style";
 import { clearBotListing, getTimelineAuthor, handleTimeline, recordShareOwner, remoderateListedBotShares } from "./timeline";
 import { serveHomepageSession, refreshHomepageSession, SESSION_CALENDAR_DAYS } from "./timeline-session";
+import { loadVixTerm } from "./vix-term";
 import { heuristicTimelineQuality, moderateTimelineShare } from "./timeline-moderation";
 import { scheduleImprovementReport } from "./improvement-reporter";
 import {
@@ -4690,6 +4691,14 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const chats = await handleUserChats(env, req, path);
   if (chats) return chats;
+
+  if (path === "/api/vix") {
+    if (req.method !== "GET") return json(env, { error: "method not allowed" }, 405, "private");
+    return json(env, await loadVixTerm({
+      queryLake: (sql, key) => r2sql(env, sql, key),
+      asOfDate: q.get("asof")?.trim() || undefined,
+    }));
+  }
 
   if (path === "/api/timeline/session") {
     if (req.method !== "GET") return json(env, { error: "method not allowed" }, 405, "private");

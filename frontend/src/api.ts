@@ -1046,6 +1046,71 @@ export interface HomepageSession {
   fetched_at: string;
 }
 
+export type VixCurveSource = 'quotes' | 'settlements';
+export type VixCurveShape = 'contango' | 'backwardation' | 'mixed' | 'unknown';
+
+export interface VixIndexPrint {
+  symbol: string;
+  name: string;
+  last: number | null;
+  prev: number | null;
+  change_pct: number | null;
+  date: string | null;
+}
+
+export interface VixIndexes {
+  vix: VixIndexPrint;
+  vix9d: VixIndexPrint;
+  vix3m: VixIndexPrint;
+  vvix: VixIndexPrint;
+}
+
+export interface VixCurvePoint {
+  tenor: number;
+  kind: 'spot' | 'future';
+  symbol: string;
+  label: string;
+  last: number | null;
+  prev: number | null;
+  change: number | null;
+  change_pct: number | null;
+  expiration: string | null;
+  dte: number | null;
+  volume: number | null;
+  open_interest: number | null;
+  bid: number | null;
+  ask: number | null;
+  settle: number | null;
+}
+
+export interface VixMetrics {
+  shape: VixCurveShape;
+  m1_m2_pct: number | null;
+  m1_m2_pts: number | null;
+  m2_m3_pct: number | null;
+  m4_m7_pct: number | null;
+  vix_vs_m1_pct: number | null;
+  vix_vs_vix3m_pct: number | null;
+}
+
+export interface VixHistoryCurve {
+  date: string;
+  points: VixCurvePoint[];
+}
+
+/** GET /api/vix — cash VIX indexes plus the VX futures term structure. */
+export interface VixTerm {
+  as_of: string;
+  source: VixCurveSource;
+  indexes: VixIndexes;
+  curve: VixCurvePoint[];
+  metrics: VixMetrics;
+  settlement_dates: string[];
+  history: VixHistoryCurve[];
+  fetched_at: string;
+  errors: string[];
+}
+
 export interface Health {
   ok: boolean;
   auth?: { google: boolean; schwab?: boolean };
@@ -1788,6 +1853,9 @@ export const api = {
   timelineRail: () => get<TimelineRail>('/api/timeline/rail'),
   /** Precomputed homepage Session card (D1 snapshot, cron-warmed). */
   timelineSession: () => get<HomepageSession>('/api/timeline/session'),
+  /** Cash VIX indexes + VX monthly term structure (quotes today, settlements historically). */
+  vixTerm: (opts?: { asof?: string }) =>
+    get<VixTerm>(`/api/vix${qs({ asof: opts?.asof })}`),
   /** Desktop chat companion column — tags/news/tape scoped to this chat's tickers. */
   chatRail: (chatId: string) =>
     get<TimelineRail & { chat_id: string }>(`/api/chats/${encodeURIComponent(chatId)}/rail`),

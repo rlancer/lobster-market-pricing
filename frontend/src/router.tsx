@@ -15,6 +15,7 @@ import SharedChat from './SharedChat';
 import LoaderStatus from './LoaderStatus';
 import RefreshRuns from './RefreshRuns';
 import ResearchPage from './ResearchPage';
+import VixPage from './VixPage';
 import DocsLayout, { DocsOverview, DocsPipeline, DocsBackend, DocsExploration, DocsFrontend, DocsRun, DocsDeploy, DocsSchwabPnl } from './Docs';
 import BrandPage from './Brand';
 import BotsPage from './Bots';
@@ -32,6 +33,7 @@ import DeskApproachesNotebookPage from './DeskApproachesNotebook';
 import { parseAsOfSearch } from './asOfDate';
 import { parseChatId } from './chatSession';
 import { etDateString } from './tickerChartRange';
+import { isVixPageTicker } from './vixPage';
 
 function asOfSearch(search: Record<string, unknown>): { asof?: string } {
   const asof = parseAsOfSearch(search.asof, etDateString());
@@ -122,7 +124,20 @@ const researchTickerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/research/$ticker',
   validateSearch: asOfSearch,
+  beforeLoad: ({ params, search }) => {
+    const ticker = decodeURIComponent(params.ticker ?? '').trim();
+    if (isVixPageTicker(ticker)) {
+      throw redirect({ to: '/vix', search });
+    }
+  },
   component: ResearchPage,
+});
+
+const vixRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/vix',
+  validateSearch: asOfSearch,
+  component: VixPage,
 });
 
 const symbolRoute = createRoute({
@@ -385,6 +400,7 @@ const routeTree = rootRoute.addChildren([
   marketRoute,
   researchRoute,
   researchTickerRoute,
+  vixRoute,
   aiRoute,
   monitorRoute,
   symbolRoute,
