@@ -6,6 +6,9 @@ import type { VixCurvePoint, VixHistoryCurve } from '../api.ts';
 import { fmtPrice, lobsterChartTheme, monotoneX, mutedAxis } from './theme.ts';
 import { tenorChartLabel } from '../vixPage.ts';
 
+/** Cash VIX → M1, matching vixcentral's dashed spot leg. */
+export const VIX_SPOT_DASHARRAY = '6 4';
+
 export interface VixTermPlotRow {
   x: string;
   y: number;
@@ -46,20 +49,57 @@ export function vixTermPlotRows(input: {
   return rows;
 }
 
+/** Spot plus the front monthly, so the cash-VIX connector can be dashed. */
+export function vixTermSpotLeg(rows: VixTermPlotRow[]): VixTermPlotRow[] {
+  const m1 = new Map<string, VixTermPlotRow>();
+  const spots: VixTermPlotRow[] = [];
+  for (const row of rows) {
+    if (row.tenor === 0) spots.push(row);
+    else if (row.tenor === 1 && !m1.has(row.series)) m1.set(row.series, row);
+  }
+  const out: VixTermPlotRow[] = [];
+  for (const spot of spots) {
+    out.push(spot);
+    const front = m1.get(spot.series);
+    if (front) out.push(front);
+  }
+  return out;
+}
+
+/** VX monthals only — solid curve from M1 out. */
+export function vixTermFutureLeg(rows: VixTermPlotRow[]): VixTermPlotRow[] {
+  return rows.filter((row) => row.tenor >= 1);
+}
+
 export function defineVixTermChart(rows: VixTermPlotRow[]) {
   const seriesNames = [...new Set(rows.map((row) => row.series))];
   const xOrder = [...new Set(rows.map((row) => row.x))];
   const multi = seriesNames.length > 1;
+  const spotLeg = vixTermSpotLeg(rows);
+  const futureLeg = vixTermFutureLeg(rows);
+  const lineOpts = {
+    x: 'x' as const,
+    y: 'y' as const,
+    z: 'series' as const,
+    color: 'series' as const,
+    strokeWidth: 2,
+    curve: monotoneX,
+  };
   return defineChart({
     marks: [
-      lineY(rows, {
-        x: 'x',
-        y: 'y',
-        z: 'series',
-        key: (row) => `${row.series}:${row.x}`,
-        strokeWidth: 2,
-        curve: monotoneX,
-      }),
+      ...(spotLeg.length
+        ? [lineY(spotLeg, {
+          ...lineOpts,
+          key: (row) => `${row.series}:spot:${row.x}`,
+          strokeDasharray: VIX_SPOT_DASHARRAY,
+        })]
+        : []),
+      ...(futureLeg.length
+        ? [lineY(futureLeg, {
+          ...lineOpts,
+          key: (row) => `${row.series}:vx:${row.x}`,
+        })]
+        : []),
     ],
     scales: {
       x: {

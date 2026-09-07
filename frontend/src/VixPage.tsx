@@ -289,8 +289,8 @@ export default function VixPage() {
                 )}
                 <Text type="supporting">
                   {view.source === 'quotes'
-                    ? `Delayed CFE monthals as of ${view.as_of}. X-axis is constant-maturity tenor (Spot, M1, M2…), not calendar month.`
-                    : `Official VX settlements as of ${view.as_of}. X-axis is constant-maturity tenor (Spot, M1, M2…).`}
+                    ? `Delayed CFE monthals as of ${view.as_of}. Dashed is cash VIX to M1; solid is the VX monthals. X-axis is constant-maturity tenor, not calendar month.`
+                    : `Official VX settlements as of ${view.as_of}. Dashed is cash VIX to M1; solid is the VX monthals. X-axis is constant-maturity tenor.`}
                 </Text>
               </VStack>
 
