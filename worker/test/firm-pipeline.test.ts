@@ -9,6 +9,7 @@ import {
   FIRM_PIPELINE_DESIGN_ID,
   FIRM_PIPELINE_RUNNER_VERSION,
   FIRM_PIPELINE_SLUG,
+  FIRM_SEAT_ABORT_MS,
   firmPipelineDesignPublic,
   runFirmPipelineApproach,
 } from "../src/firm-pipeline.ts";
@@ -37,6 +38,8 @@ test("firmPipelineDesignPublic reuses desk-approaches cases and exposes stages",
   assert.ok(design.specialists.some((row) => row.id === "news"));
   assert.ok(!design.specialists.some((row) => row.id === "risk"));
   assert.equal(design.runner.cell_timeout_ms, FIRM_CELL_TIMEOUT_MS);
+  assert.equal(design.runner.seat_abort_ms, FIRM_SEAT_ABORT_MS);
+  assert.ok(design.runner.seat_abort_ms > 6 * 60_000);
   assert.match(design.paper.citation, /2412\.20138/);
   assert.ok(design.paper.reject.some((row) => /AAPL/i.test(row)));
   assert.equal(design.shared_with_desk_approaches.design, "desk-approaches-v2");

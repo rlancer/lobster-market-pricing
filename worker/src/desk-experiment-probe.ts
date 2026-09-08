@@ -195,7 +195,9 @@ export function createDeskCompleteFn(
   env: DeskExperimentProbeEnv,
   origin: string,
   modelId: string,
+  opts?: { seatAbortMs?: number },
 ): CompleteFn {
+  const seatAbortMs = Math.max(5_000, opts?.seatAbortMs ?? DESK_SEAT_ABORT_MS);
   const model = createChatModel(
     { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: modelId },
     origin,
@@ -212,7 +214,7 @@ export function createDeskCompleteFn(
       messages: split.messages,
       maxOutputTokens: maxOutputTokenBudget(env, maxOutputTokens),
       temperature: 0,
-      abortSignal: AbortSignal.timeout(DESK_SEAT_ABORT_MS),
+      abortSignal: AbortSignal.timeout(seatAbortMs),
       providerOptions: {
         openrouter: { reasoning: { effort: reasoningEffort } },
       },

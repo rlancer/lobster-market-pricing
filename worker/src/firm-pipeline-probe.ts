@@ -13,6 +13,7 @@ import { caseById, scoreDeskVerdict } from "./desk-experiment";
 import { buildDeskExperimentCases } from "./desk-experiment-cases";
 import {
   FIRM_APPROACH_IDS,
+  FIRM_SEAT_ABORT_MS,
   firmApproachById,
   runFirmPipelineApproach,
   type FirmApproachId,
@@ -86,7 +87,7 @@ export async function runFirmPipelineProbe(
   }
 
   const modelId = resolveDeskExperimentModel(env, input.model);
-  const complete = createDeskCompleteFn(env, origin, modelId);
+  const complete = createDeskCompleteFn(env, origin, modelId, { seatAbortMs: FIRM_SEAT_ABORT_MS });
 
   try {
     const run = await runFirmPipelineApproach(input.approach_id, experimentCase, complete);

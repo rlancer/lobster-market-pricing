@@ -20,6 +20,7 @@ import {
   FIRM_CELL_TIMEOUT_MS,
   FIRM_PIPELINE_DESIGN_ID,
   FIRM_PIPELINE_RUNNER_VERSION,
+  FIRM_SEAT_ABORT_MS,
   runFirmPipelineApproach,
   type FirmApproachId,
 } from "../src/firm-pipeline.ts";
@@ -31,7 +32,7 @@ const MODEL = process.env.MODEL?.trim() || "deepseek/deepseek-v4-flash-0731";
 const SLUG = "firm-pipeline";
 const DESIGN_ID = FIRM_PIPELINE_DESIGN_ID;
 const RUNNER_VERSION = FIRM_PIPELINE_RUNNER_VERSION;
-const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 1) || 1));
+const PROBE_ATTEMPTS = Math.max(1, Math.min(5, Number(process.env.PROBE_ATTEMPTS ?? 2) || 2));
 const CELL_TIMEOUT_MS = Math.max(
   60_000,
   Number(process.env.CELL_TIMEOUT_MS ?? FIRM_CELL_TIMEOUT_MS) || FIRM_CELL_TIMEOUT_MS,
@@ -143,7 +144,9 @@ async function main() {
     COPILOT_REASONING_EFFORT: process.env.COPILOT_REASONING_EFFORT || "high",
     COPILOT_MAX_OUTPUT_TOKENS: process.env.COPILOT_MAX_OUTPUT_TOKENS || "8192",
   };
-  const complete = createDeskCompleteFn(env, API_BASE, modelId);
+  const complete = createDeskCompleteFn(env, API_BASE, modelId, {
+    seatAbortMs: FIRM_SEAT_ABORT_MS,
+  });
   const localCases = buildDeskExperimentCases();
 
   const systemPrompt = [

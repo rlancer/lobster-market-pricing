@@ -19,7 +19,6 @@ import {
 } from "./chat-desk";
 import {
   DESK_EXPERIMENT_AS_OF_RULES,
-  DESK_SEAT_ABORT_MS,
   DESK_VERDICT_CLOSE_ABORT_MS,
   DESK_VERDICT_CLOSE_MAX_TOKENS,
   DESK_VERDICT_INSTRUCTIONS,
@@ -46,6 +45,12 @@ export const FIRM_PIPELINE_DESIGN_ID = "firm-pipeline-v1";
 export const FIRM_PIPELINE_RUNNER_VERSION = 1;
 /** Full pipeline is ~4 parallel waves; 45 min leaves room for DeepSeek seats. */
 export const FIRM_CELL_TIMEOUT_MS = 45 * 60_000;
+/**
+ * Desk-approaches aborts a seat at 6 min. DeepSeek high-reasoning in this
+ * pipeline already hit that cap (bull_bear_debate × bolt-coil). 12 min still
+ * sits under the 45 min cell budget.
+ */
+export const FIRM_SEAT_ABORT_MS = 12 * 60_000;
 
 export const FIRM_ANALYST_IDS = [
   "fundamental",
@@ -582,7 +587,7 @@ export function firmPipelineDesignPublic() {
     runner: {
       execution:
         "Independent seats in a wave run in parallel (analysts, then researchers, then risk). GitHub Actions runs the matrix in-process; a full firm cell is too many DeepSeek seats for one Worker HTTP request.",
-      seat_abort_ms: DESK_SEAT_ABORT_MS,
+      seat_abort_ms: FIRM_SEAT_ABORT_MS,
       verdict_close_abort_ms: DESK_VERDICT_CLOSE_ABORT_MS,
       verdict_close_max_tokens: DESK_VERDICT_CLOSE_MAX_TOKENS,
       cell_timeout_ms: FIRM_CELL_TIMEOUT_MS,

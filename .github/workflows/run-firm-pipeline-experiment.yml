@@ -45,6 +45,7 @@ jobs:
       API_BASE: https://api-dev.lobster.mp
       COPILOT_REASONING_EFFORT: high
       COPILOT_MAX_OUTPUT_TOKENS: "8192"
+      PROBE_ATTEMPTS: "2"
     steps:
       - name: Check out repository
         uses: actions/checkout@v5

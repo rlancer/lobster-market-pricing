@@ -671,7 +671,7 @@ export default function FirmPipelineNotebookPage() {
                 </tr>
                 <tr>
                   <td>Seat abort</td>
-                  <td>{formatDurationMs(design?.runner?.seat_abort_ms ?? 6 * 60_000)}</td>
+                  <td>{formatDurationMs(design?.runner?.seat_abort_ms ?? 12 * 60_000)}</td>
                 </tr>
                 <tr>
                   <td>Verdict close-out</td>
