@@ -448,15 +448,46 @@ jobs:
     runs-on: ubuntu-latest
     environment: development
     steps:
+      # Same-repo PRs already deploy from the branch push (same tip, same
+      # --branch). A second pull_request run races Pages and flakes on
+      # download-artifact 403 ("Error from intermediary"). Fork PRs have no
+      # push event on this repo, so they still deploy here.
+      - name: Decide whether to deploy Pages
+        id: pages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping duplicate Pages deploy on the pull_request event; the branch push run deploys this tip."
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v5
+        if: steps.pages.outputs.deploy == 'true'
 
       - name: Download dist artifact
+        if: steps.pages.outputs.deploy == 'true'
+        id: dist
+        continue-on-error: true
+        uses: actions/download-artifact@v6
+        with:
+          name: dist
+          path: frontend/dist
+
+      - name: Retry download dist artifact
+        if: steps.pages.outputs.deploy == 'true' && steps.dist.outcome == 'failure'
+        run: sleep 20
+
+      - name: Download dist artifact (retry)
+        if: steps.pages.outputs.deploy == 'true' && steps.dist.outcome == 'failure'
         uses: actions/download-artifact@v6
         with:
           name: dist
           path: frontend/dist
 
       - name: Resolve branch name
+        if: steps.pages.outputs.deploy == 'true'
         id: br
         run: |
           # For PRs use the head branch; otherwise the pushed branch name.
@@ -467,6 +498,7 @@ jobs:
           fi
 
       - name: Deploy to Cloudflare Pages (dev)
+        if: steps.pages.outputs.deploy == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -484,7 +516,7 @@ jobs:
       # deploys the same tip, and dual push+PR runs race on `--branch dev`
       # (Cloudflare "Unknown internal error").
       - name: Deploy to Cloudflare Pages (stable dev URL)
-        if: github.event_name != 'pull_request'
+        if: steps.pages.outputs.deploy == 'true' && github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

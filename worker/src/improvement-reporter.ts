@@ -19,7 +19,7 @@ export const DEFAULT_IMPROVEMENT_REPO = "rlancer/lobster-market-pricing";
 export const IMPROVEMENT_LABEL = "copilot-improvement";
 
 export const IMPROVEMENT_REVIEW_SYSTEM = [
-  "You review one Lobster MP chat transcript after the public-timeline quality gate.",
+  "You review one Lobster MP chat transcript after the quality gate (public Floor listing or private account-bot email).",
   "Goal: file zero or one GitHub issue that helps engineers improve the product — prompts, tools, truncation, desk/trades sealing, data quality, bot behavior.",
   "Return ONLY a JSON object:",
   '{"improvements":[{"fingerprint":"kebab-slug","title":"short imperative title","category":"prompt|tool-use|truncation|hallucination|ux|data-quality|bot-behavior|other","body":"markdown: what went wrong, why it matters, concrete fix idea"}]}',
@@ -53,7 +53,9 @@ export type ImprovementAction =
   | "allow_bot_share"
   | "unlist_qa_share"
   | "reject_bot_create_share"
-  | "allow_bot_create_share";
+  | "allow_bot_create_share"
+  | "reject_private_briefing"
+  | "allow_private_briefing";
 
 export type ImprovementContext = {
   messages: unknown;

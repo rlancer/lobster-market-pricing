@@ -184,3 +184,32 @@ test("listImprovementReports maps allow flags", async () => {
   assert.equal(rows[0]?.moderation_allow, false);
   assert.equal(rows[0]?.fingerprint, "assistant-answer-cutoff");
 });
+
+test("recordQualityGateEvent counts private briefing email withhold", async () => {
+  const db = memoryDb();
+  await recordQualityGateEvent(db as unknown as D1Database, {
+    action: "reject_private_briefing",
+    decision: {
+      allow: false,
+      source: "heuristic",
+      reason: "assistant answer is unfinished tool-loop narration",
+    },
+    shareId: "AEaE9JM6cpbkmFuYUa2UeSON",
+    extra: { email: "withhold" },
+  });
+  await recordQualityGateEvent(db as unknown as D1Database, {
+    action: "allow_private_briefing",
+    decision: { allow: true, source: "llm", reason: "moderator allowed" },
+    extra: { email: "send" },
+  });
+  const summary = await summarizeQualityGate(db as unknown as D1Database);
+  assert.equal(summary.allowed, 1);
+  assert.equal(summary.rejected, 1);
+  const withheld = await listQualityGateEvents(db as unknown as D1Database, {
+    limit: 20,
+    action: "reject_private_briefing",
+    source: null,
+  });
+  assert.equal(withheld.length, 1);
+  assert.equal(withheld[0]?.extra?.email, "withhold");
+});

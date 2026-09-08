@@ -15,8 +15,10 @@ import {
 import { publicChatOrigin } from "../src/user-bot-runner.ts";
 import {
   assistantBriefingFromTurns,
+  briefingForUserBotAlert,
   buildUserBotAlertEmail,
   normalizeAlertBriefing,
+  PRIVATE_BRIEFING_NOT_READY,
   sendUserBotAlert,
   USER_BOT_ALERT_FROM,
 } from "../src/user-bot-email.ts";
@@ -165,6 +167,11 @@ test("systemPrompt uses the private addon instead of public bot timeline rules",
   assert.match(body, /get_portfolio with source="schwab"/);
   assert.doesNotMatch(body, /public post for this bot's timeline/);
   assert.doesNotMatch(body, /MUST still call publish_desk/);
+  assert.doesNotMatch(body, /Active specialists for this turn/);
+  assert.doesNotMatch(body, /MUST call publish_desk after tools/);
+  assert.doesNotMatch(body, /After publish_desk on ticker/);
+  assert.match(body, /personal owner briefing/);
+  assert.match(body, /PARTITION BY ticker, holding_symbol/);
 });
 
 test("systemPrompt still requires publish_desk on public bot timeline posts", () => {
@@ -205,6 +212,29 @@ test("alert email prefers the chat link and keeps the full briefing", () => {
   assert.match(built.html, /Trim the NVDA calls/);
   assert.match(built.html, /<h2[^>]*>Takeaway<\/h2>/);
   assert.doesNotMatch(built.html, /…/);
+});
+
+test("quality gate withholds junk from the owner email", () => {
+  const leak =
+    "Also, since there's risk in TLT and no macro specialist active (fundamental/technical/options/risk are active). But for a private briefing I deliver full analysis directly.";
+  const withheld = briefingForUserBotAlert(false, leak);
+  assert.equal(withheld, PRIVATE_BRIEFING_NOT_READY);
+  assert.doesNotMatch(withheld, /macro specialist/);
+  const built = buildUserBotAlertEmail({
+    botName: "risk",
+    title: "Book review",
+    briefing: withheld,
+    chatUrl: "https://lobster.mp/chat/abc",
+    shareUrl: "https://lobster.mp/share/AEaE9JM6cpbkmFuYUa2UeSON",
+  });
+  assert.match(built.text, /wasn't ready to send/);
+  assert.match(built.text, /Open the briefing/);
+  assert.doesNotMatch(built.text, /macro specialist/);
+  assert.doesNotMatch(built.html, /macro specialist/);
+  assert.match(
+    briefingForUserBotAlert(true, "## Book\n\nHold RSP. No trim this session."),
+    /Hold RSP/,
+  );
 });
 
 test("alert email falls back to bot-finished subject without a title", () => {

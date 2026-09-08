@@ -357,3 +357,62 @@ test("applyCaptureToShareTurns promotes reasoning after recovering chart/sql", (
   assert.ok(out[1]!.chart);
   assert.equal(out[1]!.sql, "SELECT 1");
 });
+
+test("promoteReasoningTakeaway heals specialist-routing leak (share AEaE9JM6cpbkmFuYUa2UeSON)", () => {
+  const leak =
+    "Also, since there's risk in TLT and no macro specialist active (fundamental/technical/options/risk are active). But for a private briefing I deliver full analysis directly.";
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: leak,
+    reasoning: [
+      "The user is a private account bot owner. They attached a Schwab portfolio and want a review. I must call get_portfolio with source=\"schwab\" and account_id=\"schwab-0-3674\". Let me do that first.",
+      "Let me call get_portfolio.The portfolio has 7 positions, all ETFs. Let me note them:\n- SIVR - Silver ETF, qty 75, mark $4,719.75, open PnL -$2,936 (big loss)\n- RSP - S&P 500 Equal Weight, qty 80, $17,428 (largest position ~25.8%)\n- VEU - FTSE All-World ex-US, qty 100, $8,637\n- VGSH - Short-Term Treasury, qty 80, $4,632\n- IGV - Software Sector ETF, qty 100, $10,236\n- TLT - 20+ Year Treasury, qty 100, $8,232\n- EWY - South Korea ETF, qty 25, $4,773",
+      "Positions are all ETFs - no single-name concentrations, no options in the book (no expiry risk from options). All diversified funds. So the risk flagging is around factor/sector concentration, not single-name.",
+      "Let me analyze. Positions sorted by value:\n- RSP $17,428 (25.9%)\n- IGV $10,236 (15.2%)\n- VEU $8,637 (12.8%)\n- TLT $8,232 (12.2%)\n- VGSH $4,633 (6.9%)\n- SIVR $4,720 (7.0%)\n- EWY $4,773 (7.1%)",
+      "RSP is the biggest. IGV is sector concentration (software). SIVR is commodity concentration. EWY is country concentration (South Korea).",
+      "No options → no delta/gamma/expiration risk in the literal sense. Delta = equity beta exposure.",
+      leak,
+      "Let me gather data.Let me look more deeply at the ETF holdings for IGV, EWY, and RSP to understand concentration.",
+    ].join("\n\n"),
+    sql: "SELECT 1 AS dummy FROM options.securities LIMIT 1",
+  });
+  assert.match(turned.content, /7 positions/);
+  assert.match(turned.content, /sector concentration/);
+  assert.match(turned.content, /no delta\/gamma\/expiration risk/i);
+  assert.doesNotMatch(turned.content, /macro specialist active/);
+  assert.doesNotMatch(turned.content, /private briefing I deliver/);
+  assert.doesNotMatch(turned.content, /Let me call get_portfolio/);
+  const again = promoteReasoningTakeaway(turned);
+  assert.equal(again.content, turned.content);
+});
+
+test("promoteReasoningTakeaway skips the AEaE9J planning tail and lifts the book review", () => {
+  const leak =
+    "Also, since there's risk in TLT and no macro specialist active (fundamental/technical/options/risk are active). But for a private briefing I deliver full analysis directly.";
+  const turned = promoteReasoningTakeaway({
+    role: "assistant",
+    content: leak,
+    reasoning: [
+      "The user is a private account bot owner. They attached a Schwab portfolio and want a review. I must call get_portfolio with source=\"schwab\" and account_id=\"schwab-0-3674\". Let me do that first.",
+      "Let me call get_portfolio.The portfolio has 7 positions, all ETFs. Let me note them:\n- SIVR - Silver ETF, qty 75, mark $4,719.75, open PnL -$2,936 (big loss)\n- RSP - S&P 500 Equal Weight, qty 80, $17,428 (largest position ~25.8%)\n- VEU - FTSE All-World ex-US, qty 100, $8,637\n- VGSH - Short-Term Treasury, qty 80, $4,632\n- IGV - Software Sector ETF, qty 100, $10,236\n- TLT - 20+ Year Treasury, qty 100, $8,232\n- EWY - South Korea ETF, qty 25, $4,773",
+      "Total equity $67,386 + cash $8,727 = ~$76,113. Buying power $141,766 (margin).",
+      "Positions are all ETFs - no single-name concentrations, no options in the book (no expiry risk from options). All diversified funds. So the risk flagging is around factor/sector concentration, not single-name.",
+      "Let me analyze. Positions sorted by value:\n- RSP $17,428 (25.9%)\n- IGV $10,236 (15.2%)\n- VEU $8,637 (12.8%)\n- TLT $8,232 (12.2%)\n- VGSH $4,633 (6.9%)\n- SIVR $4,720 (7.0%)\n- EWY $4,773 (7.1%)",
+      "RSP is the biggest. IGV is sector concentration (software). SIVR is commodity concentration. EWY is country concentration (South Korea).",
+      "No options → no delta/gamma/expiration risk in the literal sense. But the user asks about delta/gamma exposure — I'll note the book has no option positions, so no gamma/expiry. Delta = equity beta exposure.",
+      "Let me identify these ETFs via lookup_symbols to get holdings/weights. And I can query etf_holdings for lake-backed data.",
+      "Let me recognize this is a private bot risk route — I do NOT call publish_desk. I deliver direct markdown. suggest_trades optional only when concrete adjustment is tradable.",
+      "Let me call lookup_symbols on SIVR, RSP, VEU, VGSH, IGV, TLT, EWY. And query etf_holdings for IGV and EWY top members.",
+      leak,
+      "Let me gather data.Let me look more deeply at the ETF holdings for IGV, EWY, and RSP to understand concentration. Also, I should check recent performance/volatility for these ETFs, and look for any expiry/delta issues (none of these are options — they're all ETFs, no options in the portfolio). Let me get the full holdings detail for the top-weighted names.",
+    ].join("\n\n"),
+  });
+  assert.ok(turned.content.length > 800, `expected lifted briefing, got ${turned.content.length} chars`);
+  assert.match(turned.content, /7 positions/);
+  assert.match(turned.content, /sector concentration/);
+  assert.match(turned.content, /no option positions/i);
+  assert.doesNotMatch(turned.content, /macro specialist active/);
+  assert.doesNotMatch(turned.content, /And query etf_holdings/);
+  assert.doesNotMatch(turned.content, /private account bot owner/);
+  assert.doesNotMatch(turned.content, /Let me call get_portfolio/);
+});

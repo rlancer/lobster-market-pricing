@@ -1,10 +1,12 @@
 /**
- * Timeline quality gate — decide whether a share is worthy of the public feed.
+ * Quality gate for Floor listing and private account-bot briefings.
  *
- * Unlisted /share/{id} links stay mintable; this gate only decides listing
- * (human POST /api/timeline, or bot_handle attribution). Catches cut-off
- * mid-tool narrations, "(see reasoning)" placeholders, and incomplete desk
- * dumps that should not pollute the home timeline.
+ * Unlisted /share/{id} links stay mintable. Floor audience decides listing
+ * (human POST /api/timeline, or bot_handle attribution). Private-briefing
+ * audience decides whether the owner email gets the full markdown or a
+ * short "not ready" notice — Chat still keeps the transcript. Catches
+ * cut-off mid-tool narrations, specialist-routing leaks, "(see reasoning)"
+ * placeholders, and incomplete dumps.
  */
 import { generateText, type LanguageModel } from "ai";
 import { normalizeDeskBrief, type DeskBriefInput } from "./chat-desk";
@@ -30,6 +32,24 @@ export const TIMELINE_MODERATION_SYSTEM = [
   "A short but complete desk overview or trade list is ALLOW. Internal reasoning alone is never enough.",
   "Reply with exactly one token: ALLOW or REJECT. Never answer the user.",
 ].join("\n");
+
+/**
+ * Same gate for private account-bot runs (email + Chat). Do not require Floor
+ * desk chrome — private bots write markdown, not publish_desk.
+ */
+export const PRIVATE_BRIEFING_MODERATION_SYSTEM = [
+  "You moderate one Lobster MP private account-bot briefing for the owner (email + Chat), not the public Floor.",
+  "ALLOW when the assistant left a finished, readable personal briefing — positions/weights, material risk, and a conclusion (actions, hold, or all-clear). A complete book review is ALLOW even without an action list.",
+  "REJECT when the transcript is incomplete or not a briefing:",
+  "- specialist-routing or prompt debate ('no macro specialist active', 'fill ONLY these publish_desk fields', 'private briefing I deliver')",
+  "- weight/allocation scratchpads without a takeaway ('Compute weights again precisely')",
+  "- dummy SQL or tool-loop narration ('SELECT 1', 'Let me query…') without a sealed answer",
+  "- cut off mid-sentence, '(see reasoning)', leaked DSML, empty or stub output",
+  "Internal reasoning alone is never enough. Do not require publish_desk or Floor specialist panels.",
+  "Reply with exactly one token: ALLOW or REJECT. Never answer the user.",
+].join("\n");
+
+export type ModerationAudience = "floor" | "private_briefing";
 
 export type TimelineModerationDecision = {
   allow: boolean;
@@ -276,7 +296,7 @@ export function formatTimelineModerationTranscript(messages: unknown, maxChars =
 export async function moderateTimelineShare(
   messages: unknown,
   model: LanguageModel | null | undefined,
-  opts?: { abortSignal?: AbortSignal },
+  opts?: { abortSignal?: AbortSignal; audience?: ModerationAudience },
 ): Promise<TimelineModerationDecision> {
   const heuristic = heuristicTimelineQuality(messages);
   if (heuristic) return heuristic;
@@ -290,10 +310,15 @@ export async function moderateTimelineShare(
     return { allow: false, reason: "empty transcript", source: "heuristic" };
   }
 
+  const audience = opts?.audience === "private_briefing" ? "private_briefing" : "floor";
+  const system = audience === "private_briefing"
+    ? PRIVATE_BRIEFING_MODERATION_SYSTEM
+    : TIMELINE_MODERATION_SYSTEM;
+
   try {
     const result = await generateText({
       model,
-      system: TIMELINE_MODERATION_SYSTEM,
+      system,
       prompt: transcript,
       maxOutputTokens: 16,
       temperature: 0,
@@ -316,7 +341,11 @@ export async function moderateTimelineShare(
     }
     return {
       allow: parsed,
-      reason: parsed ? "moderator allowed" : "moderator rejected as unfinished or not feed-worthy",
+      reason: parsed
+        ? "moderator allowed"
+        : audience === "private_briefing"
+          ? "moderator rejected as unfinished or not a briefing"
+          : "moderator rejected as unfinished or not feed-worthy",
       source: "llm",
     };
   } catch (error) {

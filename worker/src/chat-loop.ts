@@ -7,9 +7,12 @@
  * `SELECT 'test' AS t` (chat c7d67546…, 2026-08-16). After a small number of
  * failures we stop forcing tools so the turn can close in prose.
  *
- * When the user attaches a portfolio, force `get_portfolio` first — lake SQL
- * is not the grounding evidence for brokerage/paper books (share
- * 1pQXi6YlgunqnHl5QCzgfsTgn: forced SELECT 1 ×3, never called get_portfolio).
+ * When the user attaches a portfolio — including private account bots with
+ * `attach_portfolio` — force `get_portfolio` first. Lake SQL is not the
+ * grounding evidence for brokerage/paper books (share 1pQXi6YlgunqnHl5QCzgfsTgn:
+ * forced SELECT 1 ×3, never called get_portfolio; share AEaE9JM6cpbkmFuYUa2UeSON:
+ * bot attachments were dropped so the loop forced `SELECT 1 AS dummy FROM
+ * options.securities` and sealed on specialist-routing).
  *
  * When the ask is a market overview / "what's going on", force `get_market_tape`
  * first — an unfiltered option_contracts GROUP BY on a thin ingest day is not

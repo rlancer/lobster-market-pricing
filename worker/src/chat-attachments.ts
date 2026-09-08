@@ -28,6 +28,36 @@ export const PORTFOLIO_SOURCE_LABELS: Record<PortfolioSource, string> = {
   paper: "Paper portfolio",
 };
 
+/**
+ * Turn a bot profile's attached book into the same handles interactive chat
+ * sends. Private account bots were skipping this path (`attachments = []`),
+ * so the loop forced `run_query` and DeepSeek issued `SELECT 1 AS dummy
+ * FROM options.securities` instead of `get_portfolio` (share
+ * AEaE9JM6cpbkmFuYUa2UeSON).
+ */
+export function attachmentsFromBotProfile(bot: {
+  attach_portfolio?: boolean;
+  portfolio_source?: "none" | "paper" | "schwab" | "all" | null;
+  portfolio_account_id?: string | null;
+}): ChatAttachment[] {
+  const source = bot.portfolio_source
+    ?? (bot.attach_portfolio ? "all" : "none");
+  if (source === "none") return [];
+  const accountId = typeof bot.portfolio_account_id === "string" && bot.portfolio_account_id.trim()
+    ? bot.portfolio_account_id.trim().slice(0, 64)
+    : undefined;
+  const out: ChatAttachment[] = [];
+  if (source === "paper" || source === "all") {
+    out.push({ kind: "portfolio", source: "paper" });
+  }
+  if (source === "schwab" || source === "all") {
+    out.push(accountId
+      ? { kind: "portfolio", source: "schwab", account_id: accountId }
+      : { kind: "portfolio", source: "schwab" });
+  }
+  return out;
+}
+
 /** Parse chat body.attachments — never fail a turn; drop unknown entries. */
 export function parseAttachmentsFromBody(body: unknown): ChatAttachment[] {
   const rec = body && typeof body === "object" && !Array.isArray(body)

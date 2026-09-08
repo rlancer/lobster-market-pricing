@@ -168,7 +168,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET/PATCH', path: '/api/me', desc: 'Signed-in profile — handle, display name, avatar, and Chat reply_style / reply_note' },
   { method: 'GET/POST', path: '/api/me/bots', desc: 'Signed-in personal bots — list (with friendly schedule presets) or create. Private by default; no Floor publish unless opted in.' },
   { method: 'GET/PUT/DELETE', path: '/api/me/bots/{id}', desc: 'Signed-in — read one bot plus recent runs, update, or delete' },
-  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (ignores next_run_at and market hours). Lands in Chat history; emails when enabled; Floor only if opted in.' },
+  { method: 'POST', path: '/api/me/bots/{id}/trigger', desc: 'Signed-in — run a personal bot now (ignores next_run_at and market hours). Lands in Chat history; emails the briefing when the quality gate allows (otherwise a short not-ready notice); Floor only if opted in.' },
   { method: 'GET/POST', path: '/api/admin/bots', desc: 'Admin — list or create bot personas (session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/admin/chat/capabilities', desc: 'Admin — live Chat system prompts + tool input schemas (optional ?schema=placeholder&samples=1)' },
   { method: 'POST', path: '/api/admin/bots/{handle}/generate', desc: 'Admin — mint a chat_id + unique prompt (unused seed or invent; skips prompts already used in prior runs)' },
@@ -178,7 +178,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/admin/qa/{batch_id}', desc: 'Admin — one test-run batch plus attached shares' },
   { method: 'POST', path: '/api/admin/qa/{batch_id}/items', desc: 'Admin — attach share_ids and unlist them from the Floor' },
   { method: 'PATCH', path: '/api/admin/qa/items/{item_id}', desc: 'Admin — record pass/fail verdict on a test run' },
-  { method: 'GET', path: '/api/admin/quality-gate', desc: 'Admin — Floor quality-gate ledger (summary, recent decisions, improvement tickets). Optional ?action=&source=&limit=' },
+  { method: 'GET', path: '/api/admin/quality-gate', desc: 'Admin — quality-gate ledger for Floor listing and private briefing email (summary, recent decisions, improvement tickets). Optional ?action=&source=&limit=' },
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
@@ -256,7 +256,7 @@ const SURFACES = [
   {
     route: '/admin/quality-gate',
     title: 'Quality gate',
-    body: 'Admin ledger for the Floor content monitor. Shows mint-time allow/reject, fail-open (the cheap moderator could not decide), remediator unlists of already-listed junk, and GitHub improvement tickets. Run remediator now re-checks recent listed bot shares. Events start after this Worker ships — older posts are not backfilled.',
+    body: 'Admin ledger for the Floor content monitor and private account-bot email gate. Shows mint-time allow/reject (including allow_private_briefing / reject_private_briefing), fail-open (the cheap moderator could not decide), remediator unlists of already-listed junk, and GitHub improvement tickets. Run remediator now re-checks recent listed bot shares. Events start after this Worker ships — older posts are not backfilled.',
   },
   {
     route: '/admin/test-runs',

@@ -63,7 +63,7 @@ const ADMIN_TOOLS: AdminTool[] = [
   {
     to: '/admin/quality-gate',
     label: 'Quality gate',
-    description: 'Watch the Floor monitor — allows, rejects, fail-open, remediator unlists.',
+    description: 'Watch the Floor monitor — allows, rejects, fail-open, remediator unlists, and private briefing email.',
     icon: ShieldCheck,
   },
 ];

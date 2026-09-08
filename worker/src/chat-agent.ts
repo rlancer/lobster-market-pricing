@@ -45,7 +45,7 @@ import { schemaToPrompt, systemPrompt, type BotPromptProfile } from "./chat-prom
 import { formatSchwabQuotesSummary, sanitizeQuoteSymbols } from "./schwab-marketdata";
 import { formatSymbolIdentities, lookupSymbolIdentities, type SymbolIdentity } from "./symbol-identity";
 import { parseReplyPrefFromBody } from "./reply-style";
-import { parseAttachmentsFromBody } from "./chat-attachments";
+import { attachmentsFromBotProfile, parseAttachmentsFromBody } from "./chat-attachments";
 import { interruptedPortfolioGrounding, finishPortfolioStepsAfterQuerySeed } from "./interrupted-portfolio";
 import {
   filterSchwabPortfolioView,
@@ -1592,7 +1592,9 @@ export abstract class CopilotAgentBase<E extends ChatEnv> extends AIChatAgent<E>
     const userQuestion = latestUserText(this.messages);
     const latestQuestion = userQuestion.toLowerCase();
     const reply = bot ? null : parseReplyPrefFromBody(options.body);
-    const attachments = bot ? [] : parseAttachmentsFromBody(options.body);
+    const attachments = bot
+      ? attachmentsFromBotProfile(bot)
+      : parseAttachmentsFromBody(options.body);
     const deskSpecialists = selectDeskSpecialists(
       userQuestion,
       bot ? `${bot.persona}\n${bot.system_prompt_extra}` : (reply?.note ?? undefined),

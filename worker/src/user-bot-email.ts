@@ -24,15 +24,27 @@ export function normalizeAlertBriefing(text: string): string {
     .trim();
 }
 
-export function assistantBriefingFromTurns(
-  messages: Array<{ role?: string; content?: unknown }>,
-): string {
-  for (const message of messages) {
-    if (message.role === "assistant" && typeof message.content === "string" && message.content.trim()) {
-      return normalizeAlertBriefing(message.content);
+export function assistantBriefingFromTurns(messages: unknown): string {
+  if (!Array.isArray(messages)) return "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || typeof message !== "object") continue;
+    const rec = message as { role?: unknown; content?: unknown };
+    if (rec.role === "assistant" && typeof rec.content === "string" && rec.content.trim()) {
+      return normalizeAlertBriefing(rec.content);
     }
   }
   return "";
+}
+
+/** Owner-facing copy when the quality gate withholds a junk briefing from email. */
+export const PRIVATE_BRIEFING_NOT_READY =
+  "This run finished, but the briefing wasn't ready to send. Open Chat to see the transcript, or wait for the next run.";
+
+/** Full briefing when the gate allows; a short notice when it rejects. */
+export function briefingForUserBotAlert(allow: boolean, briefing: string): string {
+  if (!allow) return PRIVATE_BRIEFING_NOT_READY;
+  return normalizeAlertBriefing(briefing);
 }
 
 export function buildUserBotAlertEmail(args: {

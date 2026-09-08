@@ -221,7 +221,7 @@ import {
   updateUserBot,
 } from "./user-bots";
 import { runDueUserBotSchedules, runOneUserBot, publicChatOrigin } from "./user-bot-runner";
-import { assistantBriefingFromTurns, sendUserBotAlert } from "./user-bot-email";
+import { assistantBriefingFromTurns, briefingForUserBotAlert, sendUserBotAlert } from "./user-bot-email";
 
 
 // ---------------------------------------------------------------------------
@@ -4795,21 +4795,33 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
           chat_id: string | null;
         }>();
         if (!share) return json(env, { error: "share not found" }, 404, "private");
-        let messages: Array<{ role?: string; content?: unknown }> = [];
+        let parsed: unknown = [];
         try {
-          const parsed = JSON.parse(share.messages) as unknown;
-          if (Array.isArray(parsed)) messages = parsed as Array<{ role?: string; content?: unknown }>;
+          parsed = JSON.parse(share.messages) as unknown;
         } catch {
-          messages = [];
+          parsed = [];
         }
+        const messages = coalesceAssistantMessageRecords(parsed);
         const site = publicChatOrigin(new URL(req.url).origin);
         const chatUrl = share.chat_id
           ? `${site}/chat/${share.chat_id}`
           : `${site}/share/${share.share_id}`;
+        const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
+          ? createChatModel(
+            { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+            site,
+          )
+          : null;
+        const moderation = await moderateTimelineShare(messages, moderationModel, {
+          audience: "private_briefing",
+        });
         const alert = await sendUserBotAlert(env.EMAIL, recipient.to, {
           botName: "risk",
           title: share.title,
-          briefing: assistantBriefingFromTurns(messages),
+          briefing: briefingForUserBotAlert(
+            moderation.allow,
+            assistantBriefingFromTurns(messages),
+          ),
           chatUrl,
           shareUrl: `${site}/share/${share.share_id}`,
         });
@@ -4823,6 +4835,7 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
           subject: alert.subject,
           mode: "bot_alert",
           share_id: share.share_id,
+          briefing_allowed: moderation.allow,
         }, 200, "private");
       }
       const result = await sendAdminEmailTest(env.EMAIL, recipient.to);

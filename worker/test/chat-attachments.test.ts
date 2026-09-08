@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  attachmentsFromBotProfile,
   attachmentsPromptAddon,
   parseAttachmentsFromBody,
   PORTFOLIO_SOURCE_LABELS,
@@ -44,4 +45,28 @@ test("attachmentsPromptAddon instructs get_portfolio for each source", () => {
   assert.match(body, /never run_query/i);
   assert.match(body, /at most 2–3 material names/i);
   assert.equal(attachmentsPromptAddon([]), "");
+});
+
+test("attachmentsFromBotProfile maps schwab/paper/all onto get_portfolio handles", () => {
+  assert.deepEqual(attachmentsFromBotProfile({ attach_portfolio: false }), []);
+  assert.deepEqual(attachmentsFromBotProfile({ portfolio_source: "none" }), []);
+  assert.deepEqual(
+    attachmentsFromBotProfile({
+      attach_portfolio: true,
+      portfolio_source: "schwab",
+      portfolio_account_id: "schwab-0-3674",
+    }),
+    [{ kind: "portfolio", source: "schwab", account_id: "schwab-0-3674" }],
+  );
+  assert.deepEqual(
+    attachmentsFromBotProfile({ portfolio_source: "paper" }),
+    [{ kind: "portfolio", source: "paper" }],
+  );
+  assert.deepEqual(
+    attachmentsFromBotProfile({ attach_portfolio: true, portfolio_source: "all" }),
+    [
+      { kind: "portfolio", source: "paper" },
+      { kind: "portfolio", source: "schwab" },
+    ],
+  );
 });

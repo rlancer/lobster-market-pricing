@@ -156,6 +156,50 @@ function referencedLakeTables(sql: string, tables: LakeTable[]): LakeTable[] {
   return out;
 }
 
+function splitTopLevelCommas(list: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const ch = list[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      items.push(list.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  items.push(list.slice(start).trim());
+  return items.filter(Boolean);
+}
+
+function isLiteralSelectItem(item: string): boolean {
+  const expr = item.replace(/\s+as\s+[A-Za-z_][\w]*\s*$/i, "").trim();
+  return /^(?:\d+(?:\.\d+)?|'[^']*(?:''[^']*)*'|null|true|false)$/i.test(expr);
+}
+
+/**
+ * True when the query only selects constants — including `SELECT 1 AS dummy
+ * FROM options.securities LIMIT 1`. Those pass the "must FROM a lake table"
+ * rule and used to count as evidence, so portfolio bots sealed on a probe
+ * (share AEaE9JM6cpbkmFuYUa2UeSON).
+ */
+export function isDummyLakeProbe(sql: string): boolean {
+  const compact = sql
+    .trim()
+    .replace(/;+\s*$/, "")
+    .replace(/--[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
+  const match = compact.match(/^(?:with\s+[\s\S]+?\s+)?select\s+([\s\S]+?)\s+from\s+/i);
+  if (!match) {
+    return /^(?:select)\s+(?:\d+(?:\.\d+)?|'[^']*'|null)(?:\s+as\s+\w+)?(?:\s*,\s*(?:\d+(?:\.\d+)?|'[^']*'|null)(?:\s+as\s+\w+)?)*(?:\s+limit\s+\d+)?\s*$/i
+      .test(compact);
+  }
+  const items = splitTopLevelCommas(match[1]);
+  return items.length > 0 && items.every(isLiteralSelectItem);
+}
+
 /**
  * Rewrite ticker↔symbol when the live schema has only one of the pair.
  *
@@ -248,6 +292,12 @@ export function validateSqlSchema(sql: string, tables: LakeTable[]): ValidatedIs
         message: "CTE-only SQL must still SELECT FROM at least one options.* lake table in a CTE body.",
       });
     }
+  }
+  if (isDummyLakeProbe(trimmed)) {
+    issues.push({
+      severity: "error",
+      message: "Dummy lake probes are not allowed (SELECT 1 / SELECT 1 FROM options.*). Select real columns that answer the question.",
+    });
   }
   for (const match of references) {
     const name = match[1].toLowerCase();

@@ -433,7 +433,7 @@ const TOOL_SKIP_META =
   /\bi don'?t need\b|\bno need to (?:call|run|query|pull|fetch|use)\b|\bskip(?:ping)? (?:the )?(?:eco_)?calendar\b/i;
 /** Planning / seal intent still sitting in the reasoning stream. */
 const REASONING_PLANNING_META =
-  /\b(?:suggest_trades is optional|no publish_desk|private bot guidance|prose-only|over-tooling|write the (?:direct )?markdown briefing|briefing is the deliver|keep it prose)\b/i;
+  /\b(?:suggest_trades is optional|no publish_desk|private bot guidance|prose-only|over-tooling|write the (?:direct )?markdown briefing|briefing is the deliver|keep it prose|specialist(?:s)? active|private briefing I deliver|deliver full analysis directly|private account bot owner|i must call get_portfolio)\b/i;
 /** First trailing candidate must look sealed — not cut off mid-word. */
 const SEALED_PARA_TAIL = /[.!?…]["')\]]*\s*$/;
 
@@ -485,11 +485,11 @@ export function isPlanningOnlyTakeaway(text: string): boolean {
  * even when the last one happens to end with a period (share 1qKRZL7…).
  */
 const TOOL_LOOP_SENTENCE =
-  /\b(?:let me|i(?:'ll| will)|i should|i need to|now i need|hmm\b|the prompt (?:says|lists)|the instructions say|active specialists|active list|listed as active|publish(?:_desk| the desk)|render_chart|suggest_trades|the schema (?:only )?(?:has|says)|looking at routing|routing (?:for|says|examples)|i could (?:offer|suggest|publish|render|call)|actually i can|i can suggest)\b/i;
+  /\b(?:let me|i(?:'ll| will)|i should|i need to|now i need|hmm\b|the prompt (?:says|lists)|the instructions say|active specialists|specialist(?:s)? active|active list|listed as active|publish(?:_desk| the desk)|render_chart|suggest_trades|the schema (?:only )?(?:has|says)|looking at routing|routing (?:for|says|examples)|i could (?:offer|suggest|publish|render|call)|actually i can|i can suggest|private briefing I deliver)\b/i;
 
 /** System-prompt / specialist-routing debate leaked into the reader-facing body. */
 const PROMPT_LEAK =
-  /\b(?:the prompt says|the instructions say|active specialists(?: for this turn)?|fill ONLY these|routing examples|looking at routing)\b/i;
+  /\b(?:the prompt says|the instructions say|active specialists(?: for this turn)?|specialist(?:s)? active|fill ONLY these|routing examples|looking at routing|private briefing I deliver|deliver full analysis directly|fundamental\/technical\/options\/risk)\b/i;
 
 export function hasLeakedPromptDebate(text: string): boolean {
   return PROMPT_LEAK.test(text.replace(/\s+/g, " "));
@@ -527,8 +527,44 @@ function isReasoningTailLeak(content: string, reasoning: string): boolean {
 function isReasoningScratchPara(para: string): boolean {
   if (REASONING_SCRATCH.test(para) || REASONING_UNFINISHED.test(para)) return true;
   if (TOOL_SKIP_META.test(para) || REASONING_PLANNING_META.test(para)) return true;
+  if (hasLeakedPromptDebate(para)) return true;
   if (REASONING_SHORT_SCRATCH.test(para.trim())) return true;
   return looksLikeAllocationScratch(para);
+}
+
+/**
+ * Strip leading "let me call…" sentences so a glued analysis paragraph
+ * (share AEaE9JM6cpbkmFuYUa2UeSON: "Let me call get_portfolio.The portfolio
+ * has 7 positions…") can still be lifted.
+ */
+const LEADING_SCRATCH_SENTENCE =
+  /^(?:(?:plan of tool|batch\s*\d|tool calls?|actually|hmm|alternatively|wait)[,—–\s-]*|(?:let me|i(?:'ll| will)|i should|i need to|now write|now i need to)\b)[^.!?\n]{0,280}[.!?]?[\s]*/i;
+
+function stripLeadingScratchSentences(para: string): string {
+  let text = para.trim();
+  for (let i = 0; i < 8; i++) {
+    const next = text.replace(LEADING_SCRATCH_SENTENCE, "").trim();
+    if (next === text) break;
+    text = next;
+  }
+  return text;
+}
+
+function isStillPlanningLeftover(text: string): boolean {
+  const body = text.replace(/\s+/g, " ").trim();
+  if (!body) return true;
+  if (isPlanningOnlyTakeaway(body) || REASONING_UNFINISHED.test(body) || REASONING_PLANNING_META.test(body)) {
+    return true;
+  }
+  if (hasLeakedPromptDebate(body)) return true;
+  if (
+    /^(?:and |then |also )?(?:query|call|run|check|lookup|gather|identify|confirm)\b/i.test(body)
+    && body.length < 220
+  ) {
+    return true;
+  }
+  if (TOOL_LOOP_SENTENCE.test(body) && body.length < 180) return true;
+  return false;
 }
 
 /**
@@ -539,7 +575,7 @@ function isReasoningScratchPara(para: string): boolean {
 function looksLikeAllocationScratch(para: string): boolean {
   const text = para.trim();
   if (!text) return false;
-  if (/\b(?:action|trim|reduce|hedge|roll|takeaway|recommend|next session|adjustment)\b/i.test(text)) {
+  if (/\b(?:action|trim|reduce|hedge|roll|takeaway|recommend|next session|adjustment|concentration|positions?|holdings?|expiry|gamma)\b/i.test(text)) {
     return false;
   }
   const pctLines = (text.match(/^\s*[-*•]\s+[A-Z]{1,5}\b.*\d/gm) || []).length;
@@ -583,7 +619,9 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   // When the visible channel is a trailing reasoning leak (share
   // S2xd3YVSuwjYaByfdF1cw0HL), skip those paragraphs so we lift the
   // earlier sealed briefing instead of re-promoting the leak.
-  const leaked = isReasoningTailLeak(content, reasoning) ? content : "";
+  const leaked = isReasoningTailLeak(content, reasoning) || hasLeakedPromptDebate(content)
+    ? content
+    : "";
 
   const paras = reasoning
     .split(/\n\s*\n/)
@@ -593,22 +631,32 @@ export function promoteReasoningTakeaway(turn: ShareTurn): ShareTurn {
   const substantive: string[] = [];
   for (let i = paras.length - 1; i >= 0; i--) {
     const para = paras[i]!;
-    if (isLeakedContentPara(para, leaked)) continue;
-    if (para.length < 40) {
-      // Short scratch ("Good. Write it.") is a separator, not a section wall.
-      if (isReasoningScratchPara(para) || REASONING_SHORT_SCRATCH.test(para.trim())) continue;
+    const body = stripLeadingScratchSentences(para) || para;
+    if (isLeakedContentPara(body, leaked) || isLeakedContentPara(para, leaked)) continue;
+
+    const originalScratch = isReasoningScratchPara(para) || isStillPlanningLeftover(para);
+    const bodyScratch = isReasoningScratchPara(body) || isStillPlanningLeftover(body);
+    const keepStripped =
+      looksLikeFinishedBriefing(body)
+      || (body.length >= 80 && looksSealedOrStructured(body) && !bodyScratch);
+
+    // Planning tails (share AEaE9JM6cpbkmFuYUa2UeSON) sit after the briefing.
+    // Skip them while empty so the walker can reach the book review; a leftover
+    // "And query etf_holdings…" must not count as the takeaway and wall off
+    // earlier paragraphs.
+    if ((originalScratch && !keepStripped) || (bodyScratch && !keepStripped)) {
+      if (substantive.length > 0 && !keepStripped) break;
+      continue;
+    }
+    if (body.length < 40) {
+      if (isReasoningScratchPara(body) || REASONING_SHORT_SCRATCH.test(body)) continue;
       if (substantive.length > 0) break;
       continue;
     }
-    if (isReasoningScratchPara(para)) {
-      if (substantive.length > 0) break;
+    if (substantive.length === 0 && !looksSealedOrStructured(body)) {
       continue;
     }
-    // Skip trailing cut-offs ("the briefing is the deliver") before collecting.
-    if (substantive.length === 0 && !looksSealedOrStructured(para)) {
-      continue;
-    }
-    substantive.unshift(para);
+    substantive.unshift(body);
     if (substantive.join("\n\n").length >= 4_000) break;
   }
 

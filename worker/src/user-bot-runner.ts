@@ -2,9 +2,11 @@
  * Server-side runner for signed-in account bots.
  *
  * Runs one headless Chat turn, backs up the transcript, emails the owner,
- * then claims the chat into history. Timeline publish is opt-in and uses a
- * human share (no bot_handle). Claim happens after the turn so opening Chat
- * mid-run cannot abort the Durable Object RPC.
+ * then claims the chat into history. Every run goes through the same quality
+ * gate as the Floor (`audience: private_briefing`) — junk stays in Chat but
+ * is withheld from email. Timeline publish is opt-in and uses a human share
+ * (no bot_handle) plus a separate Floor moderate. Claim happens after the
+ * turn so opening Chat mid-run cannot abort the Durable Object RPC.
  */
 import type { EmailSendBinding } from "./admin-email-test";
 import { scheduleRunDecision } from "./bot-schedule";
@@ -15,8 +17,9 @@ import type { MarketHoursEnv } from "./market-hours";
 import { getHandle } from "./profiles";
 import type { ShareTurn } from "./share-turns";
 import { excerptFromMessages, flagsFromMessages, recordShareOwner } from "./timeline";
-import { moderateTimelineShare } from "./timeline-moderation";
+import { moderateTimelineShare, type TimelineModerationDecision } from "./timeline-moderation";
 import { recordQualityGateEvent } from "./quality-gate-log";
+import { scheduleImprovementReport, type ImprovementReporterEnv } from "./improvement-reporter";
 import { claimChat, clipTitle } from "./user-chats";
 import {
   accountBotPublishDecision,
@@ -34,7 +37,8 @@ import {
   type UserBot,
   type UserBotRun,
 } from "./user-bots";
-import { assistantBriefingFromTurns, sendUserBotAlert } from "./user-bot-email";
+import { assistantBriefingFromTurns, briefingForUserBotAlert, sendUserBotAlert } from "./user-bot-email";
+import { coalesceAssistantMessageRecords } from "./share-turns";
 
 const SHARE_ID_BYTES = 18;
 const SHARE_ROW_MAX_BYTES = 2_000_000;
@@ -49,7 +53,7 @@ export function publicChatOrigin(requestOrigin?: string | null): string {
   return PUBLIC_ORIGIN;
 }
 
-export interface UserBotRunnerEnv extends MarketHoursEnv {
+export interface UserBotRunnerEnv extends MarketHoursEnv, ImprovementReporterEnv {
   SCHEMA_DB: D1Database;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   CopilotAgent: DurableObjectNamespace<any>;
@@ -60,6 +64,14 @@ export interface UserBotRunnerEnv extends MarketHoursEnv {
 
 function utf8Bytes(s: string): number {
   return new TextEncoder().encode(s).byteLength;
+}
+
+function userBotModerationModel(env: UserBotRunnerEnv, origin: string) {
+  if (!env.OPEN_ROUTER_KEY?.trim() || !env.COPILOT_MODEL?.trim()) return null;
+  return createChatModel(
+    { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
+    origin,
+  );
 }
 
 function base62Encode(bytes: Uint8Array): string {
@@ -111,22 +123,33 @@ async function mintHumanShare(
     messages: ShareTurn[];
     title?: string | null;
     listOnTimeline: boolean;
+    waitUntil?: (p: Promise<unknown>) => void;
+    publicOrigin?: string;
   },
-): Promise<{ ok: true; share_id: string; listed: boolean } | { ok: false; error: string }> {
+): Promise<{
+  ok: true;
+  share_id: string;
+  listed: boolean;
+  messages: Record<string, unknown>[];
+  moderation: TimelineModerationDecision;
+} | { ok: false; error: string }> {
   try {
-    const { messages, title, sourceSql } = capShareMessages(args.messages, args.title);
+    const capped = capShareMessages(args.messages, args.title);
+    const messages = coalesceAssistantMessageRecords(capped.messages);
+    const title = capped.title;
+    const sourceSql = capped.sourceSql;
     if (!messages.some((m) => m.role === "assistant" && typeof m.content === "string" && m.content.trim())) {
       return { ok: false, error: "no assistant content to share" };
     }
-    const moderationModel = env.OPEN_ROUTER_KEY?.trim() && env.COPILOT_MODEL?.trim()
-      ? createChatModel(
-        { OPEN_ROUTER_KEY: env.OPEN_ROUTER_KEY, COPILOT_MODEL: env.COPILOT_MODEL },
-        PUBLIC_ORIGIN,
-      )
+    const origin = args.publicOrigin ?? PUBLIC_ORIGIN;
+    const moderationModel = userBotModerationModel(env, origin);
+    const moderation = await moderateTimelineShare(messages, moderationModel, {
+      audience: "private_briefing",
+    });
+    const floorModeration = args.listOnTimeline
+      ? await moderateTimelineShare(messages, moderationModel, { audience: "floor" })
       : null;
-    const moderation = args.listOnTimeline
-      ? await moderateTimelineShare(messages, moderationModel)
-      : { allow: false, reason: "unlisted", source: "skip" as const };
+    const listOnFloor = Boolean(args.listOnTimeline && floorModeration?.allow);
     const messagesJson = JSON.stringify(messages);
     if (utf8Bytes(messagesJson) + utf8Bytes(sourceSql ?? "") + 512 > SHARE_ROW_MAX_BYTES) {
       return { ok: false, error: "share payload too large" };
@@ -139,16 +162,52 @@ async function mintHumanShare(
        VALUES (?1, ?2, ?3, 'funded', ?4, ?5, ?6, 'user-bot', 'user-bot-runner', ?7, ?7, NULL, ?8)`,
     ).bind(shareId, args.chatId, title, args.model, messagesJson, sourceSql, now, args.runId).run();
     await recordShareOwner(env.SCHEMA_DB, shareId, args.userId);
-    if (args.listOnTimeline) {
+    const gateAction = moderation.allow ? "allow_private_briefing" : "reject_private_briefing";
+    console.info(JSON.stringify({
+      timelineModeration: true,
+      action: gateAction,
+      run_id: args.runId,
+      share_id: shareId,
+      source: moderation.source,
+      reason: moderation.reason,
+      email: moderation.allow ? "send" : "withhold",
+      floor: listOnFloor ? "list" : (args.listOnTimeline ? "reject" : "unlisted"),
+    }));
+    await recordQualityGateEvent(env.SCHEMA_DB, {
+      action: gateAction,
+      decision: moderation,
+      shareId,
+      runId: args.runId,
+      model: args.model,
+      extra: {
+        email: moderation.allow ? "send" : "withhold",
+        floor: listOnFloor ? "list" : (args.listOnTimeline ? "reject" : "unlisted"),
+      },
+    });
+    if (args.listOnTimeline && floorModeration) {
       await recordQualityGateEvent(env.SCHEMA_DB, {
-        action: moderation.allow ? "allow_publish" : "reject_publish",
-        decision: moderation,
+        action: floorModeration.allow ? "allow_publish" : "reject_publish",
+        decision: floorModeration,
         shareId,
         runId: args.runId,
         model: args.model,
       });
     }
-    if (args.listOnTimeline && moderation.allow) {
+    scheduleImprovementReport(
+      env,
+      moderationModel,
+      {
+        messages,
+        decision: moderation,
+        action: gateAction,
+        shareId,
+        runId: args.runId,
+        publicOrigin: origin,
+        model: args.model,
+      },
+      { waitUntil: args.waitUntil },
+    );
+    if (listOnFloor) {
       const excerpt = excerptFromMessages(messages, title);
       const flags = flagsFromMessages(messages);
       await env.SCHEMA_DB.prepare(
@@ -156,9 +215,9 @@ async function mintHumanShare(
            (share_id, user_id, excerpt, has_sql, has_chart, published_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
       ).bind(shareId, args.userId, excerpt || null, flags.has_sql ? 1 : 0, flags.has_chart ? 1 : 0, now).run();
-      return { ok: true, share_id: shareId, listed: true };
+      return { ok: true, share_id: shareId, listed: true, messages, moderation };
     }
-    return { ok: true, share_id: shareId, listed: false };
+    return { ok: true, share_id: shareId, listed: false, messages, moderation };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -253,6 +312,8 @@ export async function runUserBotChat(
     // Transcript backup for Chat restore. Must not fail the run or skip email.
     let shareId: string | null = null;
     let listed = false;
+    let emailMessages: unknown = turn.messages;
+    let emailModeration: TimelineModerationDecision | null = null;
     try {
       const share = await mintHumanShare(env, {
         userId: bot.user_id,
@@ -262,10 +323,14 @@ export async function runUserBotChat(
         messages: turn.messages,
         title: metaTitle,
         listOnTimeline: publish.action === "publish",
+        waitUntil: opts?.waitUntil,
+        publicOrigin: opts?.publicOrigin ?? PUBLIC_ORIGIN,
       });
       if (share.ok) {
         shareId = share.share_id;
         listed = share.listed;
+        emailMessages = share.messages;
+        emailModeration = share.moderation;
       } else {
         console.warn("user-bot transcript backup failed", share.error);
       }
@@ -297,11 +362,48 @@ export async function runUserBotChat(
         emailResult = { ok: false, error: "owner email missing" };
         console.warn("user-bot email skipped", emailResult);
       } else {
+        if (!emailModeration) {
+          const origin = opts?.publicOrigin ?? PUBLIC_ORIGIN;
+          const model = userBotModerationModel(env, origin);
+          const coalesced = coalesceAssistantMessageRecords(
+            capShareMessages(turn.messages, metaTitle).messages,
+          );
+          emailMessages = coalesced;
+          emailModeration = await moderateTimelineShare(coalesced, model, {
+            audience: "private_briefing",
+          });
+          const gateAction = emailModeration.allow
+            ? "allow_private_briefing"
+            : "reject_private_briefing";
+          await recordQualityGateEvent(env.SCHEMA_DB, {
+            action: gateAction,
+            decision: emailModeration,
+            runId: run.run_id,
+            model: turn.model,
+            extra: { email: emailModeration.allow ? "send" : "withhold", mint: "failed" },
+          });
+          scheduleImprovementReport(
+            env,
+            model,
+            {
+              messages: coalesced,
+              decision: emailModeration,
+              action: gateAction,
+              runId: run.run_id,
+              publicOrigin: origin,
+              model: turn.model,
+            },
+            { waitUntil: opts?.waitUntil },
+          );
+        }
         const site = publicChatOrigin(opts?.publicOrigin);
         const send = sendUserBotAlert(env.EMAIL, to, {
           botName: bot.name,
           title: metaTitle,
-          briefing: assistantBriefingFromTurns(turn.messages),
+          briefing: briefingForUserBotAlert(
+            emailModeration.allow,
+            assistantBriefingFromTurns(emailMessages),
+          ),
           chatUrl: `${site}/chat/${chatId}`,
           shareUrl: shareId ? `${site}/share/${shareId}` : null,
         }).then((result) => {
