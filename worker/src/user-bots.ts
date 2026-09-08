@@ -474,7 +474,7 @@ export function userBotSystemAddon(opts: {
   }
   if (source !== "none") {
     lines.push(
-      "Identify every holding before flagging concentration: use the book's asset kind and description, and call lookup_symbols for any unlabeled ticker (it returns kind plus Yahoo top holdings/weights). Diversified ETFs/index funds are not single-name stocks — read those weights before recommending a trim. Overlap of the same issuer across funds is concentration; sleeve size in a broad index fund is not. Query options.etf_holdings when you need a lake-backed book.",
+      "Identify every holding before flagging concentration: use the book's asset kind and description, and call lookup_symbols for any unlabeled ticker (it returns kind plus Yahoo top holdings/weights). Diversified ETFs/index funds are not single-name stocks — read those weights before recommending a trim. Overlap of the same issuer across funds is concentration; sleeve size in a broad index fund is not. Query options.etf_holdings with latest-wins on (ticker, holding_symbol) — not PARTITION BY ticker alone, which keeps only rank 1.",
     );
   }
   if (opts.publish_to_timeline) {
@@ -483,7 +483,7 @@ export function userBotSystemAddon(opts: {
     );
   } else {
     lines.push(
-      "Do not write for a public feed. Write a comprehensive, direct personal briefing for the owner in plain markdown (headings, bullet points, and specific numbers). Do NOT call publish_desk — deliver the full analysis directly in markdown. Skip render_chart unless a figure clearly helps the owner. suggest_trades is optional and only when a concrete adjustment is tradable.",
+      "Do not write for a public feed. Write a comprehensive, direct personal briefing for the owner in plain markdown (headings, bullet points, and specific numbers). Do NOT call publish_desk and do not mention active specialists or routing. After tools return, the visible message must be the briefing — never a specialist-roster aside or a dummy SQL probe. Skip render_chart unless a figure clearly helps the owner. suggest_trades is optional and only when a concrete adjustment is tradable.",
     );
   }
   return lines.join("\n");

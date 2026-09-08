@@ -219,7 +219,7 @@ export function deskAnalystBlock(active?: readonly DeskViewpointId[]): string {
     DESK_MARKDOWN_SHAPE,
     "",
     "Desk publishing:",
-    `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence (private personal account bots answer directly in markdown).`,
+    `- For ticker deep-dives, trade ideas, why-is-it-moving, and other market analysis, MUST call publish_desk after tools and before any final prose. Fill the active specialist fields (${formatActiveSpecialists(required)}) plus overview with distinct angles grounded in the shared evidence.`,
     "- Omit inactive specialist fields entirely — do not send stub text (\"placeholder\", \"TBD\", \"N/A\") for specialists that are not active this turn.",
     "- Never put stub text (\"placeholder\", \"TBD\", \"TODO\") in publish_desk — incomplete desks are rejected and the turn stalls. Gather research_ticker / SQL / news first, then publish real takes.",
     "- Emit NO assistant prose (no status lines, no \"let me…\", no partial takes) until publish_desk has succeeded. Tool calls only until then.",
@@ -228,5 +228,22 @@ export function deskAnalystBlock(active?: readonly DeskViewpointId[]): string {
     "- Skip publish_desk only for pure schema/SQL mechanics, bare calendar lists, or off-analysis tool housekeeping.",
     "- Never overweight technical analysis: if price action is loud but fundamentals, options liquidity, risk, or macro disagree, say so in the overview.",
     "- Routing examples: single-name options chain (e.g. GME) → fundamental + technical + options + risk, not macro. Broad beta / rates ETFs (SPY, TLT) or Fed/CPI asks → include macro. Risk is always active — downside, sizing, and what breaks the thesis.",
+  ].join("\n");
+}
+
+/**
+ * Replaces deskAnalystBlock for private no-timeline account bots.
+ * The desk block's "active specialists / MUST publish_desk" protocol leaked
+ * into the visible answer (share AEaE9JM6cpbkmFuYUa2UeSON).
+ */
+export function privateBriefingBlock(): string {
+  return [
+    "You are writing a personal owner briefing — not a Floor desk post.",
+    "Do not call publish_desk. Do not debate which specialists are active, which publish_desk fields to fill, or whether macro is on the roster.",
+    "After tools return, write the full analysis in Markdown: short paragraphs, **bold** key numbers, bullets for concentration, expiry, Greeks, duration, and actions.",
+    "A book of ETFs with no option positions has no expiry or gamma — say that plainly. Duration (TLT) and factor/sector sleeves still belong in the briefing.",
+    "get_portfolio is the grounding evidence when a book is attached. Do not run dummy lake probes (SELECT 1 FROM options.*) to satisfy gather-evidence.",
+    "lookup_symbols and options.etf_holdings (latest-wins on ticker + holding_symbol, not ticker alone) are enough to check issuer overlap. Then write the briefing — do not keep probing.",
+    DESK_MARKDOWN_SHAPE,
   ].join("\n");
 }

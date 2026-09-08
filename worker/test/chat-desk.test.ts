@@ -8,6 +8,7 @@ import {
   formatDeskToolSummary,
   isDeskStubText,
   normalizeDeskBrief,
+  privateBriefingBlock,
 } from "../src/chat-desk.ts";
 import { selectDeskSpecialists } from "../src/chat-desk-route.ts";
 
@@ -129,6 +130,17 @@ test("deskAnalystBlock names all specialists, routing, and publish_desk", () => 
   assert.match(block, /Risk is always active/);
   assert.match(block, /Write specialist takes, the overview, and the closing message as Markdown/);
   assert.match(block, /Never one run-on sentence/);
+});
+
+test("privateBriefingBlock skips desk protocol so specialist routing cannot leak", () => {
+  const block = privateBriefingBlock();
+  assert.match(block, /personal owner briefing/);
+  assert.match(block, /Do not call publish_desk/);
+  assert.match(block, /Do not debate which specialists are active/);
+  assert.match(block, /get_portfolio is the grounding evidence/);
+  assert.match(block, /holding_symbol/);
+  assert.doesNotMatch(block, /Active specialists for this turn/);
+  assert.doesNotMatch(block, /MUST call publish_desk/);
 });
 
 test("clipDeskMarkdown keeps blank-line paragraphs and lists", () => {

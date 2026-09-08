@@ -165,6 +165,11 @@ test("systemPrompt uses the private addon instead of public bot timeline rules",
   assert.match(body, /get_portfolio with source="schwab"/);
   assert.doesNotMatch(body, /public post for this bot's timeline/);
   assert.doesNotMatch(body, /MUST still call publish_desk/);
+  assert.doesNotMatch(body, /Active specialists for this turn/);
+  assert.doesNotMatch(body, /MUST call publish_desk after tools/);
+  assert.doesNotMatch(body, /After publish_desk on ticker/);
+  assert.match(body, /personal owner briefing/);
+  assert.match(body, /PARTITION BY ticker, holding_symbol/);
 });
 
 test("systemPrompt still requires publish_desk on public bot timeline posts", () => {
