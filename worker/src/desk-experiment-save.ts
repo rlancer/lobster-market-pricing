@@ -300,7 +300,15 @@ export async function parseSaveDeskExperimentRunBody(
     if (cellKeys.has(key)) {
       return { ok: false, error: `results cell ${key} is duplicated`, status: 400 };
     }
-    if (cell.status !== "done" || typeof cell.correct !== "boolean") {
+    if (typeof cell.correct !== "boolean") {
+      return { ok: false, error: `results cell ${key} is incomplete`, status: 400 };
+    }
+    // Seat abort / cell timeout: status=error, correct=false. That is a finished
+    // matrix row (operational miss), not a hole the runner forgot to fill.
+    if (cell.status === "error" && cell.correct !== false) {
+      return { ok: false, error: `results cell ${key} error rows must be marked incorrect`, status: 400 };
+    }
+    if (cell.status !== "done" && cell.status !== "error") {
       return { ok: false, error: `results cell ${key} is incomplete`, status: 400 };
     }
     cellKeys.add(key);

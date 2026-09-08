@@ -94,3 +94,22 @@ test('buildFirmPipelineConclusion names a risk-committee win over stopping at th
   const conclusion = buildFirmPipelineConclusion(runWithCells(cells));
   assert.match(conclusion.wrapUp, /later risk committee improved the grade/);
 });
+
+test('buildFirmPipelineConclusion treats a seat-timeout error cell as an abort, not a wrong lean', () => {
+  const cells = perfectMatrix().map((row) => (
+    row.rep_id === 'bull_bear_debate' && row.question_id === 'bolt-coil'
+      ? cell(row.rep_id, row.question_id, {
+        status: 'error',
+        correct: false,
+        error: 'The operation was aborted due to timeout',
+      })
+      : row
+  ));
+  const conclusion = buildFirmPipelineConclusion(runWithCells(cells));
+  assert.equal(conclusion.cells_aborted, 1);
+  assert.equal(conclusion.cells_wrong, 0);
+  assert.equal(conclusion.cells_correct, 15);
+  assert.equal(conclusion.cells_done, 15);
+  assert.match(conclusion.summary, /aborted/);
+  assert.match(conclusion.wrapUp, /seat aborts/);
+});

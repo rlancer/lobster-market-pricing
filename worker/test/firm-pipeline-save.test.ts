@@ -13,7 +13,41 @@ import {
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
-test("parseSaveExperimentRunBody accepts a firm-pipeline run without images", async () => {
+type FirmCell = {
+  rep_id: string;
+  question_id: string;
+  status: "done" | "error";
+  answer: string;
+  correct: boolean;
+  lean_5d?: string;
+  lean_20d?: string;
+  session_count: number;
+  detail?: string;
+  error?: string;
+};
+
+function completeCells(): FirmCell[] {
+  const cases = buildDeskExperimentCases();
+  const reps = firmPipelineTextReps();
+  const cells: FirmCell[] = [];
+  for (const rep of reps) {
+    for (const row of cases) {
+      cells.push({
+        rep_id: rep.id,
+        question_id: row.id,
+        status: "done",
+        answer: "lean",
+        correct: true,
+        lean_5d: "bearish",
+        lean_20d: "bearish",
+        session_count: rep.id === "solo" ? 1 : 7,
+      });
+    }
+  }
+  return cells;
+}
+
+function saveBody(cells: FirmCell[]) {
   const cases = buildDeskExperimentCases();
   const systemPrompt = firmPipelineSystemPrompt();
   const reps = firmPipelineTextReps();
@@ -29,21 +63,8 @@ test("parseSaveExperimentRunBody accepts a firm-pipeline run without images", as
     cases.map((row) => [row.id, sha256(formatDeskSnapshot(row.snapshot))]),
   );
   const executionOrder = [];
-  const cells = [];
   for (const rep of reps) {
-    for (const q of questions) {
-      executionOrder.push(`${rep.id}::${q.id}`);
-      cells.push({
-        rep_id: rep.id,
-        question_id: q.id,
-        status: "done" as const,
-        answer: "lean",
-        correct: true,
-        lean_5d: "bearish",
-        lean_20d: "bearish",
-        session_count: rep.id === "solo" ? 1 : 7,
-      });
-    }
+    for (const q of questions) executionOrder.push(`${rep.id}::${q.id}`);
   }
   const snapshotFingerprint = questions.map((q) => `${q.id}:${snapshotHashes[q.id]}`).join("\n");
   const fingerprint = sha256([
@@ -54,8 +75,7 @@ test("parseSaveExperimentRunBody accepts a firm-pipeline run without images", as
     snapshotFingerprint,
     ...repOrder.map((id) => `${id}:${representationHashes[id]}`),
   ].join("\n"));
-
-  const parsed = await parseSaveExperimentRunBody({
+  return {
     experiment_slug: "firm-pipeline",
     model: "deepseek/deepseek-v4-flash-0731",
     seed: 0x4d45534b,
@@ -79,7 +99,11 @@ test("parseSaveExperimentRunBody accepts a firm-pipeline run without images", as
       rep_order: repOrder,
     },
     images: [],
-  }, "firm-pipeline");
+  };
+}
+
+test("parseSaveExperimentRunBody accepts a firm-pipeline run without images", async () => {
+  const parsed = await parseSaveExperimentRunBody(saveBody(completeCells()), "firm-pipeline");
 
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
@@ -87,6 +111,41 @@ test("parseSaveExperimentRunBody accepts a firm-pipeline run without images", as
   assert.equal(parsed.input.results.cells.length, 16);
   assert.equal(parsed.input.experiment_slug, "firm-pipeline");
   assert.equal(parsed.input.results.design_id, FIRM_PIPELINE_DESIGN_ID);
+});
+
+test("parseSaveExperimentRunBody accepts a finished matrix with one seat-abort error cell", async () => {
+  const cells = completeCells();
+  const aborted = cells.find((cell) =>
+    cell.rep_id === "bull_bear_debate" && cell.question_id === "bolt-coil"
+  );
+  assert.ok(aborted);
+  aborted.status = "error";
+  aborted.correct = false;
+  aborted.answer = "[no answer]";
+  aborted.detail = "The operation was aborted due to timeout";
+  aborted.error = "The operation was aborted due to timeout";
+  delete aborted.lean_5d;
+  delete aborted.lean_20d;
+
+  const parsed = await parseSaveExperimentRunBody(saveBody(cells), "firm-pipeline");
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const saved = parsed.input.results.cells.find((cell) =>
+    cell.rep_id === "bull_bear_debate" && cell.question_id === "bolt-coil"
+  );
+  assert.equal(saved?.status, "error");
+  assert.equal(saved?.correct, false);
+  assert.match(saved?.detail ?? "", /timeout/i);
+});
+
+test("parseSaveExperimentRunBody rejects an error cell marked correct", async () => {
+  const cells = completeCells();
+  cells[0]!.status = "error";
+  cells[0]!.correct = true;
+  const parsed = await parseSaveExperimentRunBody(saveBody(cells), "firm-pipeline");
+  assert.equal(parsed.ok, false);
+  if (parsed.ok) return;
+  assert.match(parsed.error, /error rows must be marked incorrect/);
 });
 
 test("parseSaveExperimentRunBody rejects a firm-pipeline run with the desk runner version", async () => {

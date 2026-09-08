@@ -194,3 +194,32 @@ test("summarizeExperimentResultsJson exposes per-rep accuracy", async () => {
     { rep_id: "ranked_bars", correct: 1, done: 1 },
   ]);
 });
+
+test("summarizeExperimentResultsJson treats scored error cells as a complete matrix", async () => {
+  const { summarizeExperimentResultsJson } = await import("../src/experiment-runs.ts");
+  const summary = summarizeExperimentResultsJson(JSON.stringify({
+    design_id: "firm-pipeline-v1",
+    questions: [
+      { id: "drift-breakdown", prompt: "p", expected: "e" },
+      { id: "bolt-coil", prompt: "p", expected: "e" },
+    ],
+    text_reps: [],
+    cells: [
+      { rep_id: "solo", question_id: "drift-breakdown", status: "done", correct: true },
+      { rep_id: "solo", question_id: "bolt-coil", status: "done", correct: true },
+      { rep_id: "bull_bear_debate", question_id: "drift-breakdown", status: "done", correct: true },
+      {
+        rep_id: "bull_bear_debate",
+        question_id: "bolt-coil",
+        status: "error",
+        correct: false,
+        detail: "The operation was aborted due to timeout",
+      },
+    ],
+    rep_order: ["solo", "bull_bear_debate"],
+  }));
+  assert.equal(summary.matrix_complete, true);
+  assert.equal(summary.cells_total, 4);
+  assert.equal(summary.cells_done, 3);
+  assert.equal(summary.cells_correct, 3);
+});
