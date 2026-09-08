@@ -14,6 +14,14 @@ const tables: LakeTable[] = [
     ],
     sample: [],
   },
+  {
+    name: 'securities',
+    row_count: 1,
+    columns: [
+      { name: 'ticker', type: 'string' },
+    ],
+    sample: [],
+  },
 ];
 
 const errorMessages = (sql: string) =>
@@ -91,8 +99,24 @@ test('bare SELECT probes without a lake table are rejected', () => {
   for (const sql of ["SELECT 1", "SELECT 'test' AS t", "SELECT 1 AS value"]) {
     const errors = errorMessages(sql);
     assert.ok(
-      errors.some((m) => m.includes('bare SELECT probes are not allowed')),
+      errors.some((m) => m.includes('bare SELECT probes are not allowed') || m.includes('Dummy lake probes')),
       `missed bare probe for: ${sql} → ${errors.join('; ')}`,
+    );
+  }
+});
+
+test('SELECT 1 FROM a lake table is still a dummy probe', () => {
+  // Regression: share AEaE9JM6cpbkmFuYUa2UeSON — forced run_query plus
+  // "must FROM options.*" produced SELECT 1 AS dummy FROM options.securities.
+  for (const sql of [
+    "SELECT 1 AS dummy FROM options.securities LIMIT 1",
+    "SELECT 1 FROM options.option_contracts LIMIT 1",
+    "SELECT 'test' AS t FROM options.securities LIMIT 1",
+  ]) {
+    const errors = errorMessages(sql);
+    assert.ok(
+      errors.some((m) => m.includes('Dummy lake probes are not allowed')),
+      `missed dummy FROM probe for: ${sql} → ${errors.join('; ')}`,
     );
   }
 });
