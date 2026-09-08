@@ -117,8 +117,10 @@ export default function AdminQualityGatePage() {
       <VStack gap={2}>
         <Heading level={1}>Quality gate</Heading>
         <Text type="supporting">
-          Watch the Floor monitor: mint-time allow/reject, fail-open (the gate could not decide),
-          remediator unlists, and improvement tickets. Last seven days.
+          Watch the Floor monitor and private briefing emails: mint-time allow/reject,
+          fail-open (the gate could not decide), remediator unlists, and improvement
+          tickets. Last seven days. Private-bot junk stays in Chat; the owner email
+          gets a short notice instead of the leak.
         </Text>
       </VStack>
 
@@ -152,6 +154,18 @@ export default function AdminQualityGatePage() {
           color="red"
           size="sm"
           onClick={() => setFilter({ action: 'remoderate_unlist' })}
+        />
+        <Token
+          label="Briefing allowed"
+          color="green"
+          size="sm"
+          onClick={() => setFilter({ action: 'allow_private_briefing' })}
+        />
+        <Token
+          label="Briefing withheld"
+          color="red"
+          size="sm"
+          onClick={() => setFilter({ action: 'reject_private_briefing' })}
         />
       </HStack>
 

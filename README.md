@@ -437,7 +437,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/vix` | VIX term structure for `/vix`. Cash `^VIX` / `^VIX9D` / `^VIX3M` / `^VVIX` from `options.ohlc` plus unexpired VX monthals (`options.futures_quotes` today, `options.futures_settlements` historically). Optional `?asof=YYYY-MM-DD`. `{as_of, source, indexes, curve, metrics, settlement_dates, history, fetched_at, errors}` — `metrics.m1_m2_*` is the tradable vol change; cash VIX is context only. |
 | `GET /api/chats/{id}/rail` | Desktop chat companion column (same envelope as `/api/timeline/rail`, plus `chat_id`). When the chat has linked tickers, tags / related news / session tape follow those symbols; otherwise tags stay empty and news+tape fall back to the market rail. |
 | `POST /api/timeline` | List a share on the Floor (`{share_id}`). Requires a session whose user owns the share and has a claimed handle. Idempotent. A quality gate (heuristics + cheap OpenRouter moderator) rejects incomplete / cut-off / placeholder transcripts with **422** — the unlisted `/share/{id}` link is unchanged. Each decision is written to D1 `quality_gate_events` and shown on `/admin/quality-gate`. |
-| `GET /api/admin/quality-gate` | Admin — Floor quality-gate ledger (`{summary, events, improvements}`). Optional `?action=`, `?source=`, `?limit=`. |
+| `GET /api/admin/quality-gate` | Admin — quality-gate ledger for Floor listing and private briefing email (`{summary, events, improvements}`). Optional `?action=`, `?source=`, `?limit=`. |
 | `POST /api/admin/quality-gate/remoderate` | Admin — run `remoderateListedBotShares` now (`{ok, scanned, unlisted}`). |
 | `DELETE /api/timeline/{id}` | Remove a share from the Floor. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
@@ -445,7 +445,7 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `GET /api/bots/{handle}/trades` | Public bot suggested-trade performance book (lake marks, open/realized PnL). Optional `status=open\|closed\|all` (default `open`), `conviction=high\|medium\|low`, and `refresh=0` to skip re-marking. Powers Suggested trades on `/portfolio` and `/u/{handle}` for bots. Chat reads the same book via `get_bot_trades`. |
 | `GET/POST /api/me/bots` | Signed-in personal bots — list (includes friendly schedule presets + templates) or create. Private by default (`publish_to_timeline` off). |
 | `GET/PUT/DELETE /api/me/bots/{id}` | Signed-in — read one bot plus recent runs, update, or delete. |
-| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (ignores `next_run_at` and market hours). Lands in Chat history; emails when enabled; timeline only if opted in. The Worker schedule cron still honors the schedule gate. |
+| `POST /api/me/bots/{id}/trigger` | Signed-in — run a personal bot now (ignores `next_run_at` and market hours). Lands in Chat history; emails the briefing when the quality gate allows (otherwise a short “not ready” notice); timeline only if opted in. The Worker schedule cron still honors the schedule gate. |
 | `GET/POST /api/admin/bots` | Admin session (or `ADMIN_TOKEN`) — list / create bot profiles. |
 | `GET /api/admin/chat/capabilities` | Admin session (or `ADMIN_TOKEN`) — live Chat system prompts + tool descriptions/JSON schemas. Optional `?schema=placeholder` (skip lake schema) and `?samples=1` (include sample rows in the chat prompt schema block). Powers `/chat-capabilities`. |
 | `GET/PUT/DELETE /api/admin/bots/{handle}` | Admin — read (with recent runs + schedule) / update / delete a bot. |
@@ -693,7 +693,12 @@ the link. Before a share is listed — human publish or bot auto-share — a
 **timeline quality gate** (`worker/src/timeline-moderation.ts`) rejects cut-off
 mid-tool narrations, `(see reasoning)` placeholders, null-token / sanitizer
 desk leftovers, and other unfinished answers; humans get 422, bot runs mint an
-unlisted share without `bot_handle` and mark the run failed. GET `/share/{id}`
+unlisted share without `bot_handle` and mark the run failed. Private account
+bots use the same heuristics plus a `private_briefing` moderator prompt (markdown
+briefing, not Floor `publish_desk` chrome): a reject still mints the unlisted
+`/share/{id}` for Chat restore, records `reject_private_briefing` in
+`quality_gate_events`, and **withholds the junk from the owner email** (sends a
+short notice with the Chat link instead). GET `/share/{id}`
 and the Floor already re-run the heuristics on listed bot shares and unlist
 junk on read. The every-5-minute Worker cron also sweeps recent listed bot
 shares (`remoderateListedBotShares`) so a bad post does not sit on the feed

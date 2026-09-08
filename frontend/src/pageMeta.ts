@@ -202,7 +202,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Quality gate'),
       description:
-        'Admin ledger for the Floor quality monitor — mint decisions, fail-open, remediator unlists, and improvement tickets.',
+        'Admin ledger for the Floor quality monitor and private briefing email gate — mint decisions, fail-open, remediator unlists, and improvement tickets.',
       path: '/admin/quality-gate',
     };
   }
