@@ -301,7 +301,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Experiments'),
       description:
-        'Public experiments — text vs image context studies, analyst-desk vs session structure, and other model-encoding probes, with server-saved runs from API or CI.',
+        'Public experiments — text vs image context studies, analyst-desk vs session structure, TradingAgents-style firm pipelines, and other model-encoding probes, with server-saved runs from API or CI.',
       path: path === '/notebooks' ? '/notebooks' : '/experiments',
     };
   }
@@ -321,6 +321,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
       description:
         'As-of snapshot bench of solo analyst vs production multi-analyst desk role-play vs a new session per specialist, graded on held-out 5- and 20-session direction.',
       path: '/experiments/desk-approaches',
+    };
+  }
+
+  if (path === '/experiments/firm-pipeline') {
+    return {
+      title: pageTitle('Trading firm pipeline'),
+      description:
+        'TradingAgents-style firm stages on the same frozen invented-ticker tape: solo vs analyst reports vs bull/bear research vs a later risk committee, graded on held-out 5- and 20-session direction.',
+      path: '/experiments/firm-pipeline',
     };
   }
 

@@ -20,6 +20,10 @@ import {
   DESK_EXPERIMENT_SLUG,
   deskExperimentSystemPrompt,
 } from "./desk-experiment";
+import {
+  FIRM_PIPELINE_RUNNER_VERSION,
+  FIRM_PIPELINE_SLUG,
+} from "./firm-pipeline";
 
 const MAX_RESULTS_CHARS = 400_000;
 
@@ -45,8 +49,23 @@ function isHash(value: string | null): value is string {
   return Boolean(value && /^[a-f0-9]{64}$/.test(value));
 }
 
+const LEAN_MATRIX_EXPERIMENTS: Record<string, { designPrefix: string; runnerVersion: number }> = {
+  [DESK_EXPERIMENT_SLUG]: {
+    designPrefix: "desk-approaches",
+    runnerVersion: DESK_EXPERIMENT_RUNNER_VERSION,
+  },
+  [FIRM_PIPELINE_SLUG]: {
+    designPrefix: "firm-pipeline",
+    runnerVersion: FIRM_PIPELINE_RUNNER_VERSION,
+  },
+};
+
+export function isLeanMatrixExperimentSlug(slug: string): boolean {
+  return Boolean(LEAN_MATRIX_EXPERIMENTS[slug]);
+}
+
 export function isDeskExperimentDesignId(designId: string): boolean {
-  return designId.startsWith("desk-approaches");
+  return designId.startsWith("desk-approaches") || designId.startsWith("firm-pipeline");
 }
 
 export async function parseSaveDeskExperimentRunBody(
@@ -61,8 +80,9 @@ export async function parseSaveDeskExperimentRunBody(
   if (slug !== slugFromPath) {
     return { ok: false, error: "experiment_slug must match path", status: 400 };
   }
-  if (slug !== DESK_EXPERIMENT_SLUG) {
-    return { ok: false, error: "invalid experiment_slug for desk-approaches", status: 400 };
+  const spec = LEAN_MATRIX_EXPERIMENTS[slug];
+  if (!spec) {
+    return { ok: false, error: "invalid experiment_slug for lean-matrix experiment", status: 400 };
   }
 
   const model = asString(body.model, 120);
@@ -80,8 +100,8 @@ export async function parseSaveDeskExperimentRunBody(
   }
 
   const design_id = asString(resultsRaw.design_id, 120);
-  if (!design_id || !isDeskExperimentDesignId(design_id)) {
-    return { ok: false, error: "results.design_id must be a desk-approaches version", status: 400 };
+  if (!design_id || !design_id.startsWith(spec.designPrefix)) {
+    return { ok: false, error: `results.design_id must be a ${spec.designPrefix} version`, status: 400 };
   }
 
   const manifestRaw = resultsRaw.manifest;
@@ -114,7 +134,7 @@ export async function parseSaveDeskExperimentRunBody(
 
   if (
     runnerVersion == null
-    || runnerVersion !== DESK_EXPERIMENT_RUNNER_VERSION
+    || runnerVersion !== spec.runnerVersion
     || !sourceRevision
     || !systemPrompt
     || !isHash(systemHash)

@@ -22,6 +22,13 @@ export const EXPERIMENTS: ExperimentMeta[] = [
       'As-of snapshot bench: solo analyst vs production desk role-play vs a new session per specialist, graded on held-out 5d/20d direction.',
     status: 'ready',
   },
+  {
+    slug: 'firm-pipeline',
+    title: 'Trading firm pipeline',
+    subtitle:
+      'TradingAgents-style stages on the same frozen tape: solo vs analyst reports vs bull/bear research vs a later risk committee.',
+    status: 'ready',
+  },
 ];
 
 /** @deprecated Use EXPERIMENTS */

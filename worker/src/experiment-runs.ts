@@ -127,7 +127,8 @@ export async function parseSaveExperimentRunBody(
   }
 
   if (isRecord(body.results) && typeof body.results.design_id === "string"
-    && body.results.design_id.startsWith("desk-approaches")) {
+    && (body.results.design_id.startsWith("desk-approaches")
+      || body.results.design_id.startsWith("firm-pipeline"))) {
     const { parseSaveDeskExperimentRunBody } = await import("./desk-experiment-save");
     return parseSaveDeskExperimentRunBody(body, slugFromPath);
   }

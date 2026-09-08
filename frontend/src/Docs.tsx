@@ -183,9 +183,11 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
   { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
+  { method: 'GET', path: '/api/experiments/firm-pipeline/design', desc: 'Public firm-pipeline design: same frozen cases as desk-approaches, TradingAgents-style stages (solo / reports→trader / bull-bear / risk committee)' },
   { method: 'POST', path: '/api/admin/notebooks/probe', desc: 'Admin — single OpenRouter probe for the text-vs-image experiment' },
   { method: 'POST', path: '/api/admin/experiments/desk-approaches/probe', desc: 'Admin — run one desk-approaches cell (approach × as-of case) against the frozen snapshot' },
-  { method: 'POST', path: '/api/admin/experiments/{slug}/runs', desc: 'Admin — publish a completed experiment run (text-vs-image or desk-approaches)' },
+  { method: 'POST', path: '/api/admin/experiments/firm-pipeline/probe', desc: 'Admin — run one firm-pipeline cell (pipeline stage × as-of case) against the same frozen snapshot' },
+  { method: 'POST', path: '/api/admin/experiments/{slug}/runs', desc: 'Admin — publish a completed experiment run (text-vs-image, desk-approaches, or firm-pipeline)' },
   { method: 'POST', path: '/api/admin/email/test', desc: 'Admin — Cloudflare Email Service smoke test to the signed-in session email (or ADMIN_TOKEN + {to}); from noreply@lobster.mp' },
   { method: 'POST', path: '/api/admin/dev-session', desc: 'Preview only (api-dev) — ADMIN_TOKEN mints a Better Auth cookie as an admin email so agents can test signed-in Chat/Bots. Production 404s.' },
   { method: 'GET', path: '/api/admin/chat_history', desc: 'Admin — all chats from the lake with profiles or visitor fingerprints (session admin or ADMIN_TOKEN)' },
@@ -236,7 +238,7 @@ const SURFACES = [
   {
     route: '/experiments',
     title: 'Experiments',
-    body: 'Public studies of how we present market data to models. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction. Published runs load from the Worker so visitors do not spend OpenRouter credits.',
+    body: 'Public studies of how we present market data to models. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction. Trading firm pipeline reuses that tape and grades TradingAgents-style stages (reports, bull/bear, later risk committee). Published runs load from the Worker so visitors do not spend OpenRouter credits.',
   },
   {
     route: '/data',

@@ -778,6 +778,15 @@ is one of the arms under test. Probe with
 `Run desk-approaches experiment` workflow; published runs load on the public
 page.
 
+The firm-pipeline experiment (`/experiments/firm-pipeline`) reuses that same
+frozen tape and varies **pipeline stages** inspired by TradingAgents
+(arXiv:2412.20138): solo trader, structured analyst reports then trader, bull
+vs bear research then trader, and a later risk committee plus fund manager.
+It does **not** copy the paper’s AAPL/GOOGL/AMZN P&L backtest — invented
+tickers and held-out 5d/20d direction stay the grade. Probe with
+`POST /api/admin/experiments/firm-pipeline/probe` or the
+`Run firm-pipeline experiment` workflow.
+
 Each route sets its own `<title>`, description, canonical URL, and Open Graph /
 Twitter tags from the path (e.g. `/research/SPY` → `SPY – Research · Lobster MP`).
 The Vite build also emits a Cloudflare Pages `_worker.js` that rewrites those

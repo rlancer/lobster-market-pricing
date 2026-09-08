@@ -88,6 +88,8 @@ import {
 } from "./experiment-runs";
 import { deskExperimentDesignPublic } from "./desk-experiment";
 import { parseDeskExperimentProbeBody, runDeskExperimentProbe } from "./desk-experiment-probe";
+import { firmPipelineDesignPublic } from "./firm-pipeline";
+import { parseFirmPipelineProbeBody, runFirmPipelineProbe } from "./firm-pipeline-probe";
 
 import { describeChatCapabilities } from "./chat-capabilities";
 import { CopilotAgentBase } from "./chat-agent";
@@ -4130,6 +4132,33 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const deskResult = await runDeskExperimentProbe(env, deskOrigin, deskInput);
     if (!deskResult.ok) return json(env, { error: deskResult.error }, deskResult.status, "private");
     return json(env, deskResult, 200, "private");
+  }
+
+  if (path === "/api/experiments/firm-pipeline/design" && req.method === "GET") {
+    return json(env, {
+      ...firmPipelineDesignPublic(),
+      model: env.COPILOT_MODEL,
+    }, 200, "public");
+  }
+
+  if (path === "/api/admin/experiments/firm-pipeline/probe" && req.method === "POST") {
+    const admin = await requireBotAdmin(env, req);
+    if (!admin.ok) return json(env, { error: admin.error }, admin.status, "private");
+    let firmProbeBody: unknown;
+    try {
+      firmProbeBody = await req.json();
+    } catch {
+      return json(env, { error: "invalid JSON body" }, 400, "private");
+    }
+    const firmParsed = parseFirmPipelineProbeBody(firmProbeBody);
+    if (!firmParsed.ok) {
+      return json(env, { error: firmParsed.error }, firmParsed.status, "private");
+    }
+    const firmOrigin = new URL(req.url).origin;
+    const { ok: _firmOk, ...firmInput } = firmParsed;
+    const firmResult = await runFirmPipelineProbe(env, firmOrigin, firmInput);
+    if (!firmResult.ok) return json(env, { error: firmResult.error }, firmResult.status, "private");
+    return json(env, firmResult, 200, "private");
   }
 
   if (path === "/api/admin/notebooks/probe" && req.method === "POST") {
