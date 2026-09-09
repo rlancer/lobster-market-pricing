@@ -41,6 +41,10 @@ export default function ExperimentsPage() {
                 void navigate({ to: '/experiments/desk-approaches' });
                 return;
               }
+              if (experiment.slug === 'firm-pipeline') {
+                void navigate({ to: '/experiments/firm-pipeline' });
+                return;
+              }
               void navigate({ to: '/experiments/text-vs-image' });
             }}
           />

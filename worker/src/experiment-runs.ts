@@ -127,7 +127,8 @@ export async function parseSaveExperimentRunBody(
   }
 
   if (isRecord(body.results) && typeof body.results.design_id === "string"
-    && body.results.design_id.startsWith("desk-approaches")) {
+    && (body.results.design_id.startsWith("desk-approaches")
+      || body.results.design_id.startsWith("firm-pipeline"))) {
     const { parseSaveDeskExperimentRunBody } = await import("./desk-experiment-save");
     return parseSaveDeskExperimentRunBody(body, slugFromPath);
   }
@@ -694,9 +695,9 @@ function summarizeResultsJson(resultsJson: string): {
       && cells.length === expectedKeys.size
       && actualKeys.size === expectedKeys.size
       && cells.every((cell) =>
-        cell.status === "done"
-        && typeof cell.correct === "boolean"
-        && expectedKeys.has(`${cell.rep_id}::${cell.question_id}`));
+        typeof cell.correct === "boolean"
+        && expectedKeys.has(`${cell.rep_id}::${cell.question_id}`)
+        && (cell.status === "done" || (cell.status === "error" && cell.correct === false)));
     return {
       design_id,
       manifest_fingerprint,

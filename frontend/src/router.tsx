@@ -30,6 +30,7 @@ import AdminQualityGatePage from './AdminQualityGate';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import DeskApproachesNotebookPage from './DeskApproachesNotebook';
+import FirmPipelineNotebookPage from './FirmPipelineNotebook';
 import { parseAsOfSearch } from './asOfDate';
 import { parseChatId } from './chatSession';
 import { etDateString } from './tickerChartRange';
@@ -297,6 +298,12 @@ const deskApproachesExperimentRoute = createRoute({
   component: DeskApproachesNotebookPage,
 });
 
+const firmPipelineExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/firm-pipeline',
+  component: FirmPipelineNotebookPage,
+});
+
 /** Legacy /notebooks paths redirect to /experiments. */
 const notebooksRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -419,6 +426,7 @@ const routeTree = rootRoute.addChildren([
   experimentsRoute,
   textVsImageExperimentRoute,
   deskApproachesExperimentRoute,
+  firmPipelineExperimentRoute,
   notebooksRedirectRoute,
   textVsImageNotebookRedirectRoute,
   docsRoute,

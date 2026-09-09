@@ -1691,6 +1691,11 @@ export interface DeskExperimentApproachInput {
   chair_turn?: string;
   specialist_system?: Record<string, string>;
   specialist_turns?: Array<{ id: string; label: string; user_instruction: string }>;
+  bull_system?: string;
+  bear_system?: string;
+  risk_aggressive_system?: string;
+  risk_conservative_system?: string;
+  fund_manager_system?: string;
 }
 
 export interface DeskExperimentDesign {
@@ -1724,6 +1729,16 @@ export interface DeskExperimentDesign {
     completion_text: string;
   };
   specialists?: Array<{ id: string; label: string; summary: string }>;
+  stages?: Array<{ id: string; label: string; summary: string }>;
+  paper?: {
+    citation: string;
+    keep: string[];
+    reject: string[];
+  };
+  shared_with_desk_approaches?: {
+    design: string;
+    note: string;
+  };
   approach_inputs?: DeskExperimentApproachInput[];
   approaches: Array<{
     id: string;
@@ -1925,6 +1940,8 @@ export const api = {
     ),
   deskExperimentDesign: () =>
     get<DeskExperimentDesign>('/api/experiments/desk-approaches/design'),
+  firmPipelineDesign: () =>
+    get<DeskExperimentDesign>('/api/experiments/firm-pipeline/design'),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
     post<{ ok: true; run: ExperimentRunPayload }>(
