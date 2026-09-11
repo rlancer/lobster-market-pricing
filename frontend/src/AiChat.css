@@ -387,6 +387,7 @@
   border-radius: var(--radius-element);
   background: var(--panel);
   overflow: hidden;
+  overflow-anchor: none;
   min-width: 0;
 }
 .ai-thinking summary {
@@ -404,6 +405,8 @@
 .ai-thinking-body {
   max-height: 180px;
   overflow-y: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
   padding: 8px 12px;
   font-size: var(--font-size-sm);
   line-height: 1.55;

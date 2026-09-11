@@ -5,6 +5,8 @@ import {
   liveProjectedAssistant,
   nextLatchedLiveList,
   nextLatchedLiveText,
+  nextStickScrollTop,
+  pickLiveReasoning,
   reasoningTextFromParts,
 } from './chatTurnProgress.ts';
 
@@ -39,6 +41,48 @@ test('nextLatchedLiveText keeps thinking through an empty busy snapshot', () => 
   assert.equal(settled.shown, '');
   assert.equal(settled.latch, '');
   assert.equal(settled.turnKey, '');
+});
+
+test('pickLiveReasoning keeps the longer trace while replay catches up', () => {
+  const full = 'Inspecting SPY options then QQQ.';
+  assert.equal(pickLiveReasoning('', full), full);
+  assert.equal(pickLiveReasoning('Inspecting', full), full);
+  assert.equal(pickLiveReasoning(`${full} More.`, full), `${full} More.`);
+  assert.equal(pickLiveReasoning('Now I will query the tape.', full), 'Now I will query the tape.');
+});
+
+test('nextLatchedLiveText does not collapse thinking when replay restarts from the first token', () => {
+  const full = nextLatchedLiveText('Inspecting SPY options then QQQ.', '', true, 'u1', '');
+  const replayHead = nextLatchedLiveText('Inspecting', full.latch, true, 'u1', full.turnKey);
+  assert.equal(replayHead.shown, full.shown);
+  const caughtUp = nextLatchedLiveText(`${full.shown} More.`, replayHead.latch, true, 'u1', replayHead.turnKey);
+  assert.equal(caughtUp.shown, `${full.shown} More.`);
+});
+
+test('nextStickScrollTop stays pinned at the bottom as content grows', () => {
+  const noOverflow = nextStickScrollTop({
+    scrollTop: 0, scrollHeight: 100, clientHeight: 180, pinned: true,
+  });
+  assert.equal(noOverflow.scrollTop, 0);
+  assert.equal(noOverflow.pinned, true);
+
+  const grew = nextStickScrollTop({
+    scrollTop: 0, scrollHeight: 400, clientHeight: 180, pinned: true,
+  });
+  assert.equal(grew.scrollTop, 220);
+  assert.equal(grew.pinned, true);
+
+  const userScrolledUp = nextStickScrollTop({
+    scrollTop: 40, scrollHeight: 400, clientHeight: 180, pinned: false,
+  });
+  assert.equal(userScrolledUp.scrollTop, 40);
+  assert.equal(userScrolledUp.pinned, false);
+
+  const backNearBottom = nextStickScrollTop({
+    scrollTop: 210, scrollHeight: 400, clientHeight: 180, pinned: false, thresholdPx: 24,
+  });
+  assert.equal(backNearBottom.pinned, true);
+  assert.equal(backNearBottom.scrollTop, 220);
 });
 
 test('nextLatchedLiveText does not leak thinking into the next user turn', () => {

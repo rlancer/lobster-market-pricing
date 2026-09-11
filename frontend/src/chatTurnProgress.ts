@@ -18,6 +18,17 @@ export function reasoningTextFromParts(
     .join('');
 }
 
+/**
+ * Replay rebuilds reasoning from the first token. Keep the longer trace until
+ * the new stream catches up so the Thinking box does not collapse and jump.
+ */
+export function pickLiveReasoning(current: string, latched: string): string {
+  if (!current.trim()) return latched;
+  if (!latched) return current;
+  if (latched.startsWith(current) && current.length < latched.length) return latched;
+  return current;
+}
+
 /** Keep the last non-empty live value until this user turn settles. */
 export function nextLatchedLiveText(
   current: string,
@@ -31,8 +42,40 @@ export function nextLatchedLiveText(
     if (current.trim()) return { shown: current, latch: current, turnKey };
     return { shown: current, latch: '', turnKey };
   }
-  if (current.trim()) return { shown: current, latch: current, turnKey };
-  return { shown: previousLatch, latch: previousLatch, turnKey };
+  const shown = pickLiveReasoning(current, previousLatch);
+  return { shown, latch: shown, turnKey };
+}
+
+export const STICK_SCROLL_THRESHOLD_PX = 32;
+
+export function isNearScrollBottom(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  thresholdPx = STICK_SCROLL_THRESHOLD_PX,
+): boolean {
+  const max = Math.max(0, scrollHeight - clientHeight);
+  return max - scrollTop <= thresholdPx;
+}
+
+/** Stick an overflow box to the bottom unless the user has scrolled up. */
+export function nextStickScrollTop(args: {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  pinned: boolean;
+  thresholdPx?: number;
+}): { scrollTop: number; pinned: boolean } {
+  const max = Math.max(0, args.scrollHeight - args.clientHeight);
+  const nearBottom = isNearScrollBottom(
+    args.scrollTop,
+    args.scrollHeight,
+    args.clientHeight,
+    args.thresholdPx,
+  );
+  const pinned = args.pinned || nearBottom;
+  if (!pinned) return { scrollTop: args.scrollTop, pinned: false };
+  return { scrollTop: max, pinned: true };
 }
 
 export function nextLatchedLiveList<T>(

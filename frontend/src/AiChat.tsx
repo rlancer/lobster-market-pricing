@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
@@ -38,9 +38,11 @@ import {
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
 import {
   isLiveProjectedMessage,
+  isNearScrollBottom,
   liveProjectedAssistant,
   nextLatchedLiveList,
   nextLatchedLiveText,
+  nextStickScrollTop,
   reasoningTextFromParts,
 } from './chatTurnProgress';
 import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
@@ -559,7 +561,6 @@ function TurnProgress({
   writing,
   action,
   onAction,
-  thinkingRef,
 }: {
   status: string;
   reasoning: string;
@@ -567,8 +568,26 @@ function TurnProgress({
   writing: boolean;
   action: 'stop' | 'start';
   onAction: () => void;
-  thinkingRef: RefObject<HTMLDivElement | null>;
 }) {
+  const thinkingRef = useRef<HTMLDivElement>(null);
+  const thinkingPinnedRef = useRef(true);
+  const hadReasoningRef = useRef(false);
+  if (reasoning && !hadReasoningRef.current) thinkingPinnedRef.current = true;
+  hadReasoningRef.current = Boolean(reasoning);
+
+  useLayoutEffect(() => {
+    const element = thinkingRef.current;
+    if (!element) return;
+    const next = nextStickScrollTop({
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      pinned: thinkingPinnedRef.current,
+    });
+    thinkingPinnedRef.current = next.pinned;
+    if (element.scrollTop !== next.scrollTop) element.scrollTop = next.scrollTop;
+  }, [reasoning]);
+
   return (
     <div className="ai-busy">
       <div className="ai-busy-head">{action === 'stop' && <Spinner size="md" />}<span className="ai-busy-status">{status}</span>
@@ -584,7 +603,20 @@ function TurnProgress({
       {reasoning ? (
         <details className="ai-thinking" open>
           <summary>Thinking</summary>
-          <div className="ai-thinking-body" ref={thinkingRef}>{reasoning}</div>
+          <div
+            className="ai-thinking-body"
+            ref={thinkingRef}
+            onScroll={(event) => {
+              const element = event.currentTarget;
+              thinkingPinnedRef.current = isNearScrollBottom(
+                element.scrollTop,
+                element.scrollHeight,
+                element.clientHeight,
+              );
+            }}
+          >
+            {reasoning}
+          </div>
         </details>
       ) : null}
       {tools.length > 0 && (
@@ -645,7 +677,6 @@ function AiChatSession({
   );
   const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
   const [forkContext, setForkContext] = useState<ForkContext | null>(() => takeForkContext());
-  const thinkingRef = useRef<HTMLDivElement>(null);
   const reasoningLatchRef = useRef('');
   const toolsLatchRef = useRef<ToolRow[]>([]);
   const liveTurnKeyRef = useRef('');
@@ -1047,11 +1078,6 @@ function AiChatSession({
   useEffect(() => {
     scrollIfLocked();
   }, [scrollIfLocked, projectedMessages, busy, status, reasoning]);
-
-  useEffect(() => {
-    const element = thinkingRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [reasoning]);
 
   useEffect(() => {
     const becamePaused = paused && !pausedRef.current;
@@ -1612,7 +1638,6 @@ function AiChatSession({
                                 writing={writing && !message.content}
                                 onAction={paused ? startTurn : pauseTurn}
                                 action={paused ? 'start' : 'stop'}
-                                thinkingRef={thinkingRef}
                               />
                             )}
                             <AssistantMessageBody
@@ -1668,7 +1693,6 @@ function AiChatSession({
                             writing={writing}
                             action={paused ? 'start' : 'stop'}
                             onAction={paused ? startTurn : pauseTurn}
-                            thinkingRef={thinkingRef}
                           />
                         </div>
                       </div>
