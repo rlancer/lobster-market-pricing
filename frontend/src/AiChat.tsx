@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAgentChat, getToolCallId, getToolInput, getToolOutput, getToolPartState } from '@cloudflare/ai-chat/react';
 import { useAgent } from 'agents/react';
 import { getToolName, isToolUIPart, type UIMessage } from 'ai';
@@ -36,6 +36,15 @@ import {
   waitForAgentHttpUrl,
 } from './chatHydration';
 import { coalesceAssistantMessages } from './coalesceAssistantMessages';
+import {
+  isLiveProjectedMessage,
+  isNearScrollBottom,
+  liveProjectedAssistant,
+  nextLatchedLiveList,
+  nextLatchedLiveText,
+  nextStickScrollTop,
+  reasoningTextFromParts,
+} from './chatTurnProgress';
 import { clearPendingPrompt, ensureLiveChatId, NEW_CHAT_EVENT, notifyChatsChanged, parseChatId, peekBotHandle, peekBotRunId, peekPendingPrompt, rememberChatId, requestNewChat, takeForkContext, type ForkContext } from './chatSession';
 import {
   attachmentsForBody,
@@ -552,7 +561,6 @@ function TurnProgress({
   writing,
   action,
   onAction,
-  thinkingRef,
 }: {
   status: string;
   reasoning: string;
@@ -560,8 +568,26 @@ function TurnProgress({
   writing: boolean;
   action: 'stop' | 'start';
   onAction: () => void;
-  thinkingRef: RefObject<HTMLDivElement | null>;
 }) {
+  const thinkingRef = useRef<HTMLDivElement>(null);
+  const thinkingPinnedRef = useRef(true);
+  const hadReasoningRef = useRef(false);
+  if (reasoning && !hadReasoningRef.current) thinkingPinnedRef.current = true;
+  hadReasoningRef.current = Boolean(reasoning);
+
+  useLayoutEffect(() => {
+    const element = thinkingRef.current;
+    if (!element) return;
+    const next = nextStickScrollTop({
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      pinned: thinkingPinnedRef.current,
+    });
+    thinkingPinnedRef.current = next.pinned;
+    if (element.scrollTop !== next.scrollTop) element.scrollTop = next.scrollTop;
+  }, [reasoning]);
+
   return (
     <div className="ai-busy">
       <div className="ai-busy-head">{action === 'stop' && <Spinner size="md" />}<span className="ai-busy-status">{status}</span>
@@ -574,12 +600,25 @@ function TurnProgress({
           {action === 'start' ? 'Start' : 'Stop'}
         </button>
       </div>
-      {reasoning && (
+      {reasoning ? (
         <details className="ai-thinking" open>
           <summary>Thinking</summary>
-          <div className="ai-thinking-body" ref={thinkingRef}>{reasoning}</div>
+          <div
+            className="ai-thinking-body"
+            ref={thinkingRef}
+            onScroll={(event) => {
+              const element = event.currentTarget;
+              thinkingPinnedRef.current = isNearScrollBottom(
+                element.scrollTop,
+                element.scrollHeight,
+                element.clientHeight,
+              );
+            }}
+          >
+            {reasoning}
+          </div>
         </details>
-      )}
+      ) : null}
       {tools.length > 0 && (
         <div className="ai-tool-feed">
           {tools.map((toolRow) => (
@@ -638,7 +677,10 @@ function AiChatSession({
   );
   const [backupState, setBackupState] = useState<'idle' | 'loading' | 'restored' | 'missing'>('idle');
   const [forkContext, setForkContext] = useState<ForkContext | null>(() => takeForkContext());
-  const thinkingRef = useRef<HTMLDivElement>(null);
+  const reasoningLatchRef = useRef('');
+  const toolsLatchRef = useRef<ToolRow[]>([]);
+  const liveTurnKeyRef = useRef('');
+  const resumeStreamRef = useRef<(() => Promise<void>) | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
   const [scrollRootReady, setScrollRootReady] = useState(false);
   const bindMessagesScrollRoot = useCallback((node: HTMLElement | null) => {
@@ -666,6 +708,9 @@ function AiChatSession({
     setAttachments(loadChatAttachments(chatId));
     incompleteContinueRef.current = null;
     incompleteAutoAttemptsRef.current = 0;
+    reasoningLatchRef.current = '';
+    toolsLatchRef.current = [];
+    liveTurnKeyRef.current = '';
   }, [chatId]);
 
   useEffect(() => {
@@ -742,6 +787,7 @@ function AiChatSession({
       }
     },
   });
+  resumeStreamRef.current = () => resumeStream();
 
   // Hydrate without blocking render: live DO get-messages (timed) plus D1
   // transcript backup for owned chats. Do not pass a custom getInitialMessages
@@ -857,13 +903,35 @@ function AiChatSession({
   }, [messages]);
   const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
   const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+  const turnLive = busy || paused;
   // Prefer the latest assistant after the user (recovery creates a new row per attempt).
-  const liveAssistant = (busy || paused) && lastUserIndex >= 0
+  const liveAssistant = turnLive && lastUserIndex >= 0
     ? [...messages.slice(lastUserIndex + 1)].reverse().find((message) => message.role === 'assistant')
     : undefined;
   const liveAssistantId = liveAssistant?.id;
-  const reasoning = liveAssistant?.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join('') ?? '';
-  const tools = projectTools(liveAssistant);
+  const liveProjected = liveProjectedAssistant(projectedMessages, turnLive);
+  // Stream replay and recovery rows briefly clear parts; latch keeps Thinking mounted.
+  const liveTurnKey = turnLive && lastUserIndex >= 0 ? String(messages[lastUserIndex]?.id ?? '') : '';
+  const streamedReasoning = reasoningTextFromParts(liveAssistant?.parts);
+  const reasoningTick = nextLatchedLiveText(
+    streamedReasoning || liveProjected?.reasoning || '',
+    reasoningLatchRef.current,
+    turnLive,
+    liveTurnKey,
+    liveTurnKeyRef.current,
+  );
+  reasoningLatchRef.current = reasoningTick.latch;
+  const reasoning = reasoningTick.shown;
+  const toolsTick = nextLatchedLiveList(
+    projectTools(liveAssistant),
+    toolsLatchRef.current,
+    turnLive,
+    liveTurnKey,
+    liveTurnKeyRef.current,
+  );
+  toolsLatchRef.current = toolsTick.latch;
+  liveTurnKeyRef.current = reasoningTick.turnKey;
+  const tools = toolsTick.shown;
   const writing = Boolean(liveAssistant?.parts.some((part) => part.type === 'text' && part.text));
   const visibleError = !busy && !paused && socketState === 'open' && !scopeLocked
     ? chatError?.message ?? connectionError?.message
@@ -1012,22 +1080,17 @@ function AiChatSession({
   }, [scrollIfLocked, projectedMessages, busy, status, reasoning]);
 
   useEffect(() => {
-    const element = thinkingRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [reasoning]);
-
-  useEffect(() => {
     const becamePaused = paused && !pausedRef.current;
     const becameLive = !paused && pausedRef.current;
     pausedRef.current = paused;
     if (becamePaused) reconnectSocket({ quiet: true, force: true });
-    if (becameLive && !scopeLocked) void resumeStream().catch(() => {});
-  }, [paused, reconnectSocket, resumeStream, scopeLocked]);
+    if (becameLive && !scopeLocked) void resumeStreamRef.current?.().catch(() => {});
+  }, [paused, reconnectSocket, scopeLocked]);
 
   useEffect(() => {
     if (paused || socketState !== 'open' || scopeLocked) return;
-    void resumeStream().catch(() => {});
-  }, [paused, socketState, resumeStream, scopeLocked]);
+    void resumeStreamRef.current?.().catch(() => {});
+  }, [paused, socketState, scopeLocked]);
 
   const pauseTurn = useCallback(() => {
     setPaused(true);
@@ -1506,7 +1569,9 @@ function AiChatSession({
                     )}
 
                     {projectedMessages.map((message, index) => {
-                      const isLive = message.role === 'assistant' && message.id === liveAssistantId;
+                      const isLive = message.role === 'assistant'
+                        && turnLive
+                        && isLiveProjectedMessage(message.id, [liveAssistantId, liveProjected?.id]);
                       // Per-turn share is for replies to people (assistant answers), not user asks.
                       const canShareTurn = message.role === 'assistant'
                         && !accessBlocked
@@ -1573,7 +1638,6 @@ function AiChatSession({
                                 writing={writing && !message.content}
                                 onAction={paused ? startTurn : pauseTurn}
                                 action={paused ? 'start' : 'stop'}
-                                thinkingRef={thinkingRef}
                               />
                             )}
                             <AssistantMessageBody
@@ -1618,7 +1682,7 @@ function AiChatSession({
                       </div>
                     )}
 
-                    {(busy || paused) && !liveAssistantId && (
+                    {turnLive && !liveProjected && (
                       <div className="ai-msg ai-assistant">
                         <AssistantMark />
                         <div className="ai-bubble">
@@ -1629,7 +1693,6 @@ function AiChatSession({
                             writing={writing}
                             action={paused ? 'start' : 'stop'}
                             onAction={paused ? startTurn : pauseTurn}
-                            thinkingRef={thinkingRef}
                           />
                         </div>
                       </div>
