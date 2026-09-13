@@ -125,6 +125,13 @@ describe("kalshi parse helpers", () => {
     expect(out[0].market_ticker).toBe("KXFED-27APR-T4.25");
   });
 
+  it("normalizeKalshiRecords keeps per-row fetched_at for candle history", () => {
+    const rows = parseKalshiMarketsPayload("KXFED", { markets: [SAMPLE_MARKET] });
+    rows[0].fetched_at = "2026-08-01T00:00:00.000Z";
+    const out = normalizeKalshiRecords(rows, "run-1", "2026-08-22T00:00:00.000Z");
+    expect(out[0].fetched_at).toBe("2026-08-01T00:00:00.000Z");
+  });
+
   it("kalshiSeriesList exposes the curated allowlist including sports parlays", () => {
     const list = kalshiSeriesList();
     expect(list).toContain("KXFED");
@@ -349,6 +356,7 @@ describe("publishKalshiSeries sports parlays", () => {
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
         KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_SPORTS_LOOKBACK_DAYS: 0,
         runId: () => "run-mve",
       });
       expect(result.published).toBe(true);
@@ -400,11 +408,169 @@ describe("publishKalshiSeries sports parlays", () => {
         PIPELINE_AUTH_TOKEN: "tok",
         HTTP_RETRIES: 0,
         KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_SPORTS_LOOKBACK_DAYS: 0,
         runId: () => "run-mve-skip",
       });
       expect(result.published).toBe(false);
       expect(result.row_count).toBe(0);
       expect(posts).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("backfills ~30d of daily candles and skips settlement 0/1 snapshots", async () => {
+    const urls: string[] = [];
+    const posts: unknown[] = [];
+    const settledCombo = {
+      ticker: "KXNFLPARLAY-26AUG16-DALNYG",
+      event_ticker: "KXNFLPARLAY-26AUG16",
+      series_ticker: "KXNFLPARLAY",
+      title: "Cowboys win AND Giants win",
+      category: "Sports",
+      status: "settled",
+      market_type: "binary",
+      mve_collection_ticker: "KXMVESPORT-NFL",
+      mve_selected_legs: [
+        { event_ticker: "KXNFLGAME-26AUG16DAL", market_ticker: "KXNFLGAME-26AUG16DAL-DAL", side: "yes" },
+        { event_ticker: "KXNFLGAME-26AUG16NYG", market_ticker: "KXNFLGAME-26AUG16NYG-NYG", side: "yes" },
+      ],
+      yes_bid_dollars: "1.00",
+      yes_ask_dollars: "1.00",
+      last_price_dollars: "1.00",
+      volume_fp: "800",
+      volume_24h_fp: "0",
+      close_time: "2026-08-17T00:00:00Z",
+    };
+    const settledLegDal = {
+      ticker: "KXNFLGAME-26AUG16DAL-DAL",
+      event_ticker: "KXNFLGAME-26AUG16DAL",
+      series_ticker: "KXNFLGAME",
+      title: "Cowboys win",
+      status: "settled",
+      yes_bid_dollars: "1.00",
+      yes_ask_dollars: "1.00",
+      last_price_dollars: "1.00",
+      volume_fp: "9000",
+      close_time: "2026-08-17T00:00:00Z",
+    };
+    const settledLegNyg = {
+      ticker: "KXNFLGAME-26AUG16NYG-NYG",
+      event_ticker: "KXNFLGAME-26AUG16NYG",
+      series_ticker: "KXNFLGAME",
+      title: "Giants win",
+      status: "settled",
+      yes_bid_dollars: "0.00",
+      yes_ask_dollars: "0.00",
+      last_price_dollars: "0.00",
+      volume_fp: "8000",
+      close_time: "2026-08-17T00:00:00Z",
+    };
+    const candleTs = Math.floor(Date.parse("2026-08-16T00:00:00.000Z") / 1000);
+    const candleIso = new Date(candleTs * 1000).toISOString();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("/markets/candlesticks")) {
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              market_ticker: "KXNFLPARLAY-26AUG16-DALNYG",
+              candlesticks: [
+                {
+                  end_period_ts: candleTs,
+                  yes_bid: { close_dollars: "0.18" },
+                  yes_ask: { close_dollars: "0.22" },
+                  price: { close_dollars: "0.20" },
+                  volume_fp: "120.00",
+                  open_interest_fp: "40.00",
+                },
+                {
+                  end_period_ts: candleTs + 86400,
+                  yes_bid: { close_dollars: "1.00" },
+                  yes_ask: { close_dollars: "1.00" },
+                  price: { close_dollars: "1.00" },
+                  volume_fp: "10.00",
+                  open_interest_fp: "40.00",
+                },
+              ],
+            },
+            {
+              market_ticker: "KXNFLGAME-26AUG16DAL-DAL",
+              candlesticks: [{
+                end_period_ts: candleTs,
+                yes_bid: { close_dollars: "0.62" },
+                yes_ask: { close_dollars: "0.64" },
+                price: { close_dollars: "0.63" },
+                volume_fp: "400.00",
+                open_interest_fp: "200.00",
+              }],
+            },
+            {
+              market_ticker: "KXNFLGAME-26AUG16NYG-NYG",
+              candlesticks: [{
+                end_period_ts: candleTs,
+                yes_bid: { close_dollars: "0.31" },
+                yes_ask: { close_dollars: "0.33" },
+                price: { close_dollars: "0.32" },
+                volume_fp: "300.00",
+                open_interest_fp: "150.00",
+              }],
+            },
+          ],
+        }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only") && url.includes("status=open")) {
+        return new Response(JSON.stringify({ markets: [NFL_COMBO], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only") && url.includes("status=settled")) {
+        return new Response(JSON.stringify({ markets: [settledCombo], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only") && url.includes("status=closed")) {
+        return new Response(JSON.stringify({ markets: [], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({
+          markets: [NFL_LEG_KC, NFL_LEG_BUF, settledLegDal, settledLegNyg],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    });
+    try {
+      const result = await publishKalshiSeries("KXMVE", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_SPORTS_LOOKBACK_DAYS: 30,
+        now: () => Date.parse("2026-09-13T17:00:00.000Z"),
+        runId: () => "run-mve-backfill",
+      });
+      expect(result.published).toBe(true);
+      const settledUrl = urls.find((u) => u.includes("status=settled"));
+      expect(settledUrl).toMatch(/min_settled_ts=\d+/);
+      const settledTs = Number(new URL(settledUrl!).searchParams.get("min_settled_ts"));
+      expect(settledTs).toBeGreaterThan(Math.floor(Date.now() / 1000) - 31 * 86400);
+      expect(settledTs).toBeLessThan(Math.floor(Date.now() / 1000) - 29 * 86400);
+      expect(urls.some((u) => u.includes("status=closed") && u.includes("min_close_ts="))).toBe(true);
+      expect(urls.some((u) => u.includes("/markets/candlesticks") && u.includes("period_interval=1440"))).toBe(true);
+      const body = posts[0] as Array<Record<string, unknown>>;
+      const liveCombo = body.find((r) => r.market_ticker === "KXNFLPARLAY-26SEP13-KCBUF" && r.fetched_at === "2026-09-13T17:00:00.000Z");
+      expect(liveCombo?.yes_last).toBeCloseTo(0.22);
+      const settledLive = body.find((r) => r.market_ticker === "KXNFLPARLAY-26AUG16-DALNYG" && r.fetched_at === "2026-09-13T17:00:00.000Z");
+      expect(settledLive).toBeUndefined();
+      const settledCandle = body.find((r) => r.market_ticker === "KXNFLPARLAY-26AUG16-DALNYG" && r.fetched_at === candleIso);
+      expect(settledCandle?.yes_last).toBeCloseTo(0.20);
+      expect(settledCandle?.yes_bid).toBeCloseTo(0.18);
+      expect(settledCandle?.status).toBe("settled");
+      const settlementPrint = body.find((r) => r.market_ticker === "KXNFLPARLAY-26AUG16-DALNYG" && r.yes_last === 1);
+      expect(settlementPrint).toBeUndefined();
+      expect(body.some((r) => r.market_ticker === "KXNFLGAME-26AUG16DAL-DAL" && r.fetched_at === candleIso)).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }

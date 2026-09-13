@@ -7,8 +7,9 @@
  *   mve|{collection}|{yes|no}:{LEG_TICKER},{yes|no}:{LEG_TICKER},…
  * Combo rows use theme=sports and market_type=multivariate. Leg contracts are
  * published as their own sports rows so independence scoring can join on
- * market_ticker. Do not scrape the full sports catalog — only open MVE combos
- * plus the legs those combos actually select.
+ * market_ticker. Do not scrape the full sports catalog — only MVE combos
+ * (open, plus settled/closed in the lookback window) and the legs those
+ * combos actually select. Daily candlesticks carry the history.
  */
 
 export const MVE_CATEGORY_PREFIX = "mve|";

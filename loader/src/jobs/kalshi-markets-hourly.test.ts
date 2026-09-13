@@ -79,7 +79,13 @@ function kalshiFetch(url: string, init: RequestInit | undefined, posts: unknown[
   if (url.includes("/series/")) {
     return new Response(JSON.stringify({ series: { category: "Economics" } }), { status: 200 });
   }
+  if (url.includes("/markets/candlesticks")) {
+    return new Response(JSON.stringify({ markets: [] }), { status: 200 });
+  }
   if (url.includes("mve_filter=only")) {
+    if (url.includes("status=settled") || url.includes("status=closed")) {
+      return new Response(JSON.stringify({ markets: [], cursor: "" }), { status: 200 });
+    }
     return new Response(JSON.stringify({ markets: [MVE_COMBO], cursor: "" }), { status: 200 });
   }
   if (url.includes("tickers=")) {

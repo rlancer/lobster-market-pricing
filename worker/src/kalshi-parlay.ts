@@ -8,7 +8,7 @@
  */
 
 export const KALSHI_PARLAY_SLUG = "kalshi-parlays";
-export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v2";
+export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v3";
 
 export type FedRateKey = "hike_25" | "cut_25" | "hold";
 export type FedDissentKey = "zero" | "some";
@@ -111,6 +111,12 @@ export function isTwoSided(q: Pick<KalshiQuote, "yes_bid" | "yes_ask">): boolean
   return bid != null && ask != null
     && Number.isFinite(bid) && Number.isFinite(ask)
     && bid > 0 && ask < 1 && ask >= bid;
+}
+
+/** Mid in (0, 1) — live CLOB or a last pre-settlement lake snapshot. Settlement 0/1 is not a quote. */
+export function hasTradableQuote(q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last">): boolean {
+  const mid = quoteMid(q);
+  return mid != null && mid > 0 && mid < 1;
 }
 
 export function independenceJoint(probs: number[]): number {

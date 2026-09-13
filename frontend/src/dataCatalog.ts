@@ -338,7 +338,7 @@ export const FEEDS: CatalogItem[] = [
     title: 'Kalshi event contracts',
     summary: 'Curated Fed/CPI/index/crypto/oil prediction markets plus sports parlays',
     description:
-      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI — plus open sports parlay combos (theme=sports) and the legs those combos select. Not the full Kalshi catalog. Combo rows encode collection + selected tickers in category as mve|{collection}|{yes|no}:{LEG},…. Investing rows carry optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Powers /research/{ticker} event-market rails via GET /api/research/{ticker}/kalshi (related_symbol only), the /experiments/kalshi-parlays notebook, Chat event-vol joins, and Kalshi trade suggestions (investing series only).',
+      'Hourly snapshots of investing-relevant Kalshi markets into options.kalshi_markets — Fed funds / FOMC decisions, CPI, GDP, S&P/Russell/Dow levels, BTC/ETH ranges, WTI — plus sports parlay combos (theme=sports) and the legs those combos select, including ~30 days of daily candles. Not the full Kalshi catalog. Combo rows encode collection + selected tickers in category as mve|{collection}|{yes|no}:{LEG},…. Investing rows carry optional related_symbol (SPY, TLT, BTC-USD, …) for joins. Powers /research/{ticker} event-market rails via GET /api/research/{ticker}/kalshi (related_symbol only), the /experiments/kalshi-parlays notebook, Chat event-vol joins, and Kalshi trade suggestions (investing series only).',
     provider: 'Kalshi',
     cadence: 'Hourly (kalshi-markets-hourly job)',
     tables: ['kalshi_markets'],

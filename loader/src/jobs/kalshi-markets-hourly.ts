@@ -10,7 +10,8 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 // Curated Kalshi event contracts: batch-scoped, ungated, hourly cadence.
 // Prediction markets trade nearly 24/7 — hourly snapshots keep Fed/CPI/index
 // odds and sports parlay combos (KXMVE ingest) fresh without scraping the
-// full sports catalog.
+// full sports catalog. Sports lookback (~30d daily candles) is on the KXMVE
+// fetch, not a second job.
 //
 // Each pass syncs one series_ticker from symbols/kalshi-series.json so a
 // per-series failure is recorded without aborting the rest.
