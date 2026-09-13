@@ -160,6 +160,17 @@ export function eventPrefixFromTicker(ticker: string): string {
   return trimmed || t;
 }
 
+/** NFL-style game slug: 26SEP13ATLPIT (date + two 3-letter teams). */
+const SPORTS_GAME_SLUG_RE = /(\d{2}[A-Z]{3}\d{2}[A-Z]{6})/;
+
+export function sportsGameKey(ticker: string, eventTicker?: string | null): string {
+  const blob = `${eventTicker || ""}-${ticker}`.toUpperCase();
+  const game = blob.match(SPORTS_GAME_SLUG_RE);
+  if (game) return game[1]!;
+  if (eventTicker && eventTicker.trim()) return eventTicker.trim().toUpperCase();
+  return eventPrefixFromTicker(ticker);
+}
+
 export function parlayGameGroup(eventTickers: string[]): "same_game" | "cross_game" | "mixed" {
   const events = [...new Set(eventTickers.map((e) => e.trim().toUpperCase()).filter(Boolean))];
   if (events.length <= 1) return "same_game";

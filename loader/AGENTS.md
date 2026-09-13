@@ -44,7 +44,9 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   (batch, hourly; curated Kalshi
   Fed/CPI/index/crypto/oil event contracts plus sports parlays — MVE
   combos that name at least one sports leg (not crypto-only 15m stacks,
-  not the full catalog) and those legs, including ~30 days of daily candles — →
+  not the full catalog) and those legs, including ~30 days of daily candles
+  and an optional capped same-game RFQ quote probe (`KALSHI_RFQ_PROBE_ENABLED`,
+  never accepts) — →
   `options.kalshi_markets` from `symbols/kalshi-series.json`).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
@@ -232,8 +234,10 @@ Instruments:       <PIPELINE_INSTRUMENTS_URL secret — stream cboe_instruments_
 Yields:            <PIPELINE_YIELDS_URL secret — stream cboe_yields_v2>
 Macro:             <PIPELINE_MACRO_URL secret — stream cboe_macro_v2>
 KalshiMarkets:     <PIPELINE_KALSHI_MARKETS_URL secret — stream cboe_kalshi_markets_v2>
-         # Optional auth (higher rate tier): KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_PEM
-         # (read-only Kalshi API key; RSA-PSS signed GETs). Anonymous public GETs if unset.
+         # Optional auth: KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_PEM
+         # (RSA-PSS signed requests). Read-only keys are enough for GETs;
+         # KALSHI_RFQ_PROBE_ENABLED needs trading permission (403 skips).
+         # Anonymous public GETs if unset.
          # Note: Pipelines open-beta cap is 20 streams. Kalshi provision may
          # pause cboe_reg_sho_daily_* to free a slot (reg-sho-daily then dry-runs;
          # options.reg_sho_daily history remains). Macro provision may pause

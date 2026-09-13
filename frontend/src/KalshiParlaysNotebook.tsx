@@ -379,8 +379,11 @@ export default function KalshiParlaysNotebookPage() {
                   1H total, Henry 110+ AND Jackson 40+) have correlated legs.
                   Corr room is Fréchet high minus p×q — the positive
                   correlation a maker leaves on the table if the RFQ quotes
-                  independence. Volume-backed prints are required before we
-                  can see whether they actually charge it. Legs are aligned
+                  independence. The hourly ingest solicits a capped set of
+                  same-game RFQs, maps the private two-way onto
+                  <code>yes_bid</code>/<code>yes_ask</code>, then cancels
+                  without accepting — that is how implied ρ becomes
+                  observable. Legs are aligned
                   to the combo snapshot time, not mixed latest-wins.
                 </Text>
                 <Text type="supporting">
@@ -422,8 +425,9 @@ export default function KalshiParlaysNotebookPage() {
                   their legs, including last quotes from the 30-day candle
                   backfill. A two-sided book or an auction print in (0, 1)
                   is what this notebook can screen against independence.
-                  Empty 0/0/0 with last 0 is the resting venue — maker quotes
-                  themselves never land in the lake.
+                  Empty 0/0/0 with last 0 is the resting venue until the
+                  hourly RFQ probe fills a two-way (source
+                  <code>kalshi_rfq</code>) or an auction print lands.
                 </Text>
                 <Text>
                   Scanned {snapshot.mve.scanned} lake MVE combos · {snapshot.mve.two_sided} two-sided on the latest snapshot · {snapshot.mve.empty_book} empty.
@@ -448,7 +452,8 @@ export default function KalshiParlaysNotebookPage() {
               product of the selected probabilities. The Fréchet–Hoeffding
               bounds are max(0, Σpᵢ − (n−1)) and min pᵢ. A listed combo mid C
               is compared to that product when the combo book is two-sided
-              inside (0, 1) or when <code>yes_last</code> is an RFQ auction
+              inside (0, 1), when the snapshot is a solicited RFQ two-way
+              (<code>source=kalshi_rfq</code>), or when <code>yes_last</code> is an RFQ auction
               print in (0, 1). Empty 0/0/0 with last 0 is not C. A gap larger than half the
               combo spread plus half the leg spreads is flagged; clearing
               Kalshi taker fees (~7% of expected earnings) is a stricter bar.
@@ -467,8 +472,8 @@ export default function KalshiParlaysNotebookPage() {
               Live Kalshi public Trade API for Fed/homemade series. Sports
                   parlays prefer <code>options.kalshi_markets</code> history from the
                   hourly KXMVE ingest (MVE combos + selected legs + daily candles).
-                  Combo mids use the last two-sided snapshot or RFQ auction
-                  print; legs are the nearest
+                  Combo mids use the last two-sided snapshot, solicited RFQ
+                  two-way, or RFQ auction print; legs are the nearest
                   tradable snapshot to that time. Crypto target-price CROSSCATEGORY
                   stacks are scored separately from NFL/sports props. Dissent
                   &gt;0 is the complement of the 0-dissent contract. Return series

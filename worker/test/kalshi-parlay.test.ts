@@ -385,6 +385,75 @@ describe("buildSportsRows", () => {
     assert.match(rows[0]!.notes, /auction print/);
   });
 
+  it("scores a solicited RFQ two-way and flags ignores_correlation when the quote is p×q", () => {
+    const category = encodeMveCategory("KXMVECROSSCATEGORY-SHARD1-R", [
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
+    ]);
+    const rows = buildSportsRows([
+      {
+        series_ticker: "KXMVE",
+        market_ticker: "KXMVECROSSCATEGORY-RFQQUOTE",
+        event_ticker: null,
+        title: "yes Derrick Henry: 110+,yes Lamar Jackson: 40+",
+        yes_subtitle: null,
+        theme: "sports",
+        category,
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0.18,
+        yes_ask: 0.21,
+        yes_last: 0.195,
+        volume: 0,
+        close_time: "2026-09-14T00:00:00Z",
+        fetched_at: "2026-09-13T20:00:00.000Z",
+        source: "kalshi_rfq",
+      },
+      {
+        series_ticker: "KXNFLRSHYDS",
+        market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110",
+        event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+        title: "Henry 110+",
+        yes_subtitle: "Derrick Henry: 110+",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.39,
+        yes_ask: 0.41,
+        yes_last: 0.40,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+      {
+        series_ticker: "KXNFLRSHYDS",
+        market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40",
+        event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+        title: "Jackson 40+",
+        yes_subtitle: "Lamar Jackson: 40+",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.48,
+        yes_ask: 0.50,
+        yes_last: 0.49,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+    ], Date.parse("2026-09-13T20:00:00Z"));
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0]!.score.joint != null);
+    assert.ok(Math.abs(rows[0]!.score.joint! - 0.195) < 1e-6);
+    assert.ok(rows[0]!.score.flags.includes("rfq_quote"));
+    assert.ok(rows[0]!.score.flags.includes("same_game"));
+    assert.ok(rows[0]!.score.flags.includes("ignores_correlation"));
+    assert.equal(rows[0]!.score.flags.includes("no_combo_tape"), false);
+    assert.equal(rows[0]!.score.flags.includes("rfq_auction"), false);
+    assert.match(rows[0]!.notes, /solicited RFQ two-way/);
+    assert.ok(Math.abs(rows[0]!.score.implied_rho ?? 1) < 0.15);
+  });
+
   it("uses the last two-sided combo candle, not latest-wins RFQ", () => {
     const category = encodeMveCategory("KXMVESPORT-NFL", [
       { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
@@ -951,7 +1020,7 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v6");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v7");
     assert.equal(snapshot.sports_source, "none");
     assert.equal(snapshot.sports.length, 0);
     assert.equal(snapshot.listed.length, 4);

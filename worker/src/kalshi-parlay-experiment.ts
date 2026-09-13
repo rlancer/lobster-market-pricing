@@ -171,6 +171,8 @@ export interface LakeKalshiMarket {
   volume: number | null;
   close_time: string | null;
   fetched_at?: string | null;
+  /** `kalshi_rfq` when the snapshot is a solicited RFQ two-way, else `kalshi`. */
+  source?: string | null;
 }
 
 export interface KalshiParlayDeps {
@@ -682,6 +684,8 @@ export function scoreMveParlays(
     if (joint == null) {
       score.flags.push("no_combo_tape");
       score.flags.push("rfq_auction");
+    } else if ((displaySnap.source || "").toLowerCase() === "kalshi_rfq") {
+      score.flags.push("rfq_quote");
     } else if (!twoSidedTape) {
       score.flags.push("rfq_auction_print");
     }
@@ -703,7 +707,9 @@ export function scoreMveParlays(
               : "Mixed same-game and cross-game legs.",
       joint == null
         ? "Combo CLOB is empty because sports parlays are RFQ auctions (HVM). Makers quote privately; 0/0/0 is the resting book, not a missing market. Independence is the uncorrelated reservation; same-game auction fair is the Fréchet interval from the lake legs."
-        : score.flags.includes("rfq_auction_print")
+        : score.flags.includes("rfq_quote")
+          ? "Combo mid is a solicited RFQ two-way (makers' private yes_bid / implied ask from no_bid), not a standing CLOB. The RFQ was cancelled without accepting."
+          : score.flags.includes("rfq_auction_print")
           ? "Combo mid is an RFQ auction print (yes_last in (0, 1) on an empty resting book), not a standing two-sided CLOB."
           : score.flags.includes("survives_fees")
           ? "Listed combo disagrees with the product of the aligned lake legs by more than spread plus Kalshi taker fees."
@@ -712,7 +718,13 @@ export function scoreMveParlays(
             : "Listed combo is within spread of the independence product of the aligned lake legs.",
       missing ? `${missing} selected legs missing a tradable lake snapshot near the combo time.` : "",
       tapeSnap && tapeSnap.fetched_at !== snaps[0]?.fetched_at
-        ? `Combo mid from last ${twoSidedTape ? "two-sided" : "auction-print"} snapshot ${tapeSnap.fetched_at}; not the latest empty RFQ book.`
+        ? `Combo mid from last ${
+          (displaySnap.source || "").toLowerCase() === "kalshi_rfq"
+            ? "solicited RFQ"
+            : twoSidedTape
+              ? "two-sided"
+              : "auction-print"
+        } snapshot ${tapeSnap.fetched_at}; not the latest empty RFQ book.`
         : "",
       /closed|settled|finalized/i.test(displaySnap.status)
         ? `Scored from a lake snapshot (status ${displaySnap.status}); not a live CLOB.`
@@ -1098,16 +1110,16 @@ export function buildVerdict(
         ? ` Quoting independence would ignore up to ${(maxRoom * 100).toFixed(1)}¢ of positive correlation versus Fréchet high${meanRoom != null ? ` (mean ${(meanRoom * 100).toFixed(1)}¢ among scored same-game rows)` : ""}.`
         : "";
       bullets.push(
-        `${mve.same_game} lake sports combos are same-game (correlated legs). ${mve.cross_game ?? 0} are cross-game.${roomTxt} Volume-backed RFQ prints are what would show whether makers actually charge that correlation.`,
+        `${mve.same_game} lake sports combos are same-game (correlated legs). ${mve.cross_game ?? 0} are cross-game.${roomTxt} Solicited RFQ two-ways and volume-backed prints are what show whether makers actually charge that correlation.`,
       );
     }
     if (mve.tape_scored) {
       bullets.push(
-        `${mve.tape_flagged ?? 0} of ${mve.tape_scored} combo tapes (two-sided book or RFQ auction print) disagree with independence after spread; ${mve.survives_spread_fees ?? 0} still clear Kalshi taker fees.`,
+        `${mve.tape_flagged ?? 0} of ${mve.tape_scored} combo tapes (two-sided book, solicited RFQ quote, or auction print) disagree with independence after spread; ${mve.survives_spread_fees ?? 0} still clear Kalshi taker fees.`,
       );
     } else {
       bullets.push(
-        "No public combo print this window — maker RFQ quotes are private. Same-game auction fair is the Fréchet interval from the lake legs; a maker quoting p×q on a same-game stack is selling correlation too cheap. Cross-game independence is closer to the right reservation.",
+        "No public combo print this window — maker RFQ quotes stay private until the hourly ingest solicits them (capped same-game RFQ probe). Same-game auction fair is the Fréchet interval from the lake legs; a maker quoting p×q on a same-game stack is selling correlation too cheap. Cross-game independence is closer to the right reservation.",
       );
     }
   } else if (sports.length) {

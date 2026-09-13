@@ -6,6 +6,7 @@ import {
   parseMveCategory,
   parseMveSelectedLegs,
   parlayGameGroup,
+  sportsGameKey,
   seriesTickerFromMarketTicker,
 } from "./kalshi-mve.js";
 
@@ -102,5 +103,7 @@ describe("game grouping", () => {
     expect(parlayGameGroup(["KXNFLGAME-26SEP13KC", "KXNFLGAME-26SEP13BUF"])).toBe("cross_game");
     expect(eventPrefixFromTicker("KXNFLGAME-26SEP13KC-KC")).toBe("KXNFLGAME-26SEP13KC");
     expect(seriesTickerFromMarketTicker("KXNFLGAME-26SEP13KC-KC")).toBe("KXNFLGAME");
+    expect(sportsGameKey("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110")).toBe("26SEP13BALIND");
+    expect(sportsGameKey("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40")).toBe("26SEP13BALIND");
   });
 });
