@@ -671,9 +671,9 @@ export function scoreMveParlays(
       : null;
     const notes = [
       tape === "crypto_mve"
-        ? "Crypto 15-minute target-price MVE — not a sportsbook tape. Same-close crypto targets are correlated."
+        ? "Crypto target-price MVE (15m / daily) — not a sportsbook tape. Same-close crypto targets are correlated."
         : tape === "mixed"
-          ? "Mixed sports props and crypto 15m targets in one CROSSCATEGORY combo."
+          ? "Mixed sports props and crypto target-price legs in one CROSSCATEGORY combo."
           : group === "same_game"
             ? (frechetNote || "Same-game parlay — independence is the wrong model even before the combo quote.")
             : group === "cross_game"
@@ -719,7 +719,7 @@ export function scoreMveParlays(
   };
 }
 
-/** Sports + mixed CROSSCATEGORY stacks for the sports table. Crypto 15m MVEs are split out. */
+/** Sports + mixed CROSSCATEGORY stacks for the sports table. Crypto target-price MVEs are split out. */
 export function buildSportsRows(
   markets: LakeKalshiMarket[],
   nowMs: number,
@@ -803,6 +803,14 @@ function censusFromRawMarkets(markets: unknown[]): MveCensus {
   });
 }
 
+function comboLegTickers(snaps: LakeKalshiMarket[]): string[] {
+  for (const row of snaps) {
+    const parsed = parseMveCategory(row.category);
+    if (parsed) return parsed.legs.map((leg) => leg.market_ticker);
+  }
+  return [];
+}
+
 export function censusFromScoredParlays(
   scored: TwoLegRow[],
   markets: LakeKalshiMarket[],
@@ -814,6 +822,13 @@ export function censusFromScoredParlays(
   let ever = 0;
   let latestTwo = 0;
   let empty = 0;
+  let sports_combos = 0;
+  let crypto_mve_combos = 0;
+  let mixed_combos = 0;
+  let same_game = 0;
+  let cross_game = 0;
+  let mixed_game = 0;
+  let two_leg = 0;
   const titles: string[] = [];
   for (const [, snaps] of comboEntries) {
     if (pickTwoSidedSnapshot(snaps)) ever += 1;
@@ -821,6 +836,23 @@ export function censusFromScoredParlays(
     if (isTwoSided(lakeToQuote(latest))) latestTwo += 1;
     else empty += 1;
     if (titles.length < 5 && latest.title) titles.push(latest.title.slice(0, 80));
+    const tickers = comboLegTickers(snaps);
+    if (tickers.length < 2) continue;
+    const kind = mveTapeKind(tickers);
+    if (kind === "crypto_mve") {
+      crypto_mve_combos += 1;
+      continue;
+    }
+    if (kind === "mixed") {
+      mixed_combos += 1;
+      continue;
+    }
+    sports_combos += 1;
+    if (tickers.length === 2) two_leg += 1;
+    const group = parlayGameGroup(tickers.map((ticker) => sportsGameKey(ticker)));
+    if (group === "same_game") same_game += 1;
+    else if (group === "cross_game") cross_game += 1;
+    else mixed_game += 1;
   }
   const tape = scored.filter((row) => row.score.joint != null);
   const flagged = tape.filter((row) => row.score.flags.includes("independence_gap"));
@@ -834,13 +866,13 @@ export function censusFromScoredParlays(
     sample_titles: titles,
     combo_tickers: comboEntries.length,
     ever_two_sided: ever,
-    sports_combos: scored.filter((row) => (row.tape_kind ?? "sports") === "sports").length,
-    crypto_mve_combos: scored.filter((row) => row.tape_kind === "crypto_mve").length,
-    mixed_combos: scored.filter((row) => row.tape_kind === "mixed").length,
-    same_game: scored.filter((row) => row.score.flags.includes("same_game")).length,
-    cross_game: scored.filter((row) => row.score.flags.includes("cross_game")).length,
-    mixed_game: scored.filter((row) => row.score.flags.includes("mixed_game")).length,
-    two_leg: scored.filter((row) => row.legs.length === 2).length,
+    sports_combos,
+    crypto_mve_combos,
+    mixed_combos,
+    same_game,
+    cross_game,
+    mixed_game,
+    two_leg,
     tape_scored: tape.length,
     tape_flagged: flagged.length,
     max_abs_tape_gap: gaps.length ? Math.max(...gaps.map(Math.abs)) : null,
@@ -1025,7 +1057,7 @@ export function buildVerdict(
       `${mve.ever_two_sided ?? 0} of ${mve.combo_tickers} lake MVE combos ever had a two-sided book inside (0,1). RFQ 0/0/0 is not a listed quote.`,
     );
     bullets.push(
-      `Split: ${mve.sports_combos ?? 0} sports, ${mve.crypto_mve_combos ?? 0} crypto 15m target-price MVEs, ${mve.mixed_combos ?? 0} mixed. ${mve.same_game ?? 0} same-game, ${mve.cross_game ?? 0} cross-game, ${mve.two_leg ?? 0} two-leg.`,
+      `Split: ${mve.sports_combos ?? 0} sports, ${mve.crypto_mve_combos ?? 0} crypto target-price MVEs, ${mve.mixed_combos ?? 0} mixed. ${mve.same_game ?? 0} same-game, ${mve.cross_game ?? 0} cross-game, ${mve.two_leg ?? 0} two-leg.`,
     );
     if (mve.tape_scored) {
       bullets.push(
@@ -1047,7 +1079,7 @@ export function buildVerdict(
   }
   if (cryptoMves.length && !mve.combo_tickers) {
     bullets.push(
-      `${cryptoMves.length} crypto 15m MVEs scored separately from sports — independence on same-close crypto targets is a different question.`,
+      `${cryptoMves.length} crypto target-price MVEs scored separately from sports — independence on same-close crypto targets is a different question.`,
     );
   }
   if (homemadeHigh) {

@@ -18,7 +18,7 @@ test('formats gaps with a sign', () => {
   assert.equal(flagLabel('independence_gap'), 'vs independent');
   assert.equal(flagLabel('same_game'), 'same-game');
   assert.equal(flagLabel('no_combo_tape'), 'no combo tape');
-  assert.equal(flagLabel('crypto_mve'), 'crypto 15m');
+  assert.equal(flagLabel('crypto_mve'), 'crypto MVE');
   assert.equal(flagLabel('survives_fees'), 'clears fees');
   assert.equal(gapTone(0.05), 'green');
   assert.equal(gapTone(-0.05), 'red');

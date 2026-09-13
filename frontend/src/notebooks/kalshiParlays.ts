@@ -37,7 +37,7 @@ export function flagLabel(flag: string): string {
     case 'no_combo_tape':
       return 'no combo tape';
     case 'crypto_mve':
-      return 'crypto 15m';
+      return 'crypto MVE';
     case 'mixed_crypto':
       return 'mixed crypto';
     case 'mixed_game':

@@ -183,7 +183,7 @@ export default function KalshiParlaysNotebookPage() {
       { id: 'marginals', label: 'Cross-book marginals' },
       { id: 'homemade', label: 'Homemade parlays' },
       { id: 'sports', label: 'Sports parlays' },
-      { id: 'crypto', label: 'Crypto 15m MVEs' },
+      { id: 'crypto', label: 'Crypto target-price MVEs' },
       { id: 'mve', label: 'Combo CLOB' },
       { id: 'method', label: 'Method' },
     ];
@@ -385,11 +385,11 @@ export default function KalshiParlaysNotebookPage() {
               </VStack>
             </Section>
 
-            <Section id="crypto" num={tocById.get('crypto')?.num ?? '06'} title="Crypto 15m MVEs">
+            <Section id="crypto" num={tocById.get('crypto')?.num ?? '06'} title="Crypto target-price MVEs">
               <VStack gap={3}>
                 <Text>
-                  <code>KXMVECROSSCATEGORY</code> also packs 15-minute crypto
-                  target-price legs (BTC, ETH, SOL, …). Those are not a
+                  <code>KXMVECROSSCATEGORY</code> also packs 15-minute and daily
+                  crypto target-price legs (BTC, ETH, SOL, …). Those are not a
                   sportsbook tape. Independence on same-close crypto targets
                   is a different question from NFL props — lake BTC×ETH
                   daily returns already correlate around 0.9. They are
@@ -414,7 +414,7 @@ export default function KalshiParlaysNotebookPage() {
                 <Text>
                   Scanned {snapshot.mve.scanned} lake MVE combos · {snapshot.mve.two_sided} two-sided on the latest snapshot · {snapshot.mve.empty_book} empty.
                   {snapshot.mve.combo_tickers != null
-                    ? ` Ever two-sided in the window: ${snapshot.mve.ever_two_sided ?? 0} of ${snapshot.mve.combo_tickers}. Sports ${snapshot.mve.sports_combos ?? 0} · crypto 15m ${snapshot.mve.crypto_mve_combos ?? 0} · mixed ${snapshot.mve.mixed_combos ?? 0}. Tape-scored ${snapshot.mve.tape_scored ?? 0} · flagged ${snapshot.mve.tape_flagged ?? 0} · clears fees ${snapshot.mve.survives_spread_fees ?? 0}.`
+                    ? ` Ever two-sided in the window: ${snapshot.mve.ever_two_sided ?? 0} of ${snapshot.mve.combo_tickers}. Sports ${snapshot.mve.sports_combos ?? 0} · crypto target-price ${snapshot.mve.crypto_mve_combos ?? 0} · mixed ${snapshot.mve.mixed_combos ?? 0}. Tape-scored ${snapshot.mve.tape_scored ?? 0} · flagged ${snapshot.mve.tape_flagged ?? 0} · clears fees ${snapshot.mve.survives_spread_fees ?? 0}.`
                     : ''}
                 </Text>
                 {snapshot.mve.sample_titles.length ? (
@@ -453,8 +453,8 @@ export default function KalshiParlaysNotebookPage() {
                   parlays prefer <code>options.kalshi_markets</code> history from the
                   hourly KXMVE ingest (MVE combos + selected legs + daily candles).
                   Combo mids use the last two-sided snapshot; legs are the nearest
-                  tradable snapshot to that time. Crypto 15m CROSSCATEGORY stacks
-                  are scored separately from NFL/sports props. Dissent
+                  tradable snapshot to that time. Crypto target-price CROSSCATEGORY
+                  stacks are scored separately from NFL/sports props. Dissent
                   &gt;0 is the complement of the 0-dissent contract. Return series
               from <code>options.ohlc</code>, latest-wins per symbol/date. Chat
               still treats Kalshi as investing event odds — sports rows are

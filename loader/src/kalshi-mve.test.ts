@@ -61,7 +61,7 @@ describe("sports parlay filter", () => {
     }, investing)).toBe(false);
   });
 
-  it("rejects pure crypto 15m CROSSCATEGORY stacks as sports parlays", () => {
+  it("rejects pure crypto 15m and daily CROSSCATEGORY stacks as sports parlays", () => {
     const investing = new Set(["KXBTC", "KXETH"]);
     expect(isSportsParlayCandidate({
       ticker: "KXMVECROSSCATEGORY-CRYPTO",
@@ -83,6 +83,16 @@ describe("sports parlay filter", () => {
         { market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
       ],
     }, investing)).toBe(true);
+    expect(isSportsParlayCandidate({
+      ticker: "KXMVECROSSCATEGORY-DAILYCRYPTO",
+      series_ticker: "KXMVE",
+      title: "yes $77,300 or above,yes $100.75 or above",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { market_ticker: "KXBTCD-26SEP1315-T77299.99", side: "yes" },
+        { market_ticker: "KXSOLD-26SEP1315-T100.7499", side: "yes" },
+      ],
+    }, investing)).toBe(false);
   });
 });
 

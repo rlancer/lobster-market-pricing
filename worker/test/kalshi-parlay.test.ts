@@ -25,6 +25,7 @@ import {
   hasTradableQuote,
   listedComboMid,
   kalshiTakerFee,
+  mveLegKind,
   mveTapeKind,
   scoreMultiLegParlay,
   scoreTwoLegParlay,
@@ -38,6 +39,7 @@ import {
   kalshiParlayCacheTtlMs,
   mapKalshiMarket,
   runKalshiParlayExperiment,
+  censusFromLakeMarkets,
   scoreMveParlays,
   toQuoteView,
   type LakeKalshiMarket,
@@ -175,6 +177,9 @@ describe("scoreMultiLegParlay + MVE category", () => {
     assert.equal(sportsGameKey("KXNFL1HTOTAL-26SEP13ATLPIT-25"), "26SEP13ATLPIT");
     assert.equal(mveTapeKind(["KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40"]), "sports");
     assert.equal(mveTapeKind(["KXBTC15M-26SEP131430-30", "KXETH15M-26SEP131430-30"]), "crypto_mve");
+    assert.equal(mveTapeKind(["KXBTCD-26SEP1315-T77299.99", "KXSOLD-26SEP1315-T100.7499"]), "crypto_mve");
+    assert.equal(mveLegKind("KXBTCD-26SEP1315-T77299.99"), "crypto");
+    assert.equal(mveLegKind("KXSOLD-26SEP1315-T100.7499"), "crypto");
     assert.equal(mveTapeKind(["KXNFLGAME-26SEP13ATLPIT-PIT", "KXBTC15M-26SEP131430-30"]), "mixed");
     assert.ok(kalshiTakerFee(0.5) > 0.01 && kalshiTakerFee(0.5) < 0.02);
   });
@@ -462,6 +467,146 @@ describe("buildSportsRows", () => {
     assert.equal(scored.crypto_mves[0]!.score.joint, null);
     assert.ok(scored.crypto_mves[0]!.score.flags.includes("crypto_mve"));
     assert.equal(scored.crypto_mves[0]!.score.flags.includes("independence_gap"), false);
+  });
+
+  it("splits daily crypto target-price MVEs out of the sports table", () => {
+    const scored = scoreMveParlays([
+      {
+        series_ticker: "KXMVE",
+        market_ticker: "KXMVECROSSCATEGORY-DAILYCRYPTO",
+        event_ticker: null,
+        title: "yes $77,300 or above,yes $100.75 or above",
+        yes_subtitle: null,
+        theme: "sports",
+        category: encodeMveCategory("KXMVECROSSCATEGORY-SHARD1-R", [
+          { event_ticker: "KXBTCD-26SEP1315", market_ticker: "KXBTCD-26SEP1315-T77299.99", side: "yes" },
+          { event_ticker: "KXSOLD-26SEP1315", market_ticker: "KXSOLD-26SEP1315-T100.7499", side: "yes" },
+        ]),
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0,
+        yes_ask: 0,
+        yes_last: 0,
+        volume: 0,
+        close_time: null,
+      },
+      {
+        series_ticker: "KXBTCD",
+        market_ticker: "KXBTCD-26SEP1315-T77299.99",
+        event_ticker: "KXBTCD-26SEP1315",
+        title: "BTC daily",
+        yes_subtitle: "yes $77,300 or above",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.60,
+        yes_ask: 0.61,
+        yes_last: 0.61,
+        volume: 1,
+        close_time: null,
+      },
+      {
+        series_ticker: "KXSOLD",
+        market_ticker: "KXSOLD-26SEP1315-T100.7499",
+        event_ticker: "KXSOLD-26SEP1315",
+        title: "SOL daily",
+        yes_subtitle: "yes $100.75 or above",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.50,
+        yes_ask: 0.52,
+        yes_last: 0.51,
+        volume: 1,
+        close_time: null,
+      },
+    ], Date.parse("2026-09-13T12:00:00Z"));
+    assert.equal(scored.sports.length, 0);
+    assert.equal(scored.crypto_mves.length, 1);
+    assert.equal(scored.crypto_mves[0]!.tape_kind, "crypto_mve");
+    assert.equal(scored.crypto_mves[0]!.score.joint, null);
+  });
+
+  it("censuses every lake combo, including RFQ rows without tradable legs", () => {
+    const sportsWithLegs = encodeMveCategory("KXMVESPORT-NFL", [
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-OVER", side: "yes" },
+    ]);
+    const sportsRfqOnly = encodeMveCategory("KXMVECROSSCATEGORY-SHARD1-R", [
+      { event_ticker: "KXNFL1HSPREAD-26SEP13ATLPIT", market_ticker: "KXNFL1HSPREAD-26SEP13ATLPIT-PIT11", side: "no" },
+      { event_ticker: "KXNFL1HTOTAL-26SEP13ATLPIT", market_ticker: "KXNFL1HTOTAL-26SEP13ATLPIT-25", side: "no" },
+    ]);
+    const dailyCrypto = encodeMveCategory("KXMVECROSSCATEGORY-SHARD1-R", [
+      { event_ticker: "KXBTCD-26SEP1315", market_ticker: "KXBTCD-26SEP1315-T77299.99", side: "yes" },
+      { event_ticker: "KXSOLD-26SEP1315", market_ticker: "KXSOLD-26SEP1315-T100.7499", side: "yes" },
+    ]);
+    const rfq = (ticker: string, title: string, category: string): LakeKalshiMarket => ({
+      series_ticker: "KXMVE",
+      market_ticker: ticker,
+      event_ticker: null,
+      title,
+      yes_subtitle: null,
+      theme: "sports",
+      category,
+      status: "active",
+      market_type: "multivariate",
+      yes_bid: 0,
+      yes_ask: 0,
+      yes_last: 0,
+      volume: 0,
+      close_time: null,
+    });
+    const markets: LakeKalshiMarket[] = [
+      rfq("KXNFLPARLAY-SGP", "Chiefs win AND over", sportsWithLegs),
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13KC-KC",
+        event_ticker: "KXNFLGAME-26SEP13KC",
+        title: "Chiefs win",
+        yes_subtitle: "KC",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.55,
+        yes_ask: 0.57,
+        yes_last: 0.56,
+        volume: 1,
+        close_time: null,
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13KC-OVER",
+        event_ticker: "KXNFLGAME-26SEP13KC",
+        title: "Over 44.5",
+        yes_subtitle: "Over",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.50,
+        yes_ask: 0.52,
+        yes_last: 0.51,
+        volume: 1,
+        close_time: null,
+      },
+      rfq("KXMVECROSSCATEGORY-RFQONLY", "1H spread AND 1H total", sportsRfqOnly),
+      rfq("KXMVECROSSCATEGORY-DAILYCRYPTO", "yes $77,300 or above,yes $100.75 or above", dailyCrypto),
+    ];
+    const scored = scoreMveParlays(markets, Date.parse("2026-09-13T12:00:00Z"));
+    assert.equal(scored.sports.length, 1);
+    assert.equal(scored.crypto_mves.length, 0);
+    const census = censusFromLakeMarkets(markets);
+    assert.equal(census.combo_tickers, 3);
+    assert.equal(census.sports_combos, 2);
+    assert.equal(census.crypto_mve_combos, 1);
+    assert.equal(census.mixed_combos, 0);
+    assert.equal(census.same_game, 2);
+    assert.equal(census.two_leg, 2);
+    assert.equal(census.ever_two_sided, 0);
+    assert.equal(census.tape_scored, 0);
   });
 });
 

@@ -243,7 +243,7 @@ and publishes to `options.kalshi_markets`. The allowlist lives in
 BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (multivariate
 combo markets with `mve_selected_legs`, plus those legs — open books and
 ~30 days of daily candlesticks for recently settled/closed parlays). Combos
-need at least one sports leg; pure crypto 15m CROSSCATEGORY stacks are not
+need at least one sports leg; pure crypto 15m/daily CROSSCATEGORY stacks are not
 `theme=sports`. Investing series
 optionally link to a lake `related_symbol` (SPY, TLT, BTC-USD, CL=F, …) for
 Chat joins, `/research/{ticker}` event markets (`GET /api/research/{ticker}/kalshi`),
