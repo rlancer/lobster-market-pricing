@@ -90,6 +90,10 @@ import { deskExperimentDesignPublic } from "./desk-experiment";
 import { parseDeskExperimentProbeBody, runDeskExperimentProbe } from "./desk-experiment-probe";
 import { firmPipelineDesignPublic } from "./firm-pipeline";
 import { parseFirmPipelineProbeBody, runFirmPipelineProbe } from "./firm-pipeline-probe";
+import {
+  createPacedKalshiFetcher,
+  runKalshiParlayExperiment,
+} from "./kalshi-parlay-experiment";
 
 import { describeChatCapabilities } from "./chat-capabilities";
 import { CopilotAgentBase } from "./chat-agent";
@@ -4105,6 +4109,34 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       });
       return json(env, { ok: true, run: experimentRunToPublicJson(run) }, 200, "private");
     }
+  }
+
+  if (path === "/api/experiments/kalshi-parlays" && req.method === "GET") {
+    const snapshot = await cached("kalshi_parlays_v1", 10 * 60 * 1000, async () => {
+      const fetchJson = createPacedKalshiFetcher(350);
+      return runKalshiParlayExperiment({
+        fetchJson,
+        queryOhlc: async (symbols, since) => {
+          const inList = symbols.map((symbol) => lit(symbol)).join(", ");
+          const rows = await r2sql(
+            env,
+            `SELECT symbol, date, close FROM (` +
+              `  SELECT symbol, date, close,` +
+              `    ROW_NUMBER() OVER (PARTITION BY symbol, date ORDER BY fetched_at DESC, run_id DESC) rn` +
+              `  FROM options.ohlc WHERE symbol IN (${inList}) AND date >= ${lit(since)} AND close IS NOT NULL` +
+              `) WHERE rn = 1`,
+            "kalshi_parlay_ohlc_" + since,
+            QUERY_TTL_MS,
+          );
+          return rows.map((row) => ({
+            symbol: String(row.symbol || ""),
+            date: String(row.date || ""),
+            close: Number(row.close),
+          })).filter((row) => row.symbol && row.date && Number.isFinite(row.close) && row.close > 0);
+        },
+      });
+    });
+    return json(env, snapshot, 200, "public");
   }
 
   if (path === "/api/experiments/desk-approaches/design" && req.method === "GET") {
