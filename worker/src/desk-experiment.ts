@@ -31,6 +31,8 @@ export const DESK_EXPERIMENT_SLUG = "desk-approaches";
 export const DESK_EXPERIMENT_DESIGN_ID = "desk-approaches-v2";
 export const DESK_EXPERIMENT_RUNNER_VERSION = 2;
 export const DESK_EXPERIMENT_DEADBAND_PCT = 1.5;
+/** OpenRouter slug for a Chat-pin migration cell on the same frozen tape. */
+export const DESK_EXPERIMENT_CANDIDATE_MODEL = "deepseek/deepseek-v4.1-flash";
 /** Per OpenRouter seat. 4 min aborted live 5-seat DeepSeek cells mid-matrix. */
 export const DESK_SEAT_ABORT_MS = 6 * 60_000;
 /** Close-out after high-reasoning CoT — small budget, no extra chain-of-thought. */
@@ -611,6 +613,9 @@ export function deskExperimentDesignPublic() {
     runner_version: DESK_EXPERIMENT_RUNNER_VERSION,
     production_note:
       "Live Chat Analyst desk is one CopilotAgent Durable Object per conversation. Specialists are role-play via publish_desk in that single session — we do not spawn a new agent session per specialist. Probes use the same OpenRouter model as Chat (COPILOT_MODEL, currently deepseek/deepseek-v4-flash-0731). Held-out 5d/20d continues the as-of tape — it is not a hidden sequel. This experiment tests whether that desk structure is actually the better take.",
+    candidate_model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+    migration_note:
+      "A second scoreboard compares live Chat COPILOT_MODEL to deepseek/deepseek-v4.1-flash on this same tape. Dispatch the desk-approaches workflow with that MODEL. The bench grades directional leans and seat timeouts — not live Chat tools or DSML.",
     as_of_rules: DESK_EXPERIMENT_AS_OF_RULES,
     verdict_instructions: DESK_VERDICT_INSTRUCTIONS,
     system_prompt: deskExperimentSystemPrompt(),

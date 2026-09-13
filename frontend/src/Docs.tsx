@@ -182,7 +182,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
-  { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
+  { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape; includes Chat pin vs V4.1 Flash candidate slug)' },
   { method: 'GET', path: '/api/experiments/firm-pipeline/design', desc: 'Public firm-pipeline design: same frozen cases as desk-approaches, TradingAgents-style stages (solo / reports→trader / bull-bear / risk committee)' },
   { method: 'POST', path: '/api/admin/notebooks/probe', desc: 'Admin — single OpenRouter probe for the text-vs-image experiment' },
   { method: 'POST', path: '/api/admin/experiments/desk-approaches/probe', desc: 'Admin — run one desk-approaches cell (approach × as-of case) against the frozen snapshot' },
@@ -238,7 +238,7 @@ const SURFACES = [
   {
     route: '/experiments',
     title: 'Experiments',
-    body: 'Public studies of how we present market data to models. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction. Trading firm pipeline reuses that tape and grades TradingAgents-style stages (reports, bull/bear, later risk committee). Published runs load from the Worker so visitors do not spend OpenRouter credits.',
+    body: 'Public studies of how we present market data to models. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction, and compares the live Chat pin (DeepSeek V4 Flash 0731) to V4.1 Flash on that same tape. Trading firm pipeline reuses that tape and grades TradingAgents-style stages (reports, bull/bear, later risk committee). Published runs load from the Worker so visitors do not spend OpenRouter credits.',
   },
   {
     route: '/data',

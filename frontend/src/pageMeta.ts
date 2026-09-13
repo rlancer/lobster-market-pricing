@@ -319,7 +319,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Analyst desk vs sessions'),
       description:
-        'As-of snapshot bench of solo analyst vs production multi-analyst desk role-play vs a new session per specialist, graded on held-out 5- and 20-session direction.',
+        'As-of snapshot bench of solo analyst vs production multi-analyst desk role-play vs a new session per specialist, plus Chat pin vs DeepSeek V4.1 Flash, graded on held-out 5- and 20-session direction.',
       path: '/experiments/desk-approaches',
     };
   }

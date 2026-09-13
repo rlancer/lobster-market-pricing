@@ -6,6 +6,10 @@ name: Run desk-approaches experiment
 # Required GitHub secrets: ADMIN_TOKEN, OPEN_ROUTER_KEY.
 # Seats run in this job (not one Worker HTTP request) so 5-call DeepSeek
 # cells can finish. Results are POSTed to api-dev experiment_runs.
+#
+# Chat pin vs V4.1 Flash: workflow_dispatch with
+#   MODEL=deepseek/deepseek-v4.1-flash
+# or push a cursor/*desk-approaches* branch whose name contains v41.
 
 on:
   workflow_dispatch:
@@ -27,7 +31,7 @@ on:
       - 'cursor/desk-approaches-experiment-294f'
 
 concurrency:
-  group: run-desk-approaches-experiment
+  group: run-desk-approaches-experiment-${{ github.event.inputs.model || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -36,7 +40,7 @@ permissions:
 
 jobs:
   run-experiment:
-    name: desk-approaches (${{ github.event_name == 'workflow_dispatch' && inputs.model || 'deepseek/deepseek-v4-flash-0731' }})
+    name: desk-approaches (${{ github.event.inputs.model || (contains(github.ref_name, 'v41') && 'deepseek/deepseek-v4.1-flash') || 'deepseek/deepseek-v4-flash-0731' }})
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -56,6 +60,10 @@ jobs:
           set -euo pipefail
           echo "MODEL=${{ inputs.model }}" >> "$GITHUB_ENV"
           echo "API_BASE=${{ inputs.api_base }}" >> "$GITHUB_ENV"
+
+      - name: Use V4.1 Flash candidate on v41 branches
+        if: github.event_name == 'push' && contains(github.ref_name, 'v41')
+        run: echo "MODEL=deepseek/deepseek-v4.1-flash" >> "$GITHUB_ENV"
 
       - name: Require secrets
         run: |

@@ -6,6 +6,7 @@ import { generateText, type LanguageModel } from "ai";
 import { createChatModel, type ChatModelEnv } from "./chat-contract";
 import {
   DESK_APPROACH_IDS,
+  DESK_EXPERIMENT_CANDIDATE_MODEL,
   DESK_SEAT_ABORT_MS,
   DESK_VERDICT_CLOSE_ABORT_MS,
   DESK_VERDICT_CLOSE_MAX_TOKENS,
@@ -24,6 +25,7 @@ import { buildDeskExperimentCases } from "./desk-experiment-cases";
 
 /** Fallback when the Worker has no COPILOT_MODEL — same slug as wrangler.jsonc. */
 export const DEFAULT_DESK_EXPERIMENT_MODEL = "deepseek/deepseek-v4-flash-0731";
+export { DESK_EXPERIMENT_CANDIDATE_MODEL };
 
 export interface DeskExperimentProbeEnv extends ChatModelEnv {
   COPILOT_REASONING_EFFORT?: string;

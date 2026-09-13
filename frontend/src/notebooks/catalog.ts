@@ -19,7 +19,7 @@ export const EXPERIMENTS: ExperimentMeta[] = [
     slug: 'desk-approaches',
     title: 'Analyst desk vs sessions',
     subtitle:
-      'As-of snapshot bench: solo analyst vs production desk role-play vs a new session per specialist, graded on held-out 5d/20d direction.',
+      'As-of snapshot bench: solo analyst vs production desk role-play vs a new session per specialist, graded on held-out 5d/20d direction — plus Chat pin vs DeepSeek V4.1 Flash on the same tape.',
     status: 'ready',
   },
   {
