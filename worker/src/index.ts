@@ -92,6 +92,7 @@ import { firmPipelineDesignPublic } from "./firm-pipeline";
 import { parseFirmPipelineProbeBody, runFirmPipelineProbe } from "./firm-pipeline-probe";
 import {
   createPacedKalshiFetcher,
+  kalshiParlayCacheTtlMs,
   runKalshiParlayExperiment,
 } from "./kalshi-parlay-experiment";
 
@@ -4133,20 +4134,18 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const cacheKey = "kalshi_parlays_v1";
     const hit = cache.get(cacheKey);
     const now = Date.now();
-    const cachedSnap = hit && now - hit.ts < 10 * 60 * 1000
+    const cachedSnap = hit
       ? hit.val as Awaited<ReturnType<typeof runKalshiParlayExperiment>>
       : null;
-    const usable = cachedSnap
-      && (cachedSnap.listed.length > 0 || cachedSnap.errors.length === 0);
+    const ttl = cachedSnap ? kalshiParlayCacheTtlMs(cachedSnap) : 0;
+    const usable = Boolean(cachedSnap && ttl && now - hit!.ts < ttl);
     const snapshot = usable
-      ? cachedSnap
+      ? cachedSnap!
       : await runKalshiParlayExperiment({
         fetchJson: createPacedKalshiFetcher(400),
         queryOhlc,
       });
-    if (snapshot.listed.length > 0 || snapshot.errors.length === 0) {
-      cache.set(cacheKey, { ts: Date.now(), val: snapshot });
-    }
+    cache.set(cacheKey, { ts: Date.now(), val: snapshot });
     return json(env, snapshot, 200, "public");
   }
 

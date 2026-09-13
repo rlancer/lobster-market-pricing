@@ -26,6 +26,7 @@ import {
   buildCorrelations,
   buildVerdict,
   isLiveQuote,
+  kalshiParlayCacheTtlMs,
   mapKalshiMarket,
   runKalshiParlayExperiment,
   toQuoteView,
@@ -508,6 +509,14 @@ describe("buildVerdict", () => {
       lookback_days: 180,
     }]);
     assert.match(v.bullets.join(" "), /SPY×DIA 0\.84/);
+  });
+});
+
+describe("kalshiParlayCacheTtlMs", () => {
+  it("pins a 429/empty miss for 90s and a scored snapshot for 10 minutes", () => {
+    assert.equal(kalshiParlayCacheTtlMs({ listed: [], errors: ["KXFEDCOMBO: Kalshi HTTP 429"] }), 90_000);
+    assert.equal(kalshiParlayCacheTtlMs({ listed: [{ id: "x" }], errors: [] }), 10 * 60 * 1000);
+    assert.equal(kalshiParlayCacheTtlMs({ listed: [], errors: [] }), 10 * 60 * 1000);
   });
 });
 

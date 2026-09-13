@@ -741,6 +741,15 @@ export async function pacedKalshiFetchJson(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
+/** Isolate cache TTL: pin good snapshots, but only briefly pin a 429/empty miss. */
+export function kalshiParlayCacheTtlMs(snapshot: {
+  listed: unknown[];
+  errors: string[];
+}): number {
+  if (snapshot.listed.length === 0 && snapshot.errors.length > 0) return 90_000;
+  return 10 * 60 * 1000;
+}
+
 /** Serialize Kalshi GETs so a Worker pass does not burst the public API. */
 export function createPacedKalshiFetcher(gapMs = 550): (url: string) => Promise<unknown> {
   let last = 0;
