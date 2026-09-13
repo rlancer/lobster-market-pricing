@@ -90,6 +90,11 @@ import { deskExperimentDesignPublic } from "./desk-experiment";
 import { parseDeskExperimentProbeBody, runDeskExperimentProbe } from "./desk-experiment-probe";
 import { firmPipelineDesignPublic } from "./firm-pipeline";
 import { parseFirmPipelineProbeBody, runFirmPipelineProbe } from "./firm-pipeline-probe";
+import {
+  createPacedKalshiFetcher,
+  kalshiParlayCacheTtlMs,
+  runKalshiParlayExperiment,
+} from "./kalshi-parlay-experiment";
 
 import { describeChatCapabilities } from "./chat-capabilities";
 import { CopilotAgentBase } from "./chat-agent";
@@ -4105,6 +4110,80 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       });
       return json(env, { ok: true, run: experimentRunToPublicJson(run) }, 200, "private");
     }
+  }
+
+  if (path === "/api/experiments/kalshi-parlays" && req.method === "GET") {
+    const queryOhlc = async (symbols: string[], since: string) => {
+      const inList = symbols.map((symbol) => lit(symbol)).join(", ");
+      const rows = await r2sql(
+        env,
+        `SELECT symbol, date, close FROM (` +
+          `  SELECT symbol, date, close,` +
+          `    ROW_NUMBER() OVER (PARTITION BY symbol, date ORDER BY fetched_at DESC, run_id DESC) rn` +
+          `  FROM options.ohlc WHERE symbol IN (${inList}) AND date >= ${lit(since)} AND close IS NOT NULL` +
+          `) WHERE rn = 1`,
+        "kalshi_parlay_ohlc_" + since,
+        QUERY_TTL_MS,
+      );
+      return rows.map((row) => ({
+        symbol: String(row.symbol || ""),
+        date: String(row.date || ""),
+        close: Number(row.close),
+      })).filter((row) => row.symbol && row.date && Number.isFinite(row.close) && row.close > 0);
+    };
+    const queryKalshiSports = async () => {
+      try {
+        const rows = await r2sql(
+          env,
+          `SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
+            `  yes_bid, yes_ask, yes_last, volume, close_time` +
+            ` FROM (` +
+            `  SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
+            `    yes_bid, yes_ask, yes_last, volume, close_time,` +
+            `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+            `  FROM options.kalshi_markets` +
+            `  WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
+            `) WHERE rn = 1 LIMIT 400`,
+          "kalshi_parlay_sports",
+          QUERY_TTL_MS,
+        );
+        return rows.map((row) => ({
+          series_ticker: String(row.series_ticker || "").toUpperCase(),
+          market_ticker: String(row.market_ticker || "").toUpperCase(),
+          event_ticker: row.event_ticker ? String(row.event_ticker).toUpperCase() : null,
+          title: String(row.title || row.market_ticker || ""),
+          yes_subtitle: row.yes_subtitle != null ? String(row.yes_subtitle) : null,
+          theme: String(row.theme || ""),
+          category: row.category != null ? String(row.category) : null,
+          status: String(row.status || "unknown"),
+          market_type: row.market_type != null ? String(row.market_type) : null,
+          yes_bid: numOrNull(row.yes_bid),
+          yes_ask: numOrNull(row.yes_ask),
+          yes_last: numOrNull(row.yes_last),
+          volume: numOrNull(row.volume),
+          close_time: row.close_time != null ? String(row.close_time) : null,
+        })).filter((row) => row.market_ticker);
+      } catch {
+        return [];
+      }
+    };
+    const cacheKey = "kalshi_parlays_v2";
+    const hit = cache.get(cacheKey);
+    const now = Date.now();
+    const cachedSnap = hit
+      ? hit.val as Awaited<ReturnType<typeof runKalshiParlayExperiment>>
+      : null;
+    const ttl = cachedSnap ? kalshiParlayCacheTtlMs(cachedSnap) : 0;
+    const usable = Boolean(cachedSnap && ttl && now - hit!.ts < ttl);
+    const snapshot = usable
+      ? cachedSnap!
+      : await runKalshiParlayExperiment({
+        fetchJson: createPacedKalshiFetcher(400),
+        queryOhlc,
+        queryKalshiSports,
+      });
+    cache.set(cacheKey, { ts: Date.now(), val: snapshot });
+    return json(env, snapshot, 200, "public");
   }
 
   if (path === "/api/experiments/desk-approaches/design" && req.method === "GET") {

@@ -13,9 +13,10 @@ export default function ExperimentsPage() {
       <VStack gap={2}>
         <Heading level={1}>Experiments</Heading>
         <Text type="supporting">
-          Public studies of how we present market data to models. Each experiment documents
-          a setup and, when available, loads a server-saved run (published via API or CI)
-          so you can read results without spending OpenRouter credits yourself.
+        Public studies of how we present market data to models — and one live
+        pricing study of Kalshi combo books. Each experiment documents a setup
+        and, when available, loads a server snapshot or a saved run so you can
+        read results without spending OpenRouter credits yourself.
         </Text>
       </VStack>
 
@@ -43,6 +44,10 @@ export default function ExperimentsPage() {
               }
               if (experiment.slug === 'firm-pipeline') {
                 void navigate({ to: '/experiments/firm-pipeline' });
+                return;
+              }
+              if (experiment.slug === 'kalshi-parlays') {
+                void navigate({ to: '/experiments/kalshi-parlays' });
                 return;
               }
               void navigate({ to: '/experiments/text-vs-image' });

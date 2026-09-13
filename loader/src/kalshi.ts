@@ -1,16 +1,30 @@
 // Curated Kalshi event-contract snapshots for the options lake.
 //
-// Kalshi lists thousands of markets (sports, entertainment, politics). Lobster
-// only wants investing-relevant series — Fed/rates, inflation, growth, equity
-// indexes, crypto levels, oil, Treasuries — from symbols/kalshi-series.json.
-// Each pass fetches open markets for one series_ticker, caps the set, and
-// publishes to options.kalshi_markets via PIPELINE_KALSHI_MARKETS_URL.
+// Investing series (Fed/CPI/indexes/crypto/oil) come from symbols/kalshi-series.json
+// as series_ticker GETs. Sports parlays are the KXMVE ingest: open multivariate
+// combo markets plus the legs those combos select — not the full sports catalog.
+// Publishes to options.kalshi_markets via PIPELINE_KALSHI_MARKETS_URL.
 //
 // Public Trade API (no auth for market data):
 //   https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=…&status=open
 // Pure module (fetch / crypto only) so Vitest and the DO share one path.
 
 import seriesManifest from "../symbols/kalshi-series.json" with { type: "json" };
+import {
+  encodeMveCategory,
+  isSportsParlayCandidate,
+  mveCollectionTicker,
+  parseMveSelectedLegs,
+  seriesTickerFromMarketTicker,
+} from "./kalshi-mve.js";
+
+export {
+  encodeMveCategory,
+  parseMveCategory,
+  parseMveSelectedLegs,
+  parlayGameGroup,
+  eventPrefixFromTicker,
+} from "./kalshi-mve.js";
 
 // ---------------------------------------------------------------------------
 // Manifest / allowlist
@@ -21,7 +35,8 @@ export type KalshiTheme =
   | "growth"
   | "equity_index"
   | "crypto"
-  | "commodity";
+  | "commodity"
+  | "sports";
 
 export interface KalshiSeriesMeta {
   series_ticker: string;
@@ -29,6 +44,8 @@ export interface KalshiSeriesMeta {
   title: string;
   related_symbol: string | null;
   max_markets?: number;
+  /** series = GET /markets?series_ticker= (default). mve = sports parlays + legs. */
+  ingest?: "series" | "mve";
 }
 
 interface KalshiManifestFile {
@@ -343,6 +360,14 @@ export function kalshiSeriesList(): string[] {
   return Object.keys(KALSHI_SERIES);
 }
 
+export function investingKalshiSeries(): Set<string> {
+  return new Set(
+    Object.values(KALSHI_SERIES)
+      .filter((meta) => meta.theme !== "sports" && meta.ingest !== "mve")
+      .map((meta) => meta.series_ticker),
+  );
+}
+
 function maxMarketsFor(seriesId: string, env: KalshiEnv): number {
   const meta = KALSHI_SERIES[seriesId];
   const fromEnv = env.KALSHI_MAX_MARKETS;
@@ -465,6 +490,50 @@ export function rankKalshiMarkets(rows: KalshiMarketRow[]): KalshiMarketRow[] {
   });
 }
 
+export function mapKalshiMarketRaw(
+  raw: unknown,
+  defaults: {
+    series_ticker?: string;
+    theme: KalshiTheme;
+    related_symbol: string | null;
+    category?: string | null;
+    market_type?: string | null;
+  },
+): KalshiMarketRow | null {
+  const m = asRecord(raw);
+  if (!m) return null;
+  const market_ticker = strip(m.ticker).toUpperCase();
+  if (!market_ticker) return null;
+  const series_ticker = (defaults.series_ticker
+    || strip(m.series_ticker).toUpperCase()
+    || seriesTickerFromMarketTicker(market_ticker));
+  return {
+    series_ticker,
+    market_ticker,
+    event_ticker: strip(m.event_ticker) || null,
+    title: strip(m.title) || market_ticker,
+    yes_subtitle: strip(m.yes_sub_title) || strip(m.subtitle) || null,
+    theme: defaults.theme,
+    category: defaults.category ?? null,
+    status: strip(m.status) || "unknown",
+    market_type: defaults.market_type || strip(m.market_type) || null,
+    yes_bid: parseKalshiNumber(m.yes_bid_dollars ?? m.yes_bid),
+    yes_ask: parseKalshiNumber(m.yes_ask_dollars ?? m.yes_ask),
+    yes_last: parseKalshiNumber(m.last_price_dollars ?? m.last_price),
+    no_bid: parseKalshiNumber(m.no_bid_dollars ?? m.no_bid),
+    no_ask: parseKalshiNumber(m.no_ask_dollars ?? m.no_ask),
+    volume: parseKalshiNumber(m.volume_fp ?? m.volume),
+    volume_24h: parseKalshiNumber(m.volume_24h_fp ?? m.volume_24h),
+    open_interest: parseKalshiNumber(m.open_interest_fp ?? m.open_interest),
+    liquidity: parseKalshiNumber(m.liquidity_dollars ?? m.liquidity),
+    floor_strike: parseKalshiNumber(m.floor_strike),
+    close_time: strip(m.close_time) || null,
+    expiration_time: strip(m.expiration_time) || strip(m.expected_expiration_time) || null,
+    related_symbol: defaults.related_symbol,
+    source: KALSHI_SOURCE,
+  };
+}
+
 export function parseKalshiMarketsPayload(
   seriesId: string,
   payload: unknown,
@@ -476,38 +545,14 @@ export function parseKalshiMarketsPayload(
   const out: KalshiMarketRow[] = [];
   const seen = new Set<string>();
   for (const raw of markets) {
-    const m = asRecord(raw);
-    if (!m) continue;
-    const market_ticker = strip(m.ticker).toUpperCase();
-    if (!market_ticker || seen.has(market_ticker)) continue;
-    const title = strip(m.title) || market_ticker;
-    const status = strip(m.status) || "unknown";
-    seen.add(market_ticker);
-    out.push({
+    const mapped = mapKalshiMarketRaw(raw, {
       series_ticker: seriesId,
-      market_ticker,
-      event_ticker: strip(m.event_ticker) || null,
-      title,
-      yes_subtitle: strip(m.yes_sub_title) || strip(m.subtitle) || null,
       theme: meta.theme,
-      category: null,
-      status,
-      market_type: strip(m.market_type) || null,
-      yes_bid: parseKalshiNumber(m.yes_bid_dollars ?? m.yes_bid),
-      yes_ask: parseKalshiNumber(m.yes_ask_dollars ?? m.yes_ask),
-      yes_last: parseKalshiNumber(m.last_price_dollars ?? m.last_price),
-      no_bid: parseKalshiNumber(m.no_bid_dollars ?? m.no_bid),
-      no_ask: parseKalshiNumber(m.no_ask_dollars ?? m.no_ask),
-      volume: parseKalshiNumber(m.volume_fp ?? m.volume),
-      volume_24h: parseKalshiNumber(m.volume_24h_fp ?? m.volume_24h),
-      open_interest: parseKalshiNumber(m.open_interest_fp ?? m.open_interest),
-      liquidity: parseKalshiNumber(m.liquidity_dollars ?? m.liquidity),
-      floor_strike: parseKalshiNumber(m.floor_strike),
-      close_time: strip(m.close_time) || null,
-      expiration_time: strip(m.expiration_time) || strip(m.expected_expiration_time) || null,
       related_symbol: meta.related_symbol,
-      source: KALSHI_SOURCE,
     });
+    if (!mapped || seen.has(mapped.market_ticker)) continue;
+    seen.add(mapped.market_ticker);
+    out.push(mapped);
   }
   return out;
 }
@@ -523,6 +568,107 @@ export function applySeriesCategory(
   return rows.map((r) => ({ ...r, category }));
 }
 
+async function fetchKalshiPage(
+  url: string,
+  env: KalshiEnv,
+  label: string,
+): Promise<{ markets: unknown[]; cursor: string }> {
+  const payload = await fetchJson(url, env, label);
+  const rec = asRecord(payload);
+  const markets = rec?.markets;
+  return {
+    markets: Array.isArray(markets) ? markets : [],
+    cursor: strip(rec?.cursor),
+  };
+}
+
+async function fetchMarketsByTickers(
+  tickers: string[],
+  env: KalshiEnv,
+): Promise<KalshiMarketRow[]> {
+  const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
+  const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+  const out: KalshiMarketRow[] = [];
+  const seen = new Set<string>();
+  const chunkSize = 20;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const url = `${base}/markets?tickers=${encodeURIComponent(chunk.join(","))}&limit=200`;
+    const page = await fetchKalshiPage(url, env, `kalshi markets tickers ${i}`);
+    for (const raw of page.markets) {
+      const mapped = mapKalshiMarketRaw(raw, {
+        theme: "sports",
+        related_symbol: null,
+      });
+      if (!mapped || seen.has(mapped.market_ticker)) continue;
+      seen.add(mapped.market_ticker);
+      out.push(mapped);
+    }
+  }
+  return out;
+}
+
+/**
+ * Open sports parlays: MVE combo markets that name their legs, plus those
+ * leg contracts. Capped on combos (volume-first); every selected leg is kept.
+ */
+export async function fetchKalshiSportsParlays(
+  env: KalshiEnv = {},
+): Promise<KalshiMarketRow[]> {
+  const meta = Object.values(KALSHI_SERIES).find((s) => s.ingest === "mve");
+  const cap = meta ? maxMarketsFor(meta.series_ticker, env) : DEFAULT_MAX_MARKETS_PER_SERIES;
+  const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
+  const pageLimit = Math.min(
+    1000,
+    Math.max(1, Math.floor(num(env.KALSHI_PAGE_LIMIT, PAGE_LIMIT_DEFAULT))),
+  );
+  const maxPages = Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
+  const investing = investingKalshiSeries();
+
+  const rawCombos: unknown[] = [];
+  let cursor = "";
+  for (let page = 0; page < maxPages; page++) {
+    let url = `${base}/markets?mve_filter=only&status=open&limit=${pageLimit}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+    const batch = await fetchKalshiPage(url, env, `kalshi mve p${page}`);
+    rawCombos.push(...batch.markets);
+    if (!batch.cursor || batch.markets.length === 0) break;
+    cursor = batch.cursor;
+  }
+
+  const combos: KalshiMarketRow[] = [];
+  const comboLegs = new Map<string, ReturnType<typeof parseMveSelectedLegs>>();
+  for (const raw of rawCombos) {
+    if (!isSportsParlayCandidate(raw, investing)) continue;
+    const legs = parseMveSelectedLegs(raw);
+    if (legs.length < 2) continue;
+    const collection = mveCollectionTicker(raw) || "UNKNOWN";
+    const mapped = mapKalshiMarketRaw(raw, {
+      theme: "sports",
+      related_symbol: null,
+      category: encodeMveCategory(collection, legs),
+      market_type: "multivariate",
+    });
+    if (!mapped) continue;
+    combos.push(mapped);
+    comboLegs.set(mapped.market_ticker, legs);
+  }
+
+  const ranked = rankKalshiMarkets(combos).slice(0, cap);
+  const keep = new Set(ranked.map((r) => r.market_ticker));
+  const legTickers: string[] = [];
+  const seenLegs = new Set<string>();
+  for (const row of ranked) {
+    for (const leg of comboLegs.get(row.market_ticker) ?? []) {
+      if (keep.has(leg.market_ticker) || seenLegs.has(leg.market_ticker)) continue;
+      seenLegs.add(leg.market_ticker);
+      legTickers.push(leg.market_ticker);
+    }
+  }
+  const legs = await fetchMarketsByTickers(legTickers, env);
+  return [...ranked, ...legs];
+}
+
 // ---------------------------------------------------------------------------
 // Fetch
 // ---------------------------------------------------------------------------
@@ -530,8 +676,12 @@ export async function fetchKalshiSeriesMarkets(
   seriesId: string,
   env: KalshiEnv = {},
 ): Promise<KalshiMarketRow[]> {
-  if (!KALSHI_SERIES[seriesId]) {
+  const meta = KALSHI_SERIES[seriesId];
+  if (!meta) {
     throw new Error(`kalshi: unknown series_ticker ${seriesId}`);
+  }
+  if (meta.ingest === "mve") {
+    return fetchKalshiSportsParlays(env);
   }
   const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
   const pageLimit = Math.min(

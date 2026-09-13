@@ -29,6 +29,13 @@ export const EXPERIMENTS: ExperimentMeta[] = [
       'TradingAgents-style stages on the same frozen tape: solo vs analyst reports vs bull/bear research vs a later risk committee.',
     status: 'ready',
   },
+  {
+    slug: 'kalshi-parlays',
+    title: 'Kalshi parlay mispricing',
+    subtitle:
+      'Are listed Fed combos priced as if the rate and dissent legs were independent, and do lake sports parlays (open MVE combos + selected legs) disagree with the product of their legs?',
+    status: 'ready',
+  },
 ];
 
 /** @deprecated Use EXPERIMENTS */

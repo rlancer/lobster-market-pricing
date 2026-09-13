@@ -67,7 +67,7 @@ import { companyFactsDailyJob } from "./company-facts-daily.js";
 //     observations → options.macro (realized inflation levels; calendar dates
 //     stay on options.econ_calendar).
 //   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
-//     contracts (Fed/CPI/indexes/crypto/oil) → options.kalshi_markets.
+//     contracts (Fed/CPI/indexes/crypto/oil + sports parlays) → options.kalshi_markets.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),

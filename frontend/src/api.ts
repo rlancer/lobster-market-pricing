@@ -1605,6 +1605,97 @@ async function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' });
 }
 
+/** Live snapshot from GET /api/experiments/kalshi-parlays. */
+export interface KalshiParlayQuoteView {
+  ticker: string;
+  title: string;
+  subtitle: string | null;
+  yes_bid: number | null;
+  yes_ask: number | null;
+  yes_last: number | null;
+  mid: number | null;
+  spread: number | null;
+  volume: number | null;
+  close_time: string | null;
+  two_sided: boolean;
+}
+
+export interface KalshiParlayScore {
+  p: number;
+  q: number;
+  joint: number | null;
+  independence: number;
+  frechet_low: number;
+  frechet_high: number;
+  gap_vs_independence: number | null;
+  phi: number | null;
+  implied_rho: number | null;
+  copula_fair: number | null;
+  gap_vs_copula: number | null;
+  flags: string[];
+}
+
+export interface KalshiParlayRow {
+  id: string;
+  kind: 'listed_combo' | 'homemade' | 'sports_mve';
+  meeting: string | null;
+  label: string;
+  combo: KalshiParlayQuoteView | null;
+  legs: Array<{
+    role: string;
+    quote: KalshiParlayQuoteView;
+    selected_prob: number | null;
+  }>;
+  score: KalshiParlayScore;
+  rho_proxy: number | null;
+  rho_proxy_source: string | null;
+  notes: string;
+}
+
+export interface KalshiParlaySnapshot {
+  design_id: string;
+  slug: string;
+  fetched_at: string;
+  listed: KalshiParlayRow[];
+  homemade: KalshiParlayRow[];
+  sports: KalshiParlayRow[];
+  sports_source: 'lake' | 'live' | 'none';
+  marginals: Array<{
+    meeting: string;
+    name: string;
+    combo_implied: number | null;
+    standalone: number | null;
+    gap: number | null;
+    flag: boolean;
+  }>;
+  correlations: Array<{
+    symbol_a: string;
+    symbol_b: string;
+    n: number;
+    pearson: number;
+    lookback_days: number;
+  }>;
+  mve: {
+    scanned: number;
+    two_sided: number;
+    empty_book: number;
+    sample_titles: string[];
+  };
+  verdict: {
+    headline: string;
+    bullets: string[];
+    listed_flagged: number;
+    listed_scored: number;
+    max_abs_independence_gap: number | null;
+    max_abs_implied_rho: number | null;
+    homemade_high_corr: number;
+    sports_scored: number;
+    sports_flagged: number;
+    sports_same_game: number;
+  };
+  errors: string[];
+}
+
 /** Published experiment run returned by GET /api/experiments/:slug/runs/latest. */
 export interface ExperimentRunPayload {
   id: string;
@@ -1942,6 +2033,8 @@ export const api = {
     get<DeskExperimentDesign>('/api/experiments/desk-approaches/design'),
   firmPipelineDesign: () =>
     get<DeskExperimentDesign>('/api/experiments/firm-pipeline/design'),
+  kalshiParlayExperiment: () =>
+    get<KalshiParlaySnapshot>('/api/experiments/kalshi-parlays'),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
     post<{ ok: true; run: ExperimentRunPayload }>(

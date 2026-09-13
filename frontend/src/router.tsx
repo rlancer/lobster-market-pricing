@@ -31,6 +31,7 @@ import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import DeskApproachesNotebookPage from './DeskApproachesNotebook';
 import FirmPipelineNotebookPage from './FirmPipelineNotebook';
+import KalshiParlaysNotebookPage from './KalshiParlaysNotebook';
 import { parseAsOfSearch } from './asOfDate';
 import { parseChatId } from './chatSession';
 import { etDateString } from './tickerChartRange';
@@ -304,6 +305,12 @@ const firmPipelineExperimentRoute = createRoute({
   component: FirmPipelineNotebookPage,
 });
 
+const kalshiParlaysExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/kalshi-parlays',
+  component: KalshiParlaysNotebookPage,
+});
+
 /** Legacy /notebooks paths redirect to /experiments. */
 const notebooksRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -427,6 +434,7 @@ const routeTree = rootRoute.addChildren([
   textVsImageExperimentRoute,
   deskApproachesExperimentRoute,
   firmPipelineExperimentRoute,
+  kalshiParlaysExperimentRoute,
   notebooksRedirectRoute,
   textVsImageNotebookRedirectRoute,
   docsRoute,
