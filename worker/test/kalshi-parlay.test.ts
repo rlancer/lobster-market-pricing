@@ -352,6 +352,20 @@ describe("runKalshiParlayExperiment", () => {
     return { markets: [] };
   }
 
+  it("stops further Kalshi series after a 429", async () => {
+    const urls: string[] = [];
+    const snapshot = await runKalshiParlayExperiment({
+      now: () => Date.parse("2026-09-13T12:00:00Z"),
+      fetchJson: async (url: string) => {
+        urls.push(url);
+        throw new Error("Kalshi HTTP 429: too many requests");
+      },
+    });
+    assert.equal(urls.filter((u) => u.includes("series_ticker=")).length, 1);
+    assert.equal(urls.some((u) => u.includes("mve_filter=only")), false);
+    assert.ok(snapshot.errors.some((e) => e.includes("skipped after Kalshi 429")));
+  });
+
   it("scores listed Fed cells and homemade BTC×ETH against mocked books", async () => {
     const snapshot = await runKalshiParlayExperiment({
       now: () => now,

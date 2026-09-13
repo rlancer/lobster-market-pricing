@@ -4141,7 +4141,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
     const snapshot = usable
       ? cachedSnap
       : await runKalshiParlayExperiment({
-        fetchJson: createPacedKalshiFetcher(550),
+        fetchJson: createPacedKalshiFetcher(400),
         queryOhlc,
       });
     if (snapshot.listed.length > 0 || snapshot.errors.length === 0) {

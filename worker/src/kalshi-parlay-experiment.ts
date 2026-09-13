@@ -640,20 +640,32 @@ export async function runKalshiParlayExperiment(
     ...FED_SERIES.map((seriesId) => ({ seriesId, maxPages: 2 })),
     ...HOMEMADE_SERIES.map((seriesId) => ({ seriesId, maxPages: 1 })),
   ];
+  let skipRest = false;
   for (const { seriesId, maxPages } of wanted) {
+    if (skipRest) {
+      errors.push(`${seriesId}: skipped after Kalshi 429`);
+      bySeries.set(seriesId, []);
+      continue;
+    }
     try {
       bySeries.set(seriesId, await fetchSeriesMarkets(seriesId, deps, maxPages));
     } catch (error) {
-      errors.push(`${seriesId}: ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${seriesId}: ${message}`);
       bySeries.set(seriesId, []);
+      if (/HTTP 429/.test(message)) skipRest = true;
     }
   }
 
   let mve: MveCensus = { scanned: 0, two_sided: 0, empty_book: 0, sample_titles: [] };
-  try {
-    mve = await fetchMveCensus(deps);
-  } catch (error) {
-    errors.push(`mve: ${error instanceof Error ? error.message : String(error)}`);
+  if (skipRest) {
+    errors.push("mve: skipped after Kalshi 429");
+  } else {
+    try {
+      mve = await fetchMveCensus(deps);
+    } catch (error) {
+      errors.push(`mve: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   let correlations: ReturnCorr[] = [];
@@ -694,7 +706,7 @@ export async function pacedKalshiFetchJson(
   url: string,
   opts?: { gapMs?: number; userAgent?: string; retries?: number },
 ): Promise<unknown> {
-  const retries = opts?.retries ?? 4;
+  const retries = opts?.retries ?? 2;
   const ua = opts?.userAgent ?? "lobster-market-pricing/kalshi-parlays";
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -709,8 +721,8 @@ export async function pacedKalshiFetchJson(
       if (attempt < retries) {
         const retryAfter = Number(response.headers.get("retry-after"));
         const waitSec = response.status === 429
-          ? Math.min(8, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2 * 2 ** attempt)
-          : 2 ** attempt;
+          ? Math.min(3, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1.5 * 2 ** attempt)
+          : Math.min(2, 2 ** attempt);
         await new Promise((r) => setTimeout(r, waitSec * 1000));
       }
     } catch (error) {
@@ -731,6 +743,6 @@ export function createPacedKalshiFetcher(gapMs = 550): (url: string) => Promise<
     const wait = last + gapMs - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     last = Date.now();
-    return pacedKalshiFetchJson(url, { retries: 4 });
+    return pacedKalshiFetchJson(url, { retries: 2 });
   };
 }
