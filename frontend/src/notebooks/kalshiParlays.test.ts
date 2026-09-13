@@ -16,6 +16,8 @@ test('formats gaps with a sign', () => {
 test('formats rho and flags', () => {
   assert.equal(fmtRho(0.42), '0.42');
   assert.equal(flagLabel('independence_gap'), 'vs independent');
+  assert.equal(flagLabel('same_game'), 'same-game');
+  assert.equal(flagLabel('no_combo_tape'), 'no combo tape');
   assert.equal(gapTone(0.05), 'green');
   assert.equal(gapTone(-0.05), 'red');
   assert.equal(gapTone(0.001), 'gray');

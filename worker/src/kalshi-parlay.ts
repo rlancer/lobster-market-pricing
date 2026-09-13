@@ -2,13 +2,13 @@
  * Kalshi parlay / combo pricing math.
  *
  * Listed Fed combos (KXFEDCOMBO) are a 2×2 of rate-decision × dissent. Sports
- * MVEs exist on Kalshi but are RFQ-first; this module prices any two binary
- * legs against independence, Fréchet bounds, Bernoulli phi, and a Gaussian
- * copula (tetrachoric ρ).
+ * MVEs land in options.kalshi_markets (theme=sports, category mve|…) and are
+ * often RFQ-first. This module prices n binary legs against independence and
+ * Fréchet bounds; Bernoulli phi and tetrachoric ρ apply to exactly two legs.
  */
 
 export const KALSHI_PARLAY_SLUG = "kalshi-parlays";
-export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v1";
+export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v2";
 
 export type FedRateKey = "hike_25" | "cut_25" | "hold";
 export type FedDissentKey = "zero" | "some";
@@ -369,6 +369,83 @@ export function extractPeriod(ticker: string): string | null {
   return m ? m[1]! : null;
 }
 
+export const MVE_CATEGORY_PREFIX = "mve|";
+
+export interface MveSelectedLeg {
+  event_ticker: string | null;
+  market_ticker: string;
+  side: "yes" | "no";
+}
+
+export function encodeMveCategory(collection: string, legs: MveSelectedLeg[]): string {
+  const col = (collection || "unknown").replaceAll("|", "").toUpperCase() || "UNKNOWN";
+  const packed = legs.map((leg) => {
+    const ticker = leg.market_ticker.replaceAll("|", "").toUpperCase();
+    return `${leg.side === "no" ? "no" : "yes"}:${ticker}`;
+  });
+  return `${MVE_CATEGORY_PREFIX}${col}|${packed.join(",")}`;
+}
+
+export function parseMveCategory(category: string | null | undefined): {
+  collection: string;
+  legs: MveSelectedLeg[];
+} | null {
+  const raw = (category ?? "").trim();
+  if (!raw.startsWith(MVE_CATEGORY_PREFIX)) return null;
+  const rest = raw.slice(MVE_CATEGORY_PREFIX.length);
+  const split = rest.indexOf("|");
+  if (split < 0) return null;
+  const collection = rest.slice(0, split).toUpperCase();
+  const packed = rest.slice(split + 1);
+  const legs: MveSelectedLeg[] = [];
+  const seen = new Set<string>();
+  for (const part of packed.split(",")) {
+    const idx = part.indexOf(":");
+    if (idx < 0) continue;
+    const side = part.slice(0, idx).toLowerCase() === "no" ? "no" : "yes";
+    const market_ticker = part.slice(idx + 1).trim().toUpperCase();
+    if (!market_ticker || seen.has(market_ticker)) continue;
+    seen.add(market_ticker);
+    legs.push({ event_ticker: null, market_ticker, side });
+  }
+  if (legs.length < 2) return null;
+  return { collection, legs };
+}
+
+export function parseMveSelectedLegs(raw: unknown): MveSelectedLeg[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const legs = (raw as { mve_selected_legs?: unknown }).mve_selected_legs;
+  if (!Array.isArray(legs)) return [];
+  const out: MveSelectedLeg[] = [];
+  const seen = new Set<string>();
+  for (const item of legs) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const market_ticker = typeof rec.market_ticker === "string" ? rec.market_ticker.trim().toUpperCase() : "";
+    if (!market_ticker || seen.has(market_ticker)) continue;
+    seen.add(market_ticker);
+    const side = typeof rec.side === "string" && rec.side.trim().toLowerCase() === "no" ? "no" : "yes";
+    const event_ticker = typeof rec.event_ticker === "string" && rec.event_ticker.trim()
+      ? rec.event_ticker.trim().toUpperCase()
+      : null;
+    out.push({ event_ticker, market_ticker, side });
+  }
+  return out;
+}
+
+export function eventPrefixFromTicker(ticker: string): string {
+  const t = ticker.trim().toUpperCase();
+  const trimmed = t.replace(/-[^-]+$/, "");
+  return trimmed || t;
+}
+
+export function parlayGameGroup(eventTickers: string[]): "same_game" | "cross_game" | "mixed" {
+  const events = [...new Set(eventTickers.map((e) => e.trim().toUpperCase()).filter(Boolean))];
+  if (events.length <= 1) return "same_game";
+  if (events.length === eventTickers.filter(Boolean).length) return "cross_game";
+  return "mixed";
+}
+
 export interface TwoLegScore {
   p: number;
   q: number;
@@ -397,11 +474,29 @@ export function scoreTwoLegParlay(input: {
   comboSpread?: number | null;
   legSpreads?: Array<number | null>;
 }): TwoLegScore {
-  const p = clampProb(input.p, 0, 1);
-  const q = clampProb(input.q, 0, 1);
-  const independence = p * q;
-  const frechet_low = frechetLower([p, q]);
-  const frechet_high = frechetUpper([p, q]);
+  return scoreMultiLegParlay({
+    probs: [input.p, input.q],
+    joint: input.joint,
+    rhoProxy: input.rhoProxy,
+    comboSpread: input.comboSpread,
+    legSpreads: input.legSpreads,
+  });
+}
+
+/** Score an n-leg YES parlay. Phi / tetrachoric ρ only for exactly two legs. */
+export function scoreMultiLegParlay(input: {
+  probs: number[];
+  joint?: number | null;
+  rhoProxy?: number | null;
+  comboSpread?: number | null;
+  legSpreads?: Array<number | null>;
+}): TwoLegScore {
+  const probs = (input.probs.length ? input.probs : [0]).map((p) => clampProb(p, 0, 1));
+  const p = probs[0] ?? 0;
+  const q = probs.length > 1 ? probs[1]! : 1;
+  const independence = independenceJoint(probs);
+  const frechet_low = frechetLower(probs);
+  const frechet_high = frechetUpper(probs);
   const joint = input.joint != null && Number.isFinite(input.joint) ? input.joint : null;
   const flags: string[] = [];
 
@@ -420,8 +515,10 @@ export function scoreTwoLegParlay(input: {
   let implied_rho: number | null = null;
   if (joint != null) {
     gap_vs_independence = joint - independence;
-    phi = bernoulliPhi(p, q, joint);
-    implied_rho = impliedGaussianRho(p, q, joint);
+    if (probs.length === 2) {
+      phi = bernoulliPhi(p, q, joint);
+      implied_rho = impliedGaussianRho(p, q, joint);
+    }
     if (joint > frechet_high + noise) flags.push("above_frechet");
     if (joint < frechet_low - noise) flags.push("below_frechet");
     if (Math.abs(gap_vs_independence) > noise) flags.push("independence_gap");
@@ -429,7 +526,7 @@ export function scoreTwoLegParlay(input: {
 
   let copula_fair: number | null = null;
   let gap_vs_copula: number | null = null;
-  if (input.rhoProxy != null && Number.isFinite(input.rhoProxy)) {
+  if (probs.length === 2 && input.rhoProxy != null && Number.isFinite(input.rhoProxy)) {
     copula_fair = gaussianCopulaJoint(p, q, input.rhoProxy);
     if (joint != null) {
       gap_vs_copula = joint - copula_fair;

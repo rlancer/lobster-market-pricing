@@ -1637,7 +1637,7 @@ export interface KalshiParlayScore {
 
 export interface KalshiParlayRow {
   id: string;
-  kind: 'listed_combo' | 'homemade';
+  kind: 'listed_combo' | 'homemade' | 'sports_mve';
   meeting: string | null;
   label: string;
   combo: KalshiParlayQuoteView | null;
@@ -1658,6 +1658,8 @@ export interface KalshiParlaySnapshot {
   fetched_at: string;
   listed: KalshiParlayRow[];
   homemade: KalshiParlayRow[];
+  sports: KalshiParlayRow[];
+  sports_source: 'lake' | 'live' | 'none';
   marginals: Array<{
     meeting: string;
     name: string;
@@ -1687,6 +1689,9 @@ export interface KalshiParlaySnapshot {
     max_abs_independence_gap: number | null;
     max_abs_implied_rho: number | null;
     homemade_high_corr: number;
+    sports_scored: number;
+    sports_flagged: number;
+    sports_same_game: number;
   };
   errors: string[];
 }

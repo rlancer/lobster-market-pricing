@@ -8,6 +8,7 @@ import {
   normalizeKalshiRecords,
   parseKalshiMarketsPayload,
   parseKalshiNumber,
+  parseMveCategory,
   publishKalshiSeries,
   rankKalshiMarkets,
   type KalshiMarketRow,
@@ -124,12 +125,13 @@ describe("kalshi parse helpers", () => {
     expect(out[0].market_ticker).toBe("KXFED-27APR-T4.25");
   });
 
-  it("kalshiSeriesList exposes the curated allowlist", () => {
+  it("kalshiSeriesList exposes the curated allowlist including sports parlays", () => {
     const list = kalshiSeriesList();
     expect(list).toContain("KXFED");
     expect(list).toContain("KXCPI");
     expect(list).toContain("KXINX");
     expect(list).toContain("KXBTC");
+    expect(list).toContain("KXMVE");
     expect(list).not.toContain("KXSPORTS");
   });
 });
@@ -276,3 +278,136 @@ describe("kalshi auth helpers", () => {
     expect(headers!["KALSHI-ACCESS-SIGNATURE"].length).toBeGreaterThan(40);
   });
 });
+
+const NFL_COMBO = {
+  ticker: "KXNFLPARLAY-26SEP13-KCBUF",
+  event_ticker: "KXNFLPARLAY-26SEP13",
+  series_ticker: "KXNFLPARLAY",
+  title: "Chiefs win AND Bills win",
+  category: "Sports",
+  status: "active",
+  market_type: "binary",
+  mve_collection_ticker: "KXMVESPORT-NFL",
+  mve_selected_legs: [
+    { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+    { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
+  ],
+  yes_bid_dollars: "0.20",
+  yes_ask_dollars: "0.24",
+  last_price_dollars: "0.22",
+  volume_fp: "500",
+  volume_24h_fp: "80",
+  close_time: "2026-09-14T00:00:00Z",
+};
+
+const NFL_LEG_KC = {
+  ticker: "KXNFLGAME-26SEP13KC-KC",
+  event_ticker: "KXNFLGAME-26SEP13KC",
+  series_ticker: "KXNFLGAME",
+  title: "Chiefs win",
+  status: "active",
+  yes_bid_dollars: "0.55",
+  yes_ask_dollars: "0.57",
+  last_price_dollars: "0.56",
+  volume_fp: "9000",
+  close_time: "2026-09-14T00:00:00Z",
+};
+
+const NFL_LEG_BUF = {
+  ticker: "KXNFLGAME-26SEP13BUF-BUF",
+  event_ticker: "KXNFLGAME-26SEP13BUF",
+  series_ticker: "KXNFLGAME",
+  title: "Bills win",
+  status: "active",
+  yes_bid_dollars: "0.48",
+  yes_ask_dollars: "0.50",
+  last_price_dollars: "0.49",
+  volume_fp: "8000",
+  close_time: "2026-09-14T00:00:00Z",
+};
+
+describe("publishKalshiSeries sports parlays", () => {
+  it("publishes MVE combos with encoded legs plus the selected leg books", async () => {
+    const posts: unknown[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({ markets: [NFL_COMBO], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({ markets: [NFL_LEG_KC, NFL_LEG_BUF], cursor: "" }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    });
+    try {
+      const result = await publishKalshiSeries("KXMVE", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        runId: () => "run-mve",
+      });
+      expect(result.published).toBe(true);
+      expect(result.row_count).toBe(3);
+      const body = posts[0] as Array<Record<string, unknown>>;
+      const combo = body.find((r) => r.market_ticker === "KXNFLPARLAY-26SEP13-KCBUF");
+      const kc = body.find((r) => r.market_ticker === "KXNFLGAME-26SEP13KC-KC");
+      expect(combo?.theme).toBe("sports");
+      expect(combo?.market_type).toBe("multivariate");
+      const parsed = parseMveCategory(String(combo?.category || ""));
+      expect(parsed?.legs).toHaveLength(2);
+      expect(kc?.theme).toBe("sports");
+      expect(kc?.series_ticker).toBe("KXNFLGAME");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not ingest investing series that appear on the MVE endpoint", async () => {
+    const posts: unknown[] = [];
+    const fedCombo = {
+      ticker: "KXFEDCOMBO-26SEPB-25H-T0",
+      series_ticker: "KXFEDCOMBO",
+      title: "hike AND dissents",
+      category: "Economics",
+      status: "active",
+      mve_collection_ticker: "KXFEDCOMBO",
+      mve_selected_legs: [
+        { event_ticker: "KXFEDDECISION-26SEP", market_ticker: "KXFEDDECISION-26SEP-H25", side: "yes" },
+        { event_ticker: "KXFOMCDISSENTCOUNT-26SEP", market_ticker: "KXFOMCDISSENTCOUNT-26SEP-0", side: "yes" },
+      ],
+      yes_bid_dollars: "0.61",
+      yes_ask_dollars: "0.62",
+    };
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({ markets: [fedCombo], cursor: "" }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    });
+    try {
+      const result = await publishKalshiSeries("KXMVE", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        runId: () => "run-mve-skip",
+      });
+      expect(result.published).toBe(false);
+      expect(result.row_count).toBe(0);
+      expect(posts).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+

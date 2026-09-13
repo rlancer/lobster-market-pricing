@@ -25,6 +25,76 @@ const SAMPLE = {
   cursor: "",
 };
 
+const MVE_COMBO = {
+  ticker: "KXNFLPARLAY-26SEP13-KCBUF",
+  event_ticker: "KXNFLPARLAY-26SEP13",
+  series_ticker: "KXNFLPARLAY",
+  title: "Chiefs win AND Bills win",
+  category: "Sports",
+  status: "active",
+  mve_collection_ticker: "KXMVESPORT-NFL",
+  mve_selected_legs: [
+    { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+    { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
+  ],
+  yes_bid_dollars: "0.20",
+  yes_ask_dollars: "0.24",
+  last_price_dollars: "0.22",
+  volume_fp: "500",
+  volume_24h_fp: "80",
+  close_time: "2026-09-14T00:00:00Z",
+};
+
+const MVE_LEGS = {
+  markets: [
+    {
+      ticker: "KXNFLGAME-26SEP13KC-KC",
+      event_ticker: "KXNFLGAME-26SEP13KC",
+      series_ticker: "KXNFLGAME",
+      title: "Chiefs win",
+      status: "active",
+      yes_bid_dollars: "0.55",
+      yes_ask_dollars: "0.57",
+      last_price_dollars: "0.56",
+      volume_fp: "9000",
+      close_time: "2026-09-14T00:00:00Z",
+    },
+    {
+      ticker: "KXNFLGAME-26SEP13BUF-BUF",
+      event_ticker: "KXNFLGAME-26SEP13BUF",
+      series_ticker: "KXNFLGAME",
+      title: "Bills win",
+      status: "active",
+      yes_bid_dollars: "0.48",
+      yes_ask_dollars: "0.50",
+      last_price_dollars: "0.49",
+      volume_fp: "8000",
+      close_time: "2026-09-14T00:00:00Z",
+    },
+  ],
+  cursor: "",
+};
+
+function kalshiFetch(url: string, init: RequestInit | undefined, posts: unknown[]) {
+  if (url.includes("/series/")) {
+    return new Response(JSON.stringify({ series: { category: "Economics" } }), { status: 200 });
+  }
+  if (url.includes("mve_filter=only")) {
+    return new Response(JSON.stringify({ markets: [MVE_COMBO], cursor: "" }), { status: 200 });
+  }
+  if (url.includes("tickers=")) {
+    return new Response(JSON.stringify(MVE_LEGS), { status: 200 });
+  }
+  if (url.includes("/markets?")) {
+    return new Response(JSON.stringify(SAMPLE), { status: 200 });
+  }
+  if (init?.method === "POST") {
+    posts.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ success: true }), { status: 200 });
+  }
+  return new Response("unexpected", { status: 500 });
+}
+
 function env(overrides: Record<string, unknown> = {}): SchedulerEnv {
   return { ...overrides } as SchedulerEnv;
 }
@@ -53,18 +123,7 @@ describe("kalshi-markets-hourly job adapter", () => {
   it("publishes every series with a shared run_id", async () => {
     const posts: unknown[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/series/")) {
-        return new Response(JSON.stringify({ series: { category: "Economics" } }), { status: 200 });
-      }
-      if (url.includes("/markets?")) {
-        return new Response(JSON.stringify(SAMPLE), { status: 200 });
-      }
-      if (init?.method === "POST") {
-        posts.push(JSON.parse(String(init.body)));
-        return new Response(JSON.stringify({ success: true }), { status: 200 });
-      }
-      return new Response("unexpected", { status: 500 });
+      return kalshiFetch(String(input), init, posts);
     });
     try {
       const job = kalshiMarketsHourlyJob(env());
@@ -93,17 +152,7 @@ describe("kalshi-markets-hourly job adapter", () => {
       if (isKxfedSeries || isKxfedMarkets) {
         return new Response("boom", { status: 503 });
       }
-      if (url.includes("/series/")) {
-        return new Response(JSON.stringify({ series: { category: "Economics" } }), { status: 200 });
-      }
-      if (url.includes("/markets?")) {
-        return new Response(JSON.stringify(SAMPLE), { status: 200 });
-      }
-      if (init?.method === "POST") {
-        posts.push(JSON.parse(String(init.body)));
-        return new Response(JSON.stringify({ success: true }), { status: 200 });
-      }
-      return new Response("unexpected", { status: 500 });
+      return kalshiFetch(url, init, posts);
     });
     try {
       const job = kalshiMarketsHourlyJob(env({ KALSHI_CONCURRENCY: 1, KALSHI_SERIES_PACE_MS: 0 }));

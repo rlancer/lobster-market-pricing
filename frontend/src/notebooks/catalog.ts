@@ -33,7 +33,7 @@ export const EXPERIMENTS: ExperimentMeta[] = [
     slug: 'kalshi-parlays',
     title: 'Kalshi parlay mispricing',
     subtitle:
-      'Are listed Fed combos priced as if the rate and dissent legs were independent — and are homemade index/crypto parlays sitting on correlated underlyings?',
+      'Are listed Fed combos priced as if the rate and dissent legs were independent, and do lake sports parlays (open MVE combos + selected legs) disagree with the product of their legs?',
     status: 'ready',
   },
 ];

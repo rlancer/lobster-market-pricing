@@ -1,7 +1,7 @@
 /** Kalshi parlay experiment — public labels + formatting. */
 
 export const KALSHI_PARLAY_SLUG = 'kalshi-parlays';
-export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v1';
+export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v2';
 
 export function fmtProb(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
@@ -30,6 +30,12 @@ export function flagLabel(flag: string): string {
       return 'above Fréchet';
     case 'below_frechet':
       return 'below Fréchet';
+    case 'same_game':
+      return 'same-game';
+    case 'cross_game':
+      return 'cross-game';
+    case 'no_combo_tape':
+      return 'no combo tape';
     default:
       return flag;
   }

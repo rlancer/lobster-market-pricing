@@ -20,16 +20,21 @@ import {
   pearsonCorrelation,
   quoteMid,
   quoteSpread,
+  encodeMveCategory,
+  parseMveCategory,
+  scoreMultiLegParlay,
   scoreTwoLegParlay,
 } from "../src/kalshi-parlay";
 import {
   buildCorrelations,
+  buildSportsRows,
   buildVerdict,
   isLiveQuote,
   kalshiParlayCacheTtlMs,
   mapKalshiMarket,
   runKalshiParlayExperiment,
   toQuoteView,
+  type LakeKalshiMarket,
 } from "../src/kalshi-parlay-experiment";
 
 describe("parseKalshiNumber + quoteMid", () => {
@@ -118,6 +123,96 @@ describe("independence, Fréchet, phi, Gaussian copula", () => {
   it("normInv/normCdf round-trip at 0.5", () => {
     assert.ok(Math.abs(normInv(0.5)) < 1e-8);
     assert.ok(Math.abs(normCdf(0) - 0.5) < 1e-6);
+  });
+});
+
+describe("scoreMultiLegParlay + MVE category", () => {
+  it("n-leg independence is the product", () => {
+    const score = scoreMultiLegParlay({
+      probs: [0.5, 0.4, 0.5],
+      joint: 0.20,
+      comboSpread: 0.02,
+      legSpreads: [0.02, 0.02, 0.02],
+    });
+    assert.equal(score.independence, 0.1);
+    assert.ok(score.gap_vs_independence != null && Math.abs(score.gap_vs_independence - 0.1) < 1e-9);
+    assert.ok(score.flags.includes("independence_gap"));
+    assert.equal(score.phi, null);
+    assert.equal(score.implied_rho, null);
+  });
+
+  it("round-trips sports combo legs through category", () => {
+    const packed = encodeMveCategory("KXMVESPORT-NFL", [
+      { event_ticker: "A", market_ticker: "KXNFLGAME-1-KC", side: "yes" },
+      { event_ticker: "B", market_ticker: "KXNFLGAME-1-BUF", side: "no" },
+    ]);
+    const parsed = parseMveCategory(packed);
+    assert.equal(parsed?.collection, "KXMVESPORT-NFL");
+    assert.equal(parsed?.legs[1]?.side, "no");
+  });
+});
+
+describe("buildSportsRows", () => {
+  it("flags same-game parlays and empty combo books", () => {
+    const category = encodeMveCategory("KXMVESPORT-NFL", [
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-OVER", side: "yes" },
+    ]);
+    const rows = buildSportsRows([
+      {
+        series_ticker: "KXNFLPARLAY",
+        market_ticker: "KXNFLPARLAY-SGP",
+        event_ticker: "KXNFLPARLAY-SGP",
+        title: "Chiefs win AND over",
+        yes_subtitle: null,
+        theme: "sports",
+        category,
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0,
+        yes_ask: 1,
+        yes_last: 0,
+        volume: 0,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13KC-KC",
+        event_ticker: "KXNFLGAME-26SEP13KC",
+        title: "Chiefs win",
+        yes_subtitle: "KC",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.55,
+        yes_ask: 0.57,
+        yes_last: 0.56,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13KC-OVER",
+        event_ticker: "KXNFLGAME-26SEP13KC",
+        title: "Over 44.5",
+        yes_subtitle: "Over",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.50,
+        yes_ask: 0.52,
+        yes_last: 0.51,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+    ], Date.parse("2026-09-13T12:00:00Z"));
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0]!.score.flags.includes("same_game"));
+    assert.ok(rows[0]!.score.flags.includes("no_combo_tape"));
+    assert.equal(rows[0]!.score.joint, null);
+    assert.ok(Math.abs(rows[0]!.score.independence - 0.56 * 0.51) < 1e-6);
   });
 });
 
@@ -392,7 +487,9 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v1");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v2");
+    assert.equal(snapshot.sports_source, "none");
+    assert.equal(snapshot.sports.length, 0);
     assert.equal(snapshot.listed.length, 4);
     const hikeSome = snapshot.listed.find((r) => r.id.endsWith("25H-T0"));
     assert.ok(hikeSome);
@@ -417,6 +514,145 @@ describe("runKalshiParlayExperiment", () => {
     assert.equal(snapshot.mve.two_sided, 1);
     assert.match(snapshot.verdict.headline, /not priced as independent/i);
     assert.ok(snapshot.verdict.listed_flagged >= 1);
+  });
+
+  it("scores lake sports parlays and does not live-fetch MVE", async () => {
+    const urls: string[] = [];
+    const comboCategory = encodeMveCategory("KXMVESPORT-NFL", [
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
+    ]);
+    const lake: LakeKalshiMarket[] = [
+      {
+        series_ticker: "KXNFLPARLAY",
+        market_ticker: "KXNFLPARLAY-26SEP13-KCBUF",
+        event_ticker: "KXNFLPARLAY-26SEP13",
+        title: "Chiefs win AND Bills win",
+        yes_subtitle: null,
+        theme: "sports",
+        category: comboCategory,
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0.20,
+        yes_ask: 0.24,
+        yes_last: 0.22,
+        volume: 500,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13KC-KC",
+        event_ticker: "KXNFLGAME-26SEP13KC",
+        title: "Chiefs win",
+        yes_subtitle: "KC",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.55,
+        yes_ask: 0.57,
+        yes_last: 0.56,
+        volume: 9000,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13BUF-BUF",
+        event_ticker: "KXNFLGAME-26SEP13BUF",
+        title: "Bills win",
+        yes_subtitle: "BUF",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.48,
+        yes_ask: 0.50,
+        yes_last: 0.49,
+        volume: 8000,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+    ];
+    const snapshot = await runKalshiParlayExperiment({
+      now: () => now,
+      fetchJson: async (url: string) => {
+        urls.push(url);
+        const u = new URL(url);
+        return fixturePayload(u.searchParams.get("series_ticker") || "");
+      },
+      queryKalshiSports: async () => lake,
+    });
+    assert.equal(snapshot.sports_source, "lake");
+    assert.equal(snapshot.sports.length, 1);
+    assert.equal(urls.some((u) => u.includes("mve_filter=only")), false);
+    const row = snapshot.sports[0]!;
+    assert.ok(Math.abs(row.score.independence - 0.56 * 0.49) < 1e-6);
+    assert.ok(row.score.flags.includes("cross_game"));
+    assert.equal(snapshot.verdict.sports_scored, 1);
+    assert.equal(snapshot.mve.scanned, 1);
+  });
+
+  it("still scores lake sports after a Kalshi 429 on Fed series", async () => {
+    const urls: string[] = [];
+    const snapshot = await runKalshiParlayExperiment({
+      now: () => now,
+      fetchJson: async (url: string) => {
+        urls.push(url);
+        throw new Error("Kalshi HTTP 429: too many requests");
+      },
+      queryKalshiSports: async () => [{
+        series_ticker: "KXNFLPARLAY",
+        market_ticker: "KXNFLPARLAY-26SEP13-KCBUF",
+        event_ticker: "KXNFLPARLAY-26SEP13",
+        title: "Chiefs win AND Bills win",
+        yes_subtitle: null,
+        theme: "sports",
+        category: encodeMveCategory("KXMVESPORT-NFL", [
+          { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+          { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
+        ]),
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0.20,
+        yes_ask: 0.24,
+        yes_last: 0.22,
+        volume: 500,
+        close_time: "2026-09-14T00:00:00Z",
+      }, {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13KC-KC",
+        event_ticker: "KXNFLGAME-26SEP13KC",
+        title: "Chiefs win",
+        yes_subtitle: "KC",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.55,
+        yes_ask: 0.57,
+        yes_last: 0.56,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      }, {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26SEP13BUF-BUF",
+        event_ticker: "KXNFLGAME-26SEP13BUF",
+        title: "Bills win",
+        yes_subtitle: "BUF",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.48,
+        yes_ask: 0.50,
+        yes_last: 0.49,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      }],
+    });
+    assert.equal(urls.some((u) => u.includes("mve_filter=only")), false);
+    assert.equal(snapshot.sports_source, "lake");
+    assert.equal(snapshot.sports.length, 1);
+    assert.ok(snapshot.errors.some((e) => e.includes("skipped after Kalshi 429")));
   });
 });
 

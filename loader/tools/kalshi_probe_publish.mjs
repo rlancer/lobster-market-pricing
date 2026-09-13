@@ -114,9 +114,138 @@ async function publish(url, token, rows, idem) {
   }
 }
 
+function encodeMveCategory(collection, legs) {
+  const col = String(collection || "UNKNOWN").replaceAll("|", "").toUpperCase() || "UNKNOWN";
+  const packed = legs.map((leg) => {
+    const ticker = String(leg.market_ticker || "").replaceAll("|", "").toUpperCase();
+    const side = String(leg.side || "yes").toLowerCase() === "no" ? "no" : "yes";
+    return `${side}:${ticker}`;
+  });
+  return `mve|${col}|${packed.join(",")}`;
+}
+
+function parseLegs(raw) {
+  if (!Array.isArray(raw?.mve_selected_legs)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of raw.mve_selected_legs) {
+    const ticker = String(item?.market_ticker || "").trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    out.push({
+      market_ticker: ticker,
+      event_ticker: String(item?.event_ticker || "").trim().toUpperCase() || null,
+      side: String(item?.side || "yes").toLowerCase() === "no" ? "no" : "yes",
+    });
+  }
+  return out;
+}
+
+function isSportsCombo(raw) {
+  const legs = parseLegs(raw);
+  if (legs.length < 2) return false;
+  const series = String(raw.series_ticker || raw.ticker || "").toUpperCase();
+  if (/^KXFED|^KXCPI|^KXGDP|^KXINX|^KXRUT|^KXDJIA|^KXBTC|^KXETH|^KXWTI|^KXSOFR|^KXUST|^KXRATE/.test(series)) {
+    return false;
+  }
+  const blob = `${series} ${raw.mve_collection_ticker || ""} ${raw.title || ""} ${raw.category || ""}`;
+  return /NFL|NBA|MLB|NHL|MLS|WNBA|NCAA|EPL|UCL|UFC|SOCCER|FOOTBALL|BASKETBALL|BASEBALL|HOCKEY|SPORT/i.test(blob)
+    || String(raw.category || "").toLowerCase() === "sports";
+}
+
+function mapRow(m, extra) {
+  const ticker = String(m.ticker || "").toUpperCase();
+  if (!ticker) return null;
+  const series = extra.series_ticker
+    || String(m.series_ticker || "").toUpperCase()
+    || (ticker.match(/^(KX[A-Z]+)/) || [ticker])[0];
+  return {
+    series_ticker: series,
+    market_ticker: ticker,
+    event_ticker: m.event_ticker || null,
+    title: m.title || ticker,
+    yes_subtitle: m.yes_sub_title || m.subtitle || null,
+    theme: extra.theme,
+    category: extra.category ?? null,
+    status: m.status || "unknown",
+    market_type: extra.market_type || m.market_type || null,
+    yes_bid: parseNum(m.yes_bid_dollars ?? m.yes_bid),
+    yes_ask: parseNum(m.yes_ask_dollars ?? m.yes_ask),
+    yes_last: parseNum(m.last_price_dollars ?? m.last_price),
+    no_bid: parseNum(m.no_bid_dollars ?? m.no_bid),
+    no_ask: parseNum(m.no_ask_dollars ?? m.no_ask),
+    volume: parseNum(m.volume_fp ?? m.volume),
+    volume_24h: parseNum(m.volume_24h_fp ?? m.volume_24h),
+    open_interest: parseNum(m.open_interest_fp ?? m.open_interest),
+    liquidity: parseNum(m.liquidity_dollars ?? m.liquidity),
+    floor_strike: parseNum(m.floor_strike),
+    close_time: m.close_time || null,
+    expiration_time: m.expiration_time || m.expected_expiration_time || null,
+    related_symbol: extra.related_symbol ?? null,
+    source: "kalshi",
+  };
+}
+
+async function loadMve(meta) {
+  const combos = [];
+  const comboLegs = new Map();
+  let cursor = "";
+  for (let page = 0; page < MAX_PAGES; page++) {
+    let url = `${API_BASE}/markets?mve_filter=only&status=open&limit=200`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+    const data = await fetchJson(url);
+    for (const m of data.markets || []) {
+      if (!isSportsCombo(m)) continue;
+      const legs = parseLegs(m);
+      const row = mapRow(m, {
+        theme: "sports",
+        related_symbol: null,
+        category: encodeMveCategory(m.mve_collection_ticker || "UNKNOWN", legs),
+        market_type: "multivariate",
+      });
+      if (!row) continue;
+      combos.push(row);
+      comboLegs.set(row.market_ticker, legs);
+    }
+    cursor = data.cursor || "";
+    if (!cursor || !(data.markets || []).length) break;
+  }
+  combos.sort((a, b) => {
+    const va = a.volume_24h ?? a.volume ?? 0;
+    const vb = b.volume_24h ?? b.volume ?? 0;
+    if (vb !== va) return vb - va;
+    return String(a.close_time || "9999").localeCompare(String(b.close_time || "9999"));
+  });
+  const cap = meta.max_markets || DEFAULT_CAP;
+  const ranked = combos.slice(0, cap);
+  const keep = new Set(ranked.map((r) => r.market_ticker));
+  const tickers = [];
+  const seen = new Set();
+  for (const row of ranked) {
+    for (const leg of comboLegs.get(row.market_ticker) || []) {
+      if (keep.has(leg.market_ticker) || seen.has(leg.market_ticker)) continue;
+      seen.add(leg.market_ticker);
+      tickers.push(leg.market_ticker);
+    }
+  }
+  const legs = [];
+  for (let i = 0; i < tickers.length; i += 20) {
+    const chunk = tickers.slice(i, i + 20);
+    const data = await fetchJson(
+      `${API_BASE}/markets?tickers=${encodeURIComponent(chunk.join(","))}&limit=200`,
+    );
+    for (const m of data.markets || []) {
+      const row = mapRow(m, { theme: "sports", related_symbol: null });
+      if (row) legs.push(row);
+    }
+  }
+  return [...ranked, ...legs];
+}
+
 async function loadSeries(seriesId) {
   const meta = SERIES_META[seriesId];
   if (!meta) throw new Error(`unknown series ${seriesId}`);
+  if (meta.ingest === "mve") return loadMve(meta);
   let category = null;
   if (FETCH_SERIES_META) {
     try {

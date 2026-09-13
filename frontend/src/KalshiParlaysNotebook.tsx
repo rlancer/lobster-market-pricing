@@ -39,6 +39,12 @@ function formatWhen(iso: string): string {
   return new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function flagColor(flag: string): 'red' | 'teal' | 'gray' {
+  if (flag.includes('frechet')) return 'red';
+  if (flag === 'independence_gap' || flag === 'copula_gap') return 'teal';
+  return 'gray';
+}
+
 function Flags({ flags }: { flags: string[] }) {
   if (!flags.length) {
     return <Token label="in line" color="gray" size="sm" />;
@@ -49,7 +55,7 @@ function Flags({ flags }: { flags: string[] }) {
         <Token
           key={flag}
           label={flagLabel(flag)}
-          color={flag.includes('frechet') ? 'red' : 'teal'}
+          color={flagColor(flag)}
           size="sm"
         />
       ))}
@@ -171,6 +177,7 @@ export default function KalshiParlaysNotebookPage() {
       { id: 'listed', label: 'Listed Fed combos' },
       { id: 'marginals', label: 'Cross-book marginals' },
       { id: 'homemade', label: 'Homemade parlays' },
+      { id: 'sports', label: 'Sports parlays' },
       { id: 'mve', label: 'Combo CLOB' },
       { id: 'method', label: 'Method' },
     ];
@@ -341,13 +348,41 @@ export default function KalshiParlaysNotebookPage() {
               </VStack>
             </Section>
 
-            <Section id="mve" num={tocById.get('mve')?.num ?? '05'} title="Combo CLOB">
+            <Section id="sports" num={tocById.get('sports')?.num ?? '05'} title="Sports parlays">
               <VStack gap={3}>
                 <Text>
-                  Kalshi parlays as a product are multivariate event collections —
-                  mostly same-game sports stacks, quoted over RFQ. A public two-sided
-                  book inside (0, 1) is what this notebook can actually screen. Empty
-                  0-bid / 1-ask books are not a mispricing signal; they are no tape.
+                  Open multivariate (MVE) combos plus the legs they actually
+                  select now land in <code>options.kalshi_markets</code> with
+                  {' '}<code>theme=sports</code>. Combo rows store the collection
+                  and selected tickers in <code>category</code> as{' '}
+                  <code>mve|COLLECTION|yes:LEG,no:LEG,…</code>
+                  — not the full sports catalog. Independence is the product of
+                  every selected YES (or 1−YES for NO legs). Same-game stacks
+                  are correlated by construction; an empty 0-bid / 1-ask combo
+                  book is RFQ, not a mispricing signal.
+                </Text>
+                <Text type="supporting">
+                  Source this pass: {snapshot.sports_source === 'lake'
+                    ? 'lake (KXMVE hourly ingest)'
+                    : snapshot.sports_source === 'live'
+                      ? 'live Kalshi MVE fallback — lake had no sports rows yet'
+                      : 'none'}
+                  {snapshot.verdict.sports_scored
+                    ? ` · ${snapshot.verdict.sports_scored} scored · ${snapshot.verdict.sports_flagged} vs independent · ${snapshot.verdict.sports_same_game} same-game`
+                    : ''}
+                </Text>
+                <ParlayTable rows={snapshot.sports ?? []} listed />
+              </VStack>
+            </Section>
+
+            <Section id="mve" num={tocById.get('mve')?.num ?? '06'} title="Combo CLOB">
+              <VStack gap={3}>
+                <Text>
+                  Kalshi parlays as a product are multivariate event collections.
+                  The lake stores the open sports combos that name their legs.
+                  A public two-sided book inside (0, 1) is what this notebook
+                  can actually screen against independence. Empty 0-bid / 1-ask
+                  books are not a mispricing signal; they are no tape.
                 </Text>
                 <Text>
                   Scanned {snapshot.mve.scanned} open MVE markets · {snapshot.mve.two_sided} two-sided · {snapshot.mve.empty_book} empty.
@@ -362,13 +397,15 @@ export default function KalshiParlaysNotebookPage() {
           </>
         ) : null}
 
-        <Section id="method" num={tocById.get('method')?.num ?? '06'} title="Method">
+        <Section id="method" num={tocById.get('method')?.num ?? '07'} title="Method">
           <VStack gap={3}>
             <Text>
-              Binary events A and B with YES mids p and q. Independence says
-              P(A∩B) = pq. The Fréchet–Hoeffding bounds are max(0, p+q−1) and
-              min(p, q). The listed combo mid C is compared to pq; a gap larger
-              than half the combo spread plus half the leg spreads is flagged.
+              Binary events with YES mids pᵢ. Independence says P(all) is the
+              product of the selected probabilities. The Fréchet–Hoeffding
+              bounds are max(0, Σpᵢ − (n−1)) and min pᵢ. A listed combo mid C
+              is compared to that product; a gap larger than half the combo
+              spread plus half the leg spreads is flagged. Phi and tetrachoric
+              ρ are defined for two legs only.
             </Text>
             <Text>
               Bernoulli phi is the Pearson correlation of the two 0/1 outcomes:
@@ -378,12 +415,14 @@ export default function KalshiParlaysNotebookPage() {
               report the copula-fair joint versus pq.
             </Text>
             <Text type="supporting">
-              Live Kalshi public Trade API (no sports ingested into the lake).
-              Dissent &gt;0 is the complement of the 0-dissent contract.
-              Return series from <code>options.ohlc</code>, latest-wins per
-              symbol/date. Not a tradable signal after fees, and not a claim
-              that Kalshi&apos;s RFQ makers ignore correlation — only that the
-              listed Fed combo tape and a naive product of legs can disagree.
+              Live Kalshi public Trade API for Fed/homemade series. Sports
+              parlays prefer <code>options.kalshi_markets</code> rows from the
+              hourly KXMVE ingest (open MVE combos + selected legs). Dissent
+              &gt;0 is the complement of the 0-dissent contract. Return series
+              from <code>options.ohlc</code>, latest-wins per symbol/date. Chat
+              still treats Kalshi as investing event odds — sports rows are
+              for this experiment, not trade suggestions. Not a tradable
+              signal after fees.
             </Text>
           </VStack>
         </Section>

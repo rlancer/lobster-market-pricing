@@ -240,12 +240,21 @@ Probe: `node --experimental-strip-types tools/macro_probe.ts`.
 Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
 and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
-BTC/ETH ranges, WTI — each optionally linked to a lake `related_symbol`
-(SPY, TLT, BTC-USD, CL=F, …) for Chat joins, `/research/{ticker}` event
-markets (`GET /api/research/{ticker}/kalshi`), and Kalshi trade ideas.
+BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (open multivariate
+combo markets with `mve_selected_legs`, plus those legs). Investing series
+optionally link to a lake `related_symbol` (SPY, TLT, BTC-USD, CL=F, …) for
+Chat joins, `/research/{ticker}` event markets (`GET /api/research/{ticker}/kalshi`),
+and Kalshi trade ideas. Sports rows use `theme=sports` and
+`related_symbol=null`; they are for the parlay experiment, not Chat.
 
-Public Trade API (no key): `GET /markets?series_ticker=…&status=open`. Each
-pass caps markets per series (volume-first), is batch-scoped / ungated, and
+Public Trade API (no key): `GET /markets?series_ticker=…&status=open` for
+investing series; sports parlays use `GET /markets?mve_filter=only&status=open`
+then `GET /markets?tickers=…` for the selected legs. Combo rows encode
+collection + legs in `category` as `mve|{collection}|{yes|no}:{LEG},…` on the
+existing stream schema (no extra columns — Pipelines has no stream update).
+Each
+pass caps markets per series (volume-first; sports cap is on combos, and every
+selected leg is kept), is batch-scoped / ungated, and
 runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
 event odds move outside the US equity session. Series are paced
 (`KALSHI_SERIES_PACE_MS`, default 3000; `KALSHI_CONCURRENCY` default 1;
@@ -274,7 +283,7 @@ and redeploys `cboe-to-r2`. Flags: `--pem ./path.key`, `--key-id <uuid>`,
 (double-quoted multi-line) in `.env` / `.dev.vars`.
 
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
-`yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity),
+`yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity|sports),
 `category`, `status`, `market_type`, `yes_bid` / `yes_ask` / `yes_last` /
 `no_bid` / `no_ask` (0–1 dollars), `volume`, `volume_24h`, `open_interest`,
 `liquidity`, `floor_strike`, `close_time`, `expiration_time`, `related_symbol`,

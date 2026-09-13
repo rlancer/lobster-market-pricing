@@ -4131,7 +4131,43 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
         close: Number(row.close),
       })).filter((row) => row.symbol && row.date && Number.isFinite(row.close) && row.close > 0);
     };
-    const cacheKey = "kalshi_parlays_v1";
+    const queryKalshiSports = async () => {
+      try {
+        const rows = await r2sql(
+          env,
+          `SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
+            `  yes_bid, yes_ask, yes_last, volume, close_time` +
+            ` FROM (` +
+            `  SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
+            `    yes_bid, yes_ask, yes_last, volume, close_time,` +
+            `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
+            `  FROM options.kalshi_markets` +
+            `  WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
+            `) WHERE rn = 1 LIMIT 400`,
+          "kalshi_parlay_sports",
+          QUERY_TTL_MS,
+        );
+        return rows.map((row) => ({
+          series_ticker: String(row.series_ticker || "").toUpperCase(),
+          market_ticker: String(row.market_ticker || "").toUpperCase(),
+          event_ticker: row.event_ticker ? String(row.event_ticker).toUpperCase() : null,
+          title: String(row.title || row.market_ticker || ""),
+          yes_subtitle: row.yes_subtitle != null ? String(row.yes_subtitle) : null,
+          theme: String(row.theme || ""),
+          category: row.category != null ? String(row.category) : null,
+          status: String(row.status || "unknown"),
+          market_type: row.market_type != null ? String(row.market_type) : null,
+          yes_bid: numOrNull(row.yes_bid),
+          yes_ask: numOrNull(row.yes_ask),
+          yes_last: numOrNull(row.yes_last),
+          volume: numOrNull(row.volume),
+          close_time: row.close_time != null ? String(row.close_time) : null,
+        })).filter((row) => row.market_ticker);
+      } catch {
+        return [];
+      }
+    };
+    const cacheKey = "kalshi_parlays_v2";
     const hit = cache.get(cacheKey);
     const now = Date.now();
     const cachedSnap = hit
@@ -4144,6 +4180,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       : await runKalshiParlayExperiment({
         fetchJson: createPacedKalshiFetcher(400),
         queryOhlc,
+        queryKalshiSports,
       });
     cache.set(cacheKey, { ts: Date.now(), val: snapshot });
     return json(env, snapshot, 200, "public");
