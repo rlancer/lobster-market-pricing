@@ -569,6 +569,7 @@ export function buildVerdict(
   const maxGap = gaps.length ? Math.max(...gaps.map(Math.abs)) : null;
   const maxRho = rhos.length ? rhos.reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b) : null;
   const homemadeHigh = homemade.filter((r) => r.rho_proxy != null && Math.abs(r.rho_proxy) >= 0.35).length;
+  const highCorrPairs = correlations.filter((row) => Math.abs(row.pearson) >= 0.35);
   const marginalFlags = marginals.filter((m) => m.flag).length;
   const bullets: string[] = [];
 
@@ -602,6 +603,11 @@ export function buildVerdict(
     bullets.push(
       `${homemadeHigh} homemade investing parlays sit on underlyings whose overlapping daily returns correlate |ρ|≥0.35, so an independence-priced parlay would be the wrong model even before fees.`,
     );
+  } else if (highCorrPairs.length) {
+    const names = highCorrPairs.map((row) => `${row.symbol_a}×${row.symbol_b} ${row.pearson.toFixed(2)}`).join(", ");
+    bullets.push(
+      `Lake return pairs still show correlation even when a combo book is missing: ${names}. Pricing those as independent parlays would be the wrong model.`,
+    );
   } else if (correlations.length) {
     bullets.push("Lake return pairs were computed, but none of the homemade parlay underlyings cleared |ρ|≥0.35 this window.");
   }
@@ -630,10 +636,13 @@ export async function runKalshiParlayExperiment(
   const errors: string[] = [];
   const bySeries = new Map<string, KalshiQuote[]>();
 
-  const wanted = [...FED_SERIES, ...HOMEMADE_SERIES];
-  for (const seriesId of wanted) {
+  const wanted: Array<{ seriesId: string; maxPages: number }> = [
+    ...FED_SERIES.map((seriesId) => ({ seriesId, maxPages: 2 })),
+    ...HOMEMADE_SERIES.map((seriesId) => ({ seriesId, maxPages: 1 })),
+  ];
+  for (const { seriesId, maxPages } of wanted) {
     try {
-      bySeries.set(seriesId, await fetchSeriesMarkets(seriesId, deps));
+      bySeries.set(seriesId, await fetchSeriesMarkets(seriesId, deps, maxPages));
     } catch (error) {
       errors.push(`${seriesId}: ${error instanceof Error ? error.message : String(error)}`);
       bySeries.set(seriesId, []);
@@ -685,14 +694,11 @@ export async function pacedKalshiFetchJson(
   url: string,
   opts?: { gapMs?: number; userAgent?: string; retries?: number },
 ): Promise<unknown> {
-  const retries = opts?.retries ?? 2;
+  const retries = opts?.retries ?? 4;
   const ua = opts?.userAgent ?? "lobster-market-pricing/kalshi-parlays";
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      if (opts?.gapMs && opts.gapMs > 0 && attempt === 0) {
-        await new Promise((r) => setTimeout(r, opts.gapMs));
-      }
       const response = await fetch(url, {
         headers: { accept: "application/json", "user-agent": ua },
       });
@@ -701,7 +707,11 @@ export async function pacedKalshiFetchJson(
       lastError = new Error(`Kalshi HTTP ${response.status}: ${detail.slice(0, 160)}`);
       if (response.status !== 429 && response.status < 500) throw lastError;
       if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        const retryAfter = Number(response.headers.get("retry-after"));
+        const waitSec = response.status === 429
+          ? Math.min(8, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2 * 2 ** attempt)
+          : 2 ** attempt;
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
       }
     } catch (error) {
       lastError = error;
@@ -715,12 +725,12 @@ export async function pacedKalshiFetchJson(
 }
 
 /** Serialize Kalshi GETs so a Worker pass does not burst the public API. */
-export function createPacedKalshiFetcher(gapMs = 350): (url: string) => Promise<unknown> {
+export function createPacedKalshiFetcher(gapMs = 550): (url: string) => Promise<unknown> {
   let last = 0;
   return async (url: string) => {
     const wait = last + gapMs - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     last = Date.now();
-    return pacedKalshiFetchJson(url, { retries: 2 });
+    return pacedKalshiFetchJson(url, { retries: 4 });
   };
 }

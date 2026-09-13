@@ -4112,30 +4112,41 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
   }
 
   if (path === "/api/experiments/kalshi-parlays" && req.method === "GET") {
-    const snapshot = await cached("kalshi_parlays_v1", 10 * 60 * 1000, async () => {
-      const fetchJson = createPacedKalshiFetcher(350);
-      return runKalshiParlayExperiment({
-        fetchJson,
-        queryOhlc: async (symbols, since) => {
-          const inList = symbols.map((symbol) => lit(symbol)).join(", ");
-          const rows = await r2sql(
-            env,
-            `SELECT symbol, date, close FROM (` +
-              `  SELECT symbol, date, close,` +
-              `    ROW_NUMBER() OVER (PARTITION BY symbol, date ORDER BY fetched_at DESC, run_id DESC) rn` +
-              `  FROM options.ohlc WHERE symbol IN (${inList}) AND date >= ${lit(since)} AND close IS NOT NULL` +
-              `) WHERE rn = 1`,
-            "kalshi_parlay_ohlc_" + since,
-            QUERY_TTL_MS,
-          );
-          return rows.map((row) => ({
-            symbol: String(row.symbol || ""),
-            date: String(row.date || ""),
-            close: Number(row.close),
-          })).filter((row) => row.symbol && row.date && Number.isFinite(row.close) && row.close > 0);
-        },
+    const queryOhlc = async (symbols: string[], since: string) => {
+      const inList = symbols.map((symbol) => lit(symbol)).join(", ");
+      const rows = await r2sql(
+        env,
+        `SELECT symbol, date, close FROM (` +
+          `  SELECT symbol, date, close,` +
+          `    ROW_NUMBER() OVER (PARTITION BY symbol, date ORDER BY fetched_at DESC, run_id DESC) rn` +
+          `  FROM options.ohlc WHERE symbol IN (${inList}) AND date >= ${lit(since)} AND close IS NOT NULL` +
+          `) WHERE rn = 1`,
+        "kalshi_parlay_ohlc_" + since,
+        QUERY_TTL_MS,
+      );
+      return rows.map((row) => ({
+        symbol: String(row.symbol || ""),
+        date: String(row.date || ""),
+        close: Number(row.close),
+      })).filter((row) => row.symbol && row.date && Number.isFinite(row.close) && row.close > 0);
+    };
+    const cacheKey = "kalshi_parlays_v1";
+    const hit = cache.get(cacheKey);
+    const now = Date.now();
+    const cachedSnap = hit && now - hit.ts < 10 * 60 * 1000
+      ? hit.val as Awaited<ReturnType<typeof runKalshiParlayExperiment>>
+      : null;
+    const usable = cachedSnap
+      && (cachedSnap.listed.length > 0 || cachedSnap.errors.length === 0);
+    const snapshot = usable
+      ? cachedSnap
+      : await runKalshiParlayExperiment({
+        fetchJson: createPacedKalshiFetcher(550),
+        queryOhlc,
       });
-    });
+    if (snapshot.listed.length > 0 || snapshot.errors.length === 0) {
+      cache.set(cacheKey, { ts: Date.now(), val: snapshot });
+    }
     return json(env, snapshot, 200, "public");
   }
 

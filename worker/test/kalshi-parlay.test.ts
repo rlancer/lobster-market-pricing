@@ -415,6 +415,22 @@ describe("buildVerdict", () => {
     }, []);
     assert.match(v.headline, /Could not score/);
   });
+
+  it("still reports lake return correlation when homemade rows are missing", () => {
+    const v = buildVerdict([], [], [], {
+      scanned: 0,
+      two_sided: 0,
+      empty_book: 0,
+      sample_titles: [],
+    }, [{
+      symbol_a: "SPY",
+      symbol_b: "DIA",
+      n: 120,
+      pearson: 0.84,
+      lookback_days: 180,
+    }]);
+    assert.match(v.bullets.join(" "), /SPY×DIA 0\.84/);
+  });
 });
 
 describe("clampProb", () => {
