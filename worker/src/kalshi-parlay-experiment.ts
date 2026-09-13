@@ -2,8 +2,9 @@
  * Live Kalshi parlay experiment: listed Fed combos vs independence of the
  * decision × dissent legs, homemade same-horizon parlays scored with a
  * Gaussian copula using lake return correlation, and sports multivariate
- * parlays from options.kalshi_markets (KXMVE ingest: open MVE combos +
- * selected legs). Live Kalshi MVE is only a fallback when the lake is empty.
+ * parlays from options.kalshi_markets (KXMVE ingest: MVE combos + selected
+ * legs, including last pre-settlement snapshots). Live Kalshi MVE is only a
+ * fallback when the lake is empty.
  */
 
 import {
@@ -24,6 +25,7 @@ import {
   parseMveSelectedLegs,
   parlayGameGroup,
   pearsonCorrelation,
+  hasTradableQuote,
   quoteMid,
   quoteSpread,
   scoreMultiLegParlay,
@@ -147,6 +149,7 @@ export interface LakeKalshiMarket {
   yes_last: number | null;
   volume: number | null;
   close_time: string | null;
+  fetched_at?: string | null;
 }
 
 export interface KalshiParlayDeps {
@@ -496,7 +499,7 @@ function sportsCandidate(raw: unknown): boolean {
 
 export function buildSportsRows(
   markets: LakeKalshiMarket[],
-  nowMs: number,
+  _nowMs: number,
 ): TwoLegRow[] {
   const byTicker = new Map<string, LakeKalshiMarket>();
   for (const row of markets) {
@@ -508,7 +511,7 @@ export function buildSportsRows(
     const parsed = parseMveCategory(combo.category);
     if (!parsed) continue;
     const comboQuote = lakeToQuote(combo);
-    if (!isLiveQuote(comboQuote, nowMs) && combo.status && /closed|settled|finalized/i.test(combo.status)) {
+    if (!hasTradableQuote(comboQuote) && /closed|settled|finalized/i.test(combo.status)) {
       continue;
     }
     const legs: ParlayLegView[] = [];
@@ -523,6 +526,10 @@ export function buildSportsRows(
         continue;
       }
       const q = lakeToQuote(legRow);
+      if (!hasTradableQuote(q)) {
+        missing += 1;
+        continue;
+      }
       let prob = quoteMid(q);
       if (prob != null && spec.side === "no") prob = 1 - prob;
       if (prob == null) {
@@ -562,6 +569,10 @@ export function buildSportsRows(
           ? "Listed combo disagrees with the product of the lake legs."
           : "Listed combo is within spread of the independence product.",
       missing ? `${missing} selected legs missing from the lake snapshot.` : "",
+      /closed|settled|finalized/i.test(combo.status)
+        ? `Scored from the last lake snapshot (status ${combo.status}); not a live CLOB.`
+        : "",
+      combo.fetched_at ? `Snapshot ${combo.fetched_at}.` : "",
     ].filter(Boolean).join(" ");
     rows.push({
       id: combo.market_ticker,
@@ -849,7 +860,7 @@ export function buildVerdict(
     );
   } else if (mve.scanned) {
     bullets.push(
-      `Public combo CLOB: ${mve.two_sided} of ${mve.scanned} scanned MVE markets have a two-sided book inside (0,1). Sports parlays are ingested as open MVE combos plus selected legs — not the full sports catalog.`,
+      `Public combo CLOB: ${mve.two_sided} of ${mve.scanned} scanned MVE markets have a two-sided book inside (0,1). Sports parlays are ingested as MVE combos plus selected legs (open books and last pre-settlement candles) — not the full sports catalog.`,
     );
   }
   if (homemadeHigh) {

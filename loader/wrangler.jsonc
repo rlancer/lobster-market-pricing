@@ -54,7 +54,11 @@
     "KALSHI_CONCURRENCY": 1,
     "KALSHI_SERIES_PACE_MS": 3000,
     "KALSHI_MIN_REQUEST_GAP_MS": 400,
-    "KALSHI_MAX_PAGES": 3
+    "KALSHI_MAX_PAGES": 3,
+    // Sports parlays only (KXMVE): 30 days of daily candles for open +
+    // recently settled/closed MVE combos and their selected legs.
+    "KALSHI_SPORTS_LOOKBACK_DAYS": 30,
+    "KALSHI_SPORTS_LOOKBACK_MAX": 200
   },
   "d1_databases": [
     {

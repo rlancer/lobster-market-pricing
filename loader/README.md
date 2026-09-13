@@ -240,8 +240,9 @@ Probe: `node --experimental-strip-types tools/macro_probe.ts`.
 Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
 and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
-BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (open multivariate
-combo markets with `mve_selected_legs`, plus those legs). Investing series
+BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (multivariate
+combo markets with `mve_selected_legs`, plus those legs — open books and
+~30 days of daily candlesticks for recently settled/closed parlays). Investing series
 optionally link to a lake `related_symbol` (SPY, TLT, BTC-USD, CL=F, …) for
 Chat joins, `/research/{ticker}` event markets (`GET /api/research/{ticker}/kalshi`),
 and Kalshi trade ideas. Sports rows use `theme=sports` and
@@ -249,17 +250,21 @@ and Kalshi trade ideas. Sports rows use `theme=sports` and
 
 Public Trade API (no key): `GET /markets?series_ticker=…&status=open` for
 investing series; sports parlays use `GET /markets?mve_filter=only&status=open`
-then `GET /markets?tickers=…` for the selected legs. Combo rows encode
+(and `status=settled|closed` with `min_settled_ts` / `min_close_ts` for the
+lookback window) then `GET /markets?tickers=…` for the selected legs and
+`GET /markets/candlesticks?period_interval=1440` for daily history. Combo rows encode
 collection + legs in `category` as `mve|{collection}|{yes|no}:{LEG},…` on the
 existing stream schema (no extra columns — Pipelines has no stream update).
-Each
+Candle rows set `fetched_at` to the candle end so latest-wins keeps a month of
+quotes; settlement 0/1 snapshots are not published. Each
 pass caps markets per series (volume-first; sports cap is on combos, and every
 selected leg is kept), is batch-scoped / ungated, and
 runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
 event odds move outside the US equity session. Series are paced
 (`KALSHI_SERIES_PACE_MS`, default 3000; `KALSHI_CONCURRENCY` default 1;
 `KALSHI_MIN_REQUEST_GAP_MS` default 400) to avoid Kalshi `too_many_requests`
-429s; set `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
+429s; sports lookback defaults to 30 days (`KALSHI_SPORTS_LOOKBACK_DAYS`,
+cap `KALSHI_SPORTS_LOOKBACK_MAX` 200). Set `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
 **Optional API auth** — market GETs work anonymously, but a Kalshi

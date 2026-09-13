@@ -22,6 +22,7 @@ import {
   quoteSpread,
   encodeMveCategory,
   parseMveCategory,
+  hasTradableQuote,
   scoreMultiLegParlay,
   scoreTwoLegParlay,
 } from "../src/kalshi-parlay";
@@ -49,6 +50,12 @@ describe("parseKalshiNumber + quoteMid", () => {
     assert.equal(quoteMid({ yes_bid: 0, yes_ask: 1, yes_last: 0.4 }), 0.4);
     assert.equal(quoteMid({ yes_bid: 0, yes_ask: 1, yes_last: 0 }), null);
     assert.equal(quoteSpread({ yes_bid: 0.61, yes_ask: 0.62 }), 0.01);
+  });
+
+  it("treats settlement 0/1 as not tradable and a 0.22 mid as tradable", () => {
+    assert.equal(hasTradableQuote({ yes_bid: 1, yes_ask: 1, yes_last: 1 }), false);
+    assert.equal(hasTradableQuote({ yes_bid: 0, yes_ask: 0, yes_last: 0 }), false);
+    assert.equal(hasTradableQuote({ yes_bid: 0.18, yes_ask: 0.22, yes_last: 0.20 }), true);
   });
 });
 
@@ -487,7 +494,7 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v2");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v3");
     assert.equal(snapshot.sports_source, "none");
     assert.equal(snapshot.sports.length, 0);
     assert.equal(snapshot.listed.length, 4);
@@ -589,6 +596,70 @@ describe("runKalshiParlayExperiment", () => {
     assert.ok(row.score.flags.includes("cross_game"));
     assert.equal(snapshot.verdict.sports_scored, 1);
     assert.equal(snapshot.mve.scanned, 1);
+  });
+
+  it("scores settled sports parlays from the last lake snapshot", () => {
+    const comboCategory = encodeMveCategory("KXMVESPORT-NFL", [
+      { event_ticker: "KXNFLGAME-26AUG16DAL", market_ticker: "KXNFLGAME-26AUG16DAL-DAL", side: "yes" },
+      { event_ticker: "KXNFLGAME-26AUG16NYG", market_ticker: "KXNFLGAME-26AUG16NYG-NYG", side: "yes" },
+    ]);
+    const rows = buildSportsRows([
+      {
+        series_ticker: "KXNFLPARLAY",
+        market_ticker: "KXNFLPARLAY-26AUG16-DALNYG",
+        event_ticker: "KXNFLPARLAY-26AUG16",
+        title: "Cowboys win AND Giants win",
+        yes_subtitle: null,
+        theme: "sports",
+        category: comboCategory,
+        status: "settled",
+        market_type: "multivariate",
+        yes_bid: 0.18,
+        yes_ask: 0.22,
+        yes_last: 0.20,
+        volume: 120,
+        close_time: "2026-08-17T00:00:00Z",
+        fetched_at: "2026-08-16T00:00:00.000Z",
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26AUG16DAL-DAL",
+        event_ticker: "KXNFLGAME-26AUG16DAL",
+        title: "Cowboys win",
+        yes_subtitle: "DAL",
+        theme: "sports",
+        category: null,
+        status: "settled",
+        market_type: "binary",
+        yes_bid: 0.62,
+        yes_ask: 0.64,
+        yes_last: 0.63,
+        volume: 400,
+        close_time: "2026-08-17T00:00:00Z",
+        fetched_at: "2026-08-16T00:00:00.000Z",
+      },
+      {
+        series_ticker: "KXNFLGAME",
+        market_ticker: "KXNFLGAME-26AUG16NYG-NYG",
+        event_ticker: "KXNFLGAME-26AUG16NYG",
+        title: "Giants win",
+        yes_subtitle: "NYG",
+        theme: "sports",
+        category: null,
+        status: "settled",
+        market_type: "binary",
+        yes_bid: 0.31,
+        yes_ask: 0.33,
+        yes_last: 0.32,
+        volume: 300,
+        close_time: "2026-08-17T00:00:00Z",
+        fetched_at: "2026-08-16T00:00:00.000Z",
+      },
+    ], now);
+    assert.equal(rows.length, 1);
+    assert.ok(Math.abs(rows[0]!.score.independence - 0.63 * 0.32) < 1e-6);
+    assert.match(rows[0]!.notes, /last lake snapshot/i);
+    assert.match(rows[0]!.notes, /2026-08-16T00:00:00.000Z/);
   });
 
   it("still scores lake sports after a Kalshi 429 on Fed series", async () => {

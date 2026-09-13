@@ -2,7 +2,10 @@
 //
 // Investing series (Fed/CPI/indexes/crypto/oil) come from symbols/kalshi-series.json
 // as series_ticker GETs. Sports parlays are the KXMVE ingest: open multivariate
-// combo markets plus the legs those combos select — not the full sports catalog.
+// combo markets plus the legs those combos select — not the full sports catalog —
+// and ~30 days of daily candlesticks for those tickers (settled/closed MVE in
+// the window). Candle rows set fetched_at to the period end so latest-wins
+// keeps history; settlement 0/1 snapshots are not published.
 // Publishes to options.kalshi_markets via PIPELINE_KALSHI_MARKETS_URL.
 //
 // Public Trade API (no auth for market data):
@@ -91,6 +94,14 @@ export const MAX_PAGES_DEFAULT = 3;
 export const MIN_REQUEST_GAP_MS_DEFAULT = 400;
 /** Cap a single 429 sleep so one hot series cannot burn the whole pass budget. */
 export const MAX_429_WAIT_SECONDS = 12;
+/** Default sports-parlay candlestick lookback (days). */
+export const KALSHI_SPORTS_LOOKBACK_DAYS_DEFAULT = 30;
+/** Cap settled/closed sports combos pulled in that window. */
+export const KALSHI_SPORTS_LOOKBACK_MAX_DEFAULT = 200;
+/** Daily candles — Kalshi period_interval minutes. */
+export const KALSHI_CANDLE_INTERVAL_MIN = 1440;
+/** Batch Get Market Candlesticks allows 100 tickers; stay under the 10k-candle cap. */
+export const KALSHI_CANDLE_TICKER_BATCH = 80;
 
 export interface KalshiEnv {
   KALSHI_API_BASE?: string;
@@ -117,6 +128,13 @@ export interface KalshiEnv {
   KALSHI_MAX_PAGES?: number;
   /** Min ms between Kalshi GETs (default 400). */
   KALSHI_MIN_REQUEST_GAP_MS?: number;
+  /**
+   * Sports-parlay history window in days (default 30). Daily candlesticks for
+   * open + settled/closed MVE combos and their selected legs. 0 = open only.
+   */
+  KALSHI_SPORTS_LOOKBACK_DAYS?: number | string;
+  /** Cap on settled/closed sports combos in the lookback window (default 200). */
+  KALSHI_SPORTS_LOOKBACK_MAX?: number | string;
   now?: () => number;
   runId?: () => string;
 }
@@ -145,6 +163,8 @@ export interface KalshiMarketRow {
   expiration_time: string | null;
   related_symbol: string | null;
   source: string;
+  /** Per-row event time. Candle rows set this to the period end. */
+  fetched_at?: string;
 }
 
 export interface KalshiPublishResult {
@@ -170,6 +190,29 @@ function errMsg(error: unknown): string {
 
 function num(v: number | undefined, dflt: number): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : dflt;
+}
+
+function envNumber(raw: unknown, dflt: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return dflt;
+}
+
+function envInt(raw: unknown, dflt: number, min: number, max: number): number {
+  const n = envNumber(raw, dflt);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+function kalshiSportsLookbackDays(env: KalshiEnv): number {
+  return envInt(env.KALSHI_SPORTS_LOOKBACK_DAYS, KALSHI_SPORTS_LOOKBACK_DAYS_DEFAULT, 0, 90);
+}
+
+function kalshiSportsLookbackMax(env: KalshiEnv): number {
+  return envInt(env.KALSHI_SPORTS_LOOKBACK_MAX, KALSHI_SPORTS_LOOKBACK_MAX_DEFAULT, 1, 500);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -608,37 +651,67 @@ async function fetchMarketsByTickers(
   return out;
 }
 
-/**
- * Open sports parlays: MVE combo markets that name their legs, plus those
- * leg contracts. Capped on combos (volume-first); every selected leg is kept.
- */
-export async function fetchKalshiSportsParlays(
-  env: KalshiEnv = {},
-): Promise<KalshiMarketRow[]> {
-  const meta = Object.values(KALSHI_SERIES).find((s) => s.ingest === "mve");
-  const cap = meta ? maxMarketsFor(meta.series_ticker, env) : DEFAULT_MAX_MARKETS_PER_SERIES;
-  const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
-  const pageLimit = Math.min(
-    1000,
-    Math.max(1, Math.floor(num(env.KALSHI_PAGE_LIMIT, PAGE_LIMIT_DEFAULT))),
-  );
-  const maxPages = Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
-  const investing = investingKalshiSeries();
+type MveLegList = ReturnType<typeof parseMveSelectedLegs>;
 
-  const rawCombos: unknown[] = [];
+function kalshiPageLimit(env: KalshiEnv): number {
+  return Math.min(1000, Math.max(1, Math.floor(num(env.KALSHI_PAGE_LIMIT, PAGE_LIMIT_DEFAULT))));
+}
+
+function kalshiMaxPages(env: KalshiEnv): number {
+  return Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
+}
+
+function isSettledKalshiStatus(status: string): boolean {
+  return /^(settled|finalized)$/i.test(status);
+}
+
+/** Settlement 0/1 prints are outcomes, not quotes — skip them so latest-wins keeps the last live candle. */
+function looksLikeSettlementPrint(
+  bid: number | null,
+  ask: number | null,
+  last: number | null,
+): boolean {
+  const binary = (v: number | null) => v == null || v === 0 || v === 1;
+  if (last !== 0 && last !== 1) return false;
+  return binary(bid) && binary(ask);
+}
+
+function candleCloseDollars(raw: unknown): number | null {
+  const rec = asRecord(raw);
+  if (!rec) return parseKalshiNumber(raw);
+  return parseKalshiNumber(rec.close_dollars ?? rec.close);
+}
+
+async function fetchMveRawMarkets(
+  env: KalshiEnv,
+  status: "open" | "settled" | "closed",
+  extraQuery = "",
+): Promise<unknown[]> {
+  const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
+  const pageLimit = kalshiPageLimit(env);
+  const maxPages = kalshiMaxPages(env);
+  const raw: unknown[] = [];
   let cursor = "";
   for (let page = 0; page < maxPages; page++) {
-    let url = `${base}/markets?mve_filter=only&status=open&limit=${pageLimit}`;
+    let url = `${base}/markets?mve_filter=only&status=${status}&limit=${pageLimit}${extraQuery}`;
     if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
-    const batch = await fetchKalshiPage(url, env, `kalshi mve p${page}`);
-    rawCombos.push(...batch.markets);
+    const batch = await fetchKalshiPage(url, env, `kalshi mve ${status} p${page}`);
+    raw.push(...batch.markets);
     if (!batch.cursor || batch.markets.length === 0) break;
     cursor = batch.cursor;
   }
+  return raw;
+}
 
+function collectSportsCombos(
+  rawMarkets: unknown[],
+  investing: ReadonlySet<string>,
+  cap: number,
+): { ranked: KalshiMarketRow[]; comboLegs: Map<string, MveLegList> } {
   const combos: KalshiMarketRow[] = [];
-  const comboLegs = new Map<string, ReturnType<typeof parseMveSelectedLegs>>();
-  for (const raw of rawCombos) {
+  const comboLegs = new Map<string, MveLegList>();
+  const seen = new Set<string>();
+  for (const raw of rawMarkets) {
     if (!isSportsParlayCandidate(raw, investing)) continue;
     const legs = parseMveSelectedLegs(raw);
     if (legs.length < 2) continue;
@@ -649,24 +722,153 @@ export async function fetchKalshiSportsParlays(
       category: encodeMveCategory(collection, legs),
       market_type: "multivariate",
     });
-    if (!mapped) continue;
+    if (!mapped || seen.has(mapped.market_ticker)) continue;
+    seen.add(mapped.market_ticker);
     combos.push(mapped);
     comboLegs.set(mapped.market_ticker, legs);
   }
-
   const ranked = rankKalshiMarkets(combos).slice(0, cap);
-  const keep = new Set(ranked.map((r) => r.market_ticker));
+  const keep = new Set(ranked.map((row) => row.market_ticker));
+  for (const key of [...comboLegs.keys()]) {
+    if (!keep.has(key)) comboLegs.delete(key);
+  }
+  return { ranked, comboLegs };
+}
+
+function mergeSportsCombos(
+  primary: { ranked: KalshiMarketRow[]; comboLegs: Map<string, MveLegList> },
+  extra: { ranked: KalshiMarketRow[]; comboLegs: Map<string, MveLegList> },
+): { rows: KalshiMarketRow[]; comboLegs: Map<string, MveLegList> } {
+  const byTicker = new Map(primary.ranked.map((row) => [row.market_ticker, row]));
+  const comboLegs = new Map(primary.comboLegs);
+  for (const row of extra.ranked) {
+    if (byTicker.has(row.market_ticker)) continue;
+    byTicker.set(row.market_ticker, row);
+    const legs = extra.comboLegs.get(row.market_ticker);
+    if (legs) comboLegs.set(row.market_ticker, legs);
+  }
+  return { rows: [...byTicker.values()], comboLegs };
+}
+
+function applySportsCandle(base: KalshiMarketRow, candle: unknown): KalshiMarketRow | null {
+  const rec = asRecord(candle);
+  if (!rec) return null;
+  const endTs = Number(rec.end_period_ts);
+  if (!Number.isFinite(endTs) || endTs <= 0) return null;
+  const yesBid = candleCloseDollars(rec.yes_bid);
+  const yesAsk = candleCloseDollars(rec.yes_ask);
+  const price = asRecord(rec.price);
+  const last = candleCloseDollars(rec.price)
+    ?? parseKalshiNumber(price?.previous_dollars);
+  if (yesBid == null && yesAsk == null && last == null) return null;
+  if (looksLikeSettlementPrint(yesBid, yesAsk, last)) return null;
+  const mid = yesBid != null && yesAsk != null ? (yesBid + yesAsk) / 2 : null;
+  return {
+    ...base,
+    yes_bid: yesBid,
+    yes_ask: yesAsk,
+    yes_last: last ?? mid,
+    no_bid: null,
+    no_ask: null,
+    volume: parseKalshiNumber(rec.volume_fp ?? rec.volume),
+    volume_24h: null,
+    open_interest: parseKalshiNumber(rec.open_interest_fp ?? rec.open_interest),
+    fetched_at: new Date(endTs * 1000).toISOString(),
+  };
+}
+
+async function fetchSportsCandles(
+  env: KalshiEnv,
+  bases: KalshiMarketRow[],
+  startTs: number,
+  endTs: number,
+): Promise<KalshiMarketRow[]> {
+  const byTicker = new Map(bases.map((row) => [row.market_ticker, row]));
+  const tickers = [...byTicker.keys()];
+  const out: KalshiMarketRow[] = [];
+  const baseUrl = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
+  for (let i = 0; i < tickers.length; i += KALSHI_CANDLE_TICKER_BATCH) {
+    const batch = tickers.slice(i, i + KALSHI_CANDLE_TICKER_BATCH);
+    const params = new URLSearchParams({
+      market_tickers: batch.join(","),
+      start_ts: String(startTs),
+      end_ts: String(endTs),
+      period_interval: String(KALSHI_CANDLE_INTERVAL_MIN),
+    });
+    const url = `${baseUrl}/markets/candlesticks?${params}`;
+    let payload: unknown;
+    try {
+      payload = await fetchJson(url, env, `kalshi sports candles ${i}`);
+    } catch {
+      continue;
+    }
+    const markets = asRecord(payload)?.markets;
+    if (!Array.isArray(markets)) continue;
+    for (const item of markets) {
+      const rec = asRecord(item);
+      const ticker = strip(rec?.market_ticker).toUpperCase();
+      const base = ticker ? byTicker.get(ticker) : undefined;
+      const candles = rec?.candlesticks;
+      if (!base || !Array.isArray(candles)) continue;
+      for (const candle of candles) {
+        const row = applySportsCandle(base, candle);
+        if (row) out.push(row);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Sports parlays: MVE combo markets that name their legs, plus those leg
+ * contracts. Open books are snapshotted live; settled/closed books in the
+ * lookback window are daily candlesticks only (no settlement 0/1 overwrite).
+ * Capped on combos (volume-first); every selected leg is kept.
+ */
+export async function fetchKalshiSportsParlays(
+  env: KalshiEnv = {},
+): Promise<KalshiMarketRow[]> {
+  const meta = Object.values(KALSHI_SERIES).find((s) => s.ingest === "mve");
+  const cap = meta ? maxMarketsFor(meta.series_ticker, env) : DEFAULT_MAX_MARKETS_PER_SERIES;
+  const investing = investingKalshiSeries();
+  const openPack = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, cap);
+
+  const lookbackDays = kalshiSportsLookbackDays(env);
+  let histPack = { ranked: [] as KalshiMarketRow[], comboLegs: new Map<string, MveLegList>() };
+  const nowMs = Date.now();
+  const endTs = Math.floor(nowMs / 1000);
+  const startTs = endTs - lookbackDays * 86400;
+  if (lookbackDays > 0) {
+    try {
+      const lookbackMax = kalshiSportsLookbackMax(env);
+      const extraSettled = `&min_settled_ts=${startTs}`;
+      const extraClosed = `&min_close_ts=${startTs}`;
+      const settledRaw = await fetchMveRawMarkets(env, "settled", extraSettled);
+      const closedRaw = await fetchMveRawMarkets(env, "closed", extraClosed);
+      histPack = collectSportsCombos([...settledRaw, ...closedRaw], investing, lookbackMax);
+    } catch {
+      histPack = { ranked: [], comboLegs: new Map() };
+    }
+  }
+
+  const merged = mergeSportsCombos(openPack, histPack);
+  const keep = new Set(merged.rows.map((row) => row.market_ticker));
   const legTickers: string[] = [];
   const seenLegs = new Set<string>();
-  for (const row of ranked) {
-    for (const leg of comboLegs.get(row.market_ticker) ?? []) {
+  for (const row of merged.rows) {
+    for (const leg of merged.comboLegs.get(row.market_ticker) ?? []) {
       if (keep.has(leg.market_ticker) || seenLegs.has(leg.market_ticker)) continue;
       seenLegs.add(leg.market_ticker);
       legTickers.push(leg.market_ticker);
     }
   }
   const legs = await fetchMarketsByTickers(legTickers, env);
-  return [...ranked, ...legs];
+  const bases = [...merged.rows, ...legs];
+  const live = bases.filter((row) => !isSettledKalshiStatus(row.status));
+  if (lookbackDays <= 0) return live;
+
+  const candles = await fetchSportsCandles(env, bases, startTs, endTs);
+  return [...live, ...candles];
 }
 
 // ---------------------------------------------------------------------------
@@ -739,7 +941,7 @@ export function normalizeKalshiRecords(
     const rec: Record<string, unknown> = {
       ...r,
       run_id: runId,
-      fetched_at: fetchedAt,
+      fetched_at: r.fetched_at || fetchedAt,
     };
     const out: Record<string, unknown> = {};
     for (const f of KALSHI_MARKETS_FIELDS) out[f] = rec[f];

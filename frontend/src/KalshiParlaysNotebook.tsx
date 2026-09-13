@@ -351,15 +351,17 @@ export default function KalshiParlaysNotebookPage() {
             <Section id="sports" num={tocById.get('sports')?.num ?? '05'} title="Sports parlays">
               <VStack gap={3}>
                 <Text>
-                  Open multivariate (MVE) combos plus the legs they actually
-                  select now land in <code>options.kalshi_markets</code> with
+                  Multivariate (MVE) combos plus the legs they actually
+                  select land in <code>options.kalshi_markets</code> with
                   {' '}<code>theme=sports</code>. Combo rows store the collection
                   and selected tickers in <code>category</code> as{' '}
                   <code>mve|COLLECTION|yes:LEG,no:LEG,…</code>
-                  — not the full sports catalog. Independence is the product of
-                  every selected YES (or 1−YES for NO legs). Same-game stacks
-                  are correlated by construction; an empty 0-bid / 1-ask combo
-                  book is RFQ, not a mispricing signal.
+                  — not the full sports catalog. The hourly job keeps open
+                  books plus about 30 days of daily candles for those tickers
+                  (settled 0/1 outcomes are not stored). Independence is the
+                  product of every selected YES (or 1−YES for NO legs).
+                  Same-game stacks are correlated by construction; an empty
+                  0-bid / 1-ask combo book is RFQ, not a mispricing signal.
                 </Text>
                 <Text type="supporting">
                   Source this pass: {snapshot.sports_source === 'lake'
@@ -379,13 +381,14 @@ export default function KalshiParlaysNotebookPage() {
               <VStack gap={3}>
                 <Text>
                   Kalshi parlays as a product are multivariate event collections.
-                  The lake stores the open sports combos that name their legs.
+                  The lake stores the sports combos that name their legs,
+                  including last quotes from the 30-day candle backfill.
                   A public two-sided book inside (0, 1) is what this notebook
                   can actually screen against independence. Empty 0-bid / 1-ask
                   books are not a mispricing signal; they are no tape.
                 </Text>
                 <Text>
-                  Scanned {snapshot.mve.scanned} open MVE markets · {snapshot.mve.two_sided} two-sided · {snapshot.mve.empty_book} empty.
+                  Scanned {snapshot.mve.scanned} lake MVE markets · {snapshot.mve.two_sided} two-sided · {snapshot.mve.empty_book} empty.
                 </Text>
                 {snapshot.mve.sample_titles.length ? (
                   <Text type="supporting">
@@ -416,9 +419,10 @@ export default function KalshiParlaysNotebookPage() {
             </Text>
             <Text type="supporting">
               Live Kalshi public Trade API for Fed/homemade series. Sports
-              parlays prefer <code>options.kalshi_markets</code> rows from the
-              hourly KXMVE ingest (open MVE combos + selected legs). Dissent
-              &gt;0 is the complement of the 0-dissent contract. Return series
+                  parlays prefer <code>options.kalshi_markets</code> rows from the
+                  hourly KXMVE ingest (MVE combos + selected legs, including
+                  last pre-settlement daily candles). Dissent
+                  &gt;0 is the complement of the 0-dissent contract. Return series
               from <code>options.ohlc</code>, latest-wins per symbol/date. Chat
               still treats Kalshi as investing event odds — sports rows are
               for this experiment, not trade suggestions. Not a tradable

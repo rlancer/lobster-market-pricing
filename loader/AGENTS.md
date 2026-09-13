@@ -42,8 +42,9 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   DFF/SOFR; ~10y lookback), `fred-macro-daily` (batch, daily; FRED CPI/PCE/PPI
   index + YoY → `options.macro`; ~20y lookback), and `kalshi-markets-hourly`
   (batch, hourly; curated Kalshi
-  Fed/CPI/index/crypto/oil event contracts plus sports parlays — open MVE
-  combos and the legs they select, not the full catalog — →
+  Fed/CPI/index/crypto/oil event contracts plus sports parlays — MVE
+  combos and the legs they select, including ~30 days of daily candles,
+  not the full catalog — →
   `options.kalshi_markets` from `symbols/kalshi-series.json`).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
