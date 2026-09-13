@@ -8,7 +8,7 @@
  */
 
 export const KALSHI_PARLAY_SLUG = "kalshi-parlays";
-export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v4";
+export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v5";
 
 export type FedRateKey = "hike_25" | "cut_25" | "hold";
 export type FedDissentKey = "zero" | "some";
@@ -123,15 +123,19 @@ export function isTwoSided(q: Pick<KalshiQuote, "yes_bid" | "yes_ask">): boolean
 }
 
 /**
- * Listed combo mid used for independence / implied ρ. RFQ 0/0/0 and 0-bid/1-ask
- * empty books are not a tape — only a two-sided book inside (0, 1) counts.
+ * Combo mid used for independence / implied ρ.
+ * Two-sided CLOB inside (0, 1) counts. Empty RFQ 0/0/0 is not a quote unless
+ * `yes_last` is an auction print in (0, 1) — combos are HVMs; makers quote
+ * privately, then the fill prints on the public book.
  */
 export function listedComboMid(
   q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last">,
 ): number | null {
-  if (!isTwoSided(q)) return null;
-  const mid = quoteMid(q);
-  return mid != null && mid > 0 && mid < 1 ? mid : null;
+  if (isTwoSided(q)) {
+    const mid = quoteMid(q);
+    return mid != null && mid > 0 && mid < 1 ? mid : null;
+  }
+  return lastInOpenUnit(q.yes_last);
 }
 
 /** Mid in (0, 1) — live CLOB or a last pre-settlement lake snapshot. Settlement 0/1 is not a quote. */

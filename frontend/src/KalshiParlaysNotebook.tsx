@@ -362,14 +362,15 @@ export default function KalshiParlaysNotebookPage() {
                   {' '}<code>theme=sports</code>. Combo rows store the collection
                   and selected tickers in <code>category</code> as{' '}
                   <code>mve|COLLECTION|yes:LEG,no:LEG,…</code>
-                  — not the full sports catalog. Independence is the
-                  product of every selected YES (or 1−YES for NO legs),
-                  compared only to a two-sided combo book inside (0, 1)
-                  or the last two-sided candle — never RFQ 0/0/0.
-                  Same-game stacks are correlated by construction; without
-                  a combo tape the fair joint is the Fréchet interval from
-                  the lake legs. Legs are aligned to the combo snapshot
-                  time, not mixed latest-wins.
+                  — not the full sports catalog. Combos are RFQ auctions
+                  (Kalshi HVMs): makers quote privately, then a fill may
+                  print on the public book. Empty 0/0/0 is the resting
+                  venue, not a missing market. Independence is the
+                  uncorrelated reservation a maker should beat; same-game
+                  auction fair is the Fréchet interval from the lake legs.
+                  A two-sided CLOB or an auction print (`yes_last` in
+                  (0, 1)) is compared to that product. Legs are aligned
+                  to the combo snapshot time, not mixed latest-wins.
                 </Text>
                 <Text type="supporting">
                   Source this pass: {snapshot.sports_source === 'lake'
@@ -403,13 +404,15 @@ export default function KalshiParlaysNotebookPage() {
             <Section id="mve" num={tocById.get('mve')?.num ?? '07'} title="Combo CLOB">
               <VStack gap={3}>
                 <Text>
-                  Kalshi parlays as a product are multivariate event collections.
-                  The lake stores the sports combos that name their legs,
-                  including last quotes from the 30-day candle backfill.
-                  A public two-sided book inside (0, 1) is what this notebook
-                  can actually screen against independence. Empty 0/0/0 or
-                  0-bid / 1-ask books are not a mispricing signal; they are
-                  no tape.
+                  Kalshi combos are RFQ auctions. You request a quote; makers
+                  answer privately with <code>yes_bid</code>/<code>no_bid</code>;
+                  after accept+confirm the fill prints on a public book that
+                  usually goes empty again. The lake stores combos that name
+                  their legs, including last quotes from the 30-day candle
+                  backfill. A two-sided book or an auction print in (0, 1)
+                  is what this notebook can screen against independence.
+                  Empty 0/0/0 with last 0 is the resting venue — maker quotes
+                  themselves never land in the lake.
                 </Text>
                 <Text>
                   Scanned {snapshot.mve.scanned} lake MVE combos · {snapshot.mve.two_sided} two-sided on the latest snapshot · {snapshot.mve.empty_book} empty.
@@ -433,8 +436,9 @@ export default function KalshiParlaysNotebookPage() {
               Binary events with YES mids pᵢ. Independence says P(all) is the
               product of the selected probabilities. The Fréchet–Hoeffding
               bounds are max(0, Σpᵢ − (n−1)) and min pᵢ. A listed combo mid C
-              is compared to that product only when the combo book is two-sided
-              inside (0, 1); RFQ 0/0/0 is not C. A gap larger than half the
+              is compared to that product when the combo book is two-sided
+              inside (0, 1) or when <code>yes_last</code> is an RFQ auction
+              print in (0, 1). Empty 0/0/0 with last 0 is not C. A gap larger than half the
               combo spread plus half the leg spreads is flagged; clearing
               Kalshi taker fees (~7% of expected earnings) is a stricter bar.
               Phi and tetrachoric ρ are defined for two legs only.
@@ -445,14 +449,15 @@ export default function KalshiParlaysNotebookPage() {
               so Φ₂(Φ⁻¹(p), Φ⁻¹(q); ρ) = C. Homemade parlays have no C; they use
               overlapping daily log returns of the related lake symbols as ρ and
               report the copula-fair joint versus pq. Same-game sports stacks
-              without a combo tape report the Fréchet interval from the lake
-              legs instead of pretending C = 0.
+              without a public print report the Fréchet interval from the lake
+              legs — that is the auction-fair range a maker should quote.
             </Text>
             <Text type="supporting">
               Live Kalshi public Trade API for Fed/homemade series. Sports
                   parlays prefer <code>options.kalshi_markets</code> history from the
                   hourly KXMVE ingest (MVE combos + selected legs + daily candles).
-                  Combo mids use the last two-sided snapshot; legs are the nearest
+                  Combo mids use the last two-sided snapshot or RFQ auction
+                  print; legs are the nearest
                   tradable snapshot to that time. Crypto target-price CROSSCATEGORY
                   stacks are scored separately from NFL/sports props. Dissent
                   &gt;0 is the complement of the 0-dissent contract. Return series

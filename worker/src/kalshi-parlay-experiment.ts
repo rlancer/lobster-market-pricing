@@ -570,6 +570,12 @@ function pickTwoSidedSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | nul
   return null;
 }
 
+function pickComboTapeSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | null {
+  return pickTwoSidedSnapshot(snaps)
+    ?? snaps.find((row) => hasTradableQuote(lakeToQuote(row)))
+    ?? null;
+}
+
 function pickNearestTradable(
   snaps: LakeKalshiMarket[],
   atMs: number,
@@ -614,9 +620,10 @@ export function scoreMveParlays(
     if (!parsed) continue;
     if (seenCombos.has(ticker)) continue;
     seenCombos.add(ticker);
-    const tapeSnap = pickTwoSidedSnapshot(snaps);
+    const tapeSnap = pickComboTapeSnapshot(snaps);
     const displaySnap = tapeSnap ?? snaps[0]!;
     const comboQuote = lakeToQuote(displaySnap);
+    const twoSidedTape = tapeSnap ? isTwoSided(lakeToQuote(tapeSnap)) : false;
     if (!tapeSnap && /closed|settled|finalized/i.test(displaySnap.status) && !hasTradableQuote(comboQuote)) {
       continue;
     }
@@ -662,7 +669,12 @@ export function scoreMveParlays(
     if (group === "same_game") score.flags.push("same_game");
     if (group === "cross_game") score.flags.push("cross_game");
     if (group === "mixed") score.flags.push("mixed_game");
-    if (joint == null) score.flags.push("no_combo_tape");
+    if (joint == null) {
+      score.flags.push("no_combo_tape");
+      score.flags.push("rfq_auction");
+    } else if (!twoSidedTape) {
+      score.flags.push("rfq_auction_print");
+    }
     const tape = mveTapeKind(parsed.legs.map((leg) => leg.market_ticker));
     if (tape === "crypto_mve") score.flags.push("crypto_mve");
     if (tape === "mixed") score.flags.push("mixed_crypto");
@@ -680,15 +692,17 @@ export function scoreMveParlays(
               ? "Cross-game parlay — closer to independent legs."
               : "Mixed same-game and cross-game legs.",
       joint == null
-        ? "Combo CLOB is empty (RFQ 0/0/0 is not a listed quote). Independence is what a naive parlay would charge, not a CLOB misprice."
-        : score.flags.includes("survives_fees")
+        ? "Combo CLOB is empty because sports parlays are RFQ auctions (HVM). Makers quote privately; 0/0/0 is the resting book, not a missing market. Independence is the uncorrelated reservation; same-game auction fair is the Fréchet interval from the lake legs."
+        : score.flags.includes("rfq_auction_print")
+          ? "Combo mid is an RFQ auction print (yes_last in (0, 1) on an empty resting book), not a standing two-sided CLOB."
+          : score.flags.includes("survives_fees")
           ? "Listed combo disagrees with the product of the aligned lake legs by more than spread plus Kalshi taker fees."
           : score.flags.includes("independence_gap")
             ? "Listed combo disagrees with the product of the aligned lake legs, but the gap may not clear fees."
             : "Listed combo is within spread of the independence product of the aligned lake legs.",
       missing ? `${missing} selected legs missing a tradable lake snapshot near the combo time.` : "",
       tapeSnap && tapeSnap.fetched_at !== snaps[0]?.fetched_at
-        ? `Combo mid from last two-sided snapshot ${tapeSnap.fetched_at}; not the latest RFQ print.`
+        ? `Combo mid from last ${twoSidedTape ? "two-sided" : "auction-print"} snapshot ${tapeSnap.fetched_at}; not the latest empty RFQ book.`
         : "",
       /closed|settled|finalized/i.test(displaySnap.status)
         ? `Scored from a lake snapshot (status ${displaySnap.status}); not a live CLOB.`
@@ -1054,18 +1068,18 @@ export function buildVerdict(
   }
   if (mve.combo_tickers) {
     bullets.push(
-      `${mve.ever_two_sided ?? 0} of ${mve.combo_tickers} lake MVE combos ever had a two-sided book inside (0,1). RFQ 0/0/0 is not a listed quote.`,
+      `${mve.ever_two_sided ?? 0} of ${mve.combo_tickers} lake MVE combos ever rested a two-sided book inside (0,1). Combos are HVMs: the venue is RFQ auction, not a standing CLOB.`,
     );
     bullets.push(
       `Split: ${mve.sports_combos ?? 0} sports, ${mve.crypto_mve_combos ?? 0} crypto target-price MVEs, ${mve.mixed_combos ?? 0} mixed. ${mve.same_game ?? 0} same-game, ${mve.cross_game ?? 0} cross-game, ${mve.two_leg ?? 0} two-leg.`,
     );
     if (mve.tape_scored) {
       bullets.push(
-        `${mve.tape_flagged ?? 0} of ${mve.tape_scored} two-sided combo tapes disagree with independence after spread; ${mve.survives_spread_fees ?? 0} still clear Kalshi taker fees.`,
+        `${mve.tape_flagged ?? 0} of ${mve.tape_scored} combo tapes (two-sided book or RFQ auction print) disagree with independence after spread; ${mve.survives_spread_fees ?? 0} still clear Kalshi taker fees.`,
       );
     } else {
       bullets.push(
-        "No listed combo tape to misprice versus independence. Same-game stacks are bounded by Fréchet from the lake legs; cross-game products are the naive parlay price, not a CLOB.",
+        "No public combo print this window — maker RFQ quotes are private. Same-game auction fair is the Fréchet interval from the lake legs; a maker quoting p×q on a same-game stack is selling correlation too cheap. Cross-game independence is closer to the right reservation.",
       );
     }
   } else if (sports.length) {
@@ -1100,7 +1114,7 @@ export function buildVerdict(
     : (mve.tape_flagged ?? 0)
       ? "Listed Fed parlays are close to independence this snapshot; the sports combo tape is not."
       : (mve.combo_tickers && (mve.ever_two_sided ?? 0) === 0)
-        ? "Kalshi sports parlays have no listed combo tape — RFQ 0/0/0 is not a misprice versus independence."
+        ? "Kalshi sports parlays are RFQ auctions — empty 0/0/0 books are the venue, not a missing market."
         : scored.length
           ? "Listed Fed parlays are close to independence this snapshot; correlation still shows up in homemade pairs and sports MVEs."
           : "Could not score listed parlays this snapshot.";

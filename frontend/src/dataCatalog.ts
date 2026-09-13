@@ -672,7 +672,7 @@ export const TABLE_META: Record<string, Pick<CatalogItem, 'summary' | 'descripti
   kalshi_markets: {
     summary: 'Curated Kalshi event-contract odds',
     description:
-      'Investing-relevant Kalshi markets (Fed/CPI/GDP/indexes/crypto/oil) plus sports parlay combos (theme=sports, category mve|…): series_ticker, market_ticker, title, theme, yes_bid/yes_ask/yes_last (0–1), volume/OI, close_time, related_symbol. Hourly snapshots; latest-wins on market_ticker for research, full history for the parlay experiment. Join related_symbol to options.ohlc / option_contracts for event-vol context. Sports rows have related_symbol=null and are for the parlay experiment — Chat suggest_trades stays on investing series. RFQ 0/0/0 combo books are not listed quotes. Powers /research/{ticker} Event markets (GET /api/research/{ticker}/kalshi) and Kalshi legs in suggest_trades.',
+      'Investing-relevant Kalshi markets (Fed/CPI/GDP/indexes/crypto/oil) plus sports parlay combos (theme=sports, category mve|…): series_ticker, market_ticker, title, theme, yes_bid/yes_ask/yes_last (0–1), volume/OI, close_time, related_symbol. Hourly snapshots; latest-wins on market_ticker for research, full history for the parlay experiment. Join related_symbol to options.ohlc / option_contracts for event-vol context. Sports rows have related_symbol=null and are for the parlay experiment — Chat suggest_trades stays on investing series. Combo 0/0/0 books are the RFQ auction resting venue, not listed CLOB quotes. Powers /research/{ticker} Event markets (GET /api/research/{ticker}/kalshi) and Kalshi legs in suggest_trades.',
     feeds: ['kalshi'],
     tools: ['run_query', 'suggest_trades'],
   },

@@ -64,6 +64,7 @@ describe("parseKalshiNumber + quoteMid", () => {
     assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0 }), null);
     assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 1, yes_last: 0 }), null);
     assert.equal(listedComboMid({ yes_bid: 0.20, yes_ask: 0.24, yes_last: 0.22 }), 0.22);
+    assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0.22 }), 0.22);
   });
 
   it("treats settlement 0/1 as not tradable and a 0.22 mid as tradable", () => {
@@ -244,6 +245,7 @@ describe("buildSportsRows", () => {
     assert.equal(rows.length, 1);
     assert.ok(rows[0]!.score.flags.includes("same_game"));
     assert.ok(rows[0]!.score.flags.includes("no_combo_tape"));
+    assert.ok(rows[0]!.score.flags.includes("rfq_auction"));
     assert.equal(rows[0]!.score.joint, null);
     assert.equal(rows[0]!.score.flags.includes("independence_gap"), false);
     assert.ok(Math.abs(rows[0]!.score.independence - 0.56 * 0.51) < 1e-6);
@@ -308,11 +310,76 @@ describe("buildSportsRows", () => {
     assert.equal(rows.length, 1);
     assert.ok(rows[0]!.score.flags.includes("same_game"));
     assert.ok(rows[0]!.score.flags.includes("no_combo_tape"));
+    assert.ok(rows[0]!.score.flags.includes("rfq_auction"));
     assert.equal(rows[0]!.score.joint, null);
     assert.equal(rows[0]!.score.gap_vs_independence, null);
     assert.equal(rows[0]!.score.flags.includes("independence_gap"), false);
     assert.equal(rows[0]!.score.flags.includes("below_frechet"), false);
     assert.match(rows[0]!.notes, /Fréchet interval/);
+    assert.match(rows[0]!.notes, /RFQ auction/);
+  });
+
+  it("scores an RFQ auction print on an empty resting book", () => {
+    const category = encodeMveCategory("KXMVECROSSCATEGORY-SHARD1-R", [
+      { event_ticker: "KXNFL1HSPREAD-26SEP13ATLPIT", market_ticker: "KXNFL1HSPREAD-26SEP13ATLPIT-PIT11", side: "no" },
+      { event_ticker: "KXNFL1HTOTAL-26SEP13ATLPIT", market_ticker: "KXNFL1HTOTAL-26SEP13ATLPIT-25", side: "no" },
+    ]);
+    const rows = buildSportsRows([
+      {
+        series_ticker: "KXMVE",
+        market_ticker: "KXMVECROSSCATEGORY-AUCTIONPRINT",
+        event_ticker: null,
+        title: "no PIT Steelers wins 1H by over 10.5 points,no Over 24.5 1H points scored",
+        yes_subtitle: null,
+        theme: "sports",
+        category,
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0,
+        yes_ask: 0,
+        yes_last: 0.22,
+        volume: 12,
+        close_time: "2026-09-14T00:00:00Z",
+        fetched_at: "2026-09-13T18:24:03.017Z",
+      },
+      {
+        series_ticker: "KXNFL1HSPREAD",
+        market_ticker: "KXNFL1HSPREAD-26SEP13ATLPIT-PIT11",
+        event_ticker: "KXNFL1HSPREAD-26SEP13ATLPIT",
+        title: "PIT 1H spread",
+        yes_subtitle: "PIT Steelers wins 1H by over 10.5 points",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.38,
+        yes_ask: 0.40,
+        yes_last: 0.39,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+      {
+        series_ticker: "KXNFL1HTOTAL",
+        market_ticker: "KXNFL1HTOTAL-26SEP13ATLPIT-25",
+        event_ticker: "KXNFL1HTOTAL-26SEP13ATLPIT",
+        title: "1H total",
+        yes_subtitle: "Over 24.5 1H points scored",
+        theme: "sports",
+        category: null,
+        status: "active",
+        market_type: "binary",
+        yes_bid: 0.40,
+        yes_ask: 0.42,
+        yes_last: 0.41,
+        volume: 1,
+        close_time: "2026-09-14T00:00:00Z",
+      },
+    ], Date.parse("2026-09-13T12:00:00Z"));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.score.joint, 0.22);
+    assert.ok(rows[0]!.score.flags.includes("rfq_auction_print"));
+    assert.equal(rows[0]!.score.flags.includes("no_combo_tape"), false);
+    assert.match(rows[0]!.notes, /auction print/);
   });
 
   it("uses the last two-sided combo candle, not latest-wins RFQ", () => {
@@ -881,7 +948,7 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v4");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v5");
     assert.equal(snapshot.sports_source, "none");
     assert.equal(snapshot.sports.length, 0);
     assert.equal(snapshot.listed.length, 4);
@@ -1126,7 +1193,7 @@ describe("buildVerdict", () => {
     assert.match(v.headline, /Could not score/);
   });
 
-  it("does not call RFQ sports a listed misprice", () => {
+  it("calls empty combo books an RFQ auction venue, not a missing market", () => {
     const v = buildVerdict([], [], [], {
       scanned: 275,
       two_sided: 0,
@@ -1168,7 +1235,7 @@ describe("buildVerdict", () => {
       rho_proxy_source: null,
       notes: "",
     }]);
-    assert.match(v.headline, /no listed combo tape/i);
+    assert.match(v.headline, /RFQ auction/i);
     assert.match(v.bullets.join(" "), /0 of 275/);
     assert.equal(v.sports_flagged, 0);
   });
