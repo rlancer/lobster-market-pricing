@@ -1704,6 +1704,8 @@ export interface DeskExperimentDesign {
   runner_version?: number;
   production_note: string;
   model?: string;
+  candidate_model?: string;
+  migration_note?: string;
   as_of_rules: string;
   verdict_instructions?: string;
   system_prompt?: string;

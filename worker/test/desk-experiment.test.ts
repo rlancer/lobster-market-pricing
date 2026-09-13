@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DESK_CELL_TIMEOUT_MS,
+  DESK_EXPERIMENT_CANDIDATE_MODEL,
   DESK_EXPERIMENT_DEADBAND_PCT,
   DESK_EXPERIMENT_DESIGN_ID,
   DESK_SEAT_ABORT_MS,
@@ -301,6 +302,8 @@ test("deskExperimentDesignPublic exposes every as-of packet and session prompt",
   assert.equal(design.design_id, DESK_EXPERIMENT_DESIGN_ID);
   assert.equal(design.seed, 0x4d45534b);
   assert.equal(design.as_of_index, 69);
+  assert.equal(design.candidate_model, DESK_EXPERIMENT_CANDIDATE_MODEL);
+  assert.match(design.migration_note, /deepseek-v4.1-flash/);
   assert.equal(design.runner.seat_abort_ms, DESK_SEAT_ABORT_MS);
   assert.equal(design.runner.cell_timeout_ms, DESK_CELL_TIMEOUT_MS);
   assert.ok(design.verdict_instructions.includes("lean_5d"));

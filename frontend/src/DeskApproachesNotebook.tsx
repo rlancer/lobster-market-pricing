@@ -9,15 +9,19 @@ import {
   type ExperimentRunSummary,
 } from './api';
 import {
+  DESK_EXPERIMENT_CANDIDATE_MODEL,
+  DESK_EXPERIMENT_CHAT_MODEL,
   DESK_EXPERIMENT_DESIGN_ID,
   DESK_EXPERIMENT_SLUG,
   approachLabel,
   buildDeskApproachesConclusion,
+  buildDeskModelMigrationConclusion,
   formatDurationMs,
   isChatDeskExperimentModel,
   isDeskCellAborted,
   pct,
   pickLatestChatDeskRun,
+  pickLatestDeskRunByModel,
 } from './notebooks/deskApproaches';
 import './Notebooks.css';
 
@@ -358,11 +362,42 @@ export default function DeskApproachesNotebookPage() {
     [latestRun],
   );
 
+  const chatModel = design?.model?.trim() || DESK_EXPERIMENT_CHAT_MODEL;
+  const candidateModel = design?.candidate_model?.trim() || DESK_EXPERIMENT_CANDIDATE_MODEL;
+  const latestCandidateRun = useMemo(
+    () => pickLatestDeskRunByModel(runs, candidateModel),
+    [runs, candidateModel],
+  );
+  const migrationRuns = useMemo(() => {
+    const rows: ExperimentRunPayload[] = [];
+    if (latestRun) rows.push(latestRun);
+    if (latestCandidateRun && latestCandidateRun.id !== latestRun?.id) {
+      rows.push(latestCandidateRun);
+    }
+    return rows;
+  }, [latestRun, latestCandidateRun]);
+  const migration = useMemo(
+    () => buildDeskModelMigrationConclusion({
+      chatModel,
+      candidateModel,
+      chatRun: latestRun,
+      candidateRun: latestCandidateRun,
+    }),
+    [chatModel, candidateModel, latestRun, latestCandidateRun],
+  );
+
+  const matrixRuns = useMemo(() => {
+    const byId = new Map(scoredRuns.map((run) => [run.id, run]));
+    if (latestCandidateRun) byId.set(latestCandidateRun.id, latestCandidateRun);
+    return [...byId.values()].sort((a, b) => b.created_at - a.created_at);
+  }, [scoredRuns, latestCandidateRun]);
+
   const toc = useMemo<TocEntry[]>(() => {
     const entries: Array<{ id: string; label: string }> = [
       { id: 'overview', label: 'Overview' },
       { id: 'results', label: 'Results' },
-      ...scoredRuns.map((run) => ({ id: `model-${run.id}`, label: shortModel(run.model) })),
+      { id: 'migration', label: 'Chat pin vs V4.1' },
+      ...matrixRuns.map((run) => ({ id: `model-${run.id}`, label: shortModel(run.model) })),
       { id: 'reading', label: 'How to read' },
       { id: 'setup', label: 'Setup' },
       { id: 'approaches', label: 'Approaches' },
@@ -370,7 +405,7 @@ export default function DeskApproachesNotebookPage() {
       { id: 'conclusion', label: 'Conclusion' },
     ];
     return entries.map((entry, index) => ({ ...entry, num: padNum(index) }));
-  }, [scoredRuns]);
+  }, [matrixRuns]);
 
   const tocById = useMemo(() => new Map(toc.map((entry) => [entry.id, entry])), [toc]);
 
@@ -408,11 +443,12 @@ export default function DeskApproachesNotebookPage() {
 
   const overviewNum = tocById.get('overview')?.num ?? '01';
   const resultsNum = tocById.get('results')?.num ?? '02';
-  const readingNum = tocById.get('reading')?.num ?? '03';
-  const setupNum = tocById.get('setup')?.num ?? '04';
-  const approachesNum = tocById.get('approaches')?.num ?? '05';
-  const inputsNum = tocById.get('inputs')?.num ?? '06';
-  const conclusionNum = tocById.get('conclusion')?.num ?? '07';
+  const migrationNum = tocById.get('migration')?.num ?? '03';
+  const readingNum = tocById.get('reading')?.num ?? '04';
+  const setupNum = tocById.get('setup')?.num ?? '05';
+  const approachesNum = tocById.get('approaches')?.num ?? '06';
+  const inputsNum = tocById.get('inputs')?.num ?? '07';
+  const conclusionNum = tocById.get('conclusion')?.num ?? '08';
 
   return (
     <div className="notebook-layout">
@@ -446,13 +482,15 @@ export default function DeskApproachesNotebookPage() {
           {design ? <Text type="supporting">{design.production_note}</Text> : null}
           {design?.model ? (
             <Text type="supporting">
-              Probes use the same model as live Chat: <code>{design.model}</code>
+              Desk-structure probes use the same model as live Chat: <code>{design.model}</code>.
+              A second scoreboard compares that pin to <code>{candidateModel}</code> on the same tape.
             </Text>
           ) : null}
-          {scoredRuns.length ? (
+          {scoredRuns.length || latestCandidateRun ? (
             <Text type="supporting">
-              {scoredRuns.length} Chat run{scoredRuns.length === 1 ? '' : 's'} published —
-              per-run matrices start collapsed. Setup and input packets are below the results.
+              {scoredRuns.length} Chat run{scoredRuns.length === 1 ? '' : 's'}
+              {latestCandidateRun ? ` · 1 candidate run (${shortModel(latestCandidateRun.model)})` : ''}
+              {' '}published — per-run matrices start collapsed. Setup and input packets are below the results.
             </Text>
           ) : null}
         </Section>
@@ -472,13 +510,38 @@ export default function DeskApproachesNotebookPage() {
           )}
           {design?.model ? (
             <Text type="supporting">
-              Scoreboard is live Chat only (<code>{design.model}</code>). Other probe models are
-              out of scope.
+              This scoreboard is live Chat only (<code>{design.model}</code>). Session structure is the
+              variable — not the model. Chat pin vs V4.1 Flash is the next section.
             </Text>
           ) : null}
         </Section>
 
-        {scoredRuns.map((run) => {
+        <Section id="migration" num={migrationNum} title="Chat pin vs V4.1 Flash">
+          <Text>
+            Same frozen packets, same four approaches, different OpenRouter slug. Dispatch
+            {' '}
+            <code>Run desk-approaches experiment</code>
+            {' '}
+            with <code>MODEL={candidateModel}</code>
+            {' '}
+            to publish the candidate. This grades directional leans and seat timeouts.
+            It does not run live Chat tools or DSML.
+          </Text>
+          <Text type="supporting">{migration.summary}</Text>
+          {migrationRuns.length ? (
+            <Scoreboard runs={migrationRuns} />
+          ) : (
+            <Text type="supporting">
+              No pin or candidate matrix yet. After both land, this table is two columns on
+              the same approaches.
+            </Text>
+          )}
+          {design?.migration_note ? (
+            <Text type="supporting">{design.migration_note}</Text>
+          ) : null}
+        </Section>
+
+        {matrixRuns.map((run) => {
           const entry = tocById.get(`model-${run.id}`);
           const expanded = expandedRuns.has(run.id);
           const done = run.results.cells.filter((cell) => !isDeskCellAborted(cell));
@@ -546,6 +609,11 @@ export default function DeskApproachesNotebookPage() {
             actually spawn specialists instead of asking one model to wear every hat. A seat
             abort is an operational miss, not a wrong lean.
           </Text>
+          <Text>
+            Chat pin vs V4.1 Flash is a separate question: swap only the model id. A directional
+            tie does not mean migrate Chat. Cost, latency, and the live tool loop (including
+            DeepSeek DSML) are out of this bench.
+          </Text>
         </Section>
 
         <Section id="setup" num={setupNum} title="Setup">
@@ -568,7 +636,11 @@ export default function DeskApproachesNotebookPage() {
               <tbody>
                 <tr>
                   <td>Chat model</td>
-                  <td><code>{design?.model ?? 'deepseek/deepseek-v4-flash-0731'}</code></td>
+                  <td><code>{design?.model ?? DESK_EXPERIMENT_CHAT_MODEL}</code></td>
+                </tr>
+                <tr>
+                  <td>Migration candidate</td>
+                  <td><code>{design?.candidate_model ?? DESK_EXPERIMENT_CANDIDATE_MODEL}</code></td>
                 </tr>
                 <tr>
                   <td>Deadband</td>
@@ -746,6 +818,7 @@ export default function DeskApproachesNotebookPage() {
 
         <Section id="conclusion" num={conclusionNum} title="Conclusion">
           <Text>{conclusion.wrapUp}</Text>
+          <Text>{migration.wrapUp}</Text>
           {conclusion.byApproach.length ? (
             <div className="notebook-results">
               <table>

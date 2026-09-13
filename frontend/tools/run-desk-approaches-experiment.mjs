@@ -9,7 +9,8 @@
  *   ADMIN_TOKEN  — Bearer for /api/admin/* (required)
  *   API_BASE     — Worker origin (default https://api-dev.lobster.mp)
  *   MODEL        — OpenRouter model slug (default: live Chat COPILOT_MODEL,
- *                  currently deepseek/deepseek-v4-flash-0731)
+ *                  currently deepseek/deepseek-v4-flash-0731; use
+ *                  deepseek/deepseek-v4.1-flash for the migration candidate)
  */
 import { createHash } from 'node:crypto';
 

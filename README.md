@@ -778,10 +778,13 @@ not a hidden sequel after a random walk. Arms: solo analyst, production
 Analyst desk role-play (one CopilotAgent session, `publish_desk`), specialists
 taking turns in one shared session, and a **new session per specialist** plus
 a chair. Production Chat does not spawn Durable Objects per specialist — that
-is one of the arms under test. Probe with
+is one of the arms under test. A second scoreboard compares live Chat
+`COPILOT_MODEL` (`deepseek/deepseek-v4-flash-0731`) to
+`deepseek/deepseek-v4.1-flash` on the same packets (directional leans and seat
+timeouts — not live Chat tools). Probe with
 `POST /api/admin/experiments/desk-approaches/probe` (admin) or the
-`Run desk-approaches experiment` workflow; published runs load on the public
-page.
+`Run desk-approaches experiment` workflow (`MODEL` override for the candidate);
+published runs load on the public page.
 
 The firm-pipeline experiment (`/experiments/firm-pipeline`) reuses that same
 frozen tape and varies **pipeline stages** inspired by TradingAgents

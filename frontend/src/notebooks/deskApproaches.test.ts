@@ -3,10 +3,16 @@ import test from 'node:test';
 import {
   approachLabel,
   buildDeskApproachesConclusion,
+  buildDeskModelMigrationConclusion,
+  DESK_EXPERIMENT_CANDIDATE_MODEL,
+  DESK_EXPERIMENT_CHAT_MODEL,
   formatDurationMs,
   isChatDeskExperimentModel,
+  isDeskMigrationCohortModel,
   pct,
   pickLatestChatDeskRun,
+  pickLatestDeskRunByModel,
+  scoreDeskRunForMigration,
   type DeskRunForConclusion,
 } from './deskApproaches.ts';
 
@@ -37,6 +43,16 @@ test('isChatDeskExperimentModel keeps Chat COPILOT_MODEL and drops gpt-4o-mini',
   );
   assert.equal(isChatDeskExperimentModel('openai/gpt-4o-mini'), false);
   assert.equal(isChatDeskExperimentModel('deepseek/deepseek-v4-flash-0731'), true);
+  assert.equal(
+    isChatDeskExperimentModel(DESK_EXPERIMENT_CANDIDATE_MODEL, DESK_EXPERIMENT_CHAT_MODEL),
+    false,
+  );
+});
+
+test('isDeskMigrationCohortModel keeps the Chat pin and V4.1 Flash, drops gpt-4o-mini', () => {
+  assert.equal(isDeskMigrationCohortModel(DESK_EXPERIMENT_CHAT_MODEL), true);
+  assert.equal(isDeskMigrationCohortModel(DESK_EXPERIMENT_CANDIDATE_MODEL), true);
+  assert.equal(isDeskMigrationCohortModel('openai/gpt-4o-mini'), false);
 });
 
 const CASES = ['drift-breakdown', 'bolt-coil', 'cove-event', 'dune-duration'];
@@ -141,6 +157,139 @@ test('buildDeskApproachesConclusion reads a timeout saved as status=done detail'
   assert.equal(conclusion.cells_aborted, 1);
   assert.match(conclusion.wrapUp, /operational/);
   assert.ok(!conclusion.wrapUp.includes('missed dune-duration'));
+});
+
+test('pickLatestDeskRunByModel returns the newest run for that slug', () => {
+  const pin = runWithCells(perfectMatrix(), { id: 'pin', created_at: 10 });
+  const olderCandidate = runWithCells(perfectMatrix(), {
+    id: 'old-v41',
+    created_at: 20,
+    model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+  });
+  const newerCandidate = runWithCells(perfectMatrix(), {
+    id: 'new-v41',
+    created_at: 40,
+    model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+  });
+  const picked = pickLatestDeskRunByModel(
+    [pin, olderCandidate, newerCandidate],
+    DESK_EXPERIMENT_CANDIDATE_MODEL,
+  );
+  assert.equal(picked?.id, 'new-v41');
+});
+
+test('buildDeskModelMigrationConclusion waits until both pin and candidate are published', () => {
+  const pin = runWithCells(perfectMatrix(), { id: 'pin' });
+  const waiting = buildDeskModelMigrationConclusion({
+    chatRun: pin,
+    candidateRun: null,
+  });
+  assert.equal(waiting.lean, 'insufficient');
+  assert.match(waiting.summary, /Waiting for a deepseek-v4.1-flash/);
+  const empty = buildDeskModelMigrationConclusion({ chatRun: null, candidateRun: null });
+  assert.equal(empty.lean, 'insufficient');
+  assert.match(empty.summary, /No published/);
+});
+
+test('buildDeskModelMigrationConclusion treats identical pin and candidate slugs as a no-op', () => {
+  const pin = runWithCells(perfectMatrix(), { id: 'pin' });
+  const same = buildDeskModelMigrationConclusion({
+    chatModel: DESK_EXPERIMENT_CHAT_MODEL,
+    candidateModel: DESK_EXPERIMENT_CHAT_MODEL,
+    chatRun: pin,
+    candidateRun: pin,
+  });
+  assert.equal(same.lean, 'same_model');
+  assert.match(same.summary, /same slug/);
+});
+
+test('buildDeskModelMigrationConclusion reports a directional tie without calling it a swap', () => {
+  const pin = runWithCells(perfectMatrix(), { id: 'pin', created_at: 1 });
+  const candidate = runWithCells(perfectMatrix(), {
+    id: 'v41',
+    created_at: 2,
+    model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+  });
+  const conclusion = buildDeskModelMigrationConclusion({
+    chatRun: pin,
+    candidateRun: candidate,
+  });
+  assert.equal(conclusion.lean, 'candidate_ok');
+  assert.equal(conclusion.chat?.cells_correct, 16);
+  assert.equal(conclusion.candidate?.cells_correct, 16);
+  assert.match(conclusion.summary, /tie/);
+  assert.match(conclusion.wrapUp, /does not exercise live Chat tools/);
+});
+
+test('buildDeskModelMigrationConclusion holds when the candidate aborts more without a better grade', () => {
+  const pin = runWithCells(perfectMatrix(), { id: 'pin' });
+  const candidateCells = perfectMatrix().map((row) => (
+    row.rep_id === 'desk_fresh_sessions'
+      ? cell(row.rep_id, row.question_id, {
+        status: 'error',
+        correct: false,
+        error: 'The operation was aborted due to timeout',
+      })
+      : row
+  ));
+  const candidate = runWithCells(candidateCells, {
+    id: 'v41',
+    model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+  });
+  const conclusion = buildDeskModelMigrationConclusion({
+    chatRun: pin,
+    candidateRun: candidate,
+  });
+  assert.equal(conclusion.lean, 'hold');
+  assert.equal(conclusion.candidate?.cells_aborted, 4);
+  assert.match(conclusion.wrapUp, /operational miss/);
+});
+
+test('buildDeskModelMigrationConclusion names a worse finished candidate grade', () => {
+  const pin = runWithCells(perfectMatrix(), { id: 'pin' });
+  const candidateCells = perfectMatrix().map((row) => (
+    row.rep_id === 'solo' ? cell(row.rep_id, row.question_id, { correct: false }) : row
+  ));
+  const candidate = runWithCells(candidateCells, {
+    id: 'v41',
+    model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+  });
+  const conclusion = buildDeskModelMigrationConclusion({
+    chatRun: pin,
+    candidateRun: candidate,
+  });
+  assert.equal(conclusion.lean, 'candidate_worse');
+  assert.equal(conclusion.candidate?.cells_wrong, 4);
+  assert.match(conclusion.wrapUp, /hold the Chat pin/);
+});
+
+test('buildDeskModelMigrationConclusion names a better finished candidate grade', () => {
+  const pinCells = perfectMatrix().map((row) => (
+    row.rep_id === 'solo' && row.question_id === 'cove-event'
+      ? cell(row.rep_id, row.question_id, { correct: false })
+      : row
+  ));
+  const pin = runWithCells(pinCells, { id: 'pin' });
+  const candidate = runWithCells(perfectMatrix(), {
+    id: 'v41',
+    model: DESK_EXPERIMENT_CANDIDATE_MODEL,
+  });
+  const conclusion = buildDeskModelMigrationConclusion({
+    chatRun: pin,
+    candidateRun: candidate,
+  });
+  assert.equal(conclusion.lean, 'candidate_better');
+  assert.match(conclusion.wrapUp, /readable to V4.1 Flash/);
+});
+
+test('scoreDeskRunForMigration averages finished cell latency', () => {
+  const cells = perfectMatrix().map((row, index) => ({
+    ...row,
+    latency_ms: (index + 1) * 1000,
+  }));
+  const scored = scoreDeskRunForMigration(runWithCells(cells));
+  assert.equal(scored.mean_latency_ms, 8500);
+  assert.equal(scored.desk_roleplay.done, 4);
 });
 
 test('buildDeskApproachesConclusion names a wrong finished lean', () => {
