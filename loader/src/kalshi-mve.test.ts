@@ -61,13 +61,28 @@ describe("sports parlay filter", () => {
     }, investing)).toBe(false);
   });
 
-  it("requires structured legs", () => {
+  it("rejects pure crypto 15m CROSSCATEGORY stacks as sports parlays", () => {
+    const investing = new Set(["KXBTC", "KXETH"]);
     expect(isSportsParlayCandidate({
-      ticker: "KXNFL-EMPTY",
-      series_ticker: "KXNFLGAME",
-      title: "Chiefs win",
-      category: "Sports",
-    }, new Set())).toBe(false);
+      ticker: "KXMVECROSSCATEGORY-CRYPTO",
+      series_ticker: "KXMVE",
+      title: "yes Target Price: $77,307.93,yes Target Price: $2505",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { market_ticker: "KXBTC15M-26SEP131430-30", side: "yes" },
+        { market_ticker: "KXETH15M-26SEP131430-30", side: "yes" },
+      ],
+    }, investing)).toBe(false);
+    expect(isSportsParlayCandidate({
+      ticker: "KXMVECROSSCATEGORY-NFL",
+      series_ticker: "KXMVE",
+      title: "yes Derrick Henry: 110+,yes Lamar Jackson: 40+",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
+        { market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
+      ],
+    }, investing)).toBe(true);
   });
 });
 

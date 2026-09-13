@@ -6,6 +6,17 @@ sports parlays are mispriced vs independence / correlation. Open a PR against
 not add sports to Chat `suggest_trades`. Prefer the lake over live Kalshi GETs
 (public Trade API 429s easily).
 
+## Shipped: design `kalshi-parlays-v4`
+
+Scoring no longer treats RFQ 0/0/0 as a listed combo quote. Crypto 15m
+CROSSCATEGORY stacks are split from NFL/sports props. Same-game grouping uses
+the `26SEP13ATLPIT` slug. Lake SQL is history (`LIMIT 5000`), cache
+`kalshi_parlays_v4`. Chat sports ingest unchanged.
+
+Production lake at analysis time (2026-09-13): **275** MVE combos, **0** ever
+two-sided, **198** crypto 15m / **77** sports, combo volume **0**. Legs have
+the 30d tape; combos do not.
+
 ## What already shipped
 
 Ingest (hourly `kalshi-markets-hourly`, series `KXMVE` in
@@ -26,12 +37,12 @@ Ingest (hourly `kalshi-markets-hourly`, series `KXMVE` in
 
 Experiment:
 
-- `GET /api/experiments/kalshi-parlays` — design `kalshi-parlays-v3`
+- `GET /api/experiments/kalshi-parlays` — design `kalshi-parlays-v4`
 - UI `/experiments/kalshi-parlays`
 - Math: `worker/src/kalshi-parlay.ts`
-- Run: `worker/src/kalshi-parlay-experiment.ts` (`buildSportsRows`)
-- Sports SQL in `worker/src/index.ts`: latest-wins per `market_ticker`,
-  `LIMIT 800`, cache key `kalshi_parlays_v3`
+- Run: `worker/src/kalshi-parlay-experiment.ts` (`scoreMveParlays`)
+- Sports SQL in `worker/src/index.ts`: history per `market_ticker`,
+  `LIMIT 5000`, cache key `kalshi_parlays_v4`
 - Chat is not a sportsbook. Research `/api/research/{ticker}/kalshi` filters
   `related_symbol`; sports have `related_symbol=null`.
 

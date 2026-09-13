@@ -1637,7 +1637,7 @@ export interface KalshiParlayScore {
 
 export interface KalshiParlayRow {
   id: string;
-  kind: 'listed_combo' | 'homemade' | 'sports_mve';
+  kind: 'listed_combo' | 'homemade' | 'sports_mve' | 'crypto_mve';
   meeting: string | null;
   label: string;
   combo: KalshiParlayQuoteView | null;
@@ -1650,6 +1650,8 @@ export interface KalshiParlayRow {
   rho_proxy: number | null;
   rho_proxy_source: string | null;
   notes: string;
+  tape_kind?: 'sports' | 'crypto_mve' | 'mixed';
+  aligned_at?: string | null;
 }
 
 export interface KalshiParlaySnapshot {
@@ -1659,6 +1661,7 @@ export interface KalshiParlaySnapshot {
   listed: KalshiParlayRow[];
   homemade: KalshiParlayRow[];
   sports: KalshiParlayRow[];
+  crypto_mves?: KalshiParlayRow[];
   sports_source: 'lake' | 'live' | 'none';
   marginals: Array<{
     meeting: string;
@@ -1680,6 +1683,19 @@ export interface KalshiParlaySnapshot {
     two_sided: number;
     empty_book: number;
     sample_titles: string[];
+    combo_tickers?: number;
+    ever_two_sided?: number;
+    sports_combos?: number;
+    crypto_mve_combos?: number;
+    mixed_combos?: number;
+    same_game?: number;
+    cross_game?: number;
+    mixed_game?: number;
+    two_leg?: number;
+    tape_scored?: number;
+    tape_flagged?: number;
+    max_abs_tape_gap?: number | null;
+    survives_spread_fees?: number;
   };
   verdict: {
     headline: string;

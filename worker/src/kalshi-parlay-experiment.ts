@@ -14,9 +14,10 @@ import {
   RATE_LABEL,
   alignedReturnPair,
   encodeMveCategory,
-  eventPrefixFromTicker,
   extractPeriod,
   isTwoSided,
+  listedComboMid,
+  mveTapeKind,
   parseDecisionTicker,
   parseDissentCountTicker,
   parseFedComboTicker,
@@ -30,10 +31,12 @@ import {
   quoteSpread,
   scoreMultiLegParlay,
   scoreTwoLegParlay,
+  sportsGameKey,
   syntheticComplementQuote,
   type FedDissentKey,
   type FedRateKey,
   type KalshiQuote,
+  type MveTapeKind,
   type TwoLegScore,
 } from "./kalshi-parlay";
 
@@ -63,7 +66,7 @@ export interface ParlayLegView {
 
 export interface TwoLegRow {
   id: string;
-  kind: "listed_combo" | "homemade" | "sports_mve";
+  kind: "listed_combo" | "homemade" | "sports_mve" | "crypto_mve";
   meeting: string | null;
   label: string;
   rate?: FedRateKey;
@@ -74,6 +77,8 @@ export interface TwoLegRow {
   rho_proxy: number | null;
   rho_proxy_source: string | null;
   notes: string;
+  tape_kind?: MveTapeKind;
+  aligned_at?: string | null;
 }
 
 export interface MarginalCheck {
@@ -90,6 +95,19 @@ export interface MveCensus {
   two_sided: number;
   empty_book: number;
   sample_titles: string[];
+  combo_tickers?: number;
+  ever_two_sided?: number;
+  sports_combos?: number;
+  crypto_mve_combos?: number;
+  mixed_combos?: number;
+  same_game?: number;
+  cross_game?: number;
+  mixed_game?: number;
+  two_leg?: number;
+  tape_scored?: number;
+  tape_flagged?: number;
+  max_abs_tape_gap?: number | null;
+  survives_spread_fees?: number;
 }
 
 export interface ReturnCorr {
@@ -120,6 +138,7 @@ export interface KalshiParlaySnapshot {
   listed: TwoLegRow[];
   homemade: TwoLegRow[];
   sports: TwoLegRow[];
+  crypto_mves: TwoLegRow[];
   sports_source: "lake" | "live" | "none";
   marginals: MarginalCheck[];
   correlations: ReturnCorr[];
@@ -481,6 +500,29 @@ function lakeToQuote(row: LakeKalshiMarket): KalshiQuote {
   };
 }
 
+function emptyMveCensus(partial?: Partial<MveCensus>): MveCensus {
+  return {
+    scanned: 0,
+    two_sided: 0,
+    empty_book: 0,
+    sample_titles: [],
+    combo_tickers: 0,
+    ever_two_sided: 0,
+    sports_combos: 0,
+    crypto_mve_combos: 0,
+    mixed_combos: 0,
+    same_game: 0,
+    cross_game: 0,
+    mixed_game: 0,
+    two_leg: 0,
+    tape_scored: 0,
+    tape_flagged: 0,
+    max_abs_tape_gap: null,
+    survives_spread_fees: 0,
+    ...partial,
+  };
+}
+
 function sportsCandidate(raw: unknown): boolean {
   const rec = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw as Record<string, unknown>
@@ -492,53 +534,116 @@ function sportsCandidate(raw: unknown): boolean {
   if (/^KXFED|^KXCPI|^KXGDP|^KXINX|^KXRUT|^KXDJIA|^KXBTC|^KXETH|^KXWTI|^KXSOFR|^KXUST|^KXRATE/.test(series)) {
     return false;
   }
+  const tape = mveTapeKind(legs.map((leg) => leg.market_ticker));
+  if (tape === "crypto_mve") return false;
+  if (tape === "sports" || tape === "mixed") return true;
   const blob = `${series} ${rec.mve_collection_ticker || ""} ${rec.title || ""} ${rec.category || ""}`;
   return /NFL|NBA|MLB|NHL|MLS|WNBA|NCAA|EPL|UCL|UFC|SOCCER|FOOTBALL|BASKETBALL|BASEBALL|HOCKEY|SPORT/i.test(blob)
     || String(rec.category || "").toLowerCase() === "sports";
 }
 
-export function buildSportsRows(
+function fetchedMs(row: LakeKalshiMarket): number {
+  if (!row.fetched_at) return 0;
+  const t = Date.parse(row.fetched_at);
+  return Number.isFinite(t) ? t : 0;
+}
+
+function groupLakeByTicker(markets: LakeKalshiMarket[]): Map<string, LakeKalshiMarket[]> {
+  const map = new Map<string, LakeKalshiMarket[]>();
+  for (const row of markets) {
+    const ticker = row.market_ticker?.toUpperCase();
+    if (!ticker) continue;
+    const list = map.get(ticker) ?? [];
+    list.push(row);
+    map.set(ticker, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => fetchedMs(b) - fetchedMs(a));
+  }
+  return map;
+}
+
+function pickTwoSidedSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | null {
+  for (const row of snaps) {
+    if (isTwoSided(lakeToQuote(row))) return row;
+  }
+  return null;
+}
+
+function pickNearestTradable(
+  snaps: LakeKalshiMarket[],
+  atMs: number,
+): LakeKalshiMarket | null {
+  let best: LakeKalshiMarket | null = null;
+  let bestAbs = Infinity;
+  for (const row of snaps) {
+    if (!hasTradableQuote(lakeToQuote(row))) continue;
+    const delta = Math.abs(fetchedMs(row) - atMs);
+    if (delta < bestAbs) {
+      bestAbs = delta;
+      best = row;
+    }
+  }
+  return best;
+}
+
+function rankParlayRow(row: TwoLegRow): number {
+  let score = 0;
+  if (row.score.joint != null) score += 1_000_000;
+  if (row.legs.length === 2) score += 10_000;
+  if (row.score.flags.includes("same_game")) score += 5_000;
+  score += row.combo?.volume ?? 0;
+  score += Math.round((row.score.independence ?? 0) * 1000);
+  return score;
+}
+
+const SPORTS_TABLE_LIMIT = 40;
+const CRYPTO_TABLE_LIMIT = 20;
+
+export function scoreMveParlays(
   markets: LakeKalshiMarket[],
   _nowMs: number,
-): TwoLegRow[] {
-  const byTicker = new Map<string, LakeKalshiMarket>();
-  for (const row of markets) {
-    if (!row.market_ticker) continue;
-    byTicker.set(row.market_ticker.toUpperCase(), row);
-  }
+): { sports: TwoLegRow[]; crypto_mves: TwoLegRow[]; mixed: TwoLegRow[]; all: TwoLegRow[] } {
+  const byTicker = groupLakeByTicker(markets);
   const rows: TwoLegRow[] = [];
-  for (const combo of markets) {
-    const parsed = parseMveCategory(combo.category);
+  const seenCombos = new Set<string>();
+  for (const [ticker, snaps] of byTicker) {
+    const comboSnap = snaps.find((row) => parseMveCategory(row.category)) ?? null;
+    if (!comboSnap) continue;
+    const parsed = parseMveCategory(comboSnap.category);
     if (!parsed) continue;
-    const comboQuote = lakeToQuote(combo);
-    if (!hasTradableQuote(comboQuote) && /closed|settled|finalized/i.test(combo.status)) {
+    if (seenCombos.has(ticker)) continue;
+    seenCombos.add(ticker);
+    const tapeSnap = pickTwoSidedSnapshot(snaps);
+    const displaySnap = tapeSnap ?? snaps[0]!;
+    const comboQuote = lakeToQuote(displaySnap);
+    if (!tapeSnap && /closed|settled|finalized/i.test(displaySnap.status) && !hasTradableQuote(comboQuote)) {
       continue;
     }
+    const alignAt = fetchedMs(tapeSnap ?? displaySnap);
+    const alignedAt = (tapeSnap ?? displaySnap).fetched_at ?? null;
     const legs: ParlayLegView[] = [];
     const probs: number[] = [];
     const spreads: Array<number | null> = [];
-    const events: string[] = [];
+    const games: string[] = [];
     let missing = 0;
     for (const spec of parsed.legs) {
-      const legRow = byTicker.get(spec.market_ticker);
+      const legSnaps = byTicker.get(spec.market_ticker) ?? [];
+      const legRow = pickNearestTradable(legSnaps, alignAt);
       if (!legRow) {
         missing += 1;
         continue;
       }
       const q = lakeToQuote(legRow);
-      if (!hasTradableQuote(q)) {
-        missing += 1;
-        continue;
-      }
       let prob = quoteMid(q);
       if (prob != null && spec.side === "no") prob = 1 - prob;
-      if (prob == null) {
+      if (prob == null || !hasTradableQuote(q)) {
         missing += 1;
         continue;
       }
       probs.push(prob);
       spreads.push(quoteSpread(q));
-      events.push(legRow.event_ticker || eventPrefixFromTicker(legRow.market_ticker));
+      games.push(sportsGameKey(legRow.market_ticker, legRow.event_ticker));
       legs.push({
         role: `${spec.side} · ${legRow.yes_subtitle || spec.market_ticker}`,
         quote: toQuoteView(q),
@@ -546,59 +651,87 @@ export function buildSportsRows(
       });
     }
     if (probs.length < 2) continue;
-    const joint = quoteMid(comboQuote);
+    const joint = listedComboMid(comboQuote);
     const score = scoreMultiLegParlay({
       probs,
       joint,
-      comboSpread: quoteSpread(comboQuote),
+      comboSpread: joint != null ? quoteSpread(comboQuote) : null,
       legSpreads: spreads,
     });
-    const group = parlayGameGroup(events);
+    const group = parlayGameGroup(games);
     if (group === "same_game") score.flags.push("same_game");
     if (group === "cross_game") score.flags.push("cross_game");
-    if (joint == null || !isTwoSided(comboQuote)) score.flags.push("no_combo_tape");
+    if (group === "mixed") score.flags.push("mixed_game");
+    if (joint == null) score.flags.push("no_combo_tape");
+    const tape = mveTapeKind(parsed.legs.map((leg) => leg.market_ticker));
+    if (tape === "crypto_mve") score.flags.push("crypto_mve");
+    if (tape === "mixed") score.flags.push("mixed_crypto");
+    const frechetNote = group === "same_game" && joint == null && probs.length === 2
+      ? `Fair joint given the lake legs is the Fréchet interval ${score.frechet_low.toFixed(3)}–${score.frechet_high.toFixed(3)} — independence is the wrong model.`
+      : null;
     const notes = [
-      group === "same_game"
-        ? "Same-game parlay — independence is the wrong model even before the combo quote."
-        : group === "cross_game"
-          ? "Cross-game parlay — closer to independent legs."
-          : "Mixed same-game and cross-game legs.",
-      joint == null || !isTwoSided(comboQuote)
-        ? "Combo CLOB is empty (RFQ); independence is what a naive parlay would charge."
-        : score.flags.includes("independence_gap")
-          ? "Listed combo disagrees with the product of the lake legs."
-          : "Listed combo is within spread of the independence product.",
-      missing ? `${missing} selected legs missing from the lake snapshot.` : "",
-      /closed|settled|finalized/i.test(combo.status)
-        ? `Scored from the last lake snapshot (status ${combo.status}); not a live CLOB.`
+      tape === "crypto_mve"
+        ? "Crypto 15-minute target-price MVE — not a sportsbook tape. Same-close crypto targets are correlated."
+        : tape === "mixed"
+          ? "Mixed sports props and crypto 15m targets in one CROSSCATEGORY combo."
+          : group === "same_game"
+            ? (frechetNote || "Same-game parlay — independence is the wrong model even before the combo quote.")
+            : group === "cross_game"
+              ? "Cross-game parlay — closer to independent legs."
+              : "Mixed same-game and cross-game legs.",
+      joint == null
+        ? "Combo CLOB is empty (RFQ 0/0/0 is not a listed quote). Independence is what a naive parlay would charge, not a CLOB misprice."
+        : score.flags.includes("survives_fees")
+          ? "Listed combo disagrees with the product of the aligned lake legs by more than spread plus Kalshi taker fees."
+          : score.flags.includes("independence_gap")
+            ? "Listed combo disagrees with the product of the aligned lake legs, but the gap may not clear fees."
+            : "Listed combo is within spread of the independence product of the aligned lake legs.",
+      missing ? `${missing} selected legs missing a tradable lake snapshot near the combo time.` : "",
+      tapeSnap && tapeSnap.fetched_at !== snaps[0]?.fetched_at
+        ? `Combo mid from last two-sided snapshot ${tapeSnap.fetched_at}; not the latest RFQ print.`
         : "",
-      combo.fetched_at ? `Snapshot ${combo.fetched_at}.` : "",
+      /closed|settled|finalized/i.test(displaySnap.status)
+        ? `Scored from a lake snapshot (status ${displaySnap.status}); not a live CLOB.`
+        : "",
+      alignedAt ? `Aligned at ${alignedAt}.` : "",
     ].filter(Boolean).join(" ");
     rows.push({
-      id: combo.market_ticker,
-      kind: "sports_mve",
+      id: displaySnap.market_ticker,
+      kind: tape === "crypto_mve" ? "crypto_mve" : "sports_mve",
       meeting: parsed.collection,
-      label: combo.title,
+      label: displaySnap.title,
       combo: toQuoteView(comboQuote),
       legs,
       score,
       rho_proxy: null,
       rho_proxy_source: null,
       notes,
+      tape_kind: tape,
+      aligned_at: alignedAt,
     });
   }
-  rows.sort((a, b) => {
-    const va = a.combo?.volume ?? 0;
-    const vb = b.combo?.volume ?? 0;
-    return vb - va;
-  });
-  return rows.slice(0, 40);
+  rows.sort((a, b) => rankParlayRow(b) - rankParlayRow(a));
+  return {
+    sports: rows.filter((row) => (row.tape_kind ?? "sports") === "sports"),
+    crypto_mves: rows.filter((row) => row.tape_kind === "crypto_mve"),
+    mixed: rows.filter((row) => row.tape_kind === "mixed"),
+    all: rows,
+  };
+}
+
+/** Sports + mixed CROSSCATEGORY stacks for the sports table. Crypto 15m MVEs are split out. */
+export function buildSportsRows(
+  markets: LakeKalshiMarket[],
+  nowMs: number,
+): TwoLegRow[] {
+  const scored = scoreMveParlays(markets, nowMs);
+  return [...scored.sports, ...scored.mixed];
 }
 
 async function fetchLiveSportsMarkets(
   deps: KalshiParlayDeps,
 ): Promise<{ markets: LakeKalshiMarket[]; census: MveCensus }> {
-  const empty: MveCensus = { scanned: 0, two_sided: 0, empty_book: 0, sample_titles: [] };
+  const empty: MveCensus = emptyMveCensus();
   const base = (deps.kalshiBase || KALSHI_PUBLIC_API_BASE).replace(/\/$/, "");
   const payload = await deps.fetchJson(`${base}/markets?mve_filter=only&status=open&limit=200`);
   const rec = asRecord(payload);
@@ -660,31 +793,63 @@ function censusFromRawMarkets(markets: unknown[]): MveCensus {
     else emptyBook += 1;
     if (titles.length < 5 && mapped.title) titles.push(mapped.title.slice(0, 80));
   }
-  return {
+  return emptyMveCensus({
     scanned: twoSided + emptyBook,
     two_sided: twoSided,
     empty_book: emptyBook,
     sample_titles: titles,
-  };
+    combo_tickers: twoSided + emptyBook,
+    ever_two_sided: twoSided,
+  });
+}
+
+export function censusFromScoredParlays(
+  scored: TwoLegRow[],
+  markets: LakeKalshiMarket[],
+): MveCensus {
+  const byTicker = groupLakeByTicker(markets);
+  const comboEntries = [...byTicker.entries()].filter(([, snaps]) =>
+    snaps.some((row) => parseMveCategory(row.category)),
+  );
+  let ever = 0;
+  let latestTwo = 0;
+  let empty = 0;
+  const titles: string[] = [];
+  for (const [, snaps] of comboEntries) {
+    if (pickTwoSidedSnapshot(snaps)) ever += 1;
+    const latest = snaps[0]!;
+    if (isTwoSided(lakeToQuote(latest))) latestTwo += 1;
+    else empty += 1;
+    if (titles.length < 5 && latest.title) titles.push(latest.title.slice(0, 80));
+  }
+  const tape = scored.filter((row) => row.score.joint != null);
+  const flagged = tape.filter((row) => row.score.flags.includes("independence_gap"));
+  const gaps = tape
+    .map((row) => row.score.gap_vs_independence)
+    .filter((gap): gap is number => gap != null);
+  return emptyMveCensus({
+    scanned: comboEntries.length,
+    two_sided: latestTwo,
+    empty_book: empty,
+    sample_titles: titles,
+    combo_tickers: comboEntries.length,
+    ever_two_sided: ever,
+    sports_combos: scored.filter((row) => (row.tape_kind ?? "sports") === "sports").length,
+    crypto_mve_combos: scored.filter((row) => row.tape_kind === "crypto_mve").length,
+    mixed_combos: scored.filter((row) => row.tape_kind === "mixed").length,
+    same_game: scored.filter((row) => row.score.flags.includes("same_game")).length,
+    cross_game: scored.filter((row) => row.score.flags.includes("cross_game")).length,
+    mixed_game: scored.filter((row) => row.score.flags.includes("mixed_game")).length,
+    two_leg: scored.filter((row) => row.legs.length === 2).length,
+    tape_scored: tape.length,
+    tape_flagged: flagged.length,
+    max_abs_tape_gap: gaps.length ? Math.max(...gaps.map(Math.abs)) : null,
+    survives_spread_fees: scored.filter((row) => row.score.flags.includes("survives_fees")).length,
+  });
 }
 
 export function censusFromLakeMarkets(markets: LakeKalshiMarket[]): MveCensus {
-  const combos = markets.filter((row) => parseMveCategory(row.category));
-  let twoSided = 0;
-  let emptyBook = 0;
-  const titles: string[] = [];
-  for (const row of combos) {
-    const q = lakeToQuote(row);
-    if (isTwoSided(q)) twoSided += 1;
-    else emptyBook += 1;
-    if (titles.length < 5 && row.title) titles.push(row.title.slice(0, 80));
-  }
-  return {
-    scanned: twoSided + emptyBook,
-    two_sided: twoSided,
-    empty_book: emptyBook,
-    sample_titles: titles,
-  };
+  return censusFromScoredParlays(scoreMveParlays(markets, 0).all, markets);
 }
 
 function lakeMarketFromQuote(
@@ -810,6 +975,7 @@ export function buildVerdict(
   mve: MveCensus,
   correlations: ReturnCorr[],
   sports: TwoLegRow[] = [],
+  cryptoMves: TwoLegRow[] = [],
 ): KalshiParlayVerdict {
   const scored = listed.filter((r) => r.score.joint != null);
   const flagged = scored.filter((r) => r.score.flags.includes("independence_gap"));
@@ -854,13 +1020,34 @@ export function buildVerdict(
       `${marginalFlags} combo-implied marginals disagree with the standalone decision/dissent books by >3¢ — a second, cross-book kind of mispricing.`,
     );
   }
-  if (sports.length) {
+  if (mve.combo_tickers) {
     bullets.push(
-      `${sportsFlagged.length} of ${sports.length} sports parlays disagree with the independence product of their lake legs; ${sportsSameGame.length} are same-game (independence is the wrong model even before the combo quote). Empty combo books are RFQ, not a tape.`,
+      `${mve.ever_two_sided ?? 0} of ${mve.combo_tickers} lake MVE combos ever had a two-sided book inside (0,1). RFQ 0/0/0 is not a listed quote.`,
+    );
+    bullets.push(
+      `Split: ${mve.sports_combos ?? 0} sports, ${mve.crypto_mve_combos ?? 0} crypto 15m target-price MVEs, ${mve.mixed_combos ?? 0} mixed. ${mve.same_game ?? 0} same-game, ${mve.cross_game ?? 0} cross-game, ${mve.two_leg ?? 0} two-leg.`,
+    );
+    if (mve.tape_scored) {
+      bullets.push(
+        `${mve.tape_flagged ?? 0} of ${mve.tape_scored} two-sided combo tapes disagree with independence after spread; ${mve.survives_spread_fees ?? 0} still clear Kalshi taker fees.`,
+      );
+    } else {
+      bullets.push(
+        "No listed combo tape to misprice versus independence. Same-game stacks are bounded by Fréchet from the lake legs; cross-game products are the naive parlay price, not a CLOB.",
+      );
+    }
+  } else if (sports.length) {
+    bullets.push(
+      `${sportsFlagged.length} of ${sports.length} sports parlays have a two-sided combo tape that disagrees with independence; ${sportsSameGame.length} are same-game.`,
     );
   } else if (mve.scanned) {
     bullets.push(
-      `Public combo CLOB: ${mve.two_sided} of ${mve.scanned} scanned MVE markets have a two-sided book inside (0,1). Sports parlays are ingested as MVE combos plus selected legs (open books and last pre-settlement candles) — not the full sports catalog.`,
+      `Public combo CLOB: ${mve.two_sided} of ${mve.scanned} scanned MVE markets have a two-sided book inside (0,1). Sports parlays are ingested as MVE combos plus selected legs — not the full sports catalog.`,
+    );
+  }
+  if (cryptoMves.length && !mve.combo_tickers) {
+    bullets.push(
+      `${cryptoMves.length} crypto 15m MVEs scored separately from sports — independence on same-close crypto targets is a different question.`,
     );
   }
   if (homemadeHigh) {
@@ -878,11 +1065,13 @@ export function buildVerdict(
 
   const headline = flagged.length
     ? "Yes — listed Fed parlays are not priced as independent legs."
-    : sportsFlagged.length
-      ? "Listed Fed parlays are close to independence this snapshot; sports parlays are not."
-      : scored.length
-        ? "Listed Fed parlays are close to independence this snapshot; correlation still shows up in homemade pairs and sports MVEs."
-        : "Could not score listed parlays this snapshot.";
+    : (mve.tape_flagged ?? 0)
+      ? "Listed Fed parlays are close to independence this snapshot; the sports combo tape is not."
+      : (mve.combo_tickers && (mve.ever_two_sided ?? 0) === 0)
+        ? "Kalshi sports parlays have no listed combo tape — RFQ 0/0/0 is not a misprice versus independence."
+        : scored.length
+          ? "Listed Fed parlays are close to independence this snapshot; correlation still shows up in homemade pairs and sports MVEs."
+          : "Could not score listed parlays this snapshot.";
 
   return {
     headline,
@@ -926,7 +1115,7 @@ export async function runKalshiParlayExperiment(
     }
   }
 
-  let mve: MveCensus = { scanned: 0, two_sided: 0, empty_book: 0, sample_titles: [] };
+  let mve: MveCensus = emptyMveCensus();
   let sportsMarkets: LakeKalshiMarket[] = [];
   let sportsSource: KalshiParlaySnapshot["sports_source"] = "none";
   if (deps.queryKalshiSports) {
@@ -938,7 +1127,6 @@ export async function runKalshiParlayExperiment(
   }
   if (sportsMarkets.length) {
     sportsSource = "lake";
-    mve = censusFromLakeMarkets(sportsMarkets);
   } else if (skipRest) {
     errors.push("mve: skipped after Kalshi 429");
     errors.push("sports: skipped after Kalshi 429");
@@ -975,8 +1163,13 @@ export async function runKalshiParlayExperiment(
     nowMs,
   );
   const homemade = buildHomemadeRows(bySeries, correlations, nowMs);
-  const sports = buildSportsRows(sportsMarkets, nowMs);
-  const verdict = buildVerdict(listed, homemade, marginals, mve, correlations, sports);
+  const scoredMve = scoreMveParlays(sportsMarkets, nowMs);
+  const sports = [...scoredMve.sports, ...scoredMve.mixed].slice(0, SPORTS_TABLE_LIMIT);
+  const cryptoMves = scoredMve.crypto_mves.slice(0, CRYPTO_TABLE_LIMIT);
+  if (sportsMarkets.length) {
+    mve = censusFromScoredParlays(scoredMve.all, sportsMarkets);
+  }
+  const verdict = buildVerdict(listed, homemade, marginals, mve, correlations, sports, cryptoMves);
 
   return {
     design_id: KALSHI_PARLAY_DESIGN_ID,
@@ -985,6 +1178,7 @@ export async function runKalshiParlayExperiment(
     listed,
     homemade,
     sports,
+    crypto_mves: cryptoMves,
     sports_source: sportsSource,
     marginals,
     correlations,
@@ -1032,9 +1226,12 @@ export async function pacedKalshiFetchJson(
 export function kalshiParlayCacheTtlMs(snapshot: {
   listed: unknown[];
   sports?: unknown[];
+  crypto_mves?: unknown[];
   errors: string[];
 }): number {
-  const scored = snapshot.listed.length + (snapshot.sports?.length ?? 0);
+  const scored = snapshot.listed.length
+    + (snapshot.sports?.length ?? 0)
+    + (snapshot.crypto_mves?.length ?? 0);
   if (scored === 0 && snapshot.errors.length > 0) return 90_000;
   return 10 * 60 * 1000;
 }

@@ -43,8 +43,8 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   index + YoY → `options.macro`; ~20y lookback), and `kalshi-markets-hourly`
   (batch, hourly; curated Kalshi
   Fed/CPI/index/crypto/oil event contracts plus sports parlays — MVE
-  combos and the legs they select, including ~30 days of daily candles,
-  not the full catalog — →
+  combos that name at least one sports leg (not crypto-only 15m stacks,
+  not the full catalog) and those legs, including ~30 days of daily candles — →
   `options.kalshi_markets` from `symbols/kalshi-series.json`).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and

@@ -15,10 +15,36 @@
 export const MVE_CATEGORY_PREFIX = "mve|";
 
 export const SPORTS_SERIES_PREFIX =
-  /^KX(NFL|NBA|MLB|NHL|MLS|WNBA|NCAA|NCAAF|NCAAB|NCAAW|CFB|CBB|EPL|UCL|UFC|ATP|WTA|PGA|FIFA|SOCCER|MVE|PARLAY)/i;
+  /^KX(NFL|NBA|MLB|NHL|MLS|WNBA|NCAA|NCAAF|NCAAB|NCAAW|CFB|CBB|EPL|UCL|UFC|ATP|WTA|PGA|FIFA|SOCCER|PARLAY)/i;
 
 export const SPORTS_TEXT_RE =
   /\b(NFL|NBA|MLB|NHL|MLS|WNBA|NCAA|NCAAF|NCAAB|CFB|CBB|EPL|UCL|UFC|ATP|WTA|PGA|FIFA|SOCCER|FOOTBALL|BASKETBALL|BASEBALL|HOCKEY|TENNIS|GOLF|MMA|SPORTS?|RAVENS|JAGUARS|CHIEFS|BILLS|COWBOYS|YANKEES|LAKERS|CELTICS)\b/i;
+
+export const CRYPTO_LEG_RE =
+  /^KX(BTC|ETH|SOL|XRP|DOGE|BNB|HYPE|ZEC|ADA|AVAX|DOT|LINK|MATIC|SHIB|PEPE|WIF|SUI|APT|NEAR|TON|TRX|LTC|BCH|BONK|SEI|ONDO|TAO)(15M)?(?:-|$)/i;
+
+export type MveLegKind = "sports" | "crypto" | "other";
+export type MveTapeKind = "sports" | "crypto_mve" | "mixed";
+
+export function mveLegKind(ticker: string): MveLegKind {
+  const t = ticker.trim().toUpperCase();
+  if (CRYPTO_LEG_RE.test(t)) return "crypto";
+  if (SPORTS_SERIES_PREFIX.test(t)) return "sports";
+  return "other";
+}
+
+export function mveTapeKind(legTickers: string[]): MveTapeKind {
+  let sports = false;
+  let crypto = false;
+  for (const ticker of legTickers) {
+    const kind = mveLegKind(ticker);
+    if (kind === "sports") sports = true;
+    else if (kind === "crypto") crypto = true;
+  }
+  if (sports && crypto) return "mixed";
+  if (crypto) return "crypto_mve";
+  return "sports";
+}
 
 export interface MveSelectedLeg {
   event_ticker: string | null;
@@ -112,6 +138,9 @@ export function isSportsParlayCandidate(
   if (series && investingSeries.has(series)) return false;
   const legs = parseMveSelectedLegs(raw);
   if (legs.length < 2) return false;
+  const tape = mveTapeKind(legs.map((leg) => leg.market_ticker));
+  if (tape === "crypto_mve") return false;
+  if (tape === "sports" || tape === "mixed") return true;
   const collection = mveCollectionTicker(raw);
   const blob = [
     series,
