@@ -96,7 +96,6 @@ function ParlayTable({ rows, listed }: { rows: KalshiParlayRow[]; listed: boolea
         </thead>
         <tbody>
           {rows.map((row) => {
-            const gap = listed ? row.score.gap_vs_independence : row.score.gap_vs_copula;
             const joint = listed ? row.score.joint : row.score.copula_fair;
             return (
               <tr key={row.id} className={row.score.flags.length ? 'notebook-row-winner' : undefined}>
@@ -118,22 +117,33 @@ function ParlayTable({ rows, listed }: { rows: KalshiParlayRow[]; listed: boolea
                       Fréchet {fmtProb(row.score.frechet_low)}–{fmtProb(row.score.frechet_high)}
                     </div>
                   ) : null}
+                  {row.score.flags.includes('same_game') && (row.score.corr_room ?? 0) > 0 ? (
+                    <div className="notebook-answer">
+                      corr room {fmtGap(row.score.corr_room)}
+                    </div>
+                  ) : null}
                   {row.score.copula_fair != null ? (
                     <div className="notebook-answer">copula {fmtProb(row.score.copula_fair)}</div>
                   ) : null}
                 </td>
                 <td className="num">
                   <Token
-                    label={fmtGap(listed ? row.score.gap_vs_independence : (row.score.copula_fair != null
-                      ? row.score.copula_fair - row.score.independence
-                      : null))}
-                    color={gapTone(listed ? row.score.gap_vs_independence : (row.score.copula_fair != null
-                      ? row.score.copula_fair - row.score.independence
-                      : null))}
+                    label={fmtGap(listed
+                      ? (row.score.gap_vs_independence ?? (row.score.flags.includes('same_game') ? row.score.corr_room : null))
+                      : (row.score.copula_fair != null
+                        ? row.score.copula_fair - row.score.independence
+                        : null))}
+                    color={gapTone(listed
+                      ? (row.score.gap_vs_independence ?? (row.score.flags.includes('same_game') ? row.score.corr_room : null))
+                      : (row.score.copula_fair != null
+                        ? row.score.copula_fair - row.score.independence
+                        : null))}
                     size="sm"
                   />
-                  {listed && gap != null ? (
+                  {listed && row.score.gap_vs_independence != null ? (
                     <div className="notebook-answer">listed − independent</div>
+                  ) : listed && row.score.flags.includes('same_game') ? (
+                    <div className="notebook-answer">Fréchet high − independent</div>
                   ) : (
                     <div className="notebook-answer">copula − independent</div>
                   )}
@@ -365,11 +375,12 @@ export default function KalshiParlaysNotebookPage() {
                   — not the full sports catalog. Combos are RFQ auctions
                   (Kalshi HVMs): makers quote privately, then a fill may
                   print on the public book. Empty 0/0/0 is the resting
-                  venue, not a missing market. Independence is the
-                  uncorrelated reservation a maker should beat; same-game
-                  auction fair is the Fréchet interval from the lake legs.
-                  A two-sided CLOB or an auction print (`yes_last` in
-                  (0, 1)) is compared to that product. Legs are aligned
+                  venue, not a missing market. Same-game stacks (1H spread AND
+                  1H total, Henry 110+ AND Jackson 40+) have correlated legs.
+                  Corr room is Fréchet high minus p×q — the positive
+                  correlation a maker leaves on the table if the RFQ quotes
+                  independence. Volume-backed prints are required before we
+                  can see whether they actually charge it. Legs are aligned
                   to the combo snapshot time, not mixed latest-wins.
                 </Text>
                 <Text type="supporting">
@@ -417,7 +428,7 @@ export default function KalshiParlaysNotebookPage() {
                 <Text>
                   Scanned {snapshot.mve.scanned} lake MVE combos · {snapshot.mve.two_sided} two-sided on the latest snapshot · {snapshot.mve.empty_book} empty.
                   {snapshot.mve.combo_tickers != null
-                    ? ` Ever two-sided in the window: ${snapshot.mve.ever_two_sided ?? 0} of ${snapshot.mve.combo_tickers}. Sports ${snapshot.mve.sports_combos ?? 0} · crypto target-price ${snapshot.mve.crypto_mve_combos ?? 0} · mixed ${snapshot.mve.mixed_combos ?? 0}. Tape-scored ${snapshot.mve.tape_scored ?? 0} · flagged ${snapshot.mve.tape_flagged ?? 0} · clears fees ${snapshot.mve.survives_spread_fees ?? 0}.`
+                    ? ` Ever two-sided in the window: ${snapshot.mve.ever_two_sided ?? 0} of ${snapshot.mve.combo_tickers}. Sports ${snapshot.mve.sports_combos ?? 0} · crypto target-price ${snapshot.mve.crypto_mve_combos ?? 0} · mixed ${snapshot.mve.mixed_combos ?? 0}. Same-game corr room max ${snapshot.mve.corr_room_max != null ? `${(snapshot.mve.corr_room_max * 100).toFixed(1)}¢` : '—'}. Tape-scored ${snapshot.mve.tape_scored ?? 0} · flagged ${snapshot.mve.tape_flagged ?? 0} · clears fees ${snapshot.mve.survives_spread_fees ?? 0}.`
                     : ''}
                 </Text>
                 {snapshot.mve.sample_titles.length ? (

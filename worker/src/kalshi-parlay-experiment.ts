@@ -108,6 +108,8 @@ export interface MveCensus {
   tape_flagged?: number;
   max_abs_tape_gap?: number | null;
   survives_spread_fees?: number;
+  corr_room_mean?: number | null;
+  corr_room_max?: number | null;
 }
 
 export interface ReturnCorr {
@@ -519,6 +521,8 @@ function emptyMveCensus(partial?: Partial<MveCensus>): MveCensus {
     tape_flagged: 0,
     max_abs_tape_gap: null,
     survives_spread_fees: 0,
+    corr_room_mean: null,
+    corr_room_max: null,
     ...partial,
   };
 }
@@ -596,8 +600,9 @@ function pickNearestTradable(
 function rankParlayRow(row: TwoLegRow): number {
   let score = 0;
   if (row.score.joint != null) score += 1_000_000;
+  if (row.score.flags.includes("ignores_correlation")) score += 50_000;
   if (row.legs.length === 2) score += 10_000;
-  if (row.score.flags.includes("same_game")) score += 5_000;
+  if (row.score.flags.includes("same_game")) score += 5_000 + Math.round((row.score.corr_room ?? 0) * 10_000);
   score += row.combo?.volume ?? 0;
   score += Math.round((row.score.independence ?? 0) * 1000);
   return score;
@@ -662,11 +667,16 @@ export function scoreMveParlays(
     const score = scoreMultiLegParlay({
       probs,
       joint,
-      comboSpread: joint != null ? quoteSpread(comboQuote) : null,
+      comboSpread: twoSidedTape ? quoteSpread(comboQuote) : null,
       legSpreads: spreads,
     });
     const group = parlayGameGroup(games);
-    if (group === "same_game") score.flags.push("same_game");
+    if (group === "same_game") {
+      score.flags.push("same_game");
+      if (score.implied_rho != null && Math.abs(score.implied_rho) < 0.15) {
+        score.flags.push("ignores_correlation");
+      }
+    }
     if (group === "cross_game") score.flags.push("cross_game");
     if (group === "mixed") score.flags.push("mixed_game");
     if (joint == null) {
@@ -678,8 +688,8 @@ export function scoreMveParlays(
     const tape = mveTapeKind(parsed.legs.map((leg) => leg.market_ticker));
     if (tape === "crypto_mve") score.flags.push("crypto_mve");
     if (tape === "mixed") score.flags.push("mixed_crypto");
-    const frechetNote = group === "same_game" && joint == null && probs.length === 2
-      ? `Fair joint given the lake legs is the Fréchet interval ${score.frechet_low.toFixed(3)}–${score.frechet_high.toFixed(3)} — independence is the wrong model.`
+    const frechetNote = group === "same_game" && probs.length >= 2
+      ? `Independence is ${(score.independence * 100).toFixed(1)}¢; Fréchet high is ${(score.frechet_high * 100).toFixed(1)}¢ — ${ (score.corr_room * 100).toFixed(1)}¢ of positive correlation is unpriced if the RFQ quotes p×q.`
       : null;
     const notes = [
       tape === "crypto_mve"
@@ -873,6 +883,10 @@ export function censusFromScoredParlays(
   const gaps = tape
     .map((row) => row.score.gap_vs_independence)
     .filter((gap): gap is number => gap != null);
+  const sameGameRooms = scored
+    .filter((row) => row.score.flags.includes("same_game") && (row.tape_kind ?? "sports") !== "crypto_mve")
+    .map((row) => row.score.corr_room)
+    .filter((room): room is number => room != null && Number.isFinite(room));
   return emptyMveCensus({
     scanned: comboEntries.length,
     two_sided: latestTwo,
@@ -891,6 +905,10 @@ export function censusFromScoredParlays(
     tape_flagged: flagged.length,
     max_abs_tape_gap: gaps.length ? Math.max(...gaps.map(Math.abs)) : null,
     survives_spread_fees: scored.filter((row) => row.score.flags.includes("survives_fees")).length,
+    corr_room_mean: sameGameRooms.length
+      ? sameGameRooms.reduce((a, b) => a + b, 0) / sameGameRooms.length
+      : null,
+    corr_room_max: sameGameRooms.length ? Math.max(...sameGameRooms) : null,
   });
 }
 
@@ -1073,6 +1091,16 @@ export function buildVerdict(
     bullets.push(
       `Split: ${mve.sports_combos ?? 0} sports, ${mve.crypto_mve_combos ?? 0} crypto target-price MVEs, ${mve.mixed_combos ?? 0} mixed. ${mve.same_game ?? 0} same-game, ${mve.cross_game ?? 0} cross-game, ${mve.two_leg ?? 0} two-leg.`,
     );
+    if ((mve.same_game ?? 0) > 0) {
+      const maxRoom = mve.corr_room_max;
+      const meanRoom = mve.corr_room_mean;
+      const roomTxt = maxRoom != null
+        ? ` Quoting independence would ignore up to ${(maxRoom * 100).toFixed(1)}¢ of positive correlation versus Fréchet high${meanRoom != null ? ` (mean ${(meanRoom * 100).toFixed(1)}¢ among scored same-game rows)` : ""}.`
+        : "";
+      bullets.push(
+        `${mve.same_game} lake sports combos are same-game (correlated legs). ${mve.cross_game ?? 0} are cross-game.${roomTxt} Volume-backed RFQ prints are what would show whether makers actually charge that correlation.`,
+      );
+    }
     if (mve.tape_scored) {
       bullets.push(
         `${mve.tape_flagged ?? 0} of ${mve.tape_scored} combo tapes (two-sided book or RFQ auction print) disagree with independence after spread; ${mve.survives_spread_fees ?? 0} still clear Kalshi taker fees.`,
@@ -1113,6 +1141,8 @@ export function buildVerdict(
     ? "Yes — listed Fed parlays are not priced as independent legs."
     : (mve.tape_flagged ?? 0)
       ? "Listed Fed parlays are close to independence this snapshot; the sports combo tape is not."
+      : (mve.same_game ?? 0) > 0
+        ? `Kalshi offers same-game parlays with correlated legs — quoting p×q would ignore up to ${((mve.corr_room_max ?? 0) * 100).toFixed(0)}¢ of positive correlation.`
       : (mve.combo_tickers && (mve.ever_two_sided ?? 0) === 0)
         ? "Kalshi sports parlays are RFQ auctions — empty 0/0/0 books are the venue, not a missing market."
         : scored.length

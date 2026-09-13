@@ -64,7 +64,9 @@ describe("parseKalshiNumber + quoteMid", () => {
     assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0 }), null);
     assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 1, yes_last: 0 }), null);
     assert.equal(listedComboMid({ yes_bid: 0.20, yes_ask: 0.24, yes_last: 0.22 }), 0.22);
-    assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0.22 }), 0.22);
+    assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0.22 }), null);
+    assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0.50, volume: 0 }), null);
+    assert.equal(listedComboMid({ yes_bid: 0, yes_ask: 0, yes_last: 0.22, volume: 12 }), 0.22);
   });
 
   it("treats settlement 0/1 as not tradable and a 0.22 mid as tradable", () => {
@@ -249,6 +251,7 @@ describe("buildSportsRows", () => {
     assert.equal(rows[0]!.score.joint, null);
     assert.equal(rows[0]!.score.flags.includes("independence_gap"), false);
     assert.ok(Math.abs(rows[0]!.score.independence - 0.56 * 0.51) < 1e-6);
+    assert.ok(rows[0]!.score.corr_room > 0.2);
   });
 
   it("does not score RFQ 0/0/0 as an independence gap", () => {
@@ -315,8 +318,8 @@ describe("buildSportsRows", () => {
     assert.equal(rows[0]!.score.gap_vs_independence, null);
     assert.equal(rows[0]!.score.flags.includes("independence_gap"), false);
     assert.equal(rows[0]!.score.flags.includes("below_frechet"), false);
-    assert.match(rows[0]!.notes, /Fréchet interval/);
-    assert.match(rows[0]!.notes, /RFQ auction/);
+    assert.match(rows[0]!.notes, /unpriced if the RFQ quotes/);
+    assert.ok(rows[0]!.score.corr_room > 0.15);
   });
 
   it("scores an RFQ auction print on an empty resting book", () => {
@@ -948,7 +951,7 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v5");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v6");
     assert.equal(snapshot.sports_source, "none");
     assert.equal(snapshot.sports.length, 0);
     assert.equal(snapshot.listed.length, 4);
@@ -1193,7 +1196,7 @@ describe("buildVerdict", () => {
     assert.match(v.headline, /Could not score/);
   });
 
-  it("calls empty combo books an RFQ auction venue, not a missing market", () => {
+  it("says same-game parlays have correlated legs that independence would miss", () => {
     const v = buildVerdict([], [], [], {
       scanned: 275,
       two_sided: 0,
@@ -1209,6 +1212,8 @@ describe("buildVerdict", () => {
       two_leg: 23,
       tape_scored: 0,
       tape_flagged: 0,
+      corr_room_max: 0.229,
+      corr_room_mean: 0.20,
       survives_spread_fees: 0,
     }, [], [{
       id: "rfq",
@@ -1224,6 +1229,7 @@ describe("buildVerdict", () => {
         independence: 0.25,
         frechet_low: 0,
         frechet_high: 0.5,
+        corr_room: 0.25,
         gap_vs_independence: null,
         phi: null,
         implied_rho: null,
@@ -1235,8 +1241,9 @@ describe("buildVerdict", () => {
       rho_proxy_source: null,
       notes: "",
     }]);
-    assert.match(v.headline, /RFQ auction/i);
-    assert.match(v.bullets.join(" "), /0 of 275/);
+    assert.match(v.headline, /correlated legs/i);
+    assert.match(v.headline, /23¢/);
+    assert.match(v.bullets.join(" "), /same-game/);
     assert.equal(v.sports_flagged, 0);
   });
 
@@ -1267,6 +1274,7 @@ describe("buildVerdict", () => {
         independence: 0.544575,
         frechet_low: 0.48,
         frechet_high: 0.685,
+        corr_room: 0.140425,
         gap_vs_independence: 0.070425,
         phi: 0.38,
         implied_rho: 0.60,

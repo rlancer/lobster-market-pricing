@@ -1627,6 +1627,7 @@ export interface KalshiParlayScore {
   independence: number;
   frechet_low: number;
   frechet_high: number;
+  corr_room?: number;
   gap_vs_independence: number | null;
   phi: number | null;
   implied_rho: number | null;
@@ -1696,6 +1697,8 @@ export interface KalshiParlaySnapshot {
     tape_flagged?: number;
     max_abs_tape_gap?: number | null;
     survives_spread_fees?: number;
+    corr_room_mean?: number | null;
+    corr_room_max?: number | null;
   };
   verdict: {
     headline: string;

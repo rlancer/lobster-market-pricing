@@ -8,7 +8,7 @@
  */
 
 export const KALSHI_PARLAY_SLUG = "kalshi-parlays";
-export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v5";
+export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v6";
 
 export type FedRateKey = "hike_25" | "cut_25" | "hold";
 export type FedDissentKey = "zero" | "some";
@@ -124,17 +124,20 @@ export function isTwoSided(q: Pick<KalshiQuote, "yes_bid" | "yes_ask">): boolean
 
 /**
  * Combo mid used for independence / implied ρ.
- * Two-sided CLOB inside (0, 1) counts. Empty RFQ 0/0/0 is not a quote unless
- * `yes_last` is an auction print in (0, 1) — combos are HVMs; makers quote
- * privately, then the fill prints on the public book.
+ * Two-sided CLOB inside (0, 1) counts. Empty RFQ books count only when
+ * `yes_last` is in (0, 1) **and** volume > 0 — a real auction print. Kalshi
+ * often leaves last at 0.50 with volume 0 on never-traded combos; that is
+ * not a quote.
  */
 export function listedComboMid(
-  q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last">,
+  q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last" | "volume">,
 ): number | null {
   if (isTwoSided(q)) {
     const mid = quoteMid(q);
     return mid != null && mid > 0 && mid < 1 ? mid : null;
   }
+  const volume = q.volume;
+  if (volume == null || !Number.isFinite(volume) || volume <= 0) return null;
   return lastInOpenUnit(q.yes_last);
 }
 
@@ -547,6 +550,7 @@ export interface TwoLegScore {
   independence: number;
   frechet_low: number;
   frechet_high: number;
+  corr_room: number;
   gap_vs_independence: number | null;
   phi: number | null;
   implied_rho: number | null;
@@ -638,6 +642,7 @@ export function scoreMultiLegParlay(input: {
     independence: round6(independence),
     frechet_low: round6(frechet_low),
     frechet_high: round6(frechet_high),
+    corr_room: round6(Math.max(0, frechet_high - independence)),
     gap_vs_independence: gap_vs_independence == null ? null : round6(gap_vs_independence),
     phi: phi == null ? null : round6(phi),
     implied_rho: implied_rho == null ? null : round6(implied_rho),
