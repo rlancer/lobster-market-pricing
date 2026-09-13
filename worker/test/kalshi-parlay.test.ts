@@ -430,6 +430,70 @@ describe("buildVerdict", () => {
     assert.match(v.headline, /Could not score/);
   });
 
+  it("quotes implied ρ from two-sided combo books, not 0/1 Fréchet corners", () => {
+    const liquid = {
+      id: "liquid",
+      kind: "listed_combo" as const,
+      meeting: "26SEP",
+      label: "hike AND dissent",
+      combo: {
+        ticker: "liquid",
+        title: "liquid",
+        subtitle: null,
+        yes_bid: 0.61,
+        yes_ask: 0.62,
+        yes_last: 0.615,
+        mid: 0.615,
+        spread: 0.01,
+        volume: 1,
+        close_time: null,
+        two_sided: true,
+      },
+      legs: [],
+      score: {
+        p: 0.795,
+        q: 0.685,
+        joint: 0.615,
+        independence: 0.544575,
+        frechet_low: 0.48,
+        frechet_high: 0.685,
+        gap_vs_independence: 0.070425,
+        phi: 0.38,
+        implied_rho: 0.60,
+        copula_fair: null,
+        gap_vs_copula: null,
+        flags: ["independence_gap"],
+      },
+      rho_proxy: null,
+      rho_proxy_source: null,
+      notes: "",
+    };
+    const illiquid = {
+      ...liquid,
+      id: "illiquid",
+      label: "cut AND dissent",
+      combo: { ...liquid.combo, ticker: "illiquid", two_sided: false, yes_bid: 0, yes_ask: 0.01, mid: 0.005 },
+      score: {
+        ...liquid.score,
+        p: 0.005,
+        q: 0.685,
+        joint: 0.005,
+        independence: 0.003425,
+        gap_vs_independence: 0.001575,
+        implied_rho: 0.90,
+        flags: [],
+      },
+    };
+    const v = buildVerdict([liquid, illiquid], [], [], {
+      scanned: 0,
+      two_sided: 0,
+      empty_book: 0,
+      sample_titles: [],
+    }, []);
+    assert.equal(v.max_abs_implied_rho, 0.6);
+    assert.match(v.bullets.join(" "), /two-sided listed cell is 0\.60/);
+  });
+
   it("still reports lake return correlation when homemade rows are missing", () => {
     const v = buildVerdict([], [], [], {
       scanned: 0,

@@ -560,10 +560,15 @@ export function buildVerdict(
 ): KalshiParlayVerdict {
   const scored = listed.filter((r) => r.score.joint != null);
   const flagged = scored.filter((r) => r.score.flags.includes("independence_gap"));
+  const twoSided = scored.filter((r) => r.combo?.two_sided);
   const gaps = scored
     .map((r) => r.score.gap_vs_independence)
     .filter((g): g is number => g != null);
-  const rhos = scored
+  // 0-bid / 1-ask (or 0/1¢) cells sit on a Fréchet corner, so tetrachoric ρ
+  // blows up even when the independence gap is inside the spread. Quote the
+  // correlation the two-sided tape actually implies.
+  const rhoSource = twoSided.length ? twoSided : scored;
+  const rhos = rhoSource
     .map((r) => r.score.implied_rho)
     .filter((g): g is number => g != null);
   const maxGap = gaps.length ? Math.max(...gaps.map(Math.abs)) : null;
@@ -586,7 +591,7 @@ export function buildVerdict(
   }
   if (maxRho != null) {
     bullets.push(
-      `Largest implied Gaussian (tetrachoric) ρ on a listed cell is ${maxRho.toFixed(2)} — the legs are not independent.`,
+      `Largest implied Gaussian (tetrachoric) ρ on a ${twoSided.length ? "two-sided " : ""}listed cell is ${maxRho.toFixed(2)} — the legs are not independent.`,
     );
   }
   if (marginalFlags) {
