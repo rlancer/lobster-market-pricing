@@ -49,7 +49,9 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   never accepts) — →
   `options.kalshi_markets` from `symbols/kalshi-series.json`), and
   `kalshi-parlay-executor` (batch, 5 min; same-game two-leg RFQ filter.
-  Live when `KALSHI_PARLAY_EXECUTE=1` and `KALSHI_PARLAY_LIVE=1`: 10
+  EXECUTE is on; LIVE is off (`KALSHI_PARLAY_LIVE=0`) after production
+  accepts filled BUY NO instead of YES. Turning LIVE off does not unwind
+  fills. Live when EXECUTE=1 and LIVE=1: 10
   contracts = $10 notional, at most one YES accept per pass. Scans every
   open sports MVE from the Trade API — not the lake volume-80 cap — and
   fetches legs only for same-game two-leg stacks. `last_pass.detail.considered`

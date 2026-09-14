@@ -68,10 +68,13 @@
     "KALSHI_RFQ_POLL_MS": 1000,
     // Same-game parlay RFQ size: 10 contracts = $10 notional (Kalshi $1 face).
     "KALSHI_RFQ_CONTRACTS": 10,
-    // Live executor: accept YES on passing same-game two-leg RFQs.
-    // Premium is 10 × ask (typically a few dollars). At most one fill per pass.
+    // Executor still solicits and scores (EXECUTE=1). LIVE is off: production
+    // accepts were filling BUY NO (cost ≈ $1 − yes_bid, e.g. $8.96 / $10
+    // payout) instead of BUY YES at the ask. Existing fills are not unwound
+    // by this flag — they have to be sold. Do not set LIVE=1 until accept
+    // side is verified against portfolio fills.
     "KALSHI_PARLAY_EXECUTE": "1",
-    "KALSHI_PARLAY_LIVE": "1",
+    "KALSHI_PARLAY_LIVE": "0",
     "KALSHI_PARLAY_CADENCE_SECONDS": 300,
     "KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS": 1
   },
