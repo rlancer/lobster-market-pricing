@@ -374,8 +374,10 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 # on push to main (project: robs-options-slop, domain: lobster.mp).
 # The API Worker is on the sibling hostname api.lobster.mp (preview:
 # api-dev.lobster.mp) so the Better Auth session cookie can be set on
-# .lobster.mp. The loader deploys via the deploy-loader.yml GitHub Action
-# (manual dispatch).
+# .lobster.mp. Worker secrets persist across `wrangler deploy`; CI syncs
+# them from GitHub after publish (retries Cloudflare 503s) so a secret-put
+# flake cannot skip Worker or Pages. The loader deploys via the
+# deploy-loader.yml GitHub Action on push to main.
 ```
 
 ## API endpoints
