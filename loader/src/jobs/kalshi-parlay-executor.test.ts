@@ -24,6 +24,7 @@ describe("kalshi-parlay-executor job adapter", () => {
       accepted: 0,
       open_combos: 0,
       same_game_two_leg: 0,
+      considered: [],
     });
   });
 });

@@ -756,6 +756,26 @@ export interface KalshiParlayDecision {
   quote_id: string | null;
 }
 
+export interface KalshiParlayConsideredLeg {
+  market_ticker: string;
+  title: string;
+  side: string;
+  p: number | null;
+}
+
+export interface KalshiParlayConsidered {
+  market_ticker: string;
+  title: string;
+  legs: KalshiParlayConsideredLeg[];
+  p: number | null;
+  q: number | null;
+  corr_room: number | null;
+  independence: number | null;
+  status: string;
+  skip: string | null;
+  reason: string;
+}
+
 export interface KalshiParlaySample {
   market_ticker: string;
   n_legs: number;
@@ -792,6 +812,7 @@ export interface KalshiParlayExecutor {
   contracts: number;
   max_accepts_per_pass: number;
   decisions: KalshiParlayDecision[];
+  considered: KalshiParlayConsidered[];
   samples: KalshiParlaySample[];
 }
 

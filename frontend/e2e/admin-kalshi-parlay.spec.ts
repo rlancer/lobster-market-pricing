@@ -34,6 +34,7 @@ const FIXTURE = {
     contracts: 10,
     max_accepts_per_pass: 1,
     decisions: [],
+    considered: [],
     samples: [],
   },
   hourly: {
@@ -186,7 +187,8 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
     await expect(page.getByText(/not the hourly lake volume-80 cap/)).toBeVisible();
-    await expect(page.getByText(/If same-game two-leg is 0/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Considered' })).toBeVisible();
+    await expect(page.getByText('No same-game two-leg books on the last pass.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Kalshi parlays' })).toHaveAttribute('href', '/experiments/kalshi-parlays');
     expect(loaderHits).toEqual([]);
@@ -220,6 +222,38 @@ test.describe('Admin Kalshi parlay console', () => {
           rfq_id: 'rfq-live',
           quote_id: 'q-live',
         }],
+        considered: [
+          {
+            market_ticker: 'KXMVE-GAME',
+            title: 'Henry 110+ AND Jackson 40+',
+            legs: [
+              { market_ticker: 'HENRY', title: 'Henry 110+', side: 'yes', p: 0.4 },
+              { market_ticker: 'JACK', title: 'Jackson 40+', side: 'yes', p: 0.49 },
+            ],
+            p: 0.4,
+            q: 0.49,
+            corr_room: 0.204,
+            independence: 0.196,
+            status: 'accepted',
+            skip: null,
+            reason: 'Accepted YES at ask 0.210',
+          },
+          {
+            market_ticker: 'KXMVE-LOW',
+            title: 'Detmers 18+ AND Anderson 16+',
+            legs: [
+              { market_ticker: 'DETMERS', title: 'Detmers 18+', side: 'yes', p: 0.9 },
+              { market_ticker: 'ANDERSON', title: 'Anderson 16+', side: 'yes', p: 0.9 },
+            ],
+            p: 0.9,
+            q: 0.9,
+            corr_room: 0.09,
+            independence: 0.81,
+            status: 'skipped',
+            skip: 'corr_room',
+            reason: 'Legs are not correlated enough (corr room 9¢, need 15¢)',
+          },
+        ],
       },
       hourly: {
         ...FIXTURE.hourly,
@@ -233,6 +267,11 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('10 contracts · $10 notional')).toBeVisible();
     await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
     await expect(page.getByText('Last pass accepted 1 YES quote')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Considered' })).toBeVisible();
+    await expect(page.getByText('Henry 110+ AND Jackson 40+')).toBeVisible();
+    await expect(page.getByText(/YES Henry 110+/)).toBeVisible();
+    await expect(page.getByText(/not correlated enough/)).toBeVisible();
+    await expect(page.getByText('Detmers 18+ AND Anderson 16+')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeDisabled();
     if (existsSync('/opt/cursor/artifacts')) {
       await page.screenshot({

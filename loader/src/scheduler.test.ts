@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { EtlScheduler, type JobSpec, type JobStateRow, type SchedulerEnv } from "./scheduler.js";
+import { EtlScheduler, fitLastPassDetail, type JobSpec, type JobStateRow, type SchedulerEnv } from "./scheduler.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -587,6 +587,51 @@ describe("EtlScheduler — batch-scoped jobs", () => {
     const jobRow = db.jobState.get("batchjob")!;
     expect(Number(jobRow.last_success_at)).toBeGreaterThan(0);
     expect(Number(jobRow.next_attempt_after)).toBeGreaterThanOrEqual(Date.now() + 86400000 - 60_000);
+  });
+});
+
+describe("fitLastPassDetail", () => {
+  it("keeps counts and shrinks considered instead of wiping the blob", () => {
+    const considered = Array.from({ length: 40 }, (_, i) => ({
+      market_ticker: `T${i}-${"x".repeat(80)}`,
+      title: "n".repeat(80),
+      legs: [
+        { market_ticker: `L${i}A-${"y".repeat(40)}`, title: "leg a ".repeat(10), side: "yes", p: 0.4 },
+        { market_ticker: `L${i}B-${"z".repeat(40)}`, title: "leg b ".repeat(10), side: "yes", p: 0.5 },
+      ],
+      reason: "Legs are not correlated enough (corr room 8¢, need 15¢)",
+    }));
+    const fitted = fitLastPassDetail({
+      execute: true,
+      live: true,
+      open_combos: 594,
+      same_game_two_leg: 40,
+      considered,
+      samples: [{ market_ticker: "X", n_legs: 3, game_group: "cross_game", tape: "sports" }],
+      decisions: [{ market_ticker: "T0", accepted: true }],
+    }, 8_000) as Record<string, unknown>;
+    expect(fitted.execute).toBe(true);
+    expect(fitted.open_combos).toBe(594);
+    expect(Array.isArray(fitted.considered)).toBe(true);
+    expect((fitted.considered as unknown[]).length).toBeLessThan(40);
+    expect((fitted.considered as unknown[]).length).toBeGreaterThanOrEqual(4);
+    expect(fitted).not.toEqual({ truncated: true });
+  });
+
+  it("keeps scalar counts when arrays still overflow", () => {
+    const fitted = fitLastPassDetail({
+      execute: true,
+      live: true,
+      open_combos: 594,
+      same_game_two_leg: 4,
+      considered: [{ market_ticker: "T", reason: "x".repeat(20_000), legs: [] }],
+      decisions: [{ market_ticker: "T", accepted: true, blob: "y".repeat(20_000) }],
+    }, 8_000) as Record<string, unknown>;
+    expect(fitted.execute).toBe(true);
+    expect(fitted.open_combos).toBe(594);
+    expect(fitted.truncated).toBe(true);
+    expect(fitted.considered).toBeUndefined();
+    expect(JSON.stringify(fitted).length).toBeLessThanOrEqual(8_000);
   });
 });
 

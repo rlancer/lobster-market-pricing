@@ -3,7 +3,7 @@
  *
  * Loader GET /jobs/* is public on cboe-to-r2. This module pulls that JSON
  * through the screener Worker so the browser never talks to the loader, and
- * so last_pass.detail (would_accept / accepted) stays behind requireBotAdmin.
+ * so last_pass.detail (would_accept / accepted / considered) stays behind requireBotAdmin.
  *
  * POST trigger uses LOADER_TOKEN server-side only. This surface never sets
  * KALSHI_PARLAY_LIVE. Live size (contracts / max_accepts_per_pass) is read
@@ -38,6 +38,26 @@ export interface KalshiParlayDecisionView {
   yes_ask: number | null;
   rfq_id: string | null;
   quote_id: string | null;
+}
+
+export interface KalshiParlayConsideredLeg {
+  market_ticker: string;
+  title: string;
+  side: string;
+  p: number | null;
+}
+
+export interface KalshiParlayConsidered {
+  market_ticker: string;
+  title: string;
+  legs: KalshiParlayConsideredLeg[];
+  p: number | null;
+  q: number | null;
+  corr_room: number | null;
+  independence: number | null;
+  status: string;
+  skip: string | null;
+  reason: string;
 }
 
 export interface KalshiParlaySampleView {
@@ -77,6 +97,7 @@ export interface KalshiParlayExecutorView {
   contracts: number;
   max_accepts_per_pass: number;
   decisions: KalshiParlayDecisionView[];
+  considered: KalshiParlayConsidered[];
   samples: KalshiParlaySampleView[];
 }
 
@@ -193,7 +214,11 @@ function detailOf(lastPass: Record<string, unknown> | null): Record<string, unkn
   if (!lastPass) return null;
   const detail = asRecord(lastPass.detail);
   if (!detail) return null;
-  if (detail.truncated === true) return null;
+  // Legacy wipe: `{ truncated: true }` with no counts. Newer passes may set
+  // truncated after shrinking arrays and still keep execute / considered.
+  if (detail.truncated === true && detail.execute == null && !Array.isArray(detail.considered)) {
+    return null;
+  }
   return detail;
 }
 
@@ -215,6 +240,42 @@ function mapDecision(raw: unknown): KalshiParlayDecisionView | null {
     yes_ask: asNumOrNull(row.yes_ask),
     rfq_id: asStrOrNull(row.rfq_id),
     quote_id: asStrOrNull(row.quote_id),
+  };
+}
+
+function mapConsideredLeg(raw: unknown): KalshiParlayConsideredLeg | null {
+  const row = asRecord(raw);
+  if (!row) return null;
+  const market_ticker = asStr(row.market_ticker);
+  if (!market_ticker) return null;
+  const side = asStr(row.side, "yes").toLowerCase() === "no" ? "no" : "yes";
+  return {
+    market_ticker,
+    title: asStr(row.title, market_ticker),
+    side,
+    p: asNumOrNull(row.p),
+  };
+}
+
+function mapConsidered(raw: unknown): KalshiParlayConsidered | null {
+  const row = asRecord(raw);
+  if (!row) return null;
+  const market_ticker = asStr(row.market_ticker);
+  if (!market_ticker) return null;
+  const legs = Array.isArray(row.legs)
+    ? row.legs.map(mapConsideredLeg).filter((leg): leg is KalshiParlayConsideredLeg => leg != null)
+    : [];
+  return {
+    market_ticker,
+    title: asStr(row.title, market_ticker),
+    legs,
+    p: asNumOrNull(row.p),
+    q: asNumOrNull(row.q),
+    corr_room: asNumOrNull(row.corr_room),
+    independence: asNumOrNull(row.independence),
+    status: asStr(row.status, "skipped"),
+    skip: asStrOrNull(row.skip),
+    reason: asStr(row.reason, "Skipped"),
   };
 }
 
@@ -261,6 +322,7 @@ export function emptyExecutorView(): KalshiParlayExecutorView {
     contracts: 10,
     max_accepts_per_pass: 1,
     decisions: [],
+    considered: [],
     samples: [],
   };
 }
@@ -277,6 +339,9 @@ export function shapeExecutorJob(payload: unknown): KalshiParlayExecutorView {
     : [];
   const samples = Array.isArray(detail?.samples)
     ? detail.samples.map(mapSample).filter((row): row is KalshiParlaySampleView => row != null).slice(0, 5)
+    : [];
+  const considered = Array.isArray(detail?.considered)
+    ? detail.considered.map(mapConsidered).filter((row): row is KalshiParlayConsidered => row != null).slice(0, 24)
     : [];
   return {
     job_id: asStr(job.job_id, EXECUTOR_JOB_ID),
@@ -307,6 +372,7 @@ export function shapeExecutorJob(payload: unknown): KalshiParlayExecutorView {
     contracts: asInt(detail?.contracts, 10),
     max_accepts_per_pass: asInt(detail?.max_accepts_per_pass, 1),
     decisions,
+    considered,
     samples,
   };
 }
