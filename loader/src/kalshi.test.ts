@@ -3,6 +3,8 @@ import {
   applySeriesCategory,
   buildKalshiAuthHeaders,
   chunkKalshiPipelineRecords,
+  collectSportsCombos,
+  executorSameGameLegTickers,
   kalshiAuthConfigured,
   kalshiSeriesList,
   kalshiSignPath,
@@ -141,6 +143,58 @@ describe("kalshi parse helpers", () => {
     expect(list).toContain("KXBTC");
     expect(list).toContain("KXMVE");
     expect(list).not.toContain("KXSPORTS");
+  });
+});
+
+function noiseCombo(i: number) {
+  return {
+    ticker: `KXMVECROSSCATEGORY-NOISE${String(i).padStart(3, "0")}`,
+    series_ticker: "KXMVE",
+    title: `Noise ${i}`,
+    status: "active",
+    mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+    mve_selected_legs: [
+      { event_ticker: "KXNFLGAME-26SEP13AAA", market_ticker: `KXNFLGAME-26SEP13AAA-A${i}`, side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13BBB", market_ticker: `KXNFLGAME-26SEP13BBB-B${i}`, side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13CCC", market_ticker: `KXNFLGAME-26SEP13CCC-C${i}`, side: "yes" },
+    ],
+    volume_fp: "1000",
+    volume_24h_fp: "500",
+    close_time: "2026-09-14T00:00:00Z",
+  };
+}
+
+const VOL0_SAME_GAME = {
+  ticker: "KXMLBOUTS-26SEP142138SEALAA",
+  series_ticker: "KXMVE",
+  title: "Detmers 18+ AND Anderson 16+",
+  status: "active",
+  mve_collection_ticker: "KXMLBOUTS",
+  mve_selected_legs: [
+    { event_ticker: "KXMLBOUTS-26SEP142138SEALAA", market_ticker: "KXMLBOUTS-26SEP142138SEALAA-DETMERS18", side: "yes" },
+    { event_ticker: "KXMLBOUTS-26SEP142138SEALAA", market_ticker: "KXMLBOUTS-26SEP142138SEALAA-ANDERSON16", side: "yes" },
+  ],
+  volume_fp: "0",
+  volume_24h_fp: "0",
+  close_time: "2026-09-14T00:00:00Z",
+};
+
+describe("sports combo universe vs lake cap", () => {
+  it("volume-80 lake cap drops a volume-0 same-game two-leg; executor scan keeps it", () => {
+    const raw = [...Array.from({ length: 80 }, (_, i) => noiseCombo(i)), VOL0_SAME_GAME];
+    const investing = new Set<string>();
+    const lake = collectSportsCombos(raw, investing, 80);
+    const live = collectSportsCombos(raw, investing, null);
+    expect(lake.ranked).toHaveLength(80);
+    expect(lake.ranked.map((row) => row.market_ticker)).not.toContain(VOL0_SAME_GAME.ticker);
+    expect(live.ranked).toHaveLength(81);
+    expect(live.ranked.map((row) => row.market_ticker)).toContain(VOL0_SAME_GAME.ticker);
+    const comboTickers = new Set(live.ranked.map((row) => row.market_ticker));
+    expect(executorSameGameLegTickers(live.comboLegs, comboTickers)).toEqual([
+      "KXMLBOUTS-26SEP142138SEALAA-DETMERS18",
+      "KXMLBOUTS-26SEP142138SEALAA-ANDERSON16",
+    ]);
+    expect(executorSameGameLegTickers(lake.comboLegs, new Set(lake.ranked.map((row) => row.market_ticker)))).toEqual([]);
   });
 });
 

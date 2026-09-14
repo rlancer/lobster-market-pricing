@@ -177,3 +177,13 @@ export function parlayGameGroup(eventTickers: string[]): "same_game" | "cross_ga
   if (events.length === eventTickers.filter(Boolean).length) return "cross_game";
   return "mixed";
 }
+
+/** Live RFQ target: two sports legs on the same game (event_ticker or NFL-style slug). */
+export function isSameGameSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
+  if (legs.length !== 2) return false;
+  const tickers = legs.map((leg) => leg.market_ticker);
+  if (mveTapeKind(tickers) !== "sports") return false;
+  if (tickers.some((ticker) => mveLegKind(ticker) !== "sports")) return false;
+  const games = legs.map((leg) => sportsGameKey(leg.market_ticker, leg.event_ticker));
+  return parlayGameGroup(games) === "same_game";
+}

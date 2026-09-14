@@ -2,8 +2,10 @@
  * Kalshi same-game parlay executor.
  *
  * Separate from kalshi-markets-hourly / the RFQ research probe:
- *   1. Fetch open MVE combos + selected legs (no candle backfill, no probe).
- *      Same-game grouping uses mve_selected_legs.event_ticker, not category.
+ *   1. Fetch every open sports MVE from Get Markets (no lake volume-80
+ *      cap) plus selected-leg snapshots only for same-game two-leg stacks.
+ *      No candle backfill, no research RFQ overlay. Same-game grouping
+ *      uses mve_selected_legs.event_ticker, not category.
  *   2. Rank same-game two-leg sports stacks by corr room.
  *   3. Create an RFQ, wait for a private two-way, score it.
  *   4. Default: log would_accept and DELETE the RFQ.
@@ -19,7 +21,7 @@
 import type { KalshiEnv, KalshiMarketRow } from "./kalshi.js";
 import {
   DEFAULT_KALSHI_API_BASE,
-  fetchKalshiSportsParlayPack,
+  fetchKalshiParlayExecutorPack,
   kalshiAuthConfigured,
   kalshiRequest,
 } from "./kalshi.js";
@@ -296,11 +298,7 @@ export async function runKalshiParlayExecutorPass(
 
   const live = parlayLiveEnabled(env);
   const maxAccepts = parlayMaxAcceptsPerPass(env);
-  const pack = await fetchKalshiSportsParlayPack({
-    ...env,
-    KALSHI_RFQ_PROBE_ENABLED: "0",
-    KALSHI_SPORTS_LOOKBACK_DAYS: 0,
-  });
+  const pack = await fetchKalshiParlayExecutorPack(env);
   const { combos, legs } = splitOpenSportsRows(pack.rows);
   const comboLegs = pack.comboLegs;
   const universe = rfqProbeUniverseStats(combos, comboLegs, legs);

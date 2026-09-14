@@ -279,8 +279,10 @@ Series is worth the extra call.
 
 Separate from the hourly tape. Buys unpriced same-game correlation:
 
-1. Open MVE combos + selected legs (no candle backfill, no research RFQ overlay).
-   Same-game grouping uses `mve_selected_legs.event_ticker`, not `category`.
+1. Every open sports MVE from Get Markets (no lake volume-80 cap, no candle
+   backfill, no research RFQ overlay). Legs are fetched only for same-game
+   two-leg stacks. Same-game grouping uses `mve_selected_legs.event_ticker`,
+   not `category`. Do not scrape the full sports catalog.
 2. Rank same-game two-leg sports stacks by corr room (`min(p,q) − p×q`).
 3. Create an RFQ, wait for a private two-way, score it.
 4. **Filter (all required):** 2 legs, same game, same side (yes+yes or no+no),
@@ -309,8 +311,10 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 (`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
 `open_combos`, `open_legs`, `combo_legs`, `two_leg`, `same_game_two_leg`,
 `cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
-`mve_selected_legs` (including `event_ticker`), not the lake `category`
-encoding.
+`mve_selected_legs` (including `event_ticker`) from the live API, not the
+hourly lake tape and not the lake `category` encoding. Hourly KXMVE still
+caps 80 combos by volume for research; empty-CLOB same-game books (volume 0)
+are kept on the executor pass and ranked by corr room.
 
 Dry-run with EXECUTE on and LIVE off (pre-live only):
 `.github/workflows/force-kalshi-parlay-dry-run.yml` (push

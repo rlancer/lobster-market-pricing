@@ -29,7 +29,8 @@ function idleDetail(env: SchedulerEnv): Record<string, unknown> {
 
 // Same-game sports parlay RFQ executor. Batch, ungated, 5-minute cadence.
 // Live: KALSHI_PARLAY_EXECUTE=1 and KALSHI_PARLAY_LIVE=1, 10 contracts
-// ($10 notional), at most one accept per pass. Never the full sports catalog.
+// ($10 notional), at most one accept per pass. Scans every open sports MVE
+// from the Trade API (not the lake volume-80 cap). Never the full catalog.
 // The hourly KXMVE research probe stays separate and never accepts.
 export function kalshiParlayExecutorJob(env: SchedulerEnv): BatchJob {
   return {
