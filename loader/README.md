@@ -242,7 +242,9 @@ and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
 BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (multivariate
 combo markets with `mve_selected_legs`, plus those legs — open books and
-~30 days of daily candlesticks for recently settled/closed parlays). Investing series
+~30 days of daily candlesticks for recently settled/closed parlays). Combos
+need at least one sports leg; pure crypto 15m/daily CROSSCATEGORY stacks are not
+`theme=sports`. Investing series
 optionally link to a lake `related_symbol` (SPY, TLT, BTC-USD, CL=F, …) for
 Chat joins, `/research/{ticker}` event markets (`GET /api/research/{ticker}/kalshi`),
 and Kalshi trade ideas. Sports rows use `theme=sports` and
@@ -264,12 +266,20 @@ event odds move outside the US equity session. Series are paced
 (`KALSHI_SERIES_PACE_MS`, default 3000; `KALSHI_CONCURRENCY` default 1;
 `KALSHI_MIN_REQUEST_GAP_MS` default 400) to avoid Kalshi `too_many_requests`
 429s; sports lookback defaults to 30 days (`KALSHI_SPORTS_LOOKBACK_DAYS`,
-cap `KALSHI_SPORTS_LOOKBACK_MAX` 200). Set `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
+cap `KALSHI_SPORTS_LOOKBACK_MAX` 200). When `KALSHI_RFQ_PROBE_ENABLED=1` and
+trading-capable Kalshi keys are set, the KXMVE pass also solicits RFQ quotes
+on up to `KALSHI_RFQ_PROBE_MAX` (default 12) **same-game two-leg** sports
+combos ranked by corr room, maps the private two-way onto `yes_bid` /
+`yes_ask` with `source=kalshi_rfq`, then **deletes the RFQ**. Quotes are
+never accepted or confirmed. Read-only keys 403 and skip. Set
+`KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
 **Optional API auth** — market GETs work anonymously, but a Kalshi
-**read-only** API key usually gets a higher rate tier. The loader RSA-PSS-signs
-each GET when secrets are set (`KALSHI-ACCESS-*` headers). Never commit the PEM.
+API key usually gets a higher rate tier. The loader RSA-PSS-signs
+each request when secrets are set (`KALSHI-ACCESS-*` headers). Read-only keys
+are enough for GETs; the RFQ quote probe needs **trading** permission.
+Never commit the PEM.
 
 Interactive `wrangler secret put` is awkward for multi-line PEMs. On your
 desktop (with wrangler logged in):

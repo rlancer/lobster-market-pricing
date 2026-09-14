@@ -1,7 +1,7 @@
 /** Kalshi parlay experiment — public labels + formatting. */
 
 export const KALSHI_PARLAY_SLUG = 'kalshi-parlays';
-export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v3';
+export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v7';
 
 export function fmtProb(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
@@ -36,6 +36,22 @@ export function flagLabel(flag: string): string {
       return 'cross-game';
     case 'no_combo_tape':
       return 'no combo tape';
+    case 'rfq_auction':
+      return 'RFQ auction';
+    case 'rfq_auction_print':
+      return 'auction print';
+    case 'rfq_quote':
+      return 'RFQ quote';
+    case 'ignores_correlation':
+      return 'ignores correlation';
+    case 'crypto_mve':
+      return 'crypto MVE';
+    case 'mixed_crypto':
+      return 'mixed crypto';
+    case 'mixed_game':
+      return 'mixed games';
+    case 'survives_fees':
+      return 'clears fees';
     default:
       return flag;
   }

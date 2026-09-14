@@ -70,7 +70,9 @@ PIPELINE_ECON_URL=
 PIPELINE_YIELDS_URL=
 PIPELINE_MACRO_URL=
 PIPELINE_KALSHI_MARKETS_URL=
-# Optional — Kalshi RSA-PSS auth (read-only API key). Leave blank to use public GETs.
+# Optional — Kalshi RSA-PSS auth. Leave blank to use public GETs.
+# Read-only keys are enough for market GETs. The RFQ quote probe
+# (KALSHI_RFQ_PROBE_ENABLED=1 in wrangler vars) needs trading permission.
 KALSHI_ACCESS_KEY_ID=
 KALSHI_PRIVATE_KEY_PEM=
 PIPELINE_ETF_PROFILES_URL=

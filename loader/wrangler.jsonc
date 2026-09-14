@@ -58,7 +58,14 @@
     // Sports parlays only (KXMVE): 30 days of daily candles for open +
     // recently settled/closed MVE combos and their selected legs.
     "KALSHI_SPORTS_LOOKBACK_DAYS": 30,
-    "KALSHI_SPORTS_LOOKBACK_MAX": 200
+    "KALSHI_SPORTS_LOOKBACK_MAX": 200,
+    // Solicit RFQ quotes on a capped set of same-game sports parlays so the
+    // lake has a two-way for implied ρ. Trading-capable Kalshi keys required;
+    // read-only keys 403 and skip. RFQs are cancelled; quotes are never accepted.
+    "KALSHI_RFQ_PROBE_ENABLED": "1",
+    "KALSHI_RFQ_PROBE_MAX": 12,
+    "KALSHI_RFQ_WAIT_MS": 2500,
+    "KALSHI_RFQ_POLL_MS": 1000
   },
   "d1_databases": [
     {

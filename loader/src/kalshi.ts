@@ -10,6 +10,8 @@
 //
 // Public Trade API (no auth for market data):
 //   https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=…&status=open
+// Optional RFQ probe (KALSHI_RFQ_PROBE_ENABLED): POST /communications/rfqs on a
+// capped same-game sports set, GET quotes, DELETE the RFQ — never accept.
 // Pure module (fetch / crypto only) so Vitest and the DO share one path.
 
 import seriesManifest from "../symbols/kalshi-series.json" with { type: "json" };
@@ -20,6 +22,7 @@ import {
   parseMveSelectedLegs,
   seriesTickerFromMarketTicker,
 } from "./kalshi-mve.js";
+import { probeKalshiRfqQuotes } from "./kalshi-rfq-quotes.js";
 
 export {
   encodeMveCategory,
@@ -27,6 +30,7 @@ export {
   parseMveSelectedLegs,
   parlayGameGroup,
   eventPrefixFromTicker,
+  sportsGameKey,
 } from "./kalshi-mve.js";
 
 // ---------------------------------------------------------------------------
@@ -110,7 +114,8 @@ export interface KalshiEnv {
   /**
    * Optional Kalshi API Key ID (UUID from Account → API Keys).
    * With KALSHI_PRIVATE_KEY_PEM, market GETs are RSA-PSS signed — higher rate
-   * tiers than anonymous public GETs. Read-only keys are fine.
+   * tiers than anonymous public GETs. Read-only keys are fine for GETs.
+   * Create RFQ (sports quote probe) needs trading permission; 403 skips the probe.
    */
   KALSHI_ACCESS_KEY_ID?: string;
   /**
@@ -118,6 +123,22 @@ export interface KalshiEnv {
    * never commit. Pair with KALSHI_ACCESS_KEY_ID.
    */
   KALSHI_PRIVATE_KEY_PEM?: string;
+  /**
+   * Set to "1" to solicit RFQ quotes on a capped set of same-game sports
+   * parlays during the KXMVE pass. Requires trading-capable API keys.
+   * Quotes are mapped onto yes_bid/yes_ask; the RFQ is always cancelled.
+   */
+  KALSHI_RFQ_PROBE_ENABLED?: string;
+  /** Max same-game two-leg combos to RFQ per pass (default 12, cap 20). */
+  KALSHI_RFQ_PROBE_MAX?: number | string;
+  /** Ms to wait after Create RFQ before the first quote poll (default 2500). */
+  KALSHI_RFQ_WAIT_MS?: number | string;
+  /** Ms between subsequent quote polls (default 1000). */
+  KALSHI_RFQ_POLL_MS?: number | string;
+  /** Quote poll attempts per RFQ (default 3). */
+  KALSHI_RFQ_POLLS?: number | string;
+  /** Whole-contract RFQ size (default 1, cap 10). Never accepted. */
+  KALSHI_RFQ_CONTRACTS?: number | string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   HTTP_RETRIES?: number;
@@ -424,9 +445,24 @@ function maxMarketsFor(seriesId: string, env: KalshiEnv): number {
 // ---------------------------------------------------------------------------
 // HTTP
 // ---------------------------------------------------------------------------
-async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<unknown> {
+export interface KalshiHttpResult {
+  status: number;
+  json: unknown;
+  text: string;
+}
+
+/** Signed Kalshi Trade API call. Retries 429/5xx. Returns 4xx to the caller. */
+export async function kalshiRequest(
+  method: string,
+  url: string,
+  env: KalshiEnv,
+  label: string,
+  body?: unknown,
+): Promise<KalshiHttpResult> {
+  const verb = method.toUpperCase();
   const retries = Math.floor(num(env.HTTP_RETRIES, HTTP_RETRIES_DEFAULT));
   const timeoutMs = Math.floor(num(env.REQUEST_TIMEOUT, REQUEST_TIMEOUT_SECONDS_DEFAULT) * 1000);
+  const payload = body === undefined ? undefined : JSON.stringify(body);
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     let controller: AbortController | null = null;
@@ -439,22 +475,33 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
           accept: "application/json",
           "user-agent": "cboe-to-r2/0.2",
         };
+        if (payload !== undefined) headers["content-type"] = "application/json";
         try {
-          const auth = await buildKalshiAuthHeaders("GET", url, env);
+          const auth = await buildKalshiAuthHeaders(verb, url, env);
           if (auth) Object.assign(headers, auth);
         } catch (authError) {
           throw new Error(`kalshi auth sign failed: ${errMsg(authError)}`);
         }
         const response = await fetch(url, {
+          method: verb,
           headers,
+          body: payload,
           signal: controller.signal,
         });
-        if (response.ok) return await response.json();
+        const text = await response.text();
+        let json: unknown = null;
+        if (text) {
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = null;
+          }
+        }
+        const result: KalshiHttpResult = { status: response.status, json, text };
+        if (response.ok || response.status === 204) return result;
         const code = response.status;
-        const detail = await response.text();
-        lastError = new Error(`${label} returned HTTP ${code}: ${detail.slice(0, 160)}`);
-        // Retry 429 / 5xx; other 4xx fail immediately.
-        if (code !== 429 && code < 500) throw lastError;
+        lastError = new Error(`${label} returned HTTP ${code}: ${text.slice(0, 160)}`);
+        if (code !== 429 && code < 500) return result;
         if (attempt < retries) {
           const waitSec = retryWaitSeconds(env, attempt, code, response.headers.get("retry-after"));
           await sleep(waitSec * 1000);
@@ -464,9 +511,6 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
       }
     } catch (error) {
       lastError = error;
-      if (error instanceof Error && /returned HTTP 4\d\d/.test(error.message) && !/returned HTTP 429/.test(error.message)) {
-        throw error;
-      }
       if (error instanceof Error && /kalshi auth sign failed/.test(error.message)) {
         throw error;
       }
@@ -474,6 +518,12 @@ async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<un
     }
   }
   throw new Error(`${label} failed after ${retries + 1} attempts: ${errMsg(lastError)}`);
+}
+
+async function fetchJson(url: string, env: KalshiEnv, label: string): Promise<unknown> {
+  const result = await kalshiRequest("GET", url, env, label);
+  if (result.status >= 200 && result.status < 300) return result.json;
+  throw new Error(`${label} returned HTTP ${result.status}: ${result.text.slice(0, 160)}`);
 }
 
 async function requestJson(
@@ -824,6 +874,8 @@ async function fetchSportsCandles(
  * contracts. Open books are snapshotted live; settled/closed books in the
  * lookback window are daily candlesticks only (no settlement 0/1 overwrite).
  * Capped on combos (volume-first); every selected leg is kept.
+ * Optional RFQ probe (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo
+ * bid/ask from solicited maker quotes, then cancels — never accepts.
  */
 export async function fetchKalshiSportsParlays(
   env: KalshiEnv = {},
@@ -865,10 +917,15 @@ export async function fetchKalshiSportsParlays(
   const legs = await fetchMarketsByTickers(legTickers, env);
   const bases = [...merged.rows, ...legs];
   const live = bases.filter((row) => !isSettledKalshiStatus(row.status));
-  if (lookbackDays <= 0) return live;
+  const openComboTickers = new Set(openPack.ranked.map((row) => row.market_ticker));
+  const openCombos = live.filter((row) => openComboTickers.has(row.market_ticker));
+  const probedCombos = await probeKalshiRfqQuotes(env, openCombos, openPack.comboLegs, legs);
+  const probedByTicker = new Map(probedCombos.map((row) => [row.market_ticker, row]));
+  const liveWithRfq = live.map((row) => probedByTicker.get(row.market_ticker) ?? row);
+  if (lookbackDays <= 0) return liveWithRfq;
 
   const candles = await fetchSportsCandles(env, bases, startTs, endTs);
-  return [...live, ...candles];
+  return [...liveWithRfq, ...candles];
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import {
   parseMveCategory,
   parseMveSelectedLegs,
   parlayGameGroup,
+  sportsGameKey,
   seriesTickerFromMarketTicker,
 } from "./kalshi-mve.js";
 
@@ -61,13 +62,38 @@ describe("sports parlay filter", () => {
     }, investing)).toBe(false);
   });
 
-  it("requires structured legs", () => {
+  it("rejects pure crypto 15m and daily CROSSCATEGORY stacks as sports parlays", () => {
+    const investing = new Set(["KXBTC", "KXETH"]);
     expect(isSportsParlayCandidate({
-      ticker: "KXNFL-EMPTY",
-      series_ticker: "KXNFLGAME",
-      title: "Chiefs win",
-      category: "Sports",
-    }, new Set())).toBe(false);
+      ticker: "KXMVECROSSCATEGORY-CRYPTO",
+      series_ticker: "KXMVE",
+      title: "yes Target Price: $77,307.93,yes Target Price: $2505",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { market_ticker: "KXBTC15M-26SEP131430-30", side: "yes" },
+        { market_ticker: "KXETH15M-26SEP131430-30", side: "yes" },
+      ],
+    }, investing)).toBe(false);
+    expect(isSportsParlayCandidate({
+      ticker: "KXMVECROSSCATEGORY-NFL",
+      series_ticker: "KXMVE",
+      title: "yes Derrick Henry: 110+,yes Lamar Jackson: 40+",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
+        { market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
+      ],
+    }, investing)).toBe(true);
+    expect(isSportsParlayCandidate({
+      ticker: "KXMVECROSSCATEGORY-DAILYCRYPTO",
+      series_ticker: "KXMVE",
+      title: "yes $77,300 or above,yes $100.75 or above",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { market_ticker: "KXBTCD-26SEP1315-T77299.99", side: "yes" },
+        { market_ticker: "KXSOLD-26SEP1315-T100.7499", side: "yes" },
+      ],
+    }, investing)).toBe(false);
   });
 });
 
@@ -77,5 +103,7 @@ describe("game grouping", () => {
     expect(parlayGameGroup(["KXNFLGAME-26SEP13KC", "KXNFLGAME-26SEP13BUF"])).toBe("cross_game");
     expect(eventPrefixFromTicker("KXNFLGAME-26SEP13KC-KC")).toBe("KXNFLGAME-26SEP13KC");
     expect(seriesTickerFromMarketTicker("KXNFLGAME-26SEP13KC-KC")).toBe("KXNFLGAME");
+    expect(sportsGameKey("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110")).toBe("26SEP13BALIND");
+    expect(sportsGameKey("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40")).toBe("26SEP13BALIND");
   });
 });

@@ -8,7 +8,7 @@
  */
 
 export const KALSHI_PARLAY_SLUG = "kalshi-parlays";
-export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v3";
+export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v7";
 
 export type FedRateKey = "hike_25" | "cut_25" | "hold";
 export type FedDissentKey = "zero" | "some";
@@ -67,7 +67,16 @@ function round6(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
 
-/** Mid YES price in dollars (0–1). Prefer bid/ask mid, else last, else a one-sided quote. */
+function lastInOpenUnit(last: number | null | undefined): number | null {
+  if (last == null || !Number.isFinite(last) || last <= 0 || last >= 1) return null;
+  return last;
+}
+
+/**
+ * Mid YES price in dollars (0–1). Prefer bid/ask mid, else last, else a one-sided quote.
+ * RFQ empty books (0/0/0 or 0-bid/1-ask with no last) are not a quote — they are
+ * no tape. Settlement 0/1 prints are not a quote either.
+ */
 export function quoteMid(q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last">): number | null {
   const bid = q.yes_bid;
   const ask = q.yes_ask;
@@ -76,16 +85,16 @@ export function quoteMid(q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last"
     && Number.isFinite(bid) && Number.isFinite(ask)
     && bid >= 0 && ask <= 1 && ask >= bid
   ) {
-    if (bid === 0 && ask === 1) {
-      if (q.yes_last != null && Number.isFinite(q.yes_last) && q.yes_last > 0 && q.yes_last < 1) {
-        return q.yes_last;
-      }
-      return null;
-    }
+    const emptyRfq = (bid === 0 && ask === 0) || (bid === 0 && ask === 1);
+    if (emptyRfq) return lastInOpenUnit(q.yes_last);
     return round6((bid + ask) / 2);
   }
+  const last = lastInOpenUnit(q.yes_last);
+  if (last != null) return last;
   if (q.yes_last != null && Number.isFinite(q.yes_last) && q.yes_last >= 0 && q.yes_last <= 1) {
-    return q.yes_last;
+    // Keep settlement 0/1 as a numeric mid for callers that want the print,
+    // but hasTradableQuote / listedComboMid reject it.
+    if (q.yes_last === 0 || q.yes_last === 1) return q.yes_last;
   }
   if (bid != null && Number.isFinite(bid) && bid > 0 && bid < 1) return bid;
   if (ask != null && Number.isFinite(ask) && ask > 0 && ask < 1) return ask;
@@ -113,10 +122,46 @@ export function isTwoSided(q: Pick<KalshiQuote, "yes_bid" | "yes_ask">): boolean
     && bid > 0 && ask < 1 && ask >= bid;
 }
 
+/**
+ * Combo mid used for independence / implied ρ.
+ * Two-sided CLOB inside (0, 1) counts. Empty RFQ books count only when
+ * `yes_last` is in (0, 1) **and** volume > 0 — a real auction print. Kalshi
+ * often leaves last at 0.50 with volume 0 on never-traded combos; that is
+ * not a quote.
+ */
+export function listedComboMid(
+  q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last" | "volume">,
+): number | null {
+  if (isTwoSided(q)) {
+    const mid = quoteMid(q);
+    return mid != null && mid > 0 && mid < 1 ? mid : null;
+  }
+  const volume = q.volume;
+  if (volume == null || !Number.isFinite(volume) || volume <= 0) return null;
+  return lastInOpenUnit(q.yes_last);
+}
+
 /** Mid in (0, 1) — live CLOB or a last pre-settlement lake snapshot. Settlement 0/1 is not a quote. */
 export function hasTradableQuote(q: Pick<KalshiQuote, "yes_bid" | "yes_ask" | "yes_last">): boolean {
   const mid = quoteMid(q);
   return mid != null && mid > 0 && mid < 1;
+}
+
+/** Kalshi taker fee ≈ 7% of expected earnings, in dollars on a $1 contract. */
+export function kalshiTakerFee(price: number): number {
+  const p = clampProb(price, 0, 1);
+  return round6(0.07 * p * (1 - p));
+}
+
+/** True when |gap| still exceeds combined half-spreads plus taker fees. */
+export function gapSurvivesCosts(
+  gap: number,
+  noise: number,
+  joint: number,
+  legProbs: number[],
+): boolean {
+  const fees = kalshiTakerFee(joint) + legProbs.reduce((sum, p) => sum + kalshiTakerFee(p), 0);
+  return Math.abs(gap) > noise + fees;
 }
 
 export function independenceJoint(probs: number[]): number {
@@ -452,6 +497,52 @@ export function parlayGameGroup(eventTickers: string[]): "same_game" | "cross_ga
   return "mixed";
 }
 
+export function seriesTickerFromMarketTicker(ticker: string): string {
+  const t = ticker.trim().toUpperCase();
+  const m = t.match(/^(KX[A-Z]+)/);
+  return m ? m[1]! : t;
+}
+
+/** NFL-style game slug: 26SEP13ATLPIT (date + two 3-letter teams). */
+const SPORTS_GAME_SLUG_RE = /(\d{2}[A-Z]{3}\d{2}[A-Z]{6})/;
+
+export const CRYPTO_LEG_RE =
+  /^KX(BTC|ETH|SOL|XRP|DOGE|BNB|HYPE|ZEC|ADA|AVAX|DOT|LINK|MATIC|SHIB|PEPE|WIF|SUI|APT|NEAR|TON|TRX|LTC|BCH|BONK|SEI|ONDO|TAO)(15M|D)?(?:-|$)/i;
+
+export const SPORTS_LEG_SERIES_RE =
+  /^KX(NFL|NBA|MLB|NHL|MLS|WNBA|NCAA|NCAAF|NCAAB|NCAAW|CFB|CBB|EPL|UCL|UFC|ATP|WTA|PGA|FIFA|SOCCER)/i;
+
+export function sportsGameKey(ticker: string, eventTicker?: string | null): string {
+  const blob = `${eventTicker || ""}-${ticker}`.toUpperCase();
+  const game = blob.match(SPORTS_GAME_SLUG_RE);
+  if (game) return game[1]!;
+  if (eventTicker && eventTicker.trim()) return eventTicker.trim().toUpperCase();
+  return eventPrefixFromTicker(ticker);
+}
+
+export type MveLegKind = "sports" | "crypto" | "other";
+export type MveTapeKind = "sports" | "crypto_mve" | "mixed";
+
+export function mveLegKind(ticker: string): MveLegKind {
+  const t = ticker.trim().toUpperCase();
+  if (CRYPTO_LEG_RE.test(t)) return "crypto";
+  if (SPORTS_LEG_SERIES_RE.test(t)) return "sports";
+  return "other";
+}
+
+export function mveTapeKind(legTickers: string[]): MveTapeKind {
+  let sports = false;
+  let crypto = false;
+  for (const ticker of legTickers) {
+    const kind = mveLegKind(ticker);
+    if (kind === "sports") sports = true;
+    else if (kind === "crypto") crypto = true;
+  }
+  if (sports && crypto) return "mixed";
+  if (crypto) return "crypto_mve";
+  return "sports";
+}
+
 export interface TwoLegScore {
   p: number;
   q: number;
@@ -459,6 +550,7 @@ export interface TwoLegScore {
   independence: number;
   frechet_low: number;
   frechet_high: number;
+  corr_room: number;
   gap_vs_independence: number | null;
   phi: number | null;
   implied_rho: number | null;
@@ -528,6 +620,9 @@ export function scoreMultiLegParlay(input: {
     if (joint > frechet_high + noise) flags.push("above_frechet");
     if (joint < frechet_low - noise) flags.push("below_frechet");
     if (Math.abs(gap_vs_independence) > noise) flags.push("independence_gap");
+    if (gapSurvivesCosts(gap_vs_independence, noise, joint, probs)) {
+      flags.push("survives_fees");
+    }
   }
 
   let copula_fair: number | null = null;
@@ -547,6 +642,7 @@ export function scoreMultiLegParlay(input: {
     independence: round6(independence),
     frechet_low: round6(frechet_low),
     frechet_high: round6(frechet_high),
+    corr_room: round6(Math.max(0, frechet_high - independence)),
     gap_vs_independence: gap_vs_independence == null ? null : round6(gap_vs_independence),
     phi: phi == null ? null : round6(phi),
     implied_rho: implied_rho == null ? null : round6(implied_rho),

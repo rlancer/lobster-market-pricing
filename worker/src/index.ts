@@ -4136,15 +4136,12 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
         const rows = await r2sql(
           env,
           `SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
-            `  yes_bid, yes_ask, yes_last, volume, close_time, fetched_at` +
-            ` FROM (` +
-            `  SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
-            `    yes_bid, yes_ask, yes_last, volume, close_time, fetched_at,` +
-            `    ROW_NUMBER() OVER (PARTITION BY market_ticker ORDER BY fetched_at DESC, run_id DESC) rn` +
-            `  FROM options.kalshi_markets` +
-            `  WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
-            `) WHERE rn = 1 LIMIT 800`,
-          "kalshi_parlay_sports",
+            `  yes_bid, yes_ask, yes_last, volume, close_time, fetched_at, source` +
+            ` FROM options.kalshi_markets` +
+            ` WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
+            ` ORDER BY fetched_at DESC` +
+            ` LIMIT 5000`,
+          "kalshi_parlay_sports_v7",
           QUERY_TTL_MS,
         );
         return rows.map((row) => ({
@@ -4163,12 +4160,13 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
           volume: numOrNull(row.volume),
           close_time: row.close_time != null ? String(row.close_time) : null,
           fetched_at: row.fetched_at != null ? String(row.fetched_at) : null,
+          source: row.source != null ? String(row.source) : null,
         })).filter((row) => row.market_ticker);
       } catch {
         return [];
       }
     };
-    const cacheKey = "kalshi_parlays_v3";
+    const cacheKey = "kalshi_parlays_v7";
     const hit = cache.get(cacheKey);
     const now = Date.now();
     const cachedSnap = hit

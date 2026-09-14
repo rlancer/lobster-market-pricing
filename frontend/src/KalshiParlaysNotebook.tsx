@@ -96,7 +96,6 @@ function ParlayTable({ rows, listed }: { rows: KalshiParlayRow[]; listed: boolea
         </thead>
         <tbody>
           {rows.map((row) => {
-            const gap = listed ? row.score.gap_vs_independence : row.score.gap_vs_copula;
             const joint = listed ? row.score.joint : row.score.copula_fair;
             return (
               <tr key={row.id} className={row.score.flags.length ? 'notebook-row-winner' : undefined}>
@@ -113,22 +112,38 @@ function ParlayTable({ rows, listed }: { rows: KalshiParlayRow[]; listed: boolea
                 <td className="num">
                   {fmtProb(joint)}
                   <div className="notebook-answer">indep {fmtProb(row.score.independence)}</div>
+                  {row.score.joint == null && listed ? (
+                    <div className="notebook-answer">
+                      Fréchet {fmtProb(row.score.frechet_low)}–{fmtProb(row.score.frechet_high)}
+                    </div>
+                  ) : null}
+                  {row.score.flags.includes('same_game') && (row.score.corr_room ?? 0) > 0 ? (
+                    <div className="notebook-answer">
+                      corr room {fmtGap(row.score.corr_room)}
+                    </div>
+                  ) : null}
                   {row.score.copula_fair != null ? (
                     <div className="notebook-answer">copula {fmtProb(row.score.copula_fair)}</div>
                   ) : null}
                 </td>
                 <td className="num">
                   <Token
-                    label={fmtGap(listed ? row.score.gap_vs_independence : (row.score.copula_fair != null
-                      ? row.score.copula_fair - row.score.independence
-                      : null))}
-                    color={gapTone(listed ? row.score.gap_vs_independence : (row.score.copula_fair != null
-                      ? row.score.copula_fair - row.score.independence
-                      : null))}
+                    label={fmtGap(listed
+                      ? (row.score.gap_vs_independence ?? (row.score.flags.includes('same_game') ? row.score.corr_room : null))
+                      : (row.score.copula_fair != null
+                        ? row.score.copula_fair - row.score.independence
+                        : null))}
+                    color={gapTone(listed
+                      ? (row.score.gap_vs_independence ?? (row.score.flags.includes('same_game') ? row.score.corr_room : null))
+                      : (row.score.copula_fair != null
+                        ? row.score.copula_fair - row.score.independence
+                        : null))}
                     size="sm"
                   />
-                  {listed && gap != null ? (
+                  {listed && row.score.gap_vs_independence != null ? (
                     <div className="notebook-answer">listed − independent</div>
+                  ) : listed && row.score.flags.includes('same_game') ? (
+                    <div className="notebook-answer">Fréchet high − independent</div>
                   ) : (
                     <div className="notebook-answer">copula − independent</div>
                   )}
@@ -178,6 +193,7 @@ export default function KalshiParlaysNotebookPage() {
       { id: 'marginals', label: 'Cross-book marginals' },
       { id: 'homemade', label: 'Homemade parlays' },
       { id: 'sports', label: 'Sports parlays' },
+      { id: 'crypto', label: 'Crypto target-price MVEs' },
       { id: 'mve', label: 'Combo CLOB' },
       { id: 'method', label: 'Method' },
     ];
@@ -356,12 +372,19 @@ export default function KalshiParlaysNotebookPage() {
                   {' '}<code>theme=sports</code>. Combo rows store the collection
                   and selected tickers in <code>category</code> as{' '}
                   <code>mve|COLLECTION|yes:LEG,no:LEG,…</code>
-                  — not the full sports catalog. The hourly job keeps open
-                  books plus about 30 days of daily candles for those tickers
-                  (settled 0/1 outcomes are not stored). Independence is the
-                  product of every selected YES (or 1−YES for NO legs).
-                  Same-game stacks are correlated by construction; an empty
-                  0-bid / 1-ask combo book is RFQ, not a mispricing signal.
+                  — not the full sports catalog. Combos are RFQ auctions
+                  (Kalshi HVMs): makers quote privately, then a fill may
+                  print on the public book. Empty 0/0/0 is the resting
+                  venue, not a missing market. Same-game stacks (1H spread AND
+                  1H total, Henry 110+ AND Jackson 40+) have correlated legs.
+                  Corr room is Fréchet high minus p×q — the positive
+                  correlation a maker leaves on the table if the RFQ quotes
+                  independence. The hourly ingest solicits a capped set of
+                  same-game RFQs, maps the private two-way onto
+                  <code>yes_bid</code>/<code>yes_ask</code>, then cancels
+                  without accepting — that is how implied ρ becomes
+                  observable. Legs are aligned
+                  to the combo snapshot time, not mixed latest-wins.
                 </Text>
                 <Text type="supporting">
                   Source this pass: {snapshot.sports_source === 'lake'
@@ -370,25 +393,47 @@ export default function KalshiParlaysNotebookPage() {
                       ? 'live Kalshi MVE fallback — lake had no sports rows yet'
                       : 'none'}
                   {snapshot.verdict.sports_scored
-                    ? ` · ${snapshot.verdict.sports_scored} scored · ${snapshot.verdict.sports_flagged} vs independent · ${snapshot.verdict.sports_same_game} same-game`
+                    ? ` · ${snapshot.verdict.sports_scored} shown · ${snapshot.verdict.sports_flagged} vs independent on a real tape · ${snapshot.verdict.sports_same_game} same-game`
                     : ''}
                 </Text>
                 <ParlayTable rows={snapshot.sports ?? []} listed />
               </VStack>
             </Section>
 
-            <Section id="mve" num={tocById.get('mve')?.num ?? '06'} title="Combo CLOB">
+            <Section id="crypto" num={tocById.get('crypto')?.num ?? '06'} title="Crypto target-price MVEs">
               <VStack gap={3}>
                 <Text>
-                  Kalshi parlays as a product are multivariate event collections.
-                  The lake stores the sports combos that name their legs,
-                  including last quotes from the 30-day candle backfill.
-                  A public two-sided book inside (0, 1) is what this notebook
-                  can actually screen against independence. Empty 0-bid / 1-ask
-                  books are not a mispricing signal; they are no tape.
+                  <code>KXMVECROSSCATEGORY</code> also packs 15-minute and daily
+                  crypto target-price legs (BTC, ETH, SOL, …). Those are not a
+                  sportsbook tape. Independence on same-close crypto targets
+                  is a different question from NFL props — lake BTC×ETH
+                  daily returns already correlate around 0.9. They are
+                  scored here so they are not silently treated as sports
+                  parlays.
+                </Text>
+                <ParlayTable rows={snapshot.crypto_mves ?? []} listed />
+              </VStack>
+            </Section>
+
+            <Section id="mve" num={tocById.get('mve')?.num ?? '07'} title="Combo CLOB">
+              <VStack gap={3}>
+                <Text>
+                  Kalshi combos are RFQ auctions. You request a quote; makers
+                  answer privately with <code>yes_bid</code>/<code>no_bid</code>;
+                  after accept+confirm the fill prints on a public book that
+                  usually goes empty again. The lake stores combos that name
+                  their legs, including last quotes from the 30-day candle
+                  backfill. A two-sided book or an auction print in (0, 1)
+                  is what this notebook can screen against independence.
+                  Empty 0/0/0 with last 0 is the resting venue until the
+                  hourly RFQ probe fills a two-way (source
+                  <code>kalshi_rfq</code>) or an auction print lands.
                 </Text>
                 <Text>
-                  Scanned {snapshot.mve.scanned} lake MVE markets · {snapshot.mve.two_sided} two-sided · {snapshot.mve.empty_book} empty.
+                  Scanned {snapshot.mve.scanned} lake MVE combos · {snapshot.mve.two_sided} two-sided on the latest snapshot · {snapshot.mve.empty_book} empty.
+                  {snapshot.mve.combo_tickers != null
+                    ? ` Ever two-sided in the window: ${snapshot.mve.ever_two_sided ?? 0} of ${snapshot.mve.combo_tickers}. Sports ${snapshot.mve.sports_combos ?? 0} · crypto target-price ${snapshot.mve.crypto_mve_combos ?? 0} · mixed ${snapshot.mve.mixed_combos ?? 0}. Same-game corr room max ${snapshot.mve.corr_room_max != null ? `${(snapshot.mve.corr_room_max * 100).toFixed(1)}¢` : '—'}. Tape-scored ${snapshot.mve.tape_scored ?? 0} · flagged ${snapshot.mve.tape_flagged ?? 0} · clears fees ${snapshot.mve.survives_spread_fees ?? 0}.`
+                    : ''}
                 </Text>
                 {snapshot.mve.sample_titles.length ? (
                   <Text type="supporting">
@@ -400,28 +445,37 @@ export default function KalshiParlaysNotebookPage() {
           </>
         ) : null}
 
-        <Section id="method" num={tocById.get('method')?.num ?? '07'} title="Method">
+        <Section id="method" num={tocById.get('method')?.num ?? '08'} title="Method">
           <VStack gap={3}>
             <Text>
               Binary events with YES mids pᵢ. Independence says P(all) is the
               product of the selected probabilities. The Fréchet–Hoeffding
               bounds are max(0, Σpᵢ − (n−1)) and min pᵢ. A listed combo mid C
-              is compared to that product; a gap larger than half the combo
-              spread plus half the leg spreads is flagged. Phi and tetrachoric
-              ρ are defined for two legs only.
+              is compared to that product when the combo book is two-sided
+              inside (0, 1), when the snapshot is a solicited RFQ two-way
+              (<code>source=kalshi_rfq</code>), or when <code>yes_last</code> is an RFQ auction
+              print in (0, 1). Empty 0/0/0 with last 0 is not C. A gap larger than half the
+              combo spread plus half the leg spreads is flagged; clearing
+              Kalshi taker fees (~7% of expected earnings) is a stricter bar.
+              Phi and tetrachoric ρ are defined for two legs only.
             </Text>
             <Text>
               Bernoulli phi is the Pearson correlation of the two 0/1 outcomes:
               (C − pq) / √[p(1−p)q(1−q)]. Tetrachoric ρ inverts a Gaussian copula
               so Φ₂(Φ⁻¹(p), Φ⁻¹(q); ρ) = C. Homemade parlays have no C; they use
               overlapping daily log returns of the related lake symbols as ρ and
-              report the copula-fair joint versus pq.
+              report the copula-fair joint versus pq. Same-game sports stacks
+              without a public print report the Fréchet interval from the lake
+              legs — that is the auction-fair range a maker should quote.
             </Text>
             <Text type="supporting">
               Live Kalshi public Trade API for Fed/homemade series. Sports
-                  parlays prefer <code>options.kalshi_markets</code> rows from the
-                  hourly KXMVE ingest (MVE combos + selected legs, including
-                  last pre-settlement daily candles). Dissent
+                  parlays prefer <code>options.kalshi_markets</code> history from the
+                  hourly KXMVE ingest (MVE combos + selected legs + daily candles).
+                  Combo mids use the last two-sided snapshot, solicited RFQ
+                  two-way, or RFQ auction print; legs are the nearest
+                  tradable snapshot to that time. Crypto target-price CROSSCATEGORY
+                  stacks are scored separately from NFL/sports props. Dissent
                   &gt;0 is the complement of the 0-dissent contract. Return series
               from <code>options.ohlc</code>, latest-wins per symbol/date. Chat
               still treats Kalshi as investing event odds — sports rows are
