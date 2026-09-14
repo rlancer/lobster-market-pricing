@@ -1,6 +1,14 @@
 import type { BatchJob, JobRunFailure, SchedulerEnv } from "../scheduler.js";
 import type { KalshiEnv } from "../kalshi.js";
 import { kalshiSeriesList, publishKalshiSeries } from "../kalshi.js";
+import { parlayExecuteEnabled, parlayLiveEnabled } from "../kalshi-parlay-filter.js";
+
+function rfqProbeDetail(e: SchedulerEnv): Record<string, unknown> {
+  return {
+    rfq_probe: parlayExecuteEnabled(e) ? "skipped_executor" : "research_tape_never_accepts",
+    live: parlayLiveEnabled(e),
+  };
+}
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
@@ -30,7 +38,7 @@ export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
     universe: () => kalshiSeriesList(),
     run: async (items, e) => {
       if (!e.PIPELINE_KALSHI_MARKETS_URL) {
-        return { runId: null, failures: [] };
+        return { runId: null, failures: [], detail: rfqProbeDetail(e) };
       }
       const runId = typeof e.runId === "function" ? e.runId() : crypto.randomUUID();
       const kalshiEnv: KalshiEnv = {
@@ -61,7 +69,7 @@ export function kalshiMarketsHourlyJob(env: SchedulerEnv): BatchJob {
       await Promise.all(
         Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
       );
-      return { runId, failures };
+      return { runId, failures, detail: rfqProbeDetail(kalshiEnv) };
     },
   };
 }

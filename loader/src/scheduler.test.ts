@@ -369,6 +369,25 @@ describe("EtlScheduler — single-flight", () => {
     await scheduler.tick();
     expect(await s.get("passing")).toBeNull();
   });
+
+  it("clears leftover passing on isolate start (deploy/eviction)", async () => {
+    const db = new FakeDb();
+    const s = makeStorage({ passing: Date.now() });
+    const started: string[] = [];
+    const scheduler = new EtlScheduler(
+      {
+        storage: s,
+        async blockConcurrencyWhile(callback) {
+          started.push("block");
+          await callback();
+        },
+      },
+      env(db) as never,
+    );
+    expect(scheduler).toBeTruthy();
+    expect(started).toEqual(["block"]);
+    expect(await s.get("passing")).toBeNull();
+  });
 });
 
 describe("EtlScheduler — job observability routes", () => {

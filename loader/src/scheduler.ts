@@ -42,6 +42,12 @@ export interface SchedulerStorage {
 export interface SchedulerCtx {
   storage: SchedulerStorage;
   waitUntil?(promise: Promise<unknown>): void;
+  /**
+   * Durable Object isolate start. A new isolate cannot have an in-flight
+   * waitUntil from a previous deploy/eviction, so leftover `passing` is
+   * cleared here. Tests omit this.
+   */
+  blockConcurrencyWhile?(callback: () => Promise<void>): void | Promise<void>;
 }
 
 export interface D1PreparedStatement {
@@ -341,6 +347,14 @@ export class EtlScheduler {
     // Registered jobs come from the registry (jobs/registry.ts) by default;
     // tests may inject a custom spec set.
     this.jobs = jobs;
+    // Deploy / eviction kills waitUntil without running tick()'s finally, so
+    // `passing` sticks until LOADER_RUN_TIMEOUT_SECONDS+60s and 409s every
+    // /jobs/*/trigger. A freshly constructed isolate has no in-flight pass.
+    if (typeof ctx.blockConcurrencyWhile === "function") {
+      ctx.blockConcurrencyWhile(async () => {
+        await ctx.storage.delete("passing");
+      });
+    }
   }
 
   protected cboeItemJob(): ItemJob {
