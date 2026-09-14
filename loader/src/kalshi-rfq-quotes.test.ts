@@ -142,7 +142,7 @@ describe("RFQ quote mapping", () => {
 });
 
 describe("RFQ probe target ranking", () => {
-  it("keeps same-game empty books ranked by corr room and skips CLOB / cross-game", () => {
+  it("prefers same-game empty books by corr room, then fills the cap with CLOB two-ways", () => {
     const highRoom = combo({ market_ticker: "HIGH-ROOM" });
     const lowRoom = combo({
       market_ticker: "LOW-ROOM",
@@ -174,14 +174,22 @@ describe("RFQ probe target ranking", () => {
       ["ALREADY-TWO", SAME_GAME_LEGS],
       ["CROSS-GAME", CROSS_GAME_LEGS],
     ]);
-    const targets = pickRfqProbeTargets(
+    const preferred = pickRfqProbeTargets(
+      [cross, twoSided, lowRoom, highRoom],
+      comboLegs,
+      legs,
+      2,
+    );
+    expect(preferred.map((t) => t.market_ticker)).toEqual(["HIGH-ROOM", "LOW-ROOM"]);
+    expect(preferred[0]!.corr_room).toBeGreaterThan(preferred[1]!.corr_room);
+
+    const filled = pickRfqProbeTargets(
       [cross, twoSided, lowRoom, highRoom],
       comboLegs,
       legs,
       12,
     );
-    expect(targets.map((t) => t.market_ticker)).toEqual(["HIGH-ROOM", "LOW-ROOM"]);
-    expect(targets[0]!.corr_room).toBeGreaterThan(targets[1]!.corr_room);
+    expect(filled.map((t) => t.market_ticker)).toEqual(["HIGH-ROOM", "LOW-ROOM", "ALREADY-TWO"]);
   });
 });
 
@@ -207,7 +215,7 @@ describe("RFQ probe HTTP", () => {
       if (url.endsWith("/communications/rfqs") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
         expect(body.rest_remainder).toBe(false);
-        expect(body.contracts_fp).toBe("1.00");
+        expect(body.contracts_fp).toBe("10.00");
         expect(body.replace_existing).toBe(true);
         return new Response(JSON.stringify({ id: "rfq-1" }), { status: 201 });
       }
@@ -249,6 +257,7 @@ describe("RFQ probe HTTP", () => {
       expect(out[0]!.yes_bid).toBeCloseTo(0.18);
       expect(out[0]!.yes_ask).toBeCloseTo(0.21);
       expect(calls.some((c) => c.method === "POST" && c.url.includes("/communications/rfqs"))).toBe(true);
+      expect(calls.some((c) => c.method === "GET" && c.url.includes("rfq_user_filter=self"))).toBe(true);
       expect(calls.some((c) => c.method === "DELETE" && c.url.includes("/rfqs/rfq-1"))).toBe(true);
       expect(calls.some((c) => /accept|confirm/i.test(c.url))).toBe(false);
     } finally {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applySeriesCategory,
   buildKalshiAuthHeaders,
+  chunkKalshiPipelineRecords,
   kalshiAuthConfigured,
   kalshiSeriesList,
   kalshiSignPath,
@@ -251,6 +252,62 @@ describe("publishKalshiSeries", () => {
       expect(seen[0]["KALSHI-ACCESS-SIGNATURE"]).toMatch(/^[A-Za-z0-9+/=]+$/);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("chunks pipeline POSTs so each body stays under the ingest cap", async () => {
+    const posts: unknown[] = [];
+    const markets = Array.from({ length: 6 }, (_, i) => ({
+      ...SAMPLE_MARKET,
+      ticker: `KXFED-CHUNK-${i}`,
+      title: `Will the rate be above 4.25% pad-${"x".repeat(80)}-${i}?`,
+    }));
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/series/KXFED")) {
+        return new Response(JSON.stringify({ series: { category: "Economics", ticker: "KXFED" } }), {
+          status: 200,
+        });
+      }
+      if (url.includes("/markets?") && url.includes("series_ticker=KXFED")) {
+        return new Response(JSON.stringify({ markets, cursor: "" }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+    try {
+      const result = await publishKalshiSeries("KXFED", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_FETCH_SERIES_META: "1",
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_PIPELINE_MAX_BODY_BYTES: 900,
+        runId: () => "run-chunk",
+      });
+      expect(result.published).toBe(true);
+      expect(result.row_count).toBe(6);
+      expect(posts.length).toBeGreaterThan(1);
+      expect(posts.reduce((n, body) => n + (body as unknown[]).length, 0)).toBe(6);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("chunkKalshiPipelineRecords", () => {
+  it("keeps a small batch in one chunk and splits when over budget", () => {
+    const small = [{ a: 1 }, { a: 2 }];
+    expect(chunkKalshiPipelineRecords(small, 10_000)).toEqual([small]);
+    const rows = Array.from({ length: 8 }, (_, i) => ({ ticker: `T${i}`, pad: "n".repeat(40) }));
+    const chunks = chunkKalshiPipelineRecords(rows, 180);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.flat()).toHaveLength(8);
+    for (const chunk of chunks) {
+      expect(JSON.stringify(chunk).length).toBeLessThanOrEqual(180);
     }
   });
 });

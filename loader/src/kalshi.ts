@@ -106,6 +106,8 @@ export const KALSHI_SPORTS_LOOKBACK_MAX_DEFAULT = 200;
 export const KALSHI_CANDLE_INTERVAL_MIN = 1440;
 /** Batch Get Market Candlesticks allows 100 tickers; stay under the 10k-candle cap. */
 export const KALSHI_CANDLE_TICKER_BATCH = 80;
+/** Pipelines HTTP ingest rejects bodies over 5 MB (KXMVE candles 413'd). */
+export const PIPELINE_MAX_BODY_BYTES_DEFAULT = 4_500_000;
 
 export interface KalshiEnv {
   KALSHI_API_BASE?: string;
@@ -137,10 +139,12 @@ export interface KalshiEnv {
   KALSHI_RFQ_POLL_MS?: number | string;
   /** Quote poll attempts per RFQ (default 3). */
   KALSHI_RFQ_POLLS?: number | string;
-  /** Whole-contract RFQ size (default 1, cap 10). Never accepted. */
+  /** Whole-contract RFQ size (default 10, cap 10). Never accepted. */
   KALSHI_RFQ_CONTRACTS?: number | string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
+  /** Max JSON body bytes per pipeline POST (default 4.5 MiB, under the 5 MB cap). */
+  KALSHI_PIPELINE_MAX_BODY_BYTES?: number | string;
   HTTP_RETRIES?: number;
   RETRY_BACKOFF_SECONDS?: number;
   REQUEST_TIMEOUT?: number;
@@ -401,6 +405,37 @@ function stripNones(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * Split pipeline records so each JSON POST stays under the ingest body cap.
+ * A single oversized row is still sent alone (dropping it would hide data).
+ */
+export function chunkKalshiPipelineRecords(
+  records: Array<Record<string, unknown>>,
+  maxBodyBytes: number = PIPELINE_MAX_BODY_BYTES_DEFAULT,
+): Array<Array<Record<string, unknown>>> {
+  const max = Math.max(1, Math.floor(maxBodyBytes));
+  const chunks: Array<Array<Record<string, unknown>>> = [];
+  let current: Array<Record<string, unknown>> = [];
+  let size = 2;
+  for (const rec of records) {
+    const piece = JSON.stringify(stripNones(rec));
+    const extra = (current.length > 0 ? 1 : 0) + piece.length;
+    if (current.length > 0 && size + extra > max) {
+      chunks.push(current);
+      current = [];
+      size = 2;
+    }
+    if (current.length === 0 && 2 + piece.length > max) {
+      chunks.push([rec]);
+      continue;
+    }
+    current.push(rec);
+    size += extra;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
 }
 
 function backoffSeconds(env: KalshiEnv, attempt: number): number {
@@ -1024,13 +1059,19 @@ export async function publishKalshiSeries(
       fetched_at: fetchedAt,
     };
   }
-  await requestJson(
-    url,
-    normalizeKalshiRecords(rows, runId, fetchedAt),
-    `kalshi:${runId}:${seriesId}`,
-    env.PIPELINE_AUTH_TOKEN || "",
-    env,
-  );
+  const records = normalizeKalshiRecords(rows, runId, fetchedAt);
+  const maxBody = Math.floor(num(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
+  const chunks = chunkKalshiPipelineRecords(records, maxBody);
+  const auth = env.PIPELINE_AUTH_TOKEN || "";
+  for (let i = 0; i < chunks.length; i++) {
+    await requestJson(
+      url,
+      chunks[i],
+      `kalshi:${runId}:${seriesId}:${i + 1}/${chunks.length}`,
+      auth,
+      env,
+    );
+  }
   return {
     item: seriesId,
     row_count: rows.length,
