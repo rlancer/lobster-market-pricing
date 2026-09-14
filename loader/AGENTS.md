@@ -50,8 +50,10 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   `options.kalshi_markets` from `symbols/kalshi-series.json`), and
   `kalshi-parlay-executor` (batch, 5 min; same-game two-leg RFQ filter.
   Live when `KALSHI_PARLAY_EXECUTE=1` and `KALSHI_PARLAY_LIVE=1`: 10
-  contracts = $10 notional, at most one YES accept per pass. The hourly
-  probe still never accepts).
+  contracts = $10 notional, at most one YES accept per pass. Scans every
+  open sports MVE from the Trade API — not the lake volume-80 cap — and
+  fetches legs only for same-game two-leg stacks. The hourly probe still
+  never accepts).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

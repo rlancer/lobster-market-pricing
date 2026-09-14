@@ -185,7 +185,8 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('Open combos 80')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
-    await expect(page.getByText(/Monday midday had 80 open combos/)).toBeVisible();
+    await expect(page.getByText(/not the hourly lake volume-80 cap/)).toBeVisible();
+    await expect(page.getByText(/If same-game two-leg is 0/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Kalshi parlays' })).toHaveAttribute('href', '/experiments/kalshi-parlays');
     expect(loaderHits).toEqual([]);

@@ -22,7 +22,7 @@ import {
   parseKalshiNumber,
 } from "./kalshi.js";
 import {
-  mveLegKind,
+  isSameGameSportsTwoLeg,
   mveTapeKind,
   parlayGameGroup,
   sportsGameKey,
@@ -189,15 +189,6 @@ function isOpenCombo(row: KalshiMarketRow): boolean {
   return !/^(settled|finalized|closed)$/i.test(row.status);
 }
 
-function isSameGameSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
-  if (legs.length !== 2) return false;
-  const tickers = legs.map((leg) => leg.market_ticker);
-  if (mveTapeKind(tickers) !== "sports") return false;
-  if (tickers.some((ticker) => mveLegKind(ticker) !== "sports")) return false;
-  const games = legs.map((leg) => sportsGameKey(leg.market_ticker, leg.event_ticker));
-  return parlayGameGroup(games) === "same_game";
-}
-
 function rankRfqTargets(a: RfqProbeTarget, b: RfqProbeTarget): number {
   if (b.corr_room !== a.corr_room) return b.corr_room - a.corr_room;
   return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
@@ -231,7 +222,8 @@ export function rfqProbeUniverseStats(
   let same_game_two_leg = 0;
   let cross_game_two_leg = 0;
   let missing_leg_mids = 0;
-  const samples: RfqProbeUniverseStats["samples"] = [];
+  const sameGameSamples: RfqProbeUniverseStats["samples"] = [];
+  const otherSamples: RfqProbeUniverseStats["samples"] = [];
   for (const combo of combos) {
     if (!isOpenCombo(combo)) continue;
     open_combos += 1;
@@ -245,15 +237,16 @@ export function rfqProbeUniverseStats(
       two_leg += 1;
       if (game_group === "cross_game") cross_game_two_leg += 1;
     }
-    if (samples.length < 5) {
-      samples.push({
-        market_ticker: combo.market_ticker,
-        n_legs: spec.length,
-        game_group,
-        tape,
-      });
-    }
-    if (!isSameGameSportsTwoLeg(spec)) continue;
+    const sample = {
+      market_ticker: combo.market_ticker,
+      n_legs: spec.length,
+      game_group,
+      tape,
+    };
+    const sameGame = isSameGameSportsTwoLeg(spec);
+    if (sameGame) sameGameSamples.push(sample);
+    else otherSamples.push(sample);
+    if (!sameGame) continue;
     same_game_two_leg += 1;
     const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
     const q = selectedProb(byTicker.get(spec[1]!.market_ticker), spec[1]!.side);
@@ -267,7 +260,7 @@ export function rfqProbeUniverseStats(
     same_game_two_leg,
     cross_game_two_leg,
     missing_leg_mids,
-    samples,
+    samples: [...sameGameSamples, ...otherSamples].slice(0, 5),
   };
 }
 

@@ -17,6 +17,7 @@
 import seriesManifest from "../symbols/kalshi-series.json" with { type: "json" };
 import {
   encodeMveCategory,
+  isSameGameSportsTwoLeg,
   isSportsParlayCandidate,
   mveCollectionTicker,
   parseMveSelectedLegs,
@@ -31,6 +32,7 @@ export {
   parseMveSelectedLegs,
   parlayGameGroup,
   eventPrefixFromTicker,
+  isSameGameSportsTwoLeg,
   sportsGameKey,
 } from "./kalshi-mve.js";
 
@@ -803,10 +805,15 @@ async function fetchMveRawMarkets(
   return raw;
 }
 
-function collectSportsCombos(
+/**
+ * Sports MVE combos from Get Markets. Hourly lake ingest passes a volume cap
+ * (KXMVE max_markets = 80). The live executor passes null so empty-CLOB
+ * same-game two-legs (volume 0) are not dropped.
+ */
+export function collectSportsCombos(
   rawMarkets: unknown[],
   investing: ReadonlySet<string>,
-  cap: number,
+  cap: number | null,
 ): { ranked: KalshiMarketRow[]; comboLegs: Map<string, MveLegList> } {
   const combos: KalshiMarketRow[] = [];
   const comboLegs = new Map<string, MveLegList>();
@@ -827,12 +834,32 @@ function collectSportsCombos(
     combos.push(mapped);
     comboLegs.set(mapped.market_ticker, legs);
   }
-  const ranked = rankKalshiMarkets(combos).slice(0, cap);
+  const rankedAll = rankKalshiMarkets(combos);
+  const ranked = cap == null ? rankedAll : rankedAll.slice(0, cap);
   const keep = new Set(ranked.map((row) => row.market_ticker));
   for (const key of [...comboLegs.keys()]) {
     if (!keep.has(key)) comboLegs.delete(key);
   }
   return { ranked, comboLegs };
+}
+
+/** Leg tickers for same-game two-leg stacks only — not n>2 or cross-game. */
+export function executorSameGameLegTickers(
+  comboLegs: Map<string, MveSelectedLeg[]>,
+  comboTickers: ReadonlySet<string>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const spec of comboLegs.values()) {
+    if (!isSameGameSportsTwoLeg(spec)) continue;
+    for (const leg of spec) {
+      const ticker = leg.market_ticker;
+      if (!ticker || comboTickers.has(ticker) || seen.has(ticker)) continue;
+      seen.add(ticker);
+      out.push(ticker);
+    }
+  }
+  return out;
 }
 
 function mergeSportsCombos(
@@ -929,9 +956,11 @@ export interface KalshiSportsParlayPack {
  * Sports parlays: MVE combo markets that name their legs, plus those leg
  * contracts. Open books are snapshotted live; settled/closed books in the
  * lookback window are daily candlesticks only (no settlement 0/1 overwrite).
- * Capped on combos (volume-first); every selected leg is kept.
- * Optional RFQ probe (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo
- * bid/ask from solicited maker quotes, then cancels — never accepts.
+ * Capped on combos (volume-first) for the lake tape; every selected leg
+ * of those capped combos is kept. Optional RFQ probe
+ * (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo bid/ask from solicited
+ * maker quotes, then cancels — never accepts. The live executor does not
+ * use this pack — see fetchKalshiParlayExecutorPack.
  *
  * Prefer this pack over re-parsing `category`: encodeMveCategory drops
  * event_ticker, which makes same-game grouping fail for books without an
@@ -986,6 +1015,26 @@ export async function fetchKalshiSportsParlayPack(
 
   const candles = await fetchSportsCandles(env, bases, startTs, endTs);
   return { rows: [...liveWithRfq, ...candles], comboLegs: merged.comboLegs };
+}
+
+/**
+ * Live executor scan: every open sports MVE from Get Markets (no lake
+ * volume-80 cap), plus selected-leg snapshots only for same-game two-leg
+ * stacks. No candle backfill, no research RFQ overlay, not the full
+ * sports catalog. RFQ ranking stays corr-room in pickRfqProbeTargets.
+ */
+export async function fetchKalshiParlayExecutorPack(
+  env: KalshiEnv = {},
+): Promise<KalshiSportsParlayPack> {
+  const investing = investingKalshiSeries();
+  const openPack = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, null);
+  const live = openPack.ranked.filter((row) => !isSettledKalshiStatus(row.status));
+  const comboTickers = new Set(live.map((row) => row.market_ticker));
+  const legs = await fetchMarketsByTickers(
+    executorSameGameLegTickers(openPack.comboLegs, comboTickers),
+    env,
+  );
+  return { rows: [...live, ...legs], comboLegs: openPack.comboLegs };
 }
 
 export async function fetchKalshiSportsParlays(

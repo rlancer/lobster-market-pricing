@@ -254,6 +254,35 @@ describe("RFQ probe target ranking", () => {
     expect(noMids.combo_legs).toBe(1);
   });
 
+  it("samples same-game two-leg books before volume-order n>2 or cross-game", () => {
+    const threeLeg = combo({ market_ticker: "NOISE-3" });
+    const cross = combo({ market_ticker: "CROSS-GAME" });
+    const same = combo({ market_ticker: "VOL0-SAME" });
+    const stats = rfqProbeUniverseStats(
+      [threeLeg, cross, same],
+      new Map<string, MveSelectedLeg[]>([
+        ["NOISE-3", [
+          { event_ticker: "KXNFLGAME-26SEP13AAA", market_ticker: "KXNFLGAME-26SEP13AAA-A", side: "yes" },
+          { event_ticker: "KXNFLGAME-26SEP13BBB", market_ticker: "KXNFLGAME-26SEP13BBB-B", side: "yes" },
+          { event_ticker: "KXNFLGAME-26SEP13CCC", market_ticker: "KXNFLGAME-26SEP13CCC-C", side: "yes" },
+        ]],
+        ["CROSS-GAME", CROSS_GAME_LEGS],
+        ["VOL0-SAME", SAME_GAME_LEGS],
+      ]),
+      [
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.39, 0.41),
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.48, 0.50),
+      ],
+    );
+    expect(stats.same_game_two_leg).toBe(1);
+    expect(stats.samples[0]).toEqual({
+      market_ticker: "VOL0-SAME",
+      n_legs: 2,
+      game_group: "same_game",
+      tape: "sports",
+    });
+  });
+
   it("uses selected-leg event_ticker for same-game books without an NFL slug", () => {
     const wnbaLegs: MveSelectedLeg[] = [
       { event_ticker: "KXWNBAGAME-2026-09-14-NYL-LAS", market_ticker: "KXWNBAGAME-NYL-WIN", side: "yes" },

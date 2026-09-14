@@ -698,4 +698,123 @@ describe("runKalshiParlayExecutorPass", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("keeps a volume-0 same-game two-leg that a volume-80 lake cap would drop", async () => {
+    const pem = await generateTestPem();
+    const tickerUrls: string[] = [];
+    const noise = Array.from({ length: 80 }, (_, i) => ({
+      ticker: `KXMVECROSSCATEGORY-NOISE${String(i).padStart(3, "0")}`,
+      series_ticker: "KXMVE",
+      title: `Noise ${i}`,
+      status: "active",
+      mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+      mve_selected_legs: [
+        { event_ticker: "KXNFLGAME-26SEP13AAA", market_ticker: `KXNFLGAME-26SEP13AAA-A${i}`, side: "yes" },
+        { event_ticker: "KXNFLGAME-26SEP13BBB", market_ticker: `KXNFLGAME-26SEP13BBB-B${i}`, side: "yes" },
+        { event_ticker: "KXNFLGAME-26SEP13CCC", market_ticker: `KXNFLGAME-26SEP13CCC-C${i}`, side: "yes" },
+      ],
+      volume_fp: "1000",
+      volume_24h_fp: "500",
+      close_time: "2026-09-14T00:00:00Z",
+    }));
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method || "GET").toUpperCase();
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({
+          markets: [...noise, {
+            ticker: "KXMLBOUTS-26SEP142138SEALAA",
+            series_ticker: "KXMVE",
+            title: "Detmers 18+ AND Anderson 16+",
+            status: "active",
+            mve_collection_ticker: "KXMLBOUTS",
+            mve_selected_legs: SAME_GAME_LEGS,
+            yes_bid_dollars: "0.00",
+            yes_ask_dollars: "0.00",
+            last_price_dollars: "0.00",
+            volume_fp: "0",
+            volume_24h_fp: "0",
+            close_time: "2026-09-14T00:00:00Z",
+          }],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        tickerUrls.push(url);
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Henry 110+",
+              status: "active",
+              yes_bid_dollars: "0.39",
+              yes_ask_dollars: "0.41",
+              last_price_dollars: "0.40",
+              volume_fp: "100",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Jackson 40+",
+              status: "active",
+              yes_bid_dollars: "0.48",
+              yes_ask_dollars: "0.50",
+              last_price_dollars: "0.49",
+              volume_fp: "80",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+          ],
+        }), { status: 200 });
+      }
+      if (url.includes("/communications/rfqs") && method === "GET") {
+        return new Response(JSON.stringify({ rfqs: [] }), { status: 200 });
+      }
+      if (url.endsWith("/communications/rfqs") && method === "POST") {
+        return new Response(JSON.stringify({ id: "rfq-vol0" }), { status: 201 });
+      }
+      if (url.includes("/communications/quotes") && method === "GET") {
+        return new Response(JSON.stringify({
+          quotes: [{
+            id: "q-vol0",
+            status: "open",
+            yes_bid_dollars: "0.18",
+            no_bid_dollars: "0.79",
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("/communications/rfqs/rfq-vol0") && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    });
+    try {
+      const pass = await runKalshiParlayExecutorPass({
+        KALSHI_PARLAY_EXECUTE: "1",
+        KALSHI_ACCESS_KEY_ID: "key",
+        KALSHI_PRIVATE_KEY_PEM: pem,
+        KALSHI_RFQ_WAIT_MS: 0,
+        KALSHI_RFQ_POLL_MS: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        HTTP_RETRIES: 0,
+      });
+      expect(pass.open_combos).toBe(81);
+      expect(pass.same_game_two_leg).toBe(1);
+      expect(pass.idle_reason).toBeNull();
+      expect(pass.attempted).toBe(1);
+      expect(pass.would_accept).toBe(1);
+      expect(pass.accepted).toBe(0);
+      expect(pass.decisions[0]?.market_ticker).toBe("KXMLBOUTS-26SEP142138SEALAA");
+      expect(pass.samples[0]?.market_ticker).toBe("KXMLBOUTS-26SEP142138SEALAA");
+      const fetched = tickerUrls.join(" ");
+      expect(fetched).toContain("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110");
+      expect(fetched).toContain("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40");
+      expect(fetched).not.toContain("KXNFLGAME-26SEP13AAA");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

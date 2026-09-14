@@ -276,6 +276,12 @@ export default function AdminKalshiParlayPage() {
 
           <VStack gap={2}>
             <Heading level={2}>Universe</Heading>
+            <Text type="supporting">
+              Open sports MVEs from the live Kalshi API, not the hourly lake
+              volume-80 cap. Legs load only for same-game two-leg stacks; RFQs
+              rank by corr room. n{'>'}2 and cross-game stay in the counts but
+              are not solicited.
+            </Text>
             <HStack gap={2} wrap="wrap">
               <Token label={`Open combos ${executor.open_combos}`} color="gray" size="sm" />
               <Token label={`Open legs ${executor.open_legs}`} color="gray" size="sm" />
@@ -307,8 +313,9 @@ export default function AdminKalshiParlayPage() {
             <Heading level={2}>Decisions</Heading>
             {!executor.decisions.length ? (
               <Text type="supporting">
-                No RFQ decisions on the last pass. Monday midday had 80 open combos with
-                same_game_two_leg=0 — the mix was n{'>'}2 or cross-game, not a silent skip.
+                No RFQ decisions on the last pass. If same-game two-leg is 0,
+                the open MVE mix is n{'>'}2 or cross-game — not a silent skip
+                and not the lake volume cap.
               </Text>
             ) : (
               <Table
