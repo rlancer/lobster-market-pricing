@@ -141,6 +141,18 @@ export interface KalshiEnv {
   KALSHI_RFQ_POLLS?: number | string;
   /** Whole-contract RFQ size (default 10, cap 10). Never accepted. */
   KALSHI_RFQ_CONTRACTS?: number | string;
+  /**
+   * Set to "1" to run kalshi-parlay-executor (RFQ + score). Default off.
+   * Does not accept quotes unless KALSHI_PARLAY_LIVE is also "1".
+   */
+  KALSHI_PARLAY_EXECUTE?: string;
+  /**
+   * Set to "1" with KALSHI_PARLAY_EXECUTE to accept YES on passing RFQs.
+   * The maker confirms (HVM). The research probe never accepts.
+   */
+  KALSHI_PARLAY_LIVE?: string;
+  /** Executor cadence seconds (default 300). */
+  KALSHI_PARLAY_CADENCE_SECONDS?: number | string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   /** Max JSON body bytes per pipeline POST (default 4.5 MiB, under the 5 MB cap). */

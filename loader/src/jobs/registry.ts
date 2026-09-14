@@ -18,6 +18,7 @@ import { instrumentsDailyJob } from "./instruments-daily.js";
 import { fredYieldsDailyJob } from "./fred-yields-daily.js";
 import { fredMacroDailyJob } from "./fred-macro-daily.js";
 import { kalshiMarketsHourlyJob } from "./kalshi-markets-hourly.js";
+import { kalshiParlayExecutorJob } from "./kalshi-parlay-executor.js";
 import { earningsResultsDailyJob } from "./earnings-results-daily.js";
 import { companyFactsDailyJob } from "./company-facts-daily.js";
 
@@ -68,6 +69,8 @@ import { companyFactsDailyJob } from "./company-facts-daily.js";
 //     stay on options.econ_calendar).
 //   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
 //     contracts (Fed/CPI/indexes/crypto/oil + sports parlays) → options.kalshi_markets.
+//   - kalshi-parlay-executor — batch, ungated, 5 min; same-game sports RFQ
+//     dry-run (KALSHI_PARLAY_EXECUTE) / live accept (also KALSHI_PARLAY_LIVE).
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),
@@ -91,5 +94,6 @@ export function buildJobs(env: SchedulerEnv): JobSpec[] {
     fredYieldsDailyJob(env),
     fredMacroDailyJob(env),
     kalshiMarketsHourlyJob(env),
+    kalshiParlayExecutorJob(env),
   ];
 }

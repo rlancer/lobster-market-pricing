@@ -65,7 +65,12 @@
     "KALSHI_RFQ_PROBE_ENABLED": "1",
     "KALSHI_RFQ_PROBE_MAX": 12,
     "KALSHI_RFQ_WAIT_MS": 8000,
-    "KALSHI_RFQ_POLL_MS": 1000
+    "KALSHI_RFQ_POLL_MS": 1000,
+    // Parlay executor is a no-op until EXECUTE=1. LIVE also required to accept.
+    // Do not set LIVE in this file.
+    "KALSHI_PARLAY_EXECUTE": "0",
+    "KALSHI_PARLAY_LIVE": "0",
+    "KALSHI_PARLAY_CADENCE_SECONDS": 300
   },
   "d1_databases": [
     {

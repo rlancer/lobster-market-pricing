@@ -312,7 +312,7 @@ describe("EtlScheduler — due-scan", () => {
       "fundamentals-daily", "futures-ohlc-daily", "cfe-futures-daily", "indices-ohlc-daily",
       "crypto-spot-ohlc-daily", "short-interest-daily", "reg-sho-daily", "research-briefs-daily",
       "sec-filings-daily", "instruments-daily", "fred-yields-daily", "fred-macro-daily",
-      "kalshi-markets-hourly",
+      "kalshi-markets-hourly", "kalshi-parlay-executor",
     ]);
   });
 });
@@ -377,7 +377,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(21);
+    expect(list.jobs).toHaveLength(22);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -473,6 +473,11 @@ describe("EtlScheduler — job observability routes", () => {
     expect(kalshi.enabled).toBe(1);
     expect(kalshi.market_gated).toBe(0);
     expect(kalshi.cadence_seconds).toBe(3600);
+    const parlay = byId.get("kalshi-parlay-executor")!;
+    expect(parlay.scope).toBe("batch");
+    expect(parlay.enabled).toBe(1);
+    expect(parlay.market_gated).toBe(0);
+    expect(parlay.cadence_seconds).toBe(300);
   });
 
   it("unknown job returns an error; trigger returns 404", async () => {

@@ -7,6 +7,9 @@
  * create an RFQ → poll GET /communications/quotes?rfq_id=&rfq_user_filter=self
  * → DELETE the RFQ. Never accept or confirm (no execution).
  *
+ * Live fills live in kalshi-parlay-executor.ts and require both
+ * KALSHI_PARLAY_EXECUTE and KALSHI_PARLAY_LIVE. This probe is research tape.
+ *
  * Cap is on same-game two-leg sports combos ranked by corr room
  * (Fréchet high − p×q). Do not RFQ the full sports catalog.
  */
@@ -25,6 +28,7 @@ import {
   sportsGameKey,
   type MveSelectedLeg,
 } from "./kalshi-mve.js";
+import { parlayExecuteEnabled } from "./kalshi-parlay-filter.js";
 
 export const KALSHI_RFQ_SOURCE = "kalshi_rfq";
 export const KALSHI_RFQ_PROBE_MAX_DEFAULT = 12;
@@ -39,6 +43,8 @@ export interface RfqTwoWay {
   no_bid: number;
   no_ask: number;
   mid: number;
+  /** Present only for a single-maker two-way that can be accepted. */
+  quote_id: string | null;
 }
 
 export interface RfqProbeTarget {
@@ -81,7 +87,11 @@ function truthyFlag(raw: unknown): boolean {
 }
 
 export function rfqProbeEnabled(env: KalshiEnv): boolean {
-  return kalshiAuthConfigured(env) && truthyFlag(env.KALSHI_RFQ_PROBE_ENABLED);
+  // Executor owns the RFQ slot once enabled (dry-run or live); a second
+  // Create on the same ticker 409s.
+  return kalshiAuthConfigured(env)
+    && truthyFlag(env.KALSHI_RFQ_PROBE_ENABLED)
+    && !parlayExecuteEnabled(env);
 }
 
 export function rfqProbeMax(env: KalshiEnv): number {
@@ -255,6 +265,7 @@ export function twoWayFromRfqQuotes(quotes: unknown[]): RfqTwoWay | null {
             no_bid: noBid,
             no_ask: 1 - yesBid,
             mid: (yesBid + yesAsk) / 2,
+            quote_id: strip(rec.id) || null,
           };
         }
       }
@@ -272,6 +283,7 @@ export function twoWayFromRfqQuotes(quotes: unknown[]): RfqTwoWay | null {
       no_bid: 1 - mid,
       no_ask: 1 - mid,
       mid,
+      quote_id: null,
     };
   }
   return {
@@ -280,6 +292,7 @@ export function twoWayFromRfqQuotes(quotes: unknown[]): RfqTwoWay | null {
     no_bid: bestNoBid,
     no_ask: 1 - bestYesBid,
     mid: (bestYesBid + yesAsk) / 2,
+    quote_id: null,
   };
 }
 
@@ -304,7 +317,7 @@ function createRfqId(json: unknown): string | null {
   return strip(rec?.id) || strip(asRecord(rec?.rfq)?.id) || null;
 }
 
-async function cancelRfq(env: KalshiEnv, rfqId: string): Promise<void> {
+export async function cancelKalshiRfq(env: KalshiEnv, rfqId: string): Promise<void> {
   try {
     const url = `${kalshiBase(env)}/communications/rfqs/${encodeURIComponent(rfqId)}`;
     const result = await rfqRequest("DELETE", url, env, `kalshi delete rfq ${rfqId}`);
@@ -325,7 +338,7 @@ async function cancelOwnOpenRfqs(env: KalshiEnv): Promise<"ok" | "forbidden"> {
     if (!Array.isArray(rfqs)) return "ok";
     for (const raw of rfqs) {
       const id = strip(asRecord(raw)?.id);
-      if (id) await cancelRfq(env, id);
+      if (id) await cancelKalshiRfq(env, id);
     }
     return "ok";
   } catch {
@@ -376,7 +389,7 @@ async function createRfq(env: KalshiEnv, marketTicker: string): Promise<{
       if (Array.isArray(rfqs)) {
         for (const raw of rfqs) {
           const id = strip(asRecord(raw)?.id);
-          if (id) await cancelRfq(env, id);
+          if (id) await cancelKalshiRfq(env, id);
         }
       }
       const retry = await rfqRequest("POST", url, env, `kalshi create rfq retry ${marketTicker}`, body);
@@ -391,36 +404,42 @@ async function createRfq(env: KalshiEnv, marketTicker: string): Promise<{
   }
 }
 
+export async function solicitRfqTwoWay(env: KalshiEnv, marketTicker: string): Promise<{
+  twoWay: RfqTwoWay | null;
+  rfqId: string | null;
+  forbidden: boolean;
+}> {
+  const created = await createRfq(env, marketTicker);
+  if (created.forbidden) return { twoWay: null, rfqId: null, forbidden: true };
+  const rfqId = created.id;
+  if (!rfqId) {
+    console.warn(`kalshi rfq probe: ${marketTicker} create returned no id`);
+    return { twoWay: null, rfqId: null, forbidden: false };
+  }
+  await sleep(rfqWaitMs(env));
+  const polls = rfqPolls(env);
+  for (let i = 0; i < polls; i++) {
+    if (i > 0) await sleep(rfqPollMs(env));
+    const quotes = await fetchQuotesForRfq(env, rfqId);
+    const twoWay = twoWayFromRfqQuotes(quotes);
+    if (quotes.length > 0) {
+      console.warn(
+        `kalshi rfq probe: ${marketTicker} poll=${i + 1} quotes=${quotes.length} twoWay=${!!twoWay}`,
+      );
+    }
+    if (twoWay) return { twoWay, rfqId, forbidden: false };
+  }
+  console.warn(`kalshi rfq probe: ${marketTicker} no two-way after ${polls} polls`);
+  return { twoWay: null, rfqId, forbidden: false };
+}
+
 async function probeOneCombo(env: KalshiEnv, marketTicker: string): Promise<{
   twoWay: RfqTwoWay | null;
   forbidden: boolean;
 }> {
-  const created = await createRfq(env, marketTicker);
-  if (created.forbidden) return { twoWay: null, forbidden: true };
-  const rfqId = created.id;
-  if (!rfqId) {
-    console.warn(`kalshi rfq probe: ${marketTicker} create returned no id`);
-    return { twoWay: null, forbidden: false };
-  }
-  try {
-    await sleep(rfqWaitMs(env));
-    const polls = rfqPolls(env);
-    for (let i = 0; i < polls; i++) {
-      if (i > 0) await sleep(rfqPollMs(env));
-      const quotes = await fetchQuotesForRfq(env, rfqId);
-      const twoWay = twoWayFromRfqQuotes(quotes);
-      if (quotes.length > 0) {
-        console.warn(
-          `kalshi rfq probe: ${marketTicker} poll=${i + 1} quotes=${quotes.length} twoWay=${!!twoWay}`,
-        );
-      }
-      if (twoWay) return { twoWay, forbidden: false };
-    }
-    console.warn(`kalshi rfq probe: ${marketTicker} no two-way after ${polls} polls`);
-    return { twoWay: null, forbidden: false };
-  } finally {
-    await cancelRfq(env, rfqId);
-  }
+  const solicited = await solicitRfqTwoWay(env, marketTicker);
+  if (solicited.rfqId) await cancelKalshiRfq(env, solicited.rfqId);
+  return { twoWay: solicited.twoWay, forbidden: solicited.forbidden };
 }
 
 /**

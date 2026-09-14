@@ -99,6 +99,7 @@ const CROSS_GAME_LEGS: MveSelectedLeg[] = [
 describe("RFQ quote mapping", () => {
   it("maps a single-maker two-way onto yes bid/ask", () => {
     const twoWay = twoWayFromRfqQuotes([{
+      id: "q-1",
       status: "open",
       yes_bid_dollars: "0.18",
       no_bid_dollars: "0.79",
@@ -108,6 +109,7 @@ describe("RFQ quote mapping", () => {
     expect(twoWay!.yes_ask).toBeCloseTo(0.21);
     expect(twoWay!.no_bid).toBeCloseTo(0.79);
     expect(twoWay!.mid).toBeCloseTo(0.195);
+    expect(twoWay!.quote_id).toBe("q-1");
   });
 
   it("prefers the tightest single-maker two-way over a mixed TOB", () => {
@@ -133,6 +135,7 @@ describe("RFQ quote mapping", () => {
       no_bid: 0.79,
       no_ask: 0.82,
       mid: 0.195,
+      quote_id: "q-apply",
     });
     expect(row.source).toBe(KALSHI_RFQ_SOURCE);
     expect(row.yes_bid).toBeCloseTo(0.18);
@@ -199,6 +202,15 @@ describe("RFQ probe HTTP", () => {
     expect(rfqProbeEnabled({
       KALSHI_ACCESS_KEY_ID: "x",
       KALSHI_PRIVATE_KEY_PEM: "y",
+    })).toBe(false);
+  });
+
+  it("is off when the parlay executor owns the RFQ slot", () => {
+    expect(rfqProbeEnabled({
+      KALSHI_ACCESS_KEY_ID: "x",
+      KALSHI_PRIVATE_KEY_PEM: "y",
+      KALSHI_RFQ_PROBE_ENABLED: "1",
+      KALSHI_PARLAY_EXECUTE: "1",
     })).toBe(false);
   });
 
