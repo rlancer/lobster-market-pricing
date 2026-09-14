@@ -92,13 +92,13 @@ jobs:
 
       - name: Auth check (GET markets + GET own RFQs)
         working-directory: loader
-        run: npx vite-node tools/kalshi_rfq_auth_check.ts
+        run: npx --yes vite-node tools/kalshi_rfq_auth_check.ts
 
       - name: Solicit RFQ quotes and publish
         working-directory: loader
         env:
           KALSHI_RFQ_FILL_OUT: /tmp/kalshi_rfq_fill.json
-        run: npx vite-node tools/kalshi_rfq_fill.ts
+        run: npx --yes vite-node tools/kalshi_rfq_fill.ts
 
       - name: Upload RFQ tape
         if: always()
