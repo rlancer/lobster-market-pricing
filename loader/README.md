@@ -293,12 +293,19 @@ Separate from the hourly tape. Buys unpriced same-game correlation:
    RFQ contract cap (default 10).
 
 Wrangler defaults both flags to `"0"`. Turning on EXECUTE skips the hourly RFQ
-probe so two Creates do not 409. Force a pass (`POST /jobs/{id}/trigger`):
+probe so two Creates do not 409. Force a pass from Actions
+(`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
 
 ```bash
 curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
-  "$LOADER_URL/jobs/kalshi-parlay-executor/trigger?force=1"
+  "$LOADER_URL/jobs/kalshi-parlay-executor/trigger?force=1&async=1"
 ```
+
+`GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
+`accepted`, skip reasons). Dry-run with EXECUTE on and LIVE off:
+`.github/workflows/force-kalshi-parlay-dry-run.yml` (push
+`cursor/run-kalshi-parlay-dry-run-*`, or Actions dispatch). That workflow
+temporarily deploys EXECUTE=1, never LIVE=1, then restores EXECUTE=0.
 
 Do not enable LIVE until dry-run `would_accept` rows match the notebook.
 
