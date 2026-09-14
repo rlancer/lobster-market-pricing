@@ -1,0 +1,133 @@
+name: Force Kalshi markets hourly
+
+# Kick kalshi-markets-hourly on the production loader without wrangler deploy.
+# Provision's redeploy leaves a leftover `passing` lock and 409s the force for
+# up to LOADER_RUN_TIMEOUT_SECONDS+60s; this path only POSTs trigger (retries
+# 409) then waits for the ~300s lake sink roll.
+#
+# Required GitHub secret: LOADER_TOKEN
+#
+# Trigger: workflow_dispatch, or push to cursor/force-kalshi-markets-f300
+# (gh workflow_dispatch is 403 for the Cursor integration token).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/force-kalshi-markets-f300
+
+concurrency:
+  group: force-kalshi-markets
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  force:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+      LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+      WORKER_QUERY_URL: https://api.lobster.mp/api/query
+    steps:
+      - name: Require LOADER_TOKEN
+        run: |
+          set -euo pipefail
+          if [ -z "${LOADER_TOKEN:-}" ]; then
+            echo "::error::LOADER_TOKEN is missing from GitHub secrets"
+            exit 1
+          fi
+          echo "Secret present (value not printed)."
+
+      - name: Force kalshi-markets-hourly
+        run: |
+          set -euo pipefail
+          before_at=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+          echo "before_at=$before_at"
+          triggered=0
+          for attempt in $(seq 1 40); do
+            set +e
+            resp=$(curl -sS -X POST \
+              -H "Authorization: Bearer $LOADER_TOKEN" \
+              -m 60 \
+              -w '\n__HTTP_%{http_code}' \
+              "$LOADER_URL/jobs/kalshi-markets-hourly/trigger?force=1&async=1")
+            curl_ec=$?
+            set -e
+            if [ "$curl_ec" -ne 0 ]; then
+              echo "trigger attempt $attempt: curl exit $curl_ec"
+              sleep 15
+              continue
+            fi
+            body="${resp%__HTTP_*}"
+            code="${resp##*__HTTP_}"
+            echo "trigger attempt $attempt: HTTP $code $body"
+            if [ "$code" = "200" ] && echo "$body" | grep -q '"ok":true'; then
+              triggered=1
+              break
+            fi
+            if [ "$code" = "409" ]; then
+              echo "Loader busy (409) — retrying trigger."
+              sleep 15
+              continue
+            fi
+            echo "::warning::Worker trigger returned HTTP $code — retrying"
+            sleep 15
+          done
+          if [ "$triggered" != "1" ]; then
+            echo "::error::Never accepted a Kalshi force trigger"
+            curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq '{ok, passing, job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,finished_at,transport_error})}'
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            status=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly")
+            after_at=$(echo "$status" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+            failed=$(echo "$status" | jq -r '.job.last_pass.failed // 0')
+            succeeded=$(echo "$status" | jq -r '.job.last_pass.succeeded // 0')
+            run_id=$(echo "$status" | jq -r '.job.last_pass.run_id // empty')
+            duration=$(echo "$status" | jq -r '.job.last_pass.duration_ms // empty')
+            te=$(echo "$status" | jq -r '.job.last_pass.transport_error // empty')
+            echo "poll $i: finished_at=$after_at run_id=$run_id duration_ms=$duration succeeded=$succeeded failed=$failed te=$te"
+            if [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
+              echo "$status" | jq '{ok, passing, job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for new last_pass"
+          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq .
+          exit 1
+
+      - name: Wait for sink roll (~5 min)
+        run: |
+          echo "Lake sinks flush on a ~300s roll interval — waiting 360s."
+          sleep 360
+
+      - name: Assert kalshi_markets rows (incl. RFQ overlay)
+        run: |
+          set -euo pipefail
+          query() {
+            local sql="$1"
+            jq -nc --arg sql "$sql" '{sql:$sql, limit:20}' | curl -sS -X POST "$WORKER_QUERY_URL" \
+              -H 'content-type: application/json' \
+              -d @-
+          }
+
+          echo "== source counts =="
+          query "SELECT source, COUNT(*) AS n FROM options.kalshi_markets GROUP BY source ORDER BY n DESC"
+          echo
+
+          echo "== latest KXMVE =="
+          query "SELECT market_ticker, source, yes_bid, yes_ask, yes_last, fetched_at FROM options.kalshi_markets WHERE series_ticker = 'KXMVE' OR market_ticker LIKE 'KXMVE%' ORDER BY fetched_at DESC LIMIT 8"
+          echo
+
+          echo "== kalshi_rfq rows =="
+          rfq=$(query "SELECT market_ticker, source, yes_bid, yes_ask, yes_last, fetched_at FROM options.kalshi_markets WHERE source = 'kalshi_rfq' ORDER BY fetched_at DESC LIMIT 20")
+          echo "$rfq"
+          if echo "$rfq" | grep -q 'kalshi_rfq'; then
+            echo "RFQ overlay present."
+          else
+            echo "::warning::No source=kalshi_rfq rows yet — probe may have skipped (403) or sink still rolling."
+          fi

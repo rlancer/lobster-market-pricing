@@ -271,7 +271,8 @@ trading-capable Kalshi keys are set, the KXMVE pass also solicits RFQ quotes
 on up to `KALSHI_RFQ_PROBE_MAX` (default 12) **same-game two-leg** sports
 combos ranked by corr room, maps the private two-way onto `yes_bid` /
 `yes_ask` with `source=kalshi_rfq`, then **deletes the RFQ**. Quotes are
-never accepted or confirmed. Read-only keys 403 and skip. Set
+never accepted or confirmed. Read-only keys 403 and skip (Worker logs
+`kalshi rfq probe: skipped communications 401/403`). Set
 `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
@@ -297,6 +298,16 @@ and redeploys `cboe-to-r2`. Flags: `--pem ./path.key`, `--key-id <uuid>`,
 `--env-file ./other.env`. Also accepts `KALSHI_PRIVATE_KEY_PEM="-----BEGIN…"`
 (double-quoted multi-line) in `.env` / `.dev.vars`.
 
+Diagnose whether a key can list RFQs (trading) vs only GET markets, without
+creating an RFQ:
+
+```bash
+cd loader
+npx vite-node tools/kalshi_rfq_auth_check.ts
+```
+
+Prints HTTP statuses only. Exit 3 = communications 401/403.
+
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity|sports),
 `category`, `status`, `market_type`, `yes_bid` / `yes_ask` / `yes_last` /
@@ -310,6 +321,12 @@ Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `cboe_kalshi_markets_pipeline`, then
 `npx wrangler secret put PIPELINE_KALSHI_MARKETS_URL`. Or run
 `.github/workflows/provision-kalshi-markets.yml`.
+
+To re-force the hourly job **without** `wrangler deploy` (deploy leaves a
+stale `passing` lock that 409s `/trigger` for up to 16 minutes), push
+`cursor/force-kalshi-markets-f300` or run
+`.github/workflows/force-kalshi-markets.yml`. That path retries 409 until
+the DO accepts the pass, then waits for the lake sink roll.
 
 > **Pipelines open-beta cap:** accounts are limited to **20 streams / sinks /
 > pipelines**. This account is at that cap; the provision workflow pauses
@@ -601,7 +618,9 @@ A single Durable Object instance (`EtlScheduler`) runs a self-rescheduling
 - **Single-flight for free.** A DO runs one `alarm()` at a time; the next alarm
   is armed only after the pass returns. A `passing` storage flag additionally
   guards manual `/loop/trigger` against an in-flight pass, so overlapping runs
-  and duplicate run publication are impossible.
+  and duplicate run publication are impossible. A new isolate deletes leftover
+  `passing` in `blockConcurrencyWhile` (deploy/reset cannot inherit a dead
+  pass); `/jobs` reports the flag as `passing`.
 
 ### Bootstrap
 

@@ -1006,15 +1006,15 @@ export function normalizeKalshiRecords(
   });
 }
 
-export async function publishKalshiSeries(
-  seriesId: string,
+export async function publishKalshiMarketRows(
+  rows: KalshiMarketRow[],
   env: KalshiEnv = {},
+  seriesId = "KXMVE",
 ): Promise<KalshiPublishResult> {
   const url = env.PIPELINE_KALSHI_MARKETS_URL || "";
   if (!url) throw new Error("kalshi publish requires PIPELINE_KALSHI_MARKETS_URL");
   const runId = env.runId?.() ?? crypto.randomUUID();
   const fetchedAt = new Date(env.now ? env.now() : Date.now()).toISOString();
-  const rows = await fetchKalshiSeriesMarkets(seriesId, env);
   if (rows.length === 0) {
     return {
       item: seriesId,
@@ -1038,4 +1038,12 @@ export async function publishKalshiSeries(
     run_id: runId,
     fetched_at: fetchedAt,
   };
+}
+
+export async function publishKalshiSeries(
+  seriesId: string,
+  env: KalshiEnv = {},
+): Promise<KalshiPublishResult> {
+  const rows = await fetchKalshiSeriesMarkets(seriesId, env);
+  return publishKalshiMarketRows(rows, env, seriesId);
 }

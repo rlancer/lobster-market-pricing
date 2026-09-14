@@ -194,6 +194,18 @@ describe("RFQ probe HTTP", () => {
     })).toBe(false);
   });
 
+  it("logs skipped disabled when the probe flag or auth is missing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await probeKalshiRfqQuotes({}, [combo()], new Map(), []);
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(
+        /skipped disabled \(flag=false auth=false\)/,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("creates an RFQ, maps quotes, cancels, and never accepts", async () => {
     const pem = await generateTestPem();
     const calls: Array<{ url: string; method: string; body: string | null }> = [];
@@ -306,6 +318,7 @@ describe("RFQ probe HTTP", () => {
 
   it("skips the probe when Create RFQ is forbidden", async () => {
     const pem = await generateTestPem();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method || "GET").toUpperCase();
@@ -332,7 +345,11 @@ describe("RFQ probe HTTP", () => {
       );
       expect(out[0]!.yes_bid).toBe(0);
       expect(out[0]!.source).toBe("kalshi");
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(
+        /skipped communications 401\/403/,
+      );
     } finally {
+      warn.mockRestore();
       vi.unstubAllGlobals();
     }
   });
