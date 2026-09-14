@@ -27,6 +27,11 @@ import {
 } from "./kalshi.js";
 import type { MveSelectedLeg } from "./kalshi-mve.js";
 import {
+  annotateParlayConsidered,
+  listSameGameConsidered,
+  type ParlayConsidered,
+} from "./kalshi-parlay-considered.js";
+import {
   evaluateParlayQuote,
   parlayExecuteEnabled,
   parlayLiveEnabled,
@@ -71,6 +76,7 @@ export interface ParlayExecutorPass extends RfqProbeUniverseStats {
   accepted: number;
   skipped: number;
   decisions: ParlayExecutorDecision[];
+  considered: ParlayConsidered[];
   idle_reason: ParlayIdleReason;
 }
 
@@ -227,7 +233,7 @@ async function executeOne(
 
 export function emptyParlayPass(
   idle_reason: ParlayIdleReason = null,
-  universe: Partial<RfqProbeUniverseStats> = {},
+  universe: Partial<RfqProbeUniverseStats> & { considered?: ParlayConsidered[] } = {},
 ): ParlayExecutorPass {
   return {
     attempted: 0,
@@ -235,6 +241,7 @@ export function emptyParlayPass(
     accepted: 0,
     skipped: 0,
     decisions: [],
+    considered: universe.considered ?? [],
     idle_reason,
     open_combos: universe.open_combos ?? 0,
     open_legs: universe.open_legs ?? 0,
@@ -265,6 +272,7 @@ export function parlayExecutorPassDetail(
     cross_game_two_leg: pass.cross_game_two_leg,
     missing_leg_mids: pass.missing_leg_mids,
     samples: pass.samples.slice(0, 5),
+    considered: pass.considered,
     attempted: pass.attempted,
     would_accept: pass.would_accept,
     accepted: pass.accepted,
@@ -303,17 +311,37 @@ export async function runKalshiParlayExecutorPass(
   const comboLegs = pack.comboLegs;
   const universe = rfqProbeUniverseStats(combos, comboLegs, legs);
   const targets = pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env));
+  const targetTickers = new Set(targets.map((row) => row.market_ticker));
+  const consideredBase = listSameGameConsidered(combos, comboLegs, legs);
   if (targets.length === 0) {
     console.warn(
       `kalshi parlay executor: skip no_targets open_combos=${universe.open_combos} open_legs=${universe.open_legs} combo_legs=${universe.combo_legs} two_leg=${universe.two_leg} same_game_two_leg=${universe.same_game_two_leg} cross_game_two_leg=${universe.cross_game_two_leg} missing_leg_mids=${universe.missing_leg_mids}`,
     );
-    return emptyParlayPass("no_targets", universe);
+    return emptyParlayPass("no_targets", {
+      ...universe,
+      considered: annotateParlayConsidered(consideredBase, {
+        targetTickers,
+        decisions: [],
+        live,
+        acceptedCount: 0,
+        maxAccepts,
+      }),
+    });
   }
 
   const cleanup = await cancelOwnOpenRfqs(env);
   if (cleanup === "forbidden") {
     console.warn("kalshi parlay executor: skipped communications 401/403 (need write::trade)");
-    return emptyParlayPass("forbidden", universe);
+    return emptyParlayPass("forbidden", {
+      ...universe,
+      considered: annotateParlayConsidered(consideredBase, {
+        targetTickers,
+        decisions: [],
+        live,
+        acceptedCount: 0,
+        maxAccepts,
+      }),
+    });
   }
 
   const decisions: ParlayExecutorDecision[] = [];
@@ -326,12 +354,28 @@ export async function runKalshiParlayExecutorPass(
     if (decision.error === "forbidden") break;
   }
 
+  const considered = annotateParlayConsidered(consideredBase, {
+    targetTickers,
+    decisions: decisions.map((row) => ({
+      market_ticker: row.market_ticker,
+      would_accept: row.would_accept,
+      accepted: row.accepted,
+      error: row.error,
+      reasons: row.filter?.reasons ?? [],
+      yes_ask: row.yes_ask,
+    })),
+    live,
+    acceptedCount,
+    maxAccepts,
+  });
+
   const pass: ParlayExecutorPass = {
     attempted: decisions.length,
     would_accept: decisions.filter((row) => row.would_accept).length,
     accepted: decisions.filter((row) => row.accepted).length,
     skipped: decisions.filter((row) => !row.would_accept).length,
     decisions,
+    considered,
     idle_reason: null,
     ...universe,
   };

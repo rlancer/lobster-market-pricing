@@ -226,6 +226,9 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(pass.combo_legs).toBe(1);
       expect(pass.same_game_two_leg).toBe(1);
       expect(pass.missing_leg_mids).toBe(1);
+      expect(pass.considered[0]?.skip).toBe("missing_leg_mids");
+      expect(pass.considered[0]?.reason).toMatch(/No tradable prices/);
+      expect(pass.considered[0]?.legs).toHaveLength(2);
       expect(warns.some((line) => line.includes("skip no_targets"))).toBe(true);
     } finally {
       warnSpy.mockRestore();
@@ -333,6 +336,9 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(pass.combo_legs).toBe(1);
       expect(pass.same_game_two_leg).toBe(1);
       expect(pass.decisions[0]?.quote_id).toBe("q-exec");
+      expect(pass.considered[0]?.status).toBe("would_accept");
+      expect(pass.considered[0]?.reason).toMatch(/dry-run/);
+      expect(pass.considered[0]?.legs.map((leg) => leg.side)).toEqual(["yes", "yes"]);
       expect(calls.some((c) => c.method === "DELETE")).toBe(true);
       expect(calls.some((c) => /accept/i.test(c.url))).toBe(false);
       expect(calls.some((c) => /confirm/i.test(c.url))).toBe(false);
@@ -584,6 +590,8 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(pass.same_game_two_leg).toBe(2);
       expect(pass.attempted).toBe(1);
       expect(pass.accepted).toBe(1);
+      expect(pass.considered.some((row) => row.status === "accepted")).toBe(true);
+      expect(pass.considered.some((row) => row.skip === "max_accepts")).toBe(true);
       expect(calls.filter((c) => c.method === "POST" && c.url.endsWith("/communications/rfqs")).length).toBe(1);
       expect(calls.filter((c) => /accept/i.test(c.url)).length).toBe(1);
     } finally {

@@ -307,14 +307,21 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 ```
 
 `GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
-`accepted`, skip reasons). An empty pass records `idle_reason`
+`accepted`, skip reasons, and `considered`). `considered` is every same-game
+two-leg book scored this pass (cap 24): combo title, selected legs (side +
+mid), corr room (`min(p,q) − p×q`), status, and a human skip reason such as
+“Legs are not correlated enough (corr room 8¢, need 15¢)”. n>2 and
+cross-game stay in the universe counts plus `samples`; they are not
+considered. An empty pass records `idle_reason`
 (`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
 `open_combos`, `open_legs`, `combo_legs`, `two_leg`, `same_game_two_leg`,
 `cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
 `mve_selected_legs` (including `event_ticker`) from the live API, not the
 hourly lake tape and not the lake `category` encoding. Hourly KXMVE still
 caps 80 combos by volume for research; empty-CLOB same-game books (volume 0)
-are kept on the executor pass and ranked by corr room.
+are kept on the executor pass and ranked by corr room. The scheduler shrinks
+`samples` / `considered` / `decisions` if `last_pass.detail` would exceed
+48 KB — it does not wipe counts.
 
 Dry-run with EXECUTE on and LIVE off (pre-live only):
 `.github/workflows/force-kalshi-parlay-dry-run.yml` (push

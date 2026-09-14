@@ -175,7 +175,7 @@ function tradableYesMid(row: KalshiMarketRow | undefined): number | null {
   return null;
 }
 
-function selectedProb(row: KalshiMarketRow | undefined, side: "yes" | "no"): number | null {
+export function selectedProb(row: KalshiMarketRow | undefined, side: "yes" | "no"): number | null {
   const mid = tradableYesMid(row);
   if (mid == null) return null;
   return side === "no" ? 1 - mid : mid;

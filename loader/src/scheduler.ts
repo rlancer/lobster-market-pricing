@@ -24,6 +24,42 @@
 import { buildJobs } from "./jobs/registry.js";
 
 export const DRIVER_ID = "etl-scheduler-v1";
+/** Cap last_pass.detail so loader_meta stays small. Shrink arrays; do not wipe counts. */
+export const LAST_PASS_DETAIL_MAX_BYTES = 48_000;
+
+export function fitLastPassDetail(
+  detail: unknown,
+  maxBytes = LAST_PASS_DETAIL_MAX_BYTES,
+): unknown {
+  if (detail == null || typeof detail !== "object" || Array.isArray(detail)) return detail;
+  const clone = JSON.parse(JSON.stringify(detail)) as Record<string, unknown>;
+  const tooBig = () => JSON.stringify(clone).length > maxBytes;
+  const shrinkArray = (key: string, minKeep: number): boolean => {
+    const rows = clone[key];
+    if (!Array.isArray(rows) || rows.length <= minKeep) return false;
+    const next = Math.max(minKeep, Math.ceil(rows.length / 2));
+    if (next >= rows.length) return false;
+    clone[key] = rows.slice(0, next);
+    if (key === "considered") clone.considered_capped = true;
+    return true;
+  };
+  while (tooBig()) {
+    if (shrinkArray("samples", 0)) continue;
+    if (shrinkArray("considered", 4)) continue;
+    if (shrinkArray("decisions", 4)) continue;
+    break;
+  }
+  if (!tooBig()) return clone;
+  clone.truncated = true;
+  const scalars: Record<string, unknown> = { truncated: true };
+  for (const [key, value] of Object.entries(clone)) {
+    if (value == null || typeof value === "number" || typeof value === "boolean" || typeof value === "string") {
+      scalars[key] = value;
+    }
+  }
+  if (JSON.stringify(scalars).length <= maxBytes) return scalars;
+  return { truncated: true };
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -777,8 +813,7 @@ export class EtlScheduler {
       duration_ms: Date.now() - started,
     };
     if (detail) {
-      const encoded = JSON.stringify(detail);
-      pass.detail = encoded.length > 16_000 ? { truncated: true } : detail;
+      pass.detail = fitLastPassDetail(detail);
     }
     await this.storeMeta(`last_pass:${spec.id}`, pass);
     await this.updateJobState(spec, row, now, { succeeded: successItems.length, transport_error: transportError });

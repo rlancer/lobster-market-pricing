@@ -16,6 +16,7 @@ import { Table, pixel, proportional } from '@astryxdesign/core/Table';
 import { useIsAdmin } from './useAdmin';
 import {
   api,
+  type KalshiParlayConsidered,
   type KalshiParlayDecision,
   type KalshiParlayExecutor,
   type KalshiParlayMonitor,
@@ -26,6 +27,7 @@ import './AdminKalshiParlay.css';
 const POLL_MS = 20_000;
 
 type DecisionRow = KalshiParlayDecision & Record<string, unknown>;
+type ConsideredRow = KalshiParlayConsidered & Record<string, unknown>;
 type SampleRow = KalshiParlaySample & Record<string, unknown>;
 
 type Mode = {
@@ -56,6 +58,18 @@ function fmtPx(n: number | null): string {
 function yesNo(value: boolean): { label: string; color: 'green' | 'gray' | 'red' } {
   if (value) return { label: 'yes', color: 'green' };
   return { label: 'no', color: 'gray' };
+}
+
+function consideredStatus(status: string): { label: string; color: 'red' | 'green' | 'orange' | 'gray' } {
+  if (status === 'accepted') return { label: 'accepted', color: 'red' };
+  if (status === 'would_accept') return { label: 'would accept', color: 'green' };
+  if (status === 'rfq_skip') return { label: 'RFQ skip', color: 'orange' };
+  return { label: 'skipped', color: 'gray' };
+}
+
+function fmtCents(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `${(n * 100).toFixed(0)}¢`;
 }
 
 function probeToken(probe: string | null): { label: string; color: 'blue' | 'gray' | 'orange' } {
@@ -144,9 +158,10 @@ export default function AdminKalshiParlayPage() {
         <Heading level={1}>Kalshi parlay bot</Heading>
         <Text type="supporting">
           Same-game two-leg sports RFQ executor (kalshi-parlay-executor on cboe-to-r2).
-          Last pass, universe mix, and would_accept / accepted rows. Size is 10
-          contracts ($10 notional) with at most one live fill per pass. This page
-          never turns LIVE on or off. Public notebook:{' '}
+          Last pass shows every same-game book it scored — legs, corr room, and
+          why it was skipped or taken. Size is 10 contracts ($10 notional) with
+          at most one live fill per pass. This page never turns LIVE on or off.
+          Public notebook:{' '}
           <Link to="/experiments/kalshi-parlays" className="admin-kalshi-parlay-link">
             Kalshi parlays
           </Link>
@@ -298,6 +313,78 @@ export default function AdminKalshiParlayPage() {
           </VStack>
 
           <VStack gap={2}>
+            <Heading level={2}>Considered</Heading>
+            <Text type="supporting">
+              Same-game two-leg stacks from this pass. Legs are the selected
+              sports contracts; corr room is min(p, q) − p×q from those mids.
+              n{'>'}2 and cross-game are counted above but never appear here.
+            </Text>
+            {!(executor.considered ?? []).length ? (
+              <Text type="supporting">
+                No same-game two-leg books on the last pass.
+              </Text>
+            ) : (
+              <Table
+                className="admin-kalshi-parlay-table"
+                data={(executor.considered ?? []) as ConsideredRow[]}
+                idKey="market_ticker"
+                density="compact"
+                dividers="rows"
+                hasHover
+                columns={[
+                  {
+                    key: 'title',
+                    header: 'Combo',
+                    width: proportional(3),
+                    renderCell: (row) => (
+                      <VStack gap={1}>
+                        <Text size="sm">{row.title || row.market_ticker}</Text>
+                        <Text type="supporting" size="sm">{row.market_ticker}</Text>
+                      </VStack>
+                    ),
+                  },
+                  {
+                    key: 'legs',
+                    header: 'Legs',
+                    width: proportional(3),
+                    renderCell: (row) => (
+                      <VStack gap={1}>
+                        {(row.legs ?? []).map((leg) => (
+                          <Text key={leg.market_ticker} size="sm">
+                            {leg.side.toUpperCase()} {leg.title || leg.market_ticker}
+                            {leg.p != null ? ` · ${fmtPx(leg.p)}` : ''}
+                          </Text>
+                        ))}
+                      </VStack>
+                    ),
+                  },
+                  {
+                    key: 'corr_room',
+                    header: 'Corr room',
+                    width: pixel(100),
+                    renderCell: (row) => <Text size="sm">{fmtCents(row.corr_room)}</Text>,
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    width: pixel(130),
+                    renderCell: (row) => {
+                      const token = consideredStatus(row.status);
+                      return <Token label={token.label} color={token.color} size="sm" />;
+                    },
+                  },
+                  {
+                    key: 'reason',
+                    header: 'Why',
+                    width: proportional(4),
+                    renderCell: (row) => <Text size="sm">{row.reason}</Text>,
+                  },
+                ]}
+              />
+            )}
+          </VStack>
+
+          <VStack gap={2}>
             <Heading level={2}>Filter</Heading>
             <Text type="supporting">
               Takes only 2-leg same-game same-side sports stacks: corr room at least 15 cents,
@@ -313,9 +400,8 @@ export default function AdminKalshiParlayPage() {
             <Heading level={2}>Decisions</Heading>
             {!executor.decisions.length ? (
               <Text type="supporting">
-                No RFQ decisions on the last pass. If same-game two-leg is 0,
-                the open MVE mix is n{'>'}2 or cross-game — not a silent skip
-                and not the lake volume cap.
+                No RFQ decisions on the last pass. Same-game books still appear
+                under Considered with the skip reason.
               </Text>
             ) : (
               <Table
@@ -396,47 +482,47 @@ export default function AdminKalshiParlayPage() {
             )}
           </VStack>
 
-          {executor.idle_reason === 'no_targets' ? (
+          {(executor.samples ?? []).length ? (
             <VStack gap={2}>
-              <Heading level={2}>Samples</Heading>
-              {!executor.samples.length ? (
-                <Text type="supporting">No combo samples on this pass.</Text>
-              ) : (
-                <Table
-                  className="admin-kalshi-parlay-table"
-                  data={executor.samples as SampleRow[]}
-                  idKey="market_ticker"
-                  density="compact"
-                  dividers="rows"
-                  hasHover
-                  columns={[
-                    {
-                      key: 'market_ticker',
-                      header: 'Market',
-                      width: proportional(3),
-                      renderCell: (row) => <Text size="sm">{row.market_ticker}</Text>,
-                    },
-                    {
-                      key: 'n_legs',
-                      header: 'Legs',
-                      width: pixel(80),
-                      renderCell: (row) => <Text size="sm">{row.n_legs}</Text>,
-                    },
-                    {
-                      key: 'game_group',
-                      header: 'Game group',
-                      width: proportional(2),
-                      renderCell: (row) => <Text size="sm">{row.game_group}</Text>,
-                    },
-                    {
-                      key: 'tape',
-                      header: 'Tape',
-                      width: proportional(2),
-                      renderCell: (row) => <Text size="sm">{row.tape}</Text>,
-                    },
-                  ]}
-                />
-              )}
+              <Heading level={2}>Open mix</Heading>
+              <Text type="supporting">
+                Sample of open sports MVEs that are not same-game two-leg (n{'>'}2
+                or cross-game). They are scanned for counts, not RFQ'd.
+              </Text>
+              <Table
+                className="admin-kalshi-parlay-table"
+                data={(executor.samples ?? []) as SampleRow[]}
+                idKey="market_ticker"
+                density="compact"
+                dividers="rows"
+                hasHover
+                columns={[
+                  {
+                    key: 'market_ticker',
+                    header: 'Market',
+                    width: proportional(3),
+                    renderCell: (row) => <Text size="sm">{row.market_ticker}</Text>,
+                  },
+                  {
+                    key: 'n_legs',
+                    header: 'Legs',
+                    width: pixel(80),
+                    renderCell: (row) => <Text size="sm">{row.n_legs}</Text>,
+                  },
+                  {
+                    key: 'game_group',
+                    header: 'Game group',
+                    width: proportional(2),
+                    renderCell: (row) => <Text size="sm">{row.game_group}</Text>,
+                  },
+                  {
+                    key: 'tape',
+                    header: 'Tape',
+                    width: proportional(2),
+                    renderCell: (row) => <Text size="sm">{row.tape}</Text>,
+                  },
+                ]}
+              />
             </VStack>
           ) : null}
         </VStack>

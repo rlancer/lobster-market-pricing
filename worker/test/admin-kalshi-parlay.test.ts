@@ -130,6 +130,55 @@ describe("shapeExecutorJob", () => {
     assert.equal(view.max_accepts_per_pass, 1);
   });
 
+  it("maps considered legs and skip reasons", () => {
+    const view = shapeExecutorJob(executorPayload({
+      execute: true,
+      live: true,
+      considered: [{
+        market_ticker: "KXMVE-GAME",
+        title: "Henry 110+ AND Jackson 40+",
+        legs: [
+          { market_ticker: "HENRY", title: "Henry 110+", side: "yes", p: 0.4 },
+          { market_ticker: "JACK", title: "Jackson 40+", side: "yes", p: 0.9 },
+        ],
+        p: 0.4,
+        q: 0.9,
+        corr_room: 0.04,
+        independence: 0.36,
+        status: "skipped",
+        skip: "corr_room",
+        reason: "Legs are not correlated enough (corr room 4¢, need 15¢)",
+      }],
+    }));
+    assert.equal(view.considered.length, 1);
+    assert.equal(view.considered[0]?.legs[0]?.title, "Henry 110+");
+    assert.match(view.considered[0]?.reason ?? "", /not correlated enough/);
+  });
+
+  it("keeps considered when truncated is set alongside it", () => {
+    const view = shapeExecutorJob(executorPayload({
+      truncated: true,
+      execute: true,
+      live: true,
+      same_game_two_leg: 1,
+      considered: [{
+        market_ticker: "KXMVE-GAME",
+        title: "Henry 110+ AND Jackson 40+",
+        legs: [
+          { market_ticker: "HENRY", title: "Henry 110+", side: "yes", p: 0.4 },
+          { market_ticker: "JACK", title: "Jackson 40+", side: "yes", p: 0.49 },
+        ],
+        corr_room: 0.204,
+        status: "skipped",
+        skip: "corr_room",
+        reason: "Legs are not correlated enough (corr room 8¢, need 15¢)",
+      }],
+    }));
+    assert.equal(view.execute, true);
+    assert.equal(view.considered.length, 1);
+    assert.match(view.considered[0]?.reason ?? "", /not correlated enough/);
+  });
+
   it("treats truncated last_pass.detail as missing telemetry", () => {
     const view = shapeExecutorJob(executorPayload({ truncated: true }));
     assert.equal(view.execute, false);
