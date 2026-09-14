@@ -789,6 +789,8 @@ export interface KalshiParlayExecutor {
   would_accept: number;
   accepted: number;
   skipped: number;
+  contracts: number;
+  max_accepts_per_pass: number;
   decisions: KalshiParlayDecision[];
   samples: KalshiParlaySample[];
 }

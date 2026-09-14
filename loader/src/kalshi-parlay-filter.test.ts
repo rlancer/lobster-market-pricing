@@ -3,6 +3,7 @@ import {
   evaluateParlayQuote,
   parlayExecuteEnabled,
   parlayLiveEnabled,
+  parlayMaxAcceptsPerPass,
   PARLAY_MIN_CORR_ROOM,
 } from "./kalshi-parlay-filter.js";
 
@@ -14,6 +15,13 @@ describe("parlay execute flags", () => {
       KALSHI_PARLAY_EXECUTE: "1",
       KALSHI_PARLAY_LIVE: "1",
     })).toBe(true);
+  });
+
+  it("defaults live size to one $10 notional fill per pass", () => {
+    expect(parlayMaxAcceptsPerPass({})).toBe(1);
+    expect(parlayMaxAcceptsPerPass({ KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS: 3 })).toBe(3);
+    expect(parlayMaxAcceptsPerPass({ KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS: "0" })).toBe(1);
+    expect(parlayMaxAcceptsPerPass({ KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS: 99 })).toBe(12);
   });
 });
 

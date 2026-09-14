@@ -93,6 +93,8 @@ describe("shapeExecutorJob", () => {
     const view = shapeExecutorJob(executorPayload({
       execute: true,
       live: false,
+      contracts: 10,
+      max_accepts_per_pass: 1,
       idle_reason: null,
       open_combos: 80,
       two_leg: 7,
@@ -124,6 +126,8 @@ describe("shapeExecutorJob", () => {
     assert.equal(view.same_game_two_leg, 1);
     assert.equal(view.decisions[0]?.quote_id, "q1");
     assert.equal(view.decisions[0]?.yes_ask, 0.22);
+    assert.equal(view.contracts, 10);
+    assert.equal(view.max_accepts_per_pass, 1);
   });
 
   it("treats truncated last_pass.detail as missing telemetry", () => {
@@ -132,6 +136,8 @@ describe("shapeExecutorJob", () => {
     assert.equal(view.idle_reason, null);
     assert.equal(view.attempted, 0);
     assert.equal(view.decisions.length, 0);
+    assert.equal(view.contracts, 10);
+    assert.equal(view.max_accepts_per_pass, 1);
     assert.equal(view.last_pass_at, NOW - 90_000);
   });
 

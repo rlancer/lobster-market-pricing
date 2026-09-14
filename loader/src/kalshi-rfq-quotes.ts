@@ -28,7 +28,10 @@ import {
   sportsGameKey,
   type MveSelectedLeg,
 } from "./kalshi-mve.js";
-import { parlayExecuteEnabled } from "./kalshi-parlay-filter.js";
+import {
+  PARLAY_MAX_CONTRACTS,
+  parlayExecuteEnabled,
+} from "./kalshi-parlay-filter.js";
 
 export const KALSHI_RFQ_SOURCE = "kalshi_rfq";
 export const KALSHI_RFQ_PROBE_MAX_DEFAULT = 12;
@@ -110,9 +113,12 @@ function rfqPolls(env: KalshiEnv): number {
   return envInt(env.KALSHI_RFQ_POLLS, KALSHI_RFQ_POLLS_DEFAULT, 1, 8);
 }
 
+export function rfqContracts(env: KalshiEnv): number {
+  return envInt(env.KALSHI_RFQ_CONTRACTS, KALSHI_RFQ_CONTRACTS_DEFAULT, 1, PARLAY_MAX_CONTRACTS);
+}
+
 function rfqContractsFp(env: KalshiEnv): string {
-  const n = envInt(env.KALSHI_RFQ_CONTRACTS, KALSHI_RFQ_CONTRACTS_DEFAULT, 1, 10);
-  return `${n}.00`;
+  return `${rfqContracts(env)}.00`;
 }
 
 function kalshiBase(env: KalshiEnv): string {

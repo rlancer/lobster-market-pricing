@@ -69,7 +69,7 @@ const ADMIN_TOOLS: AdminTool[] = [
   {
     to: '/admin/kalshi-parlay',
     label: 'Kalshi parlay bot',
-    description: 'Same-game RFQ executor last_pass — would_accept, universe mix, never LIVE from this page.',
+    description: 'Same-game RFQ executor last_pass — $10 notional live fills, would_accept, universe mix. This page never flips LIVE.',
     icon: Target,
   },
 ];

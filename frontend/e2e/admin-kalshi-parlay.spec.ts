@@ -31,6 +31,8 @@ const FIXTURE = {
     would_accept: 0,
     accepted: 0,
     skipped: 0,
+    contracts: 10,
+    max_accepts_per_pass: 1,
     decisions: [],
     samples: [],
   },
@@ -122,7 +124,7 @@ async function mockAdminSession(page: Page) {
   });
 }
 
-async function mockAdminKalshiParlay(page: Page) {
+async function mockAdminKalshiParlay(page: Page, fixture = FIXTURE) {
   await mockAdminSession(page);
   const loaderHits: string[] = [];
   await page.route((url) => url.hostname.includes('cboe-to-r2') || url.hostname.includes('kalshi.com'), async (route) => {
@@ -133,7 +135,7 @@ async function mockAdminKalshiParlay(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(FIXTURE),
+      body: JSON.stringify(fixture),
     });
   });
   await page.route((url) => url.pathname === '/api/admin/kalshi-parlay/trigger', async (route) => {
@@ -178,6 +180,8 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByRole('heading', { name: 'Kalshi parlay bot' })).toBeVisible();
     await expect(page.getByText('Idle', { exact: true })).toBeVisible();
     await expect(page.getByText('EXECUTE off', { exact: true })).toBeVisible();
+    await expect(page.getByText('10 contracts · $10 notional')).toBeVisible();
+    await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
     await expect(page.getByText('Open combos 80')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
@@ -188,6 +192,50 @@ test.describe('Admin Kalshi parlay console', () => {
     if (existsSync('/opt/cursor/artifacts')) {
       await page.screenshot({
         path: '/opt/cursor/artifacts/admin_kalshi_parlay_console.png',
+        fullPage: true,
+      });
+    }
+  });
+
+  test('live mode shows the LIVE banner, $10 size, and disables force', async ({ page }) => {
+    await mockAdminKalshiParlay(page, {
+      ...FIXTURE,
+      executor: {
+        ...FIXTURE.executor,
+        execute: true,
+        live: true,
+        idle_reason: null,
+        attempted: 1,
+        would_accept: 1,
+        accepted: 1,
+        decisions: [{
+          market_ticker: 'KXMVE-GAME',
+          would_accept: true,
+          accepted: true,
+          reasons: [],
+          error: null,
+          yes_bid: 0.18,
+          yes_ask: 0.21,
+          rfq_id: 'rfq-live',
+          quote_id: 'q-live',
+        }],
+      },
+      hourly: {
+        ...FIXTURE.hourly,
+        rfq_probe: 'skipped_executor',
+      },
+    });
+
+    await page.goto('/admin/kalshi-parlay');
+    await expect(page.getByRole('heading', { name: 'Kalshi parlay bot' })).toBeVisible();
+    await expect(page.getByText('LIVE is on')).toBeVisible();
+    await expect(page.getByText('10 contracts · $10 notional')).toBeVisible();
+    await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
+    await expect(page.getByText('Last pass accepted 1 YES quote')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeDisabled();
+    if (existsSync('/opt/cursor/artifacts')) {
+      await page.screenshot({
+        path: '/opt/cursor/artifacts/admin_kalshi_parlay_live.png',
         fullPage: true,
       });
     }

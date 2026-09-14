@@ -3,7 +3,7 @@ import { kalshiParlayExecutorJob } from "./kalshi-parlay-executor.js";
 import type { SchedulerEnv } from "../scheduler.js";
 
 describe("kalshi-parlay-executor job adapter", () => {
-  it("is batch, ungated, 5-minute cadence, and dry-runs when execute is off", async () => {
+  it("is batch, ungated, 5-minute cadence, and idles when execute is off", async () => {
     const job = kalshiParlayExecutorJob({} as SchedulerEnv);
     expect(job.id).toBe("kalshi-parlay-executor");
     expect(job.scope).toBe("batch");
@@ -16,6 +16,8 @@ describe("kalshi-parlay-executor job adapter", () => {
     expect(result.detail).toMatchObject({
       execute: false,
       live: false,
+      contracts: 10,
+      max_accepts_per_pass: 1,
       idle_reason: "execute_off",
       attempted: 0,
       would_accept: 0,

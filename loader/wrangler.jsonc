@@ -66,11 +66,14 @@
     "KALSHI_RFQ_PROBE_MAX": 12,
     "KALSHI_RFQ_WAIT_MS": 8000,
     "KALSHI_RFQ_POLL_MS": 1000,
-    // Parlay executor is a no-op until EXECUTE=1. LIVE also required to accept.
-    // Do not set LIVE in this file.
-    "KALSHI_PARLAY_EXECUTE": "0",
-    "KALSHI_PARLAY_LIVE": "0",
-    "KALSHI_PARLAY_CADENCE_SECONDS": 300
+    // Same-game parlay RFQ size: 10 contracts = $10 notional (Kalshi $1 face).
+    "KALSHI_RFQ_CONTRACTS": 10,
+    // Live executor: accept YES on passing same-game two-leg RFQs.
+    // Premium is 10 × ask (typically a few dollars). At most one fill per pass.
+    "KALSHI_PARLAY_EXECUTE": "1",
+    "KALSHI_PARLAY_LIVE": "1",
+    "KALSHI_PARLAY_CADENCE_SECONDS": 300,
+    "KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS": 1
   },
   "d1_databases": [
     {
