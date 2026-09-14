@@ -8,6 +8,7 @@ import {
   pickRfqProbeTargets,
   probeKalshiRfqQuotes,
   rfqProbeEnabled,
+  rfqProbeUniverseStats,
   twoWayFromRfqQuotes,
 } from "./kalshi-rfq-quotes.js";
 import type { MveSelectedLeg } from "./kalshi-mve.js";
@@ -193,6 +194,46 @@ describe("RFQ probe target ranking", () => {
       12,
     );
     expect(filled.map((t) => t.market_ticker)).toEqual(["HIGH-ROOM", "LOW-ROOM", "ALREADY-TWO"]);
+  });
+
+  it("counts open same-game two-legs separately from missing tradable mids", () => {
+    const priced = combo({ market_ticker: "PRICED" });
+    const unpriced = combo({ market_ticker: "UNPRICED" });
+    const cross = combo({
+      market_ticker: "CROSS-GAME",
+      category: "mve|COLL|yes:KXNFLGAME-26SEP13KC-KC,yes:KXNFLGAME-26SEP13BUF-BUF",
+    });
+    const comboLegs = new Map<string, MveSelectedLeg[]>([
+      ["PRICED", SAME_GAME_LEGS],
+      ["UNPRICED", SAME_GAME_LEGS],
+      ["CROSS-GAME", CROSS_GAME_LEGS],
+    ]);
+    const stats = rfqProbeUniverseStats(
+      [priced, unpriced, cross],
+      comboLegs,
+      [
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.39, 0.41),
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.48, 0.50),
+        leg("KXNFLGAME-26SEP13KC-KC", 0.55, 0.57),
+        leg("KXNFLGAME-26SEP13BUF-BUF", 0.48, 0.50),
+      ],
+    );
+    expect(stats).toEqual({
+      open_combos: 3,
+      open_legs: 4,
+      same_game_two_leg: 2,
+      missing_leg_mids: 0,
+    });
+    const noMids = rfqProbeUniverseStats(
+      [unpriced],
+      new Map([["UNPRICED", SAME_GAME_LEGS]]),
+      [
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0, 0),
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0, 0),
+      ],
+    );
+    expect(noMids.same_game_two_leg).toBe(1);
+    expect(noMids.missing_leg_mids).toBe(1);
   });
 });
 

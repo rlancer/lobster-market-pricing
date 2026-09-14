@@ -118,8 +118,10 @@ jobs:
             passing=$(echo "$loop" | jq -r '.passing')
             ok=$(echo "$status" | jq -r '.ok')
             execute=$(echo "$status" | jq -r '.job.last_pass.detail.execute // empty')
+            idle=$(echo "$status" | jq -r '.job.last_pass.detail.idle_reason // empty')
+            attempted=$(echo "$status" | jq -r '.job.last_pass.detail.attempted // empty')
             after_at=$(echo "$status" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
-            echo "poll $i: ok=$ok passing=$passing execute=$execute finished_at=$after_at"
+            echo "poll $i: ok=$ok passing=$passing execute=$execute idle=$idle attempted=$attempted finished_at=$after_at"
             if [ "$ok" = "true" ] && [ "$execute" = "true" ] && [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
               echo "$status" | jq '{ok, job_id:.job.job_id, last_pass:.job.last_pass}'
               echo "$status" > /tmp/parlay-executor-last.json
@@ -235,6 +237,11 @@ jobs:
             if (!leftover.length && !decisions.some((row) => row.error === "forbidden")) {
               errors.push("attempted RFQs but none recorded as deleted (rfq_id set, accepted false)");
             }
+          } else {
+            const idle = detail.idle_reason;
+            if (!["no_targets", "no_api_keys", "forbidden"].includes(idle)) {
+              errors.push(`attempted=0 but idle_reason=${idle} (want no_targets|no_api_keys|forbidden)`);
+            }
           }
           if (!hourlyStatus?.ok) errors.push("missing kalshi-markets-hourly last_pass");
           if (hourlyPass.transport_error) errors.push(`hourly transport_error=${hourlyPass.transport_error}`);
@@ -245,6 +252,11 @@ jobs:
           console.log(JSON.stringify({
             execute: detail.execute,
             live: detail.live,
+            idle_reason: detail.idle_reason,
+            open_combos: detail.open_combos,
+            open_legs: detail.open_legs,
+            same_game_two_leg: detail.same_game_two_leg,
+            missing_leg_mids: detail.missing_leg_mids,
             attempted: detail.attempted,
             would_accept: detail.would_accept,
             accepted: detail.accepted,

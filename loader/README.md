@@ -302,7 +302,10 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 ```
 
 `GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
-`accepted`, skip reasons). Dry-run with EXECUTE on and LIVE off:
+`accepted`, skip reasons). An empty pass records `idle_reason`
+(`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
+`open_combos`, `open_legs`, `same_game_two_leg`, and `missing_leg_mids`.
+Dry-run with EXECUTE on and LIVE off:
 `.github/workflows/force-kalshi-parlay-dry-run.yml` (push
 `cursor/run-kalshi-parlay-dry-run-*`, or Actions dispatch). That workflow
 temporarily deploys EXECUTE=1, never LIVE=1, then restores EXECUTE=0.

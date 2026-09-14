@@ -128,6 +128,108 @@ describe("runKalshiParlayExecutorPass", () => {
     const pass = await runKalshiParlayExecutorPass({});
     expect(pass.attempted).toBe(0);
     expect(pass.accepted).toBe(0);
+    expect(pass.idle_reason).toBe("execute_off");
+  });
+
+  it("records no_api_keys without fetching markets", async () => {
+    const warns: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(" "));
+    });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const pass = await runKalshiParlayExecutorPass({ KALSHI_PARLAY_EXECUTE: "1" });
+      expect(pass.idle_reason).toBe("no_api_keys");
+      expect(pass.attempted).toBe(0);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(warns.some((line) => line.includes("no API keys"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("records no_targets when same-game stacks have no tradable leg mids", async () => {
+    const pem = await generateTestPem();
+    const warns: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(" "));
+    });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({
+          markets: [{
+            ticker: "KXMVECROSSCATEGORY-HENRYJACK",
+            event_ticker: "KXMVECROSSCATEGORY-HENRYJACK",
+            series_ticker: "KXMVE",
+            title: "Henry 110+ AND Jackson 40+",
+            category: "Sports",
+            status: "active",
+            market_type: "binary",
+            mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+            mve_selected_legs: SAME_GAME_LEGS,
+            yes_bid_dollars: "0.00",
+            yes_ask_dollars: "0.00",
+            last_price_dollars: "0.00",
+            volume_fp: "0",
+            close_time: "2026-09-14T00:00:00Z",
+          }],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Henry 110+",
+              status: "active",
+              yes_bid_dollars: "0.00",
+              yes_ask_dollars: "0.00",
+              last_price_dollars: "0.00",
+              volume_fp: "0",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Jackson 40+",
+              status: "active",
+              yes_bid_dollars: "0.00",
+              yes_ask_dollars: "0.00",
+              last_price_dollars: "0.00",
+              volume_fp: "0",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+          ],
+        }), { status: 200 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    });
+    try {
+      const pass = await runKalshiParlayExecutorPass({
+        KALSHI_PARLAY_EXECUTE: "1",
+        KALSHI_ACCESS_KEY_ID: "key",
+        KALSHI_PRIVATE_KEY_PEM: pem,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        HTTP_RETRIES: 0,
+      });
+      expect(pass.idle_reason).toBe("no_targets");
+      expect(pass.attempted).toBe(0);
+      expect(pass.open_combos).toBe(1);
+      expect(pass.open_legs).toBe(2);
+      expect(pass.same_game_two_leg).toBe(1);
+      expect(pass.missing_leg_mids).toBe(1);
+      expect(warns.some((line) => line.includes("skip no_targets"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("dry-run solicits, logs would_accept, deletes, and never accepts", async () => {
@@ -226,6 +328,8 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(pass.attempted).toBe(1);
       expect(pass.would_accept).toBe(1);
       expect(pass.accepted).toBe(0);
+      expect(pass.idle_reason).toBeNull();
+      expect(pass.same_game_two_leg).toBe(1);
       expect(pass.decisions[0]?.quote_id).toBe("q-exec");
       expect(calls.some((c) => c.method === "DELETE")).toBe(true);
       expect(calls.some((c) => /accept/i.test(c.url))).toBe(false);

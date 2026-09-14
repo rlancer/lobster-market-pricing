@@ -197,6 +197,40 @@ function rankRfqTargets(a: RfqProbeTarget, b: RfqProbeTarget): number {
   return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
 }
 
+export interface RfqProbeUniverseStats {
+  open_combos: number;
+  open_legs: number;
+  same_game_two_leg: number;
+  missing_leg_mids: number;
+}
+
+export function rfqProbeUniverseStats(
+  combos: KalshiMarketRow[],
+  comboLegs: ComboLegs,
+  legs: KalshiMarketRow[],
+): RfqProbeUniverseStats {
+  const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
+  let open_combos = 0;
+  let same_game_two_leg = 0;
+  let missing_leg_mids = 0;
+  for (const combo of combos) {
+    if (!isOpenCombo(combo)) continue;
+    open_combos += 1;
+    const spec = comboLegs.get(combo.market_ticker) ?? [];
+    if (!isSameGameSportsTwoLeg(spec)) continue;
+    same_game_two_leg += 1;
+    const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
+    const q = selectedProb(byTicker.get(spec[1]!.market_ticker), spec[1]!.side);
+    if (p == null || q == null) missing_leg_mids += 1;
+  }
+  return {
+    open_combos,
+    open_legs: legs.length,
+    same_game_two_leg,
+    missing_leg_mids,
+  };
+}
+
 export function pickRfqProbeTargets(
   combos: KalshiMarketRow[],
   comboLegs: ComboLegs,

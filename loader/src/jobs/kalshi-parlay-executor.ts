@@ -2,6 +2,7 @@ import type { BatchJob, SchedulerEnv } from "../scheduler.js";
 import type { KalshiEnv } from "../kalshi.js";
 import { parlayExecuteEnabled, parlayLiveEnabled } from "../kalshi-parlay-filter.js";
 import {
+  emptyParlayPass,
   parlayExecutorPassDetail,
   runKalshiParlayExecutorPass,
 } from "../kalshi-parlay-executor.js";
@@ -13,7 +14,7 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
 
 function idleDetail(env: SchedulerEnv): Record<string, unknown> {
   return parlayExecutorPassDetail(
-    { attempted: 0, would_accept: 0, accepted: 0, skipped: 0, decisions: [] },
+    emptyParlayPass("execute_off"),
     { execute: false, live: parlayLiveEnabled(env) },
   );
 }

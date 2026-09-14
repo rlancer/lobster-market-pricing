@@ -16,9 +16,12 @@ describe("kalshi-parlay-executor job adapter", () => {
     expect(result.detail).toMatchObject({
       execute: false,
       live: false,
+      idle_reason: "execute_off",
       attempted: 0,
       would_accept: 0,
       accepted: 0,
+      open_combos: 0,
+      same_game_two_leg: 0,
     });
   });
 });
