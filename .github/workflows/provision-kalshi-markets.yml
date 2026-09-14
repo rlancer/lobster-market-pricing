@@ -27,7 +27,7 @@ permissions:
 jobs:
   provision:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -286,26 +286,41 @@ jobs:
           set -euo pipefail
           sleep 5
           before_at=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
-          # async=1 returns immediately; paced Kalshi pass finishes in the DO.
-          set +e
-          resp=$(curl -sS -X POST \
-            -H "Authorization: Bearer $LOADER_TOKEN" \
-            -m 60 \
-            -w '\n__HTTP_%{http_code}' \
-            "$LOADER_URL/jobs/kalshi-markets-hourly/trigger?force=1&async=1")
-          curl_ec=$?
-          set -e
-          if [ "$curl_ec" -ne 0 ]; then
-            echo "::warning::Worker trigger curl exit $curl_ec — polling job status"
-          else
+          # wrangler deploy just above can leave a leftover `passing` lock.
+          # Retry the trigger until the DO accepts it; do not only poll last_pass
+          # (a 409 from ohlc-backfill / stale marker never advances Kalshi).
+          triggered=0
+          for attempt in $(seq 1 40); do
+            set +e
+            resp=$(curl -sS -X POST \
+              -H "Authorization: Bearer $LOADER_TOKEN" \
+              -m 60 \
+              -w '\n__HTTP_%{http_code}' \
+              "$LOADER_URL/jobs/kalshi-markets-hourly/trigger?force=1&async=1")
+            curl_ec=$?
+            set -e
+            if [ "$curl_ec" -ne 0 ]; then
+              echo "trigger attempt $attempt: curl exit $curl_ec"
+              sleep 15
+              continue
+            fi
             body="${resp%__HTTP_*}"
             code="${resp##*__HTTP_}"
-            echo "$body"
-            if [ "$code" = "409" ]; then
-              echo "Loader busy (409) — waiting for in-flight pass to finish."
-            elif [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
-              echo "::warning::Worker trigger returned HTTP $code — direct publish still counts"
+            echo "trigger attempt $attempt: HTTP $code $body"
+            if [ "$code" = "200" ] && echo "$body" | grep -q '"ok":true'; then
+              triggered=1
+              break
             fi
+            if [ "$code" = "409" ]; then
+              echo "Loader busy (409) — retrying trigger, not just last_pass."
+              sleep 15
+              continue
+            fi
+            echo "::warning::Worker trigger returned HTTP $code — retrying"
+            sleep 15
+          done
+          if [ "$triggered" != "1" ]; then
+            echo "::warning::Never accepted a Kalshi force trigger — polling last_pass anyway"
           fi
           # Poll until last_pass.finished_at advances (run_id may be null on timeout).
           for i in $(seq 1 60); do
@@ -316,13 +331,13 @@ jobs:
             run_id=$(echo "$status" | jq -r '.job.last_pass.run_id // empty')
             echo "poll $i: finished_at=$after_at run_id=$run_id succeeded=$succeeded failed=$failed"
             if [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
-              echo "$status" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
+              echo "$status" | jq '{job_id:.job.job_id, passing:.passing, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
               exit 0
             fi
             sleep 15
           done
           echo "::warning::Timed out waiting for new last_pass — continuing (direct publish may still count)"
-          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq '{job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
+          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq '{job_id:.job.job_id, passing:.passing, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error})}'
 
       - name: Wait for sink roll (~5 min)
         run: |

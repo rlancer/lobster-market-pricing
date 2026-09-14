@@ -18,6 +18,7 @@ interface SchedulerTestStorage {
 interface TestCtx {
   storage: SchedulerTestStorage;
   waitUntil?(promise: Promise<unknown>): void;
+  blockConcurrencyWhile?(callback: () => Promise<void>): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -672,6 +673,33 @@ describe("EtlScheduler — per-job market_gated", () => {
 
     expect(res.status).toBe(409);
     expect(rec.ran).toBe(false);
+  });
+
+  it("clears leftover passing on isolate start when blockConcurrencyWhile is present", async () => {
+    const storage = makeStorage({ passing: Date.now() });
+    let gated: Promise<void> | undefined;
+    const doCtx: TestCtx = {
+      storage,
+      blockConcurrencyWhile(callback: () => Promise<void>) {
+        gated = callback();
+        return gated;
+      },
+    };
+    const scheduler = new EtlScheduler(doCtx, env(new FakeDb()) as never);
+    await gated;
+    expect(await storage.get("passing")).toBeNull();
+    const listed = await scheduler.jobsList();
+    expect(listed.passing).toBe(false);
+  });
+
+  it("jobStatus reports passing while a live marker is set", async () => {
+    const scheduler = new EtlScheduler(
+      ctx(makeStorage({ passing: Date.now() })),
+      env(new FakeDb()) as never,
+    );
+    const status = await scheduler.jobStatus("kalshi-markets-hourly");
+    expect(status.ok).toBe(true);
+    expect(status.passing).toBe(true);
   });
 });
 

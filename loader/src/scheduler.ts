@@ -42,6 +42,8 @@ export interface SchedulerStorage {
 export interface SchedulerCtx {
   storage: SchedulerStorage;
   waitUntil?(promise: Promise<unknown>): void;
+  // Durable Object isolate start. Production DOs expose this; unit tests omit it.
+  blockConcurrencyWhile?(callback: () => Promise<void>): Promise<void>;
 }
 
 export interface D1PreparedStatement {
@@ -339,6 +341,16 @@ export class EtlScheduler {
     // Registered jobs come from the registry (jobs/registry.ts) by default;
     // tests may inject a custom spec set.
     this.jobs = jobs;
+    // wrangler deploy / DO reset kills in-flight JS but leaves `passing` in
+    // SQLite. The next isolate cannot inherit that pass — without this, every
+    // /jobs/*/trigger 409s for LOADER_RUN_TIMEOUT_SECONDS+60s. Same-isolate
+    // in-flight passes never re-run the constructor. Tests omit the hook so
+    // they can still seed a live marker.
+    if (typeof ctx.blockConcurrencyWhile === "function") {
+      ctx.blockConcurrencyWhile(async () => {
+        await ctx.storage.delete("passing");
+      });
+    }
   }
 
   protected cboeItemJob(): ItemJob {
@@ -835,7 +847,11 @@ export class EtlScheduler {
         return this.jobView(row, now, scope, await this.jobLastPass(row.job_id));
       }),
     );
-    return { ok: true, jobs };
+    return {
+      ok: true,
+      passing: (await this.ctx.storage.get("passing")) != null,
+      jobs,
+    };
   }
 
   async jobStatus(id: string): Promise<Record<string, unknown>> {
@@ -845,6 +861,7 @@ export class EtlScheduler {
     const row = (await this.jobRow(id)) ?? this.jobRowFromSpec(spec, Date.now());
     return {
       ok: true,
+      passing: (await this.ctx.storage.get("passing")) != null,
       job: this.jobView(row, Date.now(), spec.scope, await this.jobLastPass(id)),
     };
   }

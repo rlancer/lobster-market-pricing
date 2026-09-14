@@ -311,6 +311,12 @@ Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `npx wrangler secret put PIPELINE_KALSHI_MARKETS_URL`. Or run
 `.github/workflows/provision-kalshi-markets.yml`.
 
+To re-force the hourly job **without** `wrangler deploy` (deploy leaves a
+stale `passing` lock that 409s `/trigger` for up to 16 minutes), push
+`cursor/force-kalshi-markets-f300` or run
+`.github/workflows/force-kalshi-markets.yml`. That path retries 409 until
+the DO accepts the pass, then waits for the lake sink roll.
+
 > **Pipelines open-beta cap:** accounts are limited to **20 streams / sinks /
 > pipelines**. This account is at that cap; the provision workflow pauses
 > `cboe_reg_sho_daily_*` ingest (historical `options.reg_sho_daily` rows stay
@@ -601,7 +607,9 @@ A single Durable Object instance (`EtlScheduler`) runs a self-rescheduling
 - **Single-flight for free.** A DO runs one `alarm()` at a time; the next alarm
   is armed only after the pass returns. A `passing` storage flag additionally
   guards manual `/loop/trigger` against an in-flight pass, so overlapping runs
-  and duplicate run publication are impossible.
+  and duplicate run publication are impossible. A new isolate deletes leftover
+  `passing` in `blockConcurrencyWhile` (deploy/reset cannot inherit a dead
+  pass); `/jobs` reports the flag as `passing`.
 
 ### Bootstrap
 

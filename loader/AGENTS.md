@@ -153,8 +153,13 @@ Runs via the `EtlScheduler` Durable Object alarm loop
   guards manual `/loop/trigger`. Preserve both. The flag is stored as a numeric
   timestamp; a marker older than `LOADER_RUN_TIMEOUT_SECONDS` + 60s (or a legacy
   boolean) is treated as stale and cleared in `tick()` so a "Durable Object
-  reset" mid-pass can never permanently stall the loop. `triggerJob` (per-job
-  kick) uses the same guard and returns 409 while a pass is in flight.
+  reset" mid-pass can never permanently stall the loop. On isolate start
+  (`blockConcurrencyWhile` in the `EtlScheduler` constructor) leftover
+  `passing` is deleted immediately — a `wrangler deploy` otherwise 409s every
+  `/jobs/*/trigger` until the stale window (seen on Kalshi RFQ re-force after
+  provision redeploy). `triggerJob` (per-job kick) uses the same guard and
+  returns 409 while a pass is in flight. `/jobs` and `/jobs/{id}` expose
+  `passing` so operators can see the lock without waiting for 409.
 - **Market-closed override — `?force=1` on a job trigger.** Market-gated jobs
   skip their pass while the US session is closed; ungated jobs still run when
   due (the alarm wakes for them overnight). The *safe* way to run a
