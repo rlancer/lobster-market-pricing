@@ -1,0 +1,109 @@
+name: Fill Kalshi RFQ quotes
+
+# Uses GitHub secrets KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_PEM to solicit
+# capped same-game sports RFQ quotes (create/poll/cancel, never accept), then
+# publish to options.kalshi_markets when the Kalshi pipeline URL can be read.
+#
+# Required GitHub secrets: KALSHI_ACCESS_KEY_ID, KALSHI_PRIVATE_KEY_PEM
+# For publish: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, PIPELINE_AUTH_TOKEN
+# Optional: PIPELINES_ADMIN_TOKEN, R2_DATA_CATALOG_TOKEN (stream list fallback)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/kalshi-rfq-force-retry-9da8
+
+concurrency:
+  group: fill-kalshi-rfq
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+      PIPELINES_ADMIN_TOKEN: ${{ secrets.PIPELINES_ADMIN_TOKEN }}
+      R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      KALSHI_ACCESS_KEY_ID: ${{ secrets.KALSHI_ACCESS_KEY_ID }}
+      KALSHI_PRIVATE_KEY_PEM: ${{ secrets.KALSHI_PRIVATE_KEY_PEM }}
+      KALSHI_RFQ_PROBE_ENABLED: "1"
+      KALSHI_SPORTS_LOOKBACK_DAYS: "0"
+      STREAM: cboe_kalshi_markets_v2
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require Kalshi secrets
+        run: |
+          set -euo pipefail
+          if [ -z "${KALSHI_ACCESS_KEY_ID:-}" ] || [ -z "${KALSHI_PRIVATE_KEY_PEM:-}" ]; then
+            echo "::error::GitHub secrets KALSHI_ACCESS_KEY_ID and KALSHI_PRIVATE_KEY_PEM are required (gh secret set both; PEM must include BEGIN/END lines)."
+            exit 2
+          fi
+          echo "Kalshi secrets present (values not printed). key_id_len=${#KALSHI_ACCESS_KEY_ID} pem_len=${#KALSHI_PRIVATE_KEY_PEM}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Capture pipeline ingest URL
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::warning::No Cloudflare token — RFQ tape will not be published"
+            exit 0
+          fi
+          PIPELINES_TOKEN="${PIPELINES_ADMIN_TOKEN:-}"
+          if [ -z "$PIPELINES_TOKEN" ]; then
+            PIPELINES_TOKEN="$CLOUDFLARE_API_TOKEN"
+          fi
+          try_get() {
+            CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler pipelines streams get "$STREAM" --json \
+              >"/tmp/${STREAM}.json" 2>/tmp/stream.err && return 0
+            if [ "$PIPELINES_TOKEN" != "${R2_DATA_CATALOG_TOKEN:-}" ] && [ -n "${R2_DATA_CATALOG_TOKEN:-}" ]; then
+              PIPELINES_TOKEN="$R2_DATA_CATALOG_TOKEN"
+              CLOUDFLARE_API_TOKEN="$PIPELINES_TOKEN" npx wrangler pipelines streams get "$STREAM" --json \
+                >"/tmp/${STREAM}.json" 2>/tmp/stream.err && return 0
+            fi
+            echo "::warning::Could not read Kalshi stream (not publishing)"
+            cat /tmp/stream.err >&2 || true
+            return 0
+          }
+          try_get
+          if [ -f "/tmp/${STREAM}.json" ]; then
+            ENDPOINT=$(node -e "const s=require('/tmp/${STREAM}.json'); if(!s.endpoint) process.exit(2); process.stdout.write(s.endpoint)")
+            echo "PIPELINE_KALSHI_MARKETS_URL=$ENDPOINT" >> "$GITHUB_ENV"
+            echo "Stream endpoint captured (value not printed)."
+          fi
+
+      - name: Auth check (GET markets + GET own RFQs)
+        working-directory: loader
+        run: npx vite-node tools/kalshi_rfq_auth_check.ts
+
+      - name: Solicit RFQ quotes and publish
+        working-directory: loader
+        env:
+          KALSHI_RFQ_FILL_OUT: /tmp/kalshi_rfq_fill.json
+        run: npx vite-node tools/kalshi_rfq_fill.ts
+
+      - name: Upload RFQ tape
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalshi-rfq-fill
+          path: /tmp/kalshi_rfq_fill.json
+          if-no-files-found: ignore

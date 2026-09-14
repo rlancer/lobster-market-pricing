@@ -8,15 +8,13 @@ name: Force Kalshi markets hourly
 # Required GitHub secret: LOADER_TOKEN
 #
 # Trigger: workflow_dispatch, or push to cursor/force-kalshi-markets-f300
-# or cursor/kalshi-rfq-force-retry-9da8 (gh workflow_dispatch is 403 for the
-# Cursor integration token).
+# (gh workflow_dispatch is 403 for the Cursor integration token).
 
 on:
   workflow_dispatch:
   push:
     branches:
       - cursor/force-kalshi-markets-f300
-      - cursor/kalshi-rfq-force-retry-9da8
 
 concurrency:
   group: force-kalshi-markets
