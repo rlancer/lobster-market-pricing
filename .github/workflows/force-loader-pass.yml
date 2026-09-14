@@ -37,6 +37,7 @@ on:
           - sec-filings-daily
           - instruments-daily
           - kalshi-markets-hourly
+          - kalshi-parlay-executor
         default: cboe-options
       passes:
         description: 'Number of forced passes to run (each handles up to 40 due items)'
@@ -49,6 +50,7 @@ permissions:
 jobs:
   force-pass:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: Force loader pass(es)
         env:
@@ -62,18 +64,78 @@ jobs:
             echo "::error::LOADER_TOKEN secret is not set on this repository"
             exit 1
           fi
+          # Kalshi passes are paced (RFQ wait + series gaps) and can outlive a
+          # sync curl. async=1 + last_pass poll matches provision-kalshi-markets.
+          async_job=0
+          case "$JOB" in
+            kalshi-*) async_job=1 ;;
+          esac
           for i in $(seq 1 "$PASSES"); do
             echo "== forced pass $i/$PASSES: $JOB?force=1 =="
-            resp=$(curl -sS -X POST \
-              -H "Authorization: Bearer $LOADER_TOKEN" \
-              -w '\n__HTTP_%{http_code}' \
-              "$LOADER_URL/jobs/$JOB/trigger?force=1")
-            body="${resp%__HTTP_*}"
-            code="${resp##*__HTTP_}"
-            echo "$body"
-            if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
-              echo "::error::pass $i returned HTTP $code — did not complete"
-              exit 1
+            if [ "$async_job" = "1" ]; then
+              before_at=$(curl -sS "$LOADER_URL/jobs/$JOB" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+              echo "before_at=$before_at"
+              triggered=0
+              for attempt in $(seq 1 40); do
+                set +e
+                resp=$(curl -sS -X POST \
+                  -H "Authorization: Bearer $LOADER_TOKEN" \
+                  -m 60 \
+                  -w '\n__HTTP_%{http_code}' \
+                  "$LOADER_URL/jobs/$JOB/trigger?force=1&async=1")
+                curl_ec=$?
+                set -e
+                if [ "$curl_ec" -ne 0 ]; then
+                  echo "trigger attempt $attempt: curl exit $curl_ec"
+                  sleep 15
+                  continue
+                fi
+                body="${resp%__HTTP_*}"
+                code="${resp##*__HTTP_}"
+                echo "trigger attempt $attempt: HTTP $code $body"
+                if [ "$code" = "200" ] && echo "$body" | grep -q '"ok":true'; then
+                  triggered=1
+                  break
+                fi
+                if [ "$code" = "409" ]; then
+                  echo "Loader busy (409) — retrying trigger."
+                  sleep 15
+                  continue
+                fi
+                echo "::warning::Worker trigger returned HTTP $code — retrying"
+                sleep 15
+              done
+              if [ "$triggered" != "1" ]; then
+                echo "::error::pass $i never accepted a trigger"
+                exit 1
+              fi
+              for poll in $(seq 1 60); do
+                status=$(curl -sS "$LOADER_URL/jobs/$JOB")
+                after_at=$(echo "$status" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+                echo "poll $poll: finished_at=$after_at"
+                if [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
+                  echo "$status" | jq '{ok, job_id:.job.job_id, last_pass:.job.last_pass}'
+                  break
+                fi
+                if [ "$poll" = "60" ]; then
+                  echo "::error::pass $i timed out waiting for last_pass"
+                  echo "$status" | jq .
+                  exit 1
+                fi
+                sleep 15
+              done
+            else
+              resp=$(curl -sS -X POST \
+                -H "Authorization: Bearer $LOADER_TOKEN" \
+                -w '\n__HTTP_%{http_code}' \
+                "$LOADER_URL/jobs/$JOB/trigger?force=1")
+              body="${resp%__HTTP_*}"
+              code="${resp##*__HTTP_}"
+              echo "$body"
+              if [ "$code" != "200" ] || ! echo "$body" | grep -q '"ok":true'; then
+                echo "::error::pass $i returned HTTP $code — did not complete"
+                exit 1
+              fi
             fi
             sleep 5  # let D1 settle between passes so each sees the updated due set
           done
