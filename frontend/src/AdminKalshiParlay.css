@@ -1,0 +1,21 @@
+.admin-kalshi-parlay-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.admin-kalshi-parlay-error {
+  color: var(--color-error);
+}
+
+.admin-kalshi-parlay-table {
+  width: 100%;
+}
+
+.admin-kalshi-parlay-link {
+  color: var(--color-text-accent);
+  text-decoration: none;
+}
+
+.admin-kalshi-parlay-link:hover {
+  text-decoration: underline;
+}

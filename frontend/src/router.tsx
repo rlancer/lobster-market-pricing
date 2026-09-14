@@ -27,6 +27,7 @@ import ChatExplorePage from './ChatExplore';
 import AdminPage from './AdminPage';
 import AdminTestRunsPage from './AdminTestRuns';
 import AdminQualityGatePage from './AdminQualityGate';
+import AdminKalshiParlayPage from './AdminKalshiParlay';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import DeskApproachesNotebookPage from './DeskApproachesNotebook';
@@ -280,6 +281,12 @@ const adminQualityGateRoute = createRoute({
   component: AdminQualityGatePage,
 });
 
+const adminKalshiParlayRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/kalshi-parlay',
+  component: AdminKalshiParlayPage,
+});
+
 
 const experimentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -430,6 +437,7 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   adminTestRunsRoute,
   adminQualityGateRoute,
+  adminKalshiParlayRoute,
   experimentsRoute,
   textVsImageExperimentRoute,
   deskApproachesExperimentRoute,

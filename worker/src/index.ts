@@ -31,6 +31,7 @@ import { handleInboundEmail, HELLO_FORWARD_TO } from "./inbound-email";
 import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
+import { handleAdminKalshiParlay } from "./admin-kalshi-parlay";
 import { createAuth, getSessionUser, googleConfigured, impersonationAllowed, isTrustedOrigin, type SessionUser } from "./auth";
 import { mintDevSession, resolveImpersonationEmail } from "./dev-session";
 import {
@@ -4822,6 +4823,11 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
 
   const qualityGate = await handleQualityGate(env, req, path, ctx);
   if (qualityGate) return qualityGate;
+
+  const kalshiParlayAdmin = await handleAdminKalshiParlay(env, req, path, {
+    requireAdmin: (r) => requireBotAdmin(env, r),
+  });
+  if (kalshiParlayAdmin) return kalshiParlayAdmin;
 
   const qaRuns = await handleQaRuns(env, req, path);
   if (qaRuns) return qaRuns;
