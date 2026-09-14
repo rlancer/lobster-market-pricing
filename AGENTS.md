@@ -218,7 +218,12 @@ are slow to capture and review; use them only when they add signal.
   Also `gh secret set` both names so CI never loses them. PEM body alone is
   not enough — wrap with `BEGIN RSA PRIVATE KEY` / `END` before upload.
 - **Worker redeploys preserve secrets** (R2_SQL_TOKEN, PIPELINE_*_URL, …);
-  CI needs only `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`.
+  CI needs only `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`. Do not
+  `wrangler secret put` in the Worker deploy job *before* `wrangler deploy`
+  — a Cloudflare 503 on PUT /secrets skipped production Worker + Pages
+  (2026-09-14, `BETTER_AUTH_SECRET`) and left `api.lobster.mp` on the
+  previous build. `deploy.yml` publishes first, then syncs GitHub → Worker
+  secrets with retries (`.github/scripts/sync-screener-secrets.sh`).
 - **My Machines inherits the worker checkout branch.** Remote-computer
   sessions have no `startingRef` picker — they attach to whatever branch the
   worker dir currently has checked out. Always start a fresh worktree from

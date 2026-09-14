@@ -5,8 +5,9 @@ name: Deploy
 #              and backend always speak the same API contract.
 #
 # Frontend: `wrangler pages deploy frontend/dist`.
-# Workers: `wrangler deploy` from worker/. Each Worker's secrets persist across
-# redeploys; screener-api-dev is seeded once outside CI just like production.
+# Workers: `wrangler deploy` from worker/. Secrets persist across redeploys.
+# GitHub → Worker secret sync runs *after* publish (retry on Cloudflare 503);
+# a secret-put flake must not skip Worker or Pages.
 
 on:
   push:
@@ -61,6 +62,9 @@ jobs:
       - name: Typecheck Worker
         run: cd worker && npx tsc --noEmit
 
+      - name: Test Worker secret-sync script
+        run: bash .github/scripts/sync-screener-secrets.test.sh
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v6
         with:
@@ -109,155 +113,10 @@ jobs:
       - name: Install Worker dependencies
         run: cd worker && npm ci
 
-      # (Re)inject the Tavily news key onto the deployed Worker so the secret
-      # survives redeploys and stays in sync with its value here, mirroring how
-      # R2_SQL_TOKEN is stored. `wrangler secret put` reads the value from stdin.
-      - name: Set TAVILY_API_KEY secret on Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: echo "${{ secrets.TAVILY_API_KEY }}" | npx wrangler secret put TAVILY_API_KEY --name screener-api
-        working-directory: worker
-
-      # FRED key is optional (/api/econ_calendar falls back to the keyless Fed
-      # calendar); skipped until the secret exists. `secrets` is invalid in a
-      # step-level `if`, so the guard lives in the shell command instead.
-      - name: Set FRED_API_KEY secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.FRED_API_KEY }}" ]; then
-            echo "${{ secrets.FRED_API_KEY }}" | npx wrangler secret put FRED_API_KEY --name screener-api
-          else
-            echo "FRED_API_KEY not set — skipping (keyless Fed-calendar fallback active)"
-          fi
-        working-directory: worker
-
-      # OpenRouter site key used only by the Worker's server-side chat loop.
-      # Guarded sync leaves any existing deployed secret intact when GitHub has
-      # not been configured with a replacement.
-      - name: Set OPEN_ROUTER_KEY secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.OPEN_ROUTER_KEY }}" ]; then
-            echo "${{ secrets.OPEN_ROUTER_KEY }}" | npx wrangler secret put OPEN_ROUTER_KEY --name screener-api
-          else
-            echo "OPEN_ROUTER_KEY not set — skipping (Chat remains unavailable without an existing secret)"
-          fi
-        working-directory: worker
-
-      # Admin bearer token guarding GET /api/admin/chat_history (transcripts
-      # with ip/user_id) and private lake SQL. Tool-call debug is public
-      # (GET /api/tool_calls). Same guarded pattern: synced here because
-      # GitHub secrets are the project's de-facto secrets manager, and
-      # skipped (leaving an existing value intact) until the GitHub secret
-      # exists.
-      - name: Set ADMIN_TOKEN secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.ADMIN_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api
-          else
-            echo "ADMIN_TOKEN not set — skipping (chat history admin endpoint stays closed)"
-          fi
-        working-directory: worker
-
-      # Same LOADER_TOKEN the cboe-to-r2 Worker uses for /run and /symbols/enroll.
-      # Chat/research auto-enroll missing tickers via POST /symbols/enroll;
-      # without this secret on screener-api enrollment is a soft no-op.
-      - name: Set LOADER_TOKEN secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.LOADER_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.LOADER_TOKEN }}" | npx wrangler secret put LOADER_TOKEN --name screener-api
-          else
-            echo "LOADER_TOKEN not set — skipping (on-demand ticker enrollment stays off)"
-          fi
-        working-directory: worker
-
-      # Fine-grained PAT (Issues: Read and write) so the timeline moderation
-      # improvement reporter can open deduped GitHub issues. Optional.
-      - name: Set IMPROVEMENT_ISSUE_TOKEN secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" | npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN --name screener-api
-          else
-            echo "IMPROVEMENT_ISSUE_TOKEN not set — skipping (moderation still runs; no GitHub issues)"
-          fi
-        working-directory: worker
-
-      # Better Auth (Google OAuth). Cookie is HttpOnly on .lobster.mp; the
-      # Worker is the only writer of user_id. Guarded: skipped until the
-      # GitHub secret exists so a missing value never clobbers a live secret.
-      - name: Set BETTER_AUTH_SECRET secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.BETTER_AUTH_SECRET }}" ]; then
-            echo "${{ secrets.BETTER_AUTH_SECRET }}" | npx wrangler secret put BETTER_AUTH_SECRET --name screener-api
-          else
-            echo "BETTER_AUTH_SECRET not set — skipping (optional Chat login stays off)"
-          fi
-        working-directory: worker
-
-      - name: Set GOOGLE_CLIENT_ID secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ]; then
-            echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID --name screener-api
-          else
-            echo "GOOGLE_CLIENT_ID not set — skipping (optional Chat login stays off)"
-          fi
-        working-directory: worker
-
-      - name: Set GOOGLE_CLIENT_SECRET secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ]; then
-            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name screener-api
-          else
-            echo "GOOGLE_CLIENT_SECRET not set — skipping (optional Chat login stays off)"
-          fi
-        working-directory: worker
-
-      - name: Set SCHWAB_CLIENT_ID secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.SCHWAB_CLIENT_ID }}" ]; then
-            echo "${{ secrets.SCHWAB_CLIENT_ID }}" | npx wrangler secret put SCHWAB_CLIENT_ID --name screener-api
-          else
-            echo "SCHWAB_CLIENT_ID not set — skipping (Connect Schwab stays off)"
-          fi
-        working-directory: worker
-
-      - name: Set SCHWAB_CLIENT_SECRET secret on Worker (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.SCHWAB_CLIENT_SECRET }}" ]; then
-            echo "${{ secrets.SCHWAB_CLIENT_SECRET }}" | npx wrangler secret put SCHWAB_CLIENT_SECRET --name screener-api
-          else
-            echo "SCHWAB_CLIENT_SECRET not set — skipping (Connect Schwab stays off)"
-          fi
-        working-directory: worker
+      # Secrets persist across `wrangler deploy`. Do not `secret put` before
+      # publish — a Cloudflare 503 on PUT /secrets skipped Worker + Pages
+      # (2026-09-14, BETTER_AUTH_SECRET) and left api.lobster.mp on the previous
+      # build. GitHub → Worker sync runs after this job succeeds.
 
       # Apply pending D1 migrations to the REMOTE database explicitly BEFORE
       # deploy. wrangler's auto-apply-on-deploy prompt never fires when the
@@ -280,6 +139,47 @@ jobs:
           workingDirectory: worker
           command: deploy --env=""
 
+  # GitHub is the secrets store; Worker secrets persist across deploys. Sync
+  # after publish so a Cloudflare 503 on PUT /secrets cannot skip Worker/Pages.
+  # continue-on-error: code already shipped; remaining 503s are logged, not a
+  # rollback. Empty GitHub values skip so they never clobber a live secret.
+  sync-worker-prod-secrets:
+    name: Sync production Worker secrets
+    needs: deploy-worker-prod
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker dependencies
+        run: cd worker && npm ci
+
+      - name: Sync GitHub secrets onto screener-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          OPEN_ROUTER_KEY: ${{ secrets.OPEN_ROUTER_KEY }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+          IMPROVEMENT_ISSUE_TOKEN: ${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+        run: bash ../.github/scripts/sync-screener-secrets.sh screener-api
+        working-directory: worker
+
   deploy-worker-dev:
     name: Deploy → dev (Worker)
     needs: build
@@ -301,122 +201,10 @@ jobs:
       - name: Install Worker dependencies
         run: cd worker && npm ci
 
-      # Secrets are pre-seeded on screener-api-dev and survive redeploys. Never
-      # copy production secret values through the browser or repository.
-      # Auth secrets are synced here so preview can sign in on the shared
-      # parent domain (dev.lobster.mp → api-dev.lobster.mp) without waiting
-      # for a main deploy. ADMIN_TOKEN too — preview agents debug via
-      # api-dev.lobster.mp/api/admin/chat_history. LOADER_TOKEN enables
-      # on-demand ticker enrollment against cboe-to-r2 from preview Chat.
-      - name: Set ADMIN_TOKEN secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.ADMIN_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.ADMIN_TOKEN }}" | npx wrangler secret put ADMIN_TOKEN --name screener-api-dev
-          else
-            echo "ADMIN_TOKEN not set — skipping (chat history admin endpoint stays closed on preview)"
-          fi
-        working-directory: worker
-
-      - name: Set LOADER_TOKEN secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.LOADER_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.LOADER_TOKEN }}" | npx wrangler secret put LOADER_TOKEN --name screener-api-dev
-          else
-            echo "LOADER_TOKEN not set — skipping (on-demand ticker enrollment stays off on preview)"
-          fi
-        working-directory: worker
-
-      - name: Set IMPROVEMENT_ISSUE_TOKEN secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" ]; then
-            printf '%s' "${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}" | npx wrangler secret put IMPROVEMENT_ISSUE_TOKEN --name screener-api-dev
-          else
-            echo "IMPROVEMENT_ISSUE_TOKEN not set — skipping (preview moderation will not file issues)"
-          fi
-        working-directory: worker
-
-      # Preview Chat + share title/NER tags need the same OpenRouter key as
-      # production. Guarded so a missing GitHub secret never clobbers a seeded value.
-      - name: Set OPEN_ROUTER_KEY secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.OPEN_ROUTER_KEY }}" ]; then
-            echo "${{ secrets.OPEN_ROUTER_KEY }}" | npx wrangler secret put OPEN_ROUTER_KEY --name screener-api-dev
-          else
-            echo "OPEN_ROUTER_KEY not set — skipping (share NER / preview Chat stay off without an existing secret)"
-          fi
-        working-directory: worker
-
-      - name: Set BETTER_AUTH_SECRET secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.BETTER_AUTH_SECRET }}" ]; then
-            echo "${{ secrets.BETTER_AUTH_SECRET }}" | npx wrangler secret put BETTER_AUTH_SECRET --name screener-api-dev
-          else
-            echo "BETTER_AUTH_SECRET not set — skipping (optional Chat login stays off on preview)"
-          fi
-        working-directory: worker
-
-      - name: Set GOOGLE_CLIENT_ID secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ]; then
-            echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID --name screener-api-dev
-          else
-            echo "GOOGLE_CLIENT_ID not set — skipping"
-          fi
-        working-directory: worker
-
-      - name: Set GOOGLE_CLIENT_SECRET secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ]; then
-            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET --name screener-api-dev
-          else
-            echo "GOOGLE_CLIENT_SECRET not set — skipping"
-          fi
-        working-directory: worker
-
-      - name: Set SCHWAB_CLIENT_ID secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.SCHWAB_CLIENT_ID }}" ]; then
-            echo "${{ secrets.SCHWAB_CLIENT_ID }}" | npx wrangler secret put SCHWAB_CLIENT_ID --name screener-api-dev
-          else
-            echo "SCHWAB_CLIENT_ID not set — skipping"
-          fi
-        working-directory: worker
-
-      - name: Set SCHWAB_CLIENT_SECRET secret on screener-api-dev (if configured)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -n "${{ secrets.SCHWAB_CLIENT_SECRET }}" ]; then
-            echo "${{ secrets.SCHWAB_CLIENT_SECRET }}" | npx wrangler secret put SCHWAB_CLIENT_SECRET --name screener-api-dev
-          else
-            echo "SCHWAB_CLIENT_SECRET not set — skipping"
-          fi
-        working-directory: worker
+      # Secrets are pre-seeded on screener-api-dev and survive redeploys.
+      # Sync after publish (sync-worker-dev-secrets) so a 503 on secret put
+      # cannot skip the preview Worker. Never copy production secret values
+      # through the browser or repository.
 
       # Same D1 as production (screener-schema-cache). Additive CREATE TABLE
       # migrations must land before the preview Worker serves /api/auth and
@@ -435,6 +223,44 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
           command: deploy --env dev
+
+  sync-worker-dev-secrets:
+    name: Sync preview Worker secrets
+    needs: deploy-worker-dev
+    if: >
+      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: development
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker dependencies
+        run: cd worker && npm ci
+
+      - name: Sync GitHub secrets onto screener-api-dev
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPEN_ROUTER_KEY: ${{ secrets.OPEN_ROUTER_KEY }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+          IMPROVEMENT_ISSUE_TOKEN: ${{ secrets.IMPROVEMENT_ISSUE_TOKEN }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
+          SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+        run: bash ../.github/scripts/sync-screener-secrets.sh screener-api-dev
+        working-directory: worker
 
   deploy-dev:
     name: Deploy → dev
