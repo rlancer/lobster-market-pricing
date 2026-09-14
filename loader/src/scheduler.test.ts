@@ -545,7 +545,11 @@ describe("EtlScheduler — batch-scoped jobs", () => {
       universe: () => ["A1", "B2", "C3"],
       run: async (items) => {
         rec.ranItems = items;
-        return { runId: "r1", failures: [{ symbol: "B2", error: "boom" }] };
+        return {
+          runId: "r1",
+          failures: [{ symbol: "B2", error: "boom" }],
+          detail: { execute: true, accepted: 0 },
+        };
       },
     };
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
@@ -557,6 +561,7 @@ describe("EtlScheduler — batch-scoped jobs", () => {
     expect(pass.attempted).toBe(3);
     expect(pass.succeeded).toBe(2);
     expect(pass.failed).toBe(1);
+    expect(pass.detail).toEqual({ execute: true, accepted: 0 });
     // Batch jobs touch no item store.
     expect(db.symbolState.size).toBe(0);
     // Scheduled at the daily cadence, not the poll interval.

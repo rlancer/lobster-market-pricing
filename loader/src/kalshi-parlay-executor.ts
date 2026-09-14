@@ -170,11 +170,13 @@ async function executeOne(
   base.rfq_id = solicited.rfqId;
   if (solicited.forbidden) {
     base.error = "forbidden";
+    console.warn(`kalshi parlay executor: skip ${target.market_ticker} reasons=forbidden`);
     return base;
   }
   try {
     if (!solicited.twoWay) {
       base.error = "no_two_way";
+      console.warn(`kalshi parlay executor: skip ${target.market_ticker} reasons=no_two_way`);
       return base;
     }
     base.yes_bid = solicited.twoWay.yes_bid;
@@ -183,7 +185,12 @@ async function executeOne(
     const filter = decisionFromTwoWay(target, legs, solicited.twoWay);
     base.filter = filter;
     base.would_accept = filter.ok;
-    if (!filter.ok) return base;
+    if (!filter.ok) {
+      console.warn(
+        `kalshi parlay executor: skip ${target.market_ticker} reasons=${filter.reasons.join(",")}`,
+      );
+      return base;
+    }
     if (!live) {
       console.warn(
         `kalshi parlay executor: would_accept ${target.market_ticker} ask=${solicited.twoWay.yes_ask.toFixed(3)} indep=${filter.independence.toFixed(3)} room=${filter.corr_room.toFixed(3)}`,
@@ -192,6 +199,7 @@ async function executeOne(
     }
     if (!solicited.rfqId || !solicited.twoWay.quote_id) {
       base.error = "no_quote_id";
+      console.warn(`kalshi parlay executor: skip ${target.market_ticker} reasons=no_quote_id`);
       return base;
     }
     await acceptParlayQuote(env, solicited.rfqId, solicited.twoWay.quote_id);
@@ -202,8 +210,36 @@ async function executeOne(
     base.error = error instanceof Error ? error.message : String(error);
     return base;
   } finally {
-    if (solicited.rfqId && !base.accepted) await cancelKalshiRfq(env, solicited.rfqId);
+    if (solicited.rfqId && !base.accepted) {
+      await cancelKalshiRfq(env, solicited.rfqId);
+      console.warn(`kalshi parlay executor: deleted rfq ${solicited.rfqId} ${target.market_ticker}`);
+    }
   }
+}
+
+export function parlayExecutorPassDetail(
+  pass: ParlayExecutorPass,
+  flags: { execute: boolean; live: boolean },
+): Record<string, unknown> {
+  return {
+    execute: flags.execute,
+    live: flags.live,
+    attempted: pass.attempted,
+    would_accept: pass.would_accept,
+    accepted: pass.accepted,
+    skipped: pass.skipped,
+    decisions: pass.decisions.slice(0, 20).map((row) => ({
+      market_ticker: row.market_ticker,
+      would_accept: row.would_accept,
+      accepted: row.accepted,
+      reasons: row.filter?.reasons ?? [],
+      error: row.error,
+      yes_bid: row.yes_bid,
+      yes_ask: row.yes_ask,
+      rfq_id: row.rfq_id,
+      quote_id: row.quote_id,
+    })),
+  };
 }
 
 /**

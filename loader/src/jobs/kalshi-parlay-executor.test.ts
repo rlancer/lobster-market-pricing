@@ -13,5 +13,12 @@ describe("kalshi-parlay-executor job adapter", () => {
     const result = await job.run(["KXMVE"], {});
     expect(result.failures).toEqual([]);
     expect(result.runId).toBeNull();
+    expect(result.detail).toMatchObject({
+      execute: false,
+      live: false,
+      attempted: 0,
+      would_accept: 0,
+      accepted: 0,
+    });
   });
 });

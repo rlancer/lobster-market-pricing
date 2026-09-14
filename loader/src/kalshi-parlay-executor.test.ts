@@ -133,6 +133,10 @@ describe("runKalshiParlayExecutorPass", () => {
   it("dry-run solicits, logs would_accept, deletes, and never accepts", async () => {
     const pem = await generateTestPem();
     const calls: Array<{ url: string; method: string }> = [];
+    const warns: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(" "));
+    });
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method || "GET").toUpperCase();
@@ -226,7 +230,10 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(calls.some((c) => c.method === "DELETE")).toBe(true);
       expect(calls.some((c) => /accept/i.test(c.url))).toBe(false);
       expect(calls.some((c) => /confirm/i.test(c.url))).toBe(false);
+      expect(warns.some((line) => line.includes("would_accept"))).toBe(true);
+      expect(warns.some((line) => line.includes("deleted rfq"))).toBe(true);
     } finally {
+      warnSpy.mockRestore();
       vi.unstubAllGlobals();
     }
   });
@@ -327,6 +334,114 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(accept?.body).toContain("yes");
       expect(calls.some((c) => /confirm/i.test(c.url))).toBe(false);
     } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("dry-run skips a Fréchet-priced tape, deletes the RFQ, and never accepts", async () => {
+    const pem = await generateTestPem();
+    const calls: Array<{ url: string; method: string }> = [];
+    const warns: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(" "));
+    });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method || "GET").toUpperCase();
+      calls.push({ url, method });
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({
+          markets: [{
+            ticker: "KXMVECROSSCATEGORY-HENRYJACK",
+            event_ticker: "KXMVECROSSCATEGORY-HENRYJACK",
+            series_ticker: "KXMVE",
+            title: "Henry 110+ AND Jackson 40+",
+            category: "Sports",
+            status: "active",
+            market_type: "binary",
+            mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+            mve_selected_legs: SAME_GAME_LEGS,
+            yes_bid_dollars: "0.00",
+            yes_ask_dollars: "0.00",
+            last_price_dollars: "0.00",
+            volume_fp: "0",
+            close_time: "2026-09-14T00:00:00Z",
+          }],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Henry 110+",
+              status: "active",
+              yes_bid_dollars: "0.39",
+              yes_ask_dollars: "0.41",
+              last_price_dollars: "0.40",
+              volume_fp: "100",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Jackson 40+",
+              status: "active",
+              yes_bid_dollars: "0.48",
+              yes_ask_dollars: "0.50",
+              last_price_dollars: "0.49",
+              volume_fp: "80",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+          ],
+        }), { status: 200 });
+      }
+      if (url.includes("/communications/rfqs") && method === "GET") {
+        return new Response(JSON.stringify({ rfqs: [] }), { status: 200 });
+      }
+      if (url.endsWith("/communications/rfqs") && method === "POST") {
+        return new Response(JSON.stringify({ id: "rfq-skip" }), { status: 201 });
+      }
+      if (url.includes("/communications/quotes") && method === "GET") {
+        return new Response(JSON.stringify({
+          quotes: [{
+            id: "q-skip",
+            status: "open",
+            yes_bid_dollars: "0.38",
+            no_bid_dollars: "0.59",
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("/communications/rfqs/rfq-skip") && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    });
+    try {
+      const pass = await runKalshiParlayExecutorPass({
+        KALSHI_PARLAY_EXECUTE: "1",
+        KALSHI_ACCESS_KEY_ID: "key",
+        KALSHI_PRIVATE_KEY_PEM: pem,
+        KALSHI_RFQ_WAIT_MS: 0,
+        KALSHI_RFQ_POLL_MS: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        HTTP_RETRIES: 0,
+      });
+      expect(pass.attempted).toBe(1);
+      expect(pass.would_accept).toBe(0);
+      expect(pass.accepted).toBe(0);
+      expect(pass.decisions[0]?.filter?.reasons).toEqual(expect.arrayContaining(["ask_vs_indep", "phi"]));
+      expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+      expect(calls.some((c) => /accept/i.test(c.url))).toBe(false);
+      expect(calls.some((c) => /confirm/i.test(c.url))).toBe(false);
+      expect(warns.some((line) => line.includes("skip") && line.includes("ask_vs_indep"))).toBe(true);
+      expect(warns.some((line) => line.includes("deleted rfq"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
       vi.unstubAllGlobals();
     }
   });

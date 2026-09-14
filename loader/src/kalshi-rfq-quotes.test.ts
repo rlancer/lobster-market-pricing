@@ -214,6 +214,42 @@ describe("RFQ probe HTTP", () => {
     })).toBe(false);
   });
 
+  it("does not create RFQs when the executor owns the slot", async () => {
+    const pem = await generateTestPem();
+    const calls: string[] = [];
+    const warns: string[] = [];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(" "));
+    });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response("unexpected", { status: 500 });
+    });
+    try {
+      const combos = [combo()];
+      const out = await probeKalshiRfqQuotes(
+        {
+          KALSHI_ACCESS_KEY_ID: "key",
+          KALSHI_PRIVATE_KEY_PEM: pem,
+          KALSHI_RFQ_PROBE_ENABLED: "1",
+          KALSHI_PARLAY_EXECUTE: "1",
+        },
+        combos,
+        new Map([["KXMVECROSSCATEGORY-HENRYJACK", SAME_GAME_LEGS]]),
+        [
+          leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.39, 0.41),
+          leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.48, 0.50),
+        ],
+      );
+      expect(out).toEqual(combos);
+      expect(calls.some((url) => url.includes("/communications"))).toBe(false);
+      expect(warns.some((line) => line.includes("parlay executor owns RFQ slot"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("creates an RFQ, maps quotes, cancels, and never accepts", async () => {
     const pem = await generateTestPem();
     const calls: Array<{ url: string; method: string; body: string | null }> = [];

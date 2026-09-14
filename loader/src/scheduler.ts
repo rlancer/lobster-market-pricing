@@ -63,6 +63,8 @@ export interface JobRunFailure {
 export interface JobRunResult {
   runId: string | null;
   failures: JobRunFailure[];
+  /** Optional operator-visible pass detail, copied onto last_pass. */
+  detail?: Record<string, unknown>;
 }
 
 // A registered ETL job. Phase 2 registers two jobs via `jobs/registry.ts`
@@ -717,10 +719,14 @@ export class EtlScheduler {
     let failures: JobRunFailure[] = [];
     let runId: string | null = null;
     let transportError: string | null = null;
+    let detail: Record<string, unknown> | undefined;
     try {
       const result = await withTimeout(spec.run(batch, env), runTimeoutMs);
       runId = result.runId;
       if (Array.isArray(result.failures)) failures = result.failures;
+      if (result.detail && typeof result.detail === "object" && !Array.isArray(result.detail)) {
+        detail = result.detail;
+      }
     } catch (error) {
       transportError = String((error && (error as Error).message) || error);
     }
@@ -740,7 +746,7 @@ export class EtlScheduler {
       );
     }
 
-    const pass = {
+    const pass: Record<string, unknown> = {
       at: now,
       finished_at: Date.now(),
       run_id: runId,
@@ -756,6 +762,10 @@ export class EtlScheduler {
       transport_error: transportError,
       duration_ms: Date.now() - started,
     };
+    if (detail) {
+      const encoded = JSON.stringify(detail);
+      pass.detail = encoded.length > 16_000 ? { truncated: true } : detail;
+    }
     await this.storeMeta(`last_pass:${spec.id}`, pass);
     await this.updateJobState(spec, row, now, { succeeded: successItems.length, transport_error: transportError });
     console.log(JSON.stringify({

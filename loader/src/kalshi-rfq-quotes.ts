@@ -453,6 +453,10 @@ export async function probeKalshiRfqQuotes(
   comboLegs: ComboLegs,
   legs: KalshiMarketRow[],
 ): Promise<KalshiMarketRow[]> {
+  if (parlayExecuteEnabled(env)) {
+    console.warn("kalshi rfq probe: skipped (parlay executor owns RFQ slot)");
+    return combos;
+  }
   if (!rfqProbeEnabled(env) || combos.length === 0) return combos;
   const targets = pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env));
   if (targets.length === 0) return combos;

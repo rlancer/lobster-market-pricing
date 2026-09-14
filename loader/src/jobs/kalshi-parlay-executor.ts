@@ -1,11 +1,21 @@
 import type { BatchJob, SchedulerEnv } from "../scheduler.js";
 import type { KalshiEnv } from "../kalshi.js";
-import { parlayExecuteEnabled } from "../kalshi-parlay-filter.js";
-import { runKalshiParlayExecutorPass } from "../kalshi-parlay-executor.js";
+import { parlayExecuteEnabled, parlayLiveEnabled } from "../kalshi-parlay-filter.js";
+import {
+  parlayExecutorPassDetail,
+  runKalshiParlayExecutorPass,
+} from "../kalshi-parlay-executor.js";
 
 function num(env: SchedulerEnv, key: string, dflt: number): number {
   const v = Number(env && env[key]);
   return Number.isFinite(v) && v >= 0 ? v : dflt;
+}
+
+function idleDetail(env: SchedulerEnv): Record<string, unknown> {
+  return parlayExecutorPassDetail(
+    { attempted: 0, would_accept: 0, accepted: 0, skipped: 0, decisions: [] },
+    { execute: false, live: parlayLiveEnabled(env) },
+  );
 }
 
 // Same-game sports parlay RFQ executor. Batch, ungated, 5-minute cadence.
@@ -21,12 +31,19 @@ export function kalshiParlayExecutorJob(env: SchedulerEnv): BatchJob {
     universe: () => ["KXMVE"],
     run: async (_items, e) => {
       if (!parlayExecuteEnabled(e)) {
-        return { runId: null, failures: [] };
+        return { runId: null, failures: [], detail: idleDetail(e) };
       }
       const kalshiEnv: KalshiEnv = { ...(e as unknown as KalshiEnv) };
       try {
-        await runKalshiParlayExecutorPass(kalshiEnv);
-        return { runId: null, failures: [] };
+        const pass = await runKalshiParlayExecutorPass(kalshiEnv);
+        return {
+          runId: null,
+          failures: [],
+          detail: parlayExecutorPassDetail(pass, {
+            execute: true,
+            live: parlayLiveEnabled(e),
+          }),
+        };
       } catch (error) {
         return {
           runId: null,
