@@ -305,9 +305,10 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 `GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
 `accepted`, skip reasons). An empty pass records `idle_reason`
 (`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
-`open_combos`, `open_legs`, `combo_legs`, `same_game_two_leg`, and
-`missing_leg_mids`. Targeting uses Get Markets `mve_selected_legs`
-(including `event_ticker`), not the lake `category` encoding.
+`open_combos`, `open_legs`, `combo_legs`, `two_leg`, `same_game_two_leg`,
+`cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
+`mve_selected_legs` (including `event_ticker`), not the lake `category`
+encoding.
 Dry-run with EXECUTE on and LIVE off:
 `.github/workflows/force-kalshi-parlay-dry-run.yml` (push
 `cursor/run-kalshi-parlay-dry-run-*`, or Actions dispatch). That workflow

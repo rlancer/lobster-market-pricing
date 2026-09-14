@@ -222,8 +222,15 @@ describe("RFQ probe target ranking", () => {
       open_combos: 3,
       open_legs: 4,
       combo_legs: 3,
+      two_leg: 3,
       same_game_two_leg: 2,
+      cross_game_two_leg: 1,
       missing_leg_mids: 0,
+      samples: [
+        { market_ticker: "PRICED", n_legs: 2, game_group: "same_game", tape: "sports" },
+        { market_ticker: "UNPRICED", n_legs: 2, game_group: "same_game", tape: "sports" },
+        { market_ticker: "CROSS-GAME", n_legs: 2, game_group: "cross_game", tape: "sports" },
+      ],
     });
     const noMids = rfqProbeUniverseStats(
       [unpriced],

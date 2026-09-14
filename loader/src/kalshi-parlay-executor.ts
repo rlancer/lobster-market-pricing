@@ -233,8 +233,11 @@ export function emptyParlayPass(
     open_combos: universe.open_combos ?? 0,
     open_legs: universe.open_legs ?? 0,
     combo_legs: universe.combo_legs ?? 0,
+    two_leg: universe.two_leg ?? 0,
     same_game_two_leg: universe.same_game_two_leg ?? 0,
+    cross_game_two_leg: universe.cross_game_two_leg ?? 0,
     missing_leg_mids: universe.missing_leg_mids ?? 0,
+    samples: universe.samples ?? [],
   };
 }
 
@@ -249,8 +252,11 @@ export function parlayExecutorPassDetail(
     open_combos: pass.open_combos,
     open_legs: pass.open_legs,
     combo_legs: pass.combo_legs,
+    two_leg: pass.two_leg,
     same_game_two_leg: pass.same_game_two_leg,
+    cross_game_two_leg: pass.cross_game_two_leg,
     missing_leg_mids: pass.missing_leg_mids,
+    samples: pass.samples.slice(0, 5),
     attempted: pass.attempted,
     would_accept: pass.would_accept,
     accepted: pass.accepted,
@@ -294,7 +300,7 @@ export async function runKalshiParlayExecutorPass(
   const targets = pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env));
   if (targets.length === 0) {
     console.warn(
-      `kalshi parlay executor: skip no_targets open_combos=${universe.open_combos} open_legs=${universe.open_legs} combo_legs=${universe.combo_legs} same_game_two_leg=${universe.same_game_two_leg} missing_leg_mids=${universe.missing_leg_mids}`,
+      `kalshi parlay executor: skip no_targets open_combos=${universe.open_combos} open_legs=${universe.open_legs} combo_legs=${universe.combo_legs} two_leg=${universe.two_leg} same_game_two_leg=${universe.same_game_two_leg} cross_game_two_leg=${universe.cross_game_two_leg} missing_leg_mids=${universe.missing_leg_mids}`,
     );
     return emptyParlayPass("no_targets", universe);
   }

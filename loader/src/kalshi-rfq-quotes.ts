@@ -201,8 +201,16 @@ export interface RfqProbeUniverseStats {
   open_combos: number;
   open_legs: number;
   combo_legs: number;
+  two_leg: number;
   same_game_two_leg: number;
+  cross_game_two_leg: number;
   missing_leg_mids: number;
+  samples: Array<{
+    market_ticker: string;
+    n_legs: number;
+    game_group: string;
+    tape: string;
+  }>;
 }
 
 export function rfqProbeUniverseStats(
@@ -213,13 +221,32 @@ export function rfqProbeUniverseStats(
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
   let open_combos = 0;
   let combo_legs = 0;
+  let two_leg = 0;
   let same_game_two_leg = 0;
+  let cross_game_two_leg = 0;
   let missing_leg_mids = 0;
+  const samples: RfqProbeUniverseStats["samples"] = [];
   for (const combo of combos) {
     if (!isOpenCombo(combo)) continue;
     open_combos += 1;
     const spec = comboLegs.get(combo.market_ticker) ?? [];
+    const tickers = spec.map((leg) => leg.market_ticker);
+    const tape = tickers.length ? mveTapeKind(tickers) : "none";
+    const games = spec.map((leg) => sportsGameKey(leg.market_ticker, leg.event_ticker));
+    const game_group = spec.length < 2 ? "short" : parlayGameGroup(games);
     if (spec.length >= 2) combo_legs += 1;
+    if (spec.length === 2) {
+      two_leg += 1;
+      if (game_group === "cross_game") cross_game_two_leg += 1;
+    }
+    if (samples.length < 5) {
+      samples.push({
+        market_ticker: combo.market_ticker,
+        n_legs: spec.length,
+        game_group,
+        tape,
+      });
+    }
     if (!isSameGameSportsTwoLeg(spec)) continue;
     same_game_two_leg += 1;
     const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
@@ -230,8 +257,11 @@ export function rfqProbeUniverseStats(
     open_combos,
     open_legs: legs.length,
     combo_legs,
+    two_leg,
     same_game_two_leg,
+    cross_game_two_leg,
     missing_leg_mids,
+    samples,
   };
 }
 
