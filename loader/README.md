@@ -298,6 +298,16 @@ and redeploys `cboe-to-r2`. Flags: `--pem ./path.key`, `--key-id <uuid>`,
 `--env-file ./other.env`. Also accepts `KALSHI_PRIVATE_KEY_PEM="-----BEGIN…"`
 (double-quoted multi-line) in `.env` / `.dev.vars`.
 
+Diagnose whether a key can list RFQs (trading) vs only GET markets, without
+creating an RFQ:
+
+```bash
+cd loader
+npx vite-node tools/kalshi_rfq_auth_check.ts
+```
+
+Prints HTTP statuses only. Exit 3 = communications 401/403.
+
 Columns: `series_ticker`, `market_ticker`, `event_ticker`, `title`,
 `yes_subtitle`, `theme` (rates|inflation|growth|equity_index|crypto|commodity|sports),
 `category`, `status`, `market_type`, `yes_bid` / `yes_ask` / `yes_last` /
