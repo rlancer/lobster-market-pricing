@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
+import { existsSync } from 'node:fs';
 
 const ADMIN_EMAIL = 'robert.lancer@gmail.com';
 
 const FIXTURE = {
-  fetched_at: '2026-09-14T14:00:00.000Z',
+  fetched_at: new Date().toISOString(),
   executor: {
     job_id: 'kalshi-parlay-executor',
     enabled: true,
@@ -161,13 +162,22 @@ test.describe('Admin Kalshi parlay console', () => {
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: 'Admin', exact: true })).toBeVisible();
     await expect(page.getByText('Kalshi parlay bot', { exact: true })).toBeVisible();
+    if (existsSync('/opt/cursor/artifacts')) {
+      await page.setViewportSize({ width: 1280, height: 1400 });
+      await page.getByText('Kalshi parlay bot', { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: '/opt/cursor/artifacts/admin_hub_kalshi_parlay.png',
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
 
     await page.getByText('Kalshi parlay bot', { exact: true }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/admin/kalshi-parlay');
     await expect(page).toHaveTitle(/Kalshi parlay bot/);
     await expect(page.getByRole('heading', { name: 'Kalshi parlay bot' })).toBeVisible();
     await expect(page.getByText('Idle', { exact: true })).toBeVisible();
-    await expect(page.getByText('EXECUTE off')).toBeVisible();
+    await expect(page.getByText('EXECUTE off', { exact: true })).toBeVisible();
     await expect(page.getByText('Open combos 80')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
@@ -175,6 +185,12 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Kalshi parlays' })).toHaveAttribute('href', '/experiments/kalshi-parlays');
     expect(loaderHits).toEqual([]);
+    if (existsSync('/opt/cursor/artifacts')) {
+      await page.screenshot({
+        path: '/opt/cursor/artifacts/admin_kalshi_parlay_console.png',
+        fullPage: true,
+      });
+    }
   });
 
   test('non-admin visitors are sent home', async ({ page }) => {
@@ -187,5 +203,11 @@ test.describe('Admin Kalshi parlay console', () => {
     });
     await page.goto('/admin/kalshi-parlay');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+    if (existsSync('/opt/cursor/artifacts')) {
+      await page.screenshot({
+        path: '/opt/cursor/artifacts/admin_kalshi_parlay_signed_out.png',
+        fullPage: true,
+      });
+    }
   });
 });

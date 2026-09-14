@@ -256,7 +256,7 @@ export default function AdminKalshiParlayPage() {
                 size="sm"
               />
               <Token label={`Skipped ${executor.skipped}`} color="gray" size="sm" />
-              {executor.attempted === 0 && executor.idle_reason ? (
+              {executor.attempted === 0 && executor.idle_reason && executor.idle_reason !== 'execute_off' ? (
                 <Token label={executor.idle_reason.replace(/_/g, ' ')} color="orange" size="sm" />
               ) : null}
             </HStack>
@@ -282,11 +282,12 @@ export default function AdminKalshiParlayPage() {
           <VStack gap={2}>
             <Heading level={2}>Filter</Heading>
             <Text type="supporting">
-              Takes only 2-leg same-game same-side sports stacks: corr room ≥ 15¢, spread ≤ 8¢,
-              ask ≤ independence + 2¢, |φ| {'<'} 0.15, single-maker quote_id. Skips mixed yes/no,
-              n{'>'}2, leftover yes_last, and Fréchet-priced tapes. Dry-run logs would_accept and
-              DELETE the RFQ. Live YES accept needs EXECUTE=1 and LIVE=1; the maker confirms
-              (HVM 3s). The job never calls /confirm.
+              Takes only 2-leg same-game same-side sports stacks: corr room at least 15 cents,
+              spread at most 8 cents, ask at most independence + 2 cents, |phi| {'<'} 0.15,
+              single-maker quote_id. Skips mixed yes/no, n{'>'}2, leftover yes_last, and
+              Fréchet-priced tapes. Dry-run logs would_accept and DELETE the RFQ. Live YES
+              accept needs EXECUTE=1 and LIVE=1; the maker confirms (HVM 3s). The job never
+              calls /confirm.
             </Text>
           </VStack>
 
