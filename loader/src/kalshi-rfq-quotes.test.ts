@@ -221,6 +221,7 @@ describe("RFQ probe target ranking", () => {
     expect(stats).toEqual({
       open_combos: 3,
       open_legs: 4,
+      combo_legs: 3,
       same_game_two_leg: 2,
       missing_leg_mids: 0,
     });
@@ -234,6 +235,33 @@ describe("RFQ probe target ranking", () => {
     );
     expect(noMids.same_game_two_leg).toBe(1);
     expect(noMids.missing_leg_mids).toBe(1);
+    expect(noMids.combo_legs).toBe(1);
+  });
+
+  it("uses selected-leg event_ticker for same-game books without an NFL slug", () => {
+    const wnbaLegs: MveSelectedLeg[] = [
+      { event_ticker: "KXWNBAGAME-2026-09-14-NYL-LAS", market_ticker: "KXWNBAGAME-NYL-WIN", side: "yes" },
+      { event_ticker: "KXWNBAGAME-2026-09-14-NYL-LAS", market_ticker: "KXWNBAGAME-LAS-WIN", side: "yes" },
+    ];
+    const row = combo({ market_ticker: "WNBA-PARLAY" });
+    const priced = [
+      leg("KXWNBAGAME-NYL-WIN", 0.55, 0.57),
+      leg("KXWNBAGAME-LAS-WIN", 0.48, 0.50),
+    ];
+    const fromApi = pickRfqProbeTargets(
+      [row],
+      new Map([["WNBA-PARLAY", wnbaLegs]]),
+      priced,
+      12,
+    );
+    expect(fromApi).toHaveLength(1);
+    const fromCategory = pickRfqProbeTargets(
+      [row],
+      new Map([["WNBA-PARLAY", wnbaLegs.map((leg) => ({ ...leg, event_ticker: null }))]]),
+      priced,
+      12,
+    );
+    expect(fromCategory).toHaveLength(0);
   });
 });
 

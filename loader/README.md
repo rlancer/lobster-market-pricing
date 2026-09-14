@@ -280,6 +280,7 @@ Series is worth the extra call.
 Separate from the hourly tape. Buys unpriced same-game correlation:
 
 1. Open MVE combos + selected legs (no candle backfill, no research RFQ overlay).
+   Same-game grouping uses `mve_selected_legs.event_ticker`, not `category`.
 2. Rank same-game two-leg sports stacks by corr room (`min(p,q) − p×q`).
 3. Create an RFQ, wait for a private two-way, score it.
 4. **Filter (all required):** 2 legs, same game, same side (yes+yes or no+no),
@@ -304,7 +305,9 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 `GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
 `accepted`, skip reasons). An empty pass records `idle_reason`
 (`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
-`open_combos`, `open_legs`, `same_game_two_leg`, and `missing_leg_mids`.
+`open_combos`, `open_legs`, `combo_legs`, `same_game_two_leg`, and
+`missing_leg_mids`. Targeting uses Get Markets `mve_selected_legs`
+(including `event_ticker`), not the lake `category` encoding.
 Dry-run with EXECUTE on and LIVE off:
 `.github/workflows/force-kalshi-parlay-dry-run.yml` (push
 `cursor/run-kalshi-parlay-dry-run-*`, or Actions dispatch). That workflow

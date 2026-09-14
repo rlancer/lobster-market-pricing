@@ -223,6 +223,7 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(pass.attempted).toBe(0);
       expect(pass.open_combos).toBe(1);
       expect(pass.open_legs).toBe(2);
+      expect(pass.combo_legs).toBe(1);
       expect(pass.same_game_two_leg).toBe(1);
       expect(pass.missing_leg_mids).toBe(1);
       expect(warns.some((line) => line.includes("skip no_targets"))).toBe(true);
@@ -329,6 +330,7 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(pass.would_accept).toBe(1);
       expect(pass.accepted).toBe(0);
       expect(pass.idle_reason).toBeNull();
+      expect(pass.combo_legs).toBe(1);
       expect(pass.same_game_two_leg).toBe(1);
       expect(pass.decisions[0]?.quote_id).toBe("q-exec");
       expect(calls.some((c) => c.method === "DELETE")).toBe(true);

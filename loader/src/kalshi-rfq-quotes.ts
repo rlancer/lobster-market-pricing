@@ -200,6 +200,7 @@ function rankRfqTargets(a: RfqProbeTarget, b: RfqProbeTarget): number {
 export interface RfqProbeUniverseStats {
   open_combos: number;
   open_legs: number;
+  combo_legs: number;
   same_game_two_leg: number;
   missing_leg_mids: number;
 }
@@ -211,12 +212,14 @@ export function rfqProbeUniverseStats(
 ): RfqProbeUniverseStats {
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
   let open_combos = 0;
+  let combo_legs = 0;
   let same_game_two_leg = 0;
   let missing_leg_mids = 0;
   for (const combo of combos) {
     if (!isOpenCombo(combo)) continue;
     open_combos += 1;
     const spec = comboLegs.get(combo.market_ticker) ?? [];
+    if (spec.length >= 2) combo_legs += 1;
     if (!isSameGameSportsTwoLeg(spec)) continue;
     same_game_two_leg += 1;
     const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
@@ -226,6 +229,7 @@ export function rfqProbeUniverseStats(
   return {
     open_combos,
     open_legs: legs.length,
+    combo_legs,
     same_game_two_leg,
     missing_leg_mids,
   };

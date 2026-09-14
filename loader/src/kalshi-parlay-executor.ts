@@ -3,6 +3,7 @@
  *
  * Separate from kalshi-markets-hourly / the RFQ research probe:
  *   1. Fetch open MVE combos + selected legs (no candle backfill, no probe).
+ *      Same-game grouping uses mve_selected_legs.event_ticker, not category.
  *   2. Rank same-game two-leg sports stacks by corr room.
  *   3. Create an RFQ, wait for a private two-way, score it.
  *   4. Default: log would_accept and DELETE the RFQ.
@@ -16,11 +17,11 @@
 import type { KalshiEnv, KalshiMarketRow } from "./kalshi.js";
 import {
   DEFAULT_KALSHI_API_BASE,
-  fetchKalshiSportsParlays,
+  fetchKalshiSportsParlayPack,
   kalshiAuthConfigured,
   kalshiRequest,
 } from "./kalshi.js";
-import { parseMveCategory, type MveSelectedLeg } from "./kalshi-mve.js";
+import type { MveSelectedLeg } from "./kalshi-mve.js";
 import {
   evaluateParlayQuote,
   parlayExecuteEnabled,
@@ -79,15 +80,6 @@ function strip(raw: unknown, dflt = ""): string {
 
 function kalshiBase(env: KalshiEnv): string {
   return (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
-}
-
-function comboLegsFromRows(combos: KalshiMarketRow[]): Map<string, MveSelectedLeg[]> {
-  const out = new Map<string, MveSelectedLeg[]>();
-  for (const row of combos) {
-    const parsed = parseMveCategory(row.category);
-    if (parsed?.legs.length) out.set(row.market_ticker, parsed.legs);
-  }
-  return out;
 }
 
 export function splitOpenSportsRows(rows: KalshiMarketRow[]): {
@@ -240,6 +232,7 @@ export function emptyParlayPass(
     idle_reason,
     open_combos: universe.open_combos ?? 0,
     open_legs: universe.open_legs ?? 0,
+    combo_legs: universe.combo_legs ?? 0,
     same_game_two_leg: universe.same_game_two_leg ?? 0,
     missing_leg_mids: universe.missing_leg_mids ?? 0,
   };
@@ -255,6 +248,7 @@ export function parlayExecutorPassDetail(
     idle_reason: pass.idle_reason,
     open_combos: pass.open_combos,
     open_legs: pass.open_legs,
+    combo_legs: pass.combo_legs,
     same_game_two_leg: pass.same_game_two_leg,
     missing_leg_mids: pass.missing_leg_mids,
     attempted: pass.attempted,
@@ -289,18 +283,18 @@ export async function runKalshiParlayExecutorPass(
   }
 
   const live = parlayLiveEnabled(env);
-  const rows = await fetchKalshiSportsParlays({
+  const pack = await fetchKalshiSportsParlayPack({
     ...env,
     KALSHI_RFQ_PROBE_ENABLED: "0",
     KALSHI_SPORTS_LOOKBACK_DAYS: 0,
   });
-  const { combos, legs } = splitOpenSportsRows(rows);
-  const comboLegs = comboLegsFromRows(combos);
+  const { combos, legs } = splitOpenSportsRows(pack.rows);
+  const comboLegs = pack.comboLegs;
   const universe = rfqProbeUniverseStats(combos, comboLegs, legs);
   const targets = pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env));
   if (targets.length === 0) {
     console.warn(
-      `kalshi parlay executor: skip no_targets open_combos=${universe.open_combos} open_legs=${universe.open_legs} same_game_two_leg=${universe.same_game_two_leg} missing_leg_mids=${universe.missing_leg_mids}`,
+      `kalshi parlay executor: skip no_targets open_combos=${universe.open_combos} open_legs=${universe.open_legs} combo_legs=${universe.combo_legs} same_game_two_leg=${universe.same_game_two_leg} missing_leg_mids=${universe.missing_leg_mids}`,
     );
     return emptyParlayPass("no_targets", universe);
   }

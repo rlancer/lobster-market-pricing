@@ -255,6 +255,7 @@ jobs:
             idle_reason: detail.idle_reason,
             open_combos: detail.open_combos,
             open_legs: detail.open_legs,
+            combo_legs: detail.combo_legs,
             same_game_two_leg: detail.same_game_two_leg,
             missing_leg_mids: detail.missing_leg_mids,
             attempted: detail.attempted,
