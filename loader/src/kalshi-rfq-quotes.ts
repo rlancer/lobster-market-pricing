@@ -406,26 +406,48 @@ async function probeOneCombo(env: KalshiEnv, marketTicker: string): Promise<{
  * Read-only keys / missing trading permission skip the pass (403) without
  * failing ingest. Never accepts a quote.
  */
+function probeLog(message: string): void {
+  console.warn(`kalshi rfq probe: ${message}`);
+}
+
 export async function probeKalshiRfqQuotes(
   env: KalshiEnv,
   combos: KalshiMarketRow[],
   comboLegs: ComboLegs,
   legs: KalshiMarketRow[],
 ): Promise<KalshiMarketRow[]> {
-  if (!rfqProbeEnabled(env) || combos.length === 0) return combos;
+  if (!rfqProbeEnabled(env)) {
+    probeLog(
+      `skipped disabled (flag=${truthyFlag(env.KALSHI_RFQ_PROBE_ENABLED)} auth=${kalshiAuthConfigured(env)})`,
+    );
+    return combos;
+  }
+  if (combos.length === 0) {
+    probeLog("skipped no open combos");
+    return combos;
+  }
   const targets = pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env));
-  if (targets.length === 0) return combos;
+  if (targets.length === 0) {
+    probeLog("skipped no same-game two-leg targets");
+    return combos;
+  }
 
   try {
     const cleanup = await cancelOwnOpenRfqs(env);
-    if (cleanup === "forbidden") return combos;
+    if (cleanup === "forbidden") {
+      probeLog("skipped communications 401/403 (need trading permission, not read-only)");
+      return combos;
+    }
 
     const byTicker = new Map(combos.map((row) => [row.market_ticker, row]));
     let filled = 0;
     for (const target of targets) {
       try {
         const result = await probeOneCombo(env, target.market_ticker);
-        if (result.forbidden) break;
+        if (result.forbidden) {
+          probeLog(`create rfq 401/403 after ${filled}/${targets.length}`);
+          break;
+        }
         if (!result.twoWay) continue;
         const row = byTicker.get(target.market_ticker);
         if (!row) continue;
@@ -435,11 +457,10 @@ export async function probeKalshiRfqQuotes(
         // Keep ingesting remaining targets; RFQ is best-effort.
       }
     }
-    if (filled > 0) {
-      console.warn(`kalshi rfq probe: filled ${filled}/${targets.length} same-game combos`);
-    }
+    probeLog(`filled ${filled}/${targets.length} same-game combos`);
     return combos.map((row) => byTicker.get(row.market_ticker) ?? row);
-  } catch {
+  } catch (error) {
+    probeLog(`aborted ${error instanceof Error ? error.message : String(error)}`.slice(0, 240));
     return combos;
   }
 }

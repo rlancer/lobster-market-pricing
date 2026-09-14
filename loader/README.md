@@ -271,7 +271,8 @@ trading-capable Kalshi keys are set, the KXMVE pass also solicits RFQ quotes
 on up to `KALSHI_RFQ_PROBE_MAX` (default 12) **same-game two-leg** sports
 combos ranked by corr room, maps the private two-way onto `yes_bid` /
 `yes_ask` with `source=kalshi_rfq`, then **deletes the RFQ**. Quotes are
-never accepted or confirmed. Read-only keys 403 and skip. Set
+never accepted or confirmed. Read-only keys 403 and skip (Worker logs
+`kalshi rfq probe: skipped communications 401/403`). Set
 `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
