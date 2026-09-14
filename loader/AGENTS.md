@@ -49,8 +49,9 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   never accepts) — →
   `options.kalshi_markets` from `symbols/kalshi-series.json`), and
   `kalshi-parlay-executor` (batch, 5 min; same-game two-leg RFQ filter.
-  No-op unless `KALSHI_PARLAY_EXECUTE=1`. Accepts YES only when
-  `KALSHI_PARLAY_LIVE=1` as well; the hourly probe still never accepts).
+  Live when `KALSHI_PARLAY_EXECUTE=1` and `KALSHI_PARLAY_LIVE=1`: 10
+  contracts = $10 notional, at most one YES accept per pass. The hourly
+  probe still never accepts).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

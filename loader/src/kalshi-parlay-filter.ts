@@ -11,7 +11,10 @@ export const PARLAY_MIN_CORR_ROOM = 0.15;
 export const PARLAY_MAX_SPREAD = 0.08;
 export const PARLAY_MAX_ASK_OVER_INDEP = 0.02;
 export const PARLAY_MAX_ABS_PHI = 0.15;
+/** Kalshi $1 face — 10 contracts is $10 notional / max payout. */
 export const PARLAY_MAX_CONTRACTS = 10;
+export const PARLAY_MAX_ACCEPTS_PER_PASS_DEFAULT = 1;
+export const PARLAY_MAX_ACCEPTS_PER_PASS_CAP = 12;
 
 export interface ParlayQuoteInput {
   market_ticker: string;
@@ -51,6 +54,18 @@ export function parlayLiveEnabled(env: {
   KALSHI_PARLAY_LIVE?: unknown;
 }): boolean {
   return parlayExecuteEnabled(env) && truthyFlag(env.KALSHI_PARLAY_LIVE);
+}
+
+export function parlayMaxAcceptsPerPass(env: {
+  KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS?: unknown;
+}): number {
+  const raw = env.KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return PARLAY_MAX_ACCEPTS_PER_PASS_DEFAULT;
+  return Math.min(
+    PARLAY_MAX_ACCEPTS_PER_PASS_CAP,
+    Math.max(1, Math.floor(n)),
+  );
 }
 
 export function independenceJoint(p: number, q: number): number {

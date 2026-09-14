@@ -8,8 +8,10 @@
  *   3. Create an RFQ, wait for a private two-way, score it.
  *   4. Default: log would_accept and DELETE the RFQ.
  *   5. Live fill: PUT .../quotes/{id}/accept { accepted_side: "yes" } only when
- *      KALSHI_PARLAY_EXECUTE=1 AND KALSHI_PARLAY_LIVE=1. The maker confirms
- *      (HVM 3s). This module never calls /confirm.
+ *      KALSHI_PARLAY_EXECUTE=1 AND KALSHI_PARLAY_LIVE=1. Size is
+ *      KALSHI_RFQ_CONTRACTS (default 10 = $10 notional). At most
+ *      KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS (default 1) fills per pass. The
+ *      maker confirms (HVM 3s). This module never calls /confirm.
  *
  * Do not ingest the full sports catalog. Chat suggest_trades stays investing-only.
  */
@@ -26,11 +28,13 @@ import {
   evaluateParlayQuote,
   parlayExecuteEnabled,
   parlayLiveEnabled,
+  parlayMaxAcceptsPerPass,
   type ParlayQuoteDecision,
 } from "./kalshi-parlay-filter.js";
 import {
   cancelKalshiRfq,
   pickRfqProbeTargets,
+  rfqContracts,
   rfqProbeMax,
   rfqProbeUniverseStats,
   solicitRfqTwoWay,
@@ -243,11 +247,13 @@ export function emptyParlayPass(
 
 export function parlayExecutorPassDetail(
   pass: ParlayExecutorPass,
-  flags: { execute: boolean; live: boolean },
+  flags: { execute: boolean; live: boolean; contracts: number; max_accepts_per_pass: number },
 ): Record<string, unknown> {
   return {
     execute: flags.execute,
     live: flags.live,
+    contracts: flags.contracts,
+    max_accepts_per_pass: flags.max_accepts_per_pass,
     idle_reason: pass.idle_reason,
     open_combos: pass.open_combos,
     open_legs: pass.open_legs,
@@ -289,6 +295,7 @@ export async function runKalshiParlayExecutorPass(
   }
 
   const live = parlayLiveEnabled(env);
+  const maxAccepts = parlayMaxAcceptsPerPass(env);
   const pack = await fetchKalshiSportsParlayPack({
     ...env,
     KALSHI_RFQ_PROBE_ENABLED: "0",
@@ -312,9 +319,12 @@ export async function runKalshiParlayExecutorPass(
   }
 
   const decisions: ParlayExecutorDecision[] = [];
+  let acceptedCount = 0;
   for (const target of targets) {
+    if (live && acceptedCount >= maxAccepts) break;
     const decision = await executeOne(env, target, comboLegs.get(target.market_ticker), live);
     decisions.push(decision);
+    if (decision.accepted) acceptedCount += 1;
     if (decision.error === "forbidden") break;
   }
 
@@ -328,7 +338,7 @@ export async function runKalshiParlayExecutorPass(
     ...universe,
   };
   console.warn(
-    `kalshi parlay executor: live=${live ? 1 : 0} attempted=${pass.attempted} would_accept=${pass.would_accept} accepted=${pass.accepted}`,
+    `kalshi parlay executor: live=${live ? 1 : 0} contracts=${rfqContracts(env)} max_accepts=${maxAccepts} attempted=${pass.attempted} would_accept=${pass.would_accept} accepted=${pass.accepted}`,
   );
   return pass;
 }

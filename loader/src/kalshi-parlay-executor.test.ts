@@ -438,7 +438,154 @@ describe("runKalshiParlayExecutorPass", () => {
       const accept = calls.find((c) => /accept/i.test(c.url));
       expect(accept?.method).toBe("PUT");
       expect(accept?.body).toContain("yes");
+      const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/communications/rfqs"));
+      expect(create?.body).toContain('"contracts_fp":"10.00"');
       expect(calls.some((c) => /confirm/i.test(c.url))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("live stops after one $10 fill even when two quotes would pass", async () => {
+    const pem = await generateTestPem();
+    const extraLegs: MveSelectedLeg[] = [
+      { event_ticker: "KXNFLRSHYDS-26SEP13ATLPIT", market_ticker: "KXNFLRSHYDS-26SEP13ATLPIT-ATLBJAE6-70", side: "yes" },
+      { event_ticker: "KXNFLRSHYDS-26SEP13ATLPIT", market_ticker: "KXNFLRSHYDS-26SEP13ATLPIT-PITNAJEE22-50", side: "yes" },
+    ];
+    const calls: Array<{ url: string; method: string }> = [];
+    let rfqSeq = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method || "GET").toUpperCase();
+      calls.push({ url, method });
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              ticker: "KXMVECROSSCATEGORY-HENRYJACK",
+              series_ticker: "KXMVE",
+              title: "Henry 110+ AND Jackson 40+",
+              status: "active",
+              mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+              mve_selected_legs: SAME_GAME_LEGS,
+              yes_bid_dollars: "0.00",
+              yes_ask_dollars: "0.00",
+              last_price_dollars: "0.00",
+              volume_fp: "0",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXMVECROSSCATEGORY-BIJANNAJEE",
+              series_ticker: "KXMVE",
+              title: "Bijan 70+ AND Najee 50+",
+              status: "active",
+              mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+              mve_selected_legs: extraLegs,
+              yes_bid_dollars: "0.00",
+              yes_ask_dollars: "0.00",
+              last_price_dollars: "0.00",
+              volume_fp: "0",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+          ],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Henry 110+",
+              status: "active",
+              yes_bid_dollars: "0.39",
+              yes_ask_dollars: "0.41",
+              last_price_dollars: "0.40",
+              volume_fp: "100",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Jackson 40+",
+              status: "active",
+              yes_bid_dollars: "0.48",
+              yes_ask_dollars: "0.50",
+              last_price_dollars: "0.49",
+              volume_fp: "80",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13ATLPIT-ATLBJAE6-70",
+              event_ticker: "KXNFLRSHYDS-26SEP13ATLPIT",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Bijan 70+",
+              status: "active",
+              yes_bid_dollars: "0.39",
+              yes_ask_dollars: "0.41",
+              last_price_dollars: "0.40",
+              volume_fp: "100",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13ATLPIT-PITNAJEE22-50",
+              event_ticker: "KXNFLRSHYDS-26SEP13ATLPIT",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Najee 50+",
+              status: "active",
+              yes_bid_dollars: "0.48",
+              yes_ask_dollars: "0.50",
+              last_price_dollars: "0.49",
+              volume_fp: "80",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+          ],
+        }), { status: 200 });
+      }
+      if (url.includes("/communications/rfqs") && method === "GET") {
+        return new Response(JSON.stringify({ rfqs: [] }), { status: 200 });
+      }
+      if (url.endsWith("/communications/rfqs") && method === "POST") {
+        rfqSeq += 1;
+        return new Response(JSON.stringify({ id: `rfq-${rfqSeq}` }), { status: 201 });
+      }
+      if (url.includes("/communications/quotes") && method === "GET") {
+        return new Response(JSON.stringify({
+          quotes: [{
+            id: `q-${rfqSeq}`,
+            status: "open",
+            yes_bid_dollars: "0.18",
+            no_bid_dollars: "0.79",
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("/accept") && method === "PUT") {
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes("/communications/rfqs/") && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    });
+    try {
+      const pass = await runKalshiParlayExecutorPass({
+        KALSHI_PARLAY_EXECUTE: "1",
+        KALSHI_PARLAY_LIVE: "1",
+        KALSHI_ACCESS_KEY_ID: "key",
+        KALSHI_PRIVATE_KEY_PEM: pem,
+        KALSHI_RFQ_WAIT_MS: 0,
+        KALSHI_RFQ_POLL_MS: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        HTTP_RETRIES: 0,
+      });
+      expect(pass.same_game_two_leg).toBe(2);
+      expect(pass.attempted).toBe(1);
+      expect(pass.accepted).toBe(1);
+      expect(calls.filter((c) => c.method === "POST" && c.url.endsWith("/communications/rfqs")).length).toBe(1);
+      expect(calls.filter((c) => /accept/i.test(c.url)).length).toBe(1);
     } finally {
       vi.unstubAllGlobals();
     }

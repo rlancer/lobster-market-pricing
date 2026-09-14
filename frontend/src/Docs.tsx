@@ -181,7 +181,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/admin/quality-gate', desc: 'Admin — quality-gate ledger for Floor listing and private briefing email (summary, recent decisions, improvement tickets). Optional ?action=&source=&limit=' },
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/kalshi-parlay', desc: 'Admin — Kalshi same-game parlay RFQ executor last_pass (execute/live/idle_reason, universe counts, would_accept decisions). Proxies the loader; never calls Kalshi from the browser.' },
-  { method: 'POST', path: '/api/admin/kalshi-parlay/trigger', desc: 'Admin — force an async dry-run pass (?force=1&async=1 on the loader). Uses LOADER_TOKEN server-side. Cannot turn LIVE on. 503 if LOADER_TOKEN is missing.' },
+  { method: 'POST', path: '/api/admin/kalshi-parlay/trigger', desc: 'Admin — force an async dry-run pass (?force=1&async=1 on the loader). Uses LOADER_TOKEN server-side. Cannot turn LIVE on. Disabled in the UI while LIVE. 503 if LOADER_TOKEN is missing.' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
   { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
@@ -266,7 +266,7 @@ const SURFACES = [
   {
     route: '/admin/kalshi-parlay',
     title: 'Kalshi parlay bot',
-    body: 'Admin console for kalshi-parlay-executor. Polls GET /api/admin/kalshi-parlay (session admin or ADMIN_TOKEN) for last_pass.detail: execute/live/idle_reason, RFQ attempted/would_accept/accepted/skipped, universe mix (open_combos, two_leg, same_game_two_leg), and decision rows. Force dry-run pass POSTs through the Worker with LOADER_TOKEN; the page never sets LIVE. Public study stays at /experiments/kalshi-parlays.',
+    body: 'Admin console for kalshi-parlay-executor. Polls GET /api/admin/kalshi-parlay (session admin or ADMIN_TOKEN) for last_pass.detail: execute/live/idle_reason, RFQ attempted/would_accept/accepted/skipped, 10-contract ($10 notional) size, at most one live fill per pass, universe mix, and decision rows. Force dry-run pass POSTs through the Worker with LOADER_TOKEN and is disabled while LIVE; the page never sets LIVE. Public study stays at /experiments/kalshi-parlays.',
   },
   {
     route: '/admin/test-runs',

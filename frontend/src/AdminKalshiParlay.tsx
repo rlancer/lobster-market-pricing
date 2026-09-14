@@ -144,8 +144,9 @@ export default function AdminKalshiParlayPage() {
         <Heading level={1}>Kalshi parlay bot</Heading>
         <Text type="supporting">
           Same-game two-leg sports RFQ executor (kalshi-parlay-executor on cboe-to-r2).
-          Last pass, universe mix, and would_accept / accepted rows. This page never turns
-          LIVE on. Public notebook:{' '}
+          Last pass, universe mix, and would_accept / accepted rows. Size is 10
+          contracts ($10 notional) with at most one live fill per pass. This page
+          never turns LIVE on or off. Public notebook:{' '}
           <Link to="/experiments/kalshi-parlays" className="admin-kalshi-parlay-link">
             Kalshi parlays
           </Link>
@@ -157,7 +158,7 @@ export default function AdminKalshiParlayPage() {
         <Banner
           status="error"
           title="LIVE is on"
-          description="Accepts can fill in the Kalshi account. This console cannot change LIVE. Restore KALSHI_PARLAY_LIVE=0 on the loader Worker."
+          description="Accepts can fill in the Kalshi account at 10 contracts ($10 notional) per RFQ, at most one fill per 5-minute pass. This console cannot change LIVE."
         />
       ) : null}
       {accepted > 0 ? (
@@ -190,6 +191,16 @@ export default function AdminKalshiParlayPage() {
         ) : (
           <Token label="Job disabled" color="orange" size="sm" />
         )}
+        <Token
+          label={`${executor?.contracts ?? 10} contracts · $${executor?.contracts ?? 10} notional`}
+          color="gray"
+          size="sm"
+        />
+        <Token
+          label={`Max ${executor?.max_accepts_per_pass ?? 1} fill / pass`}
+          color="gray"
+          size="sm"
+        />
       </HStack>
 
       <HStack gap={3} vAlign="center" wrap="wrap">
@@ -222,8 +233,9 @@ export default function AdminKalshiParlayPage() {
         )}
       </HStack>
       <Text type="supporting" size="sm">
-        Force dry-run cannot turn LIVE on. With EXECUTE off the pass records idle_reason
-        execute_off. EXECUTE on skips the hourly research RFQ probe so two Creates do not 409.
+        Force dry-run cannot turn LIVE on. The button is disabled while LIVE. With
+        EXECUTE off the pass records idle_reason execute_off. EXECUTE on skips the
+        hourly research RFQ probe so two Creates do not 409.
       </Text>
       {triggerNote ? <Text type="supporting">{triggerNote}</Text> : null}
 
@@ -286,8 +298,8 @@ export default function AdminKalshiParlayPage() {
               spread at most 8 cents, ask at most independence + 2 cents, |phi| {'<'} 0.15,
               single-maker quote_id. Skips mixed yes/no, n{'>'}2, leftover yes_last, and
               Fréchet-priced tapes. Dry-run logs would_accept and DELETE the RFQ. Live YES
-              accept needs EXECUTE=1 and LIVE=1; the maker confirms (HVM 3s). The job never
-              calls /confirm.
+              accept needs EXECUTE=1 and LIVE=1 at 10 contracts ($10 notional), at most one
+              fill per pass; the maker confirms (HVM 3s). The job never calls /confirm.
             </Text>
           </VStack>
 

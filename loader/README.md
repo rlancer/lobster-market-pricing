@@ -290,12 +290,14 @@ Separate from the hourly tape. Buys unpriced same-game correlation:
 5. Default: log `would_accept` and **delete** the RFQ.
 6. Live: `KALSHI_PARLAY_EXECUTE=1` **and** `KALSHI_PARLAY_LIVE=1`, then
    `PUT .../quotes/{id}/accept` with `accepted_side: "yes"`. The **maker**
-   confirms (HVM 3s). This job never calls `/confirm`. Size is the existing
-   RFQ contract cap (default 10).
+   confirms (HVM 3s). This job never calls `/confirm`. Size is
+   `KALSHI_RFQ_CONTRACTS` (default **10 contracts = $10 notional**). At most
+   `KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS` (default **1**) fill per 5-minute
+   pass.
 
-Wrangler defaults both flags to `"0"`. Turning on EXECUTE skips the hourly RFQ
-probe so two Creates do not 409. Force a pass from Actions
-(`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
+Wrangler ships EXECUTE=1 and LIVE=1 at that $10 size. Turning on EXECUTE
+skips the hourly RFQ probe so two Creates do not 409. Force a pass from
+Actions (`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
 
 ```bash
 curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
@@ -309,12 +311,12 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 `cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
 `mve_selected_legs` (including `event_ticker`), not the lake `category`
 encoding.
-Dry-run with EXECUTE on and LIVE off:
+
+Dry-run with EXECUTE on and LIVE off (pre-live only):
 `.github/workflows/force-kalshi-parlay-dry-run.yml` (push
 `cursor/run-kalshi-parlay-dry-run-*`, or Actions dispatch). That workflow
-temporarily deploys EXECUTE=1, never LIVE=1, then restores EXECUTE=0.
-
-Do not enable LIVE until dry-run `would_accept` rows match the notebook.
+refuses to deploy when `origin/main` already has LIVE=1, so it cannot
+clobber production fills. Do not re-run it against a live Worker.
 
 **Optional API auth** — market GETs work anonymously, but a Kalshi
 API key usually gets a higher rate tier. The loader RSA-PSS-signs

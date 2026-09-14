@@ -5,7 +5,8 @@ name: Force Kalshi parlay executor dry-run
 # while EXECUTE is on. Asserts would_accept/skip logs, RFQs deleted never
 # accepted, and the hourly RFQ probe skipped. Restores EXECUTE=0.
 #
-# Never sets KALSHI_PARLAY_LIVE=1.
+# Never sets KALSHI_PARLAY_LIVE=1. Refuses to run when origin/main already
+# has LIVE=1 so it cannot clobber production fills.
 #
 # Required GitHub secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, LOADER_TOKEN
 #
@@ -49,6 +50,11 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then exit 1; fi
+          git fetch origin main
+          if git show origin/main:loader/wrangler.jsonc | grep -E '"KALSHI_PARLAY_LIVE":[[:space:]]*"1"'; then
+            echo "::error::origin/main has KALSHI_PARLAY_LIVE=1 — refusing dry-run deploy that would clobber live fills"
+            exit 1
+          fi
           if grep -E '"KALSHI_PARLAY_LIVE":[[:space:]]*"1"' loader/wrangler.jsonc; then
             echo "::error::Refusing to deploy with KALSHI_PARLAY_LIVE=1"
             exit 1

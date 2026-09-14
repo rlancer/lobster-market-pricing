@@ -6,7 +6,8 @@
  * so last_pass.detail (would_accept / accepted) stays behind requireBotAdmin.
  *
  * POST trigger uses LOADER_TOKEN server-side only. This surface never sets
- * KALSHI_PARLAY_LIVE.
+ * KALSHI_PARLAY_LIVE. Live size (contracts / max_accepts_per_pass) is read
+ * from loader last_pass.detail.
  */
 
 export const EXECUTOR_JOB_ID = "kalshi-parlay-executor";
@@ -73,6 +74,8 @@ export interface KalshiParlayExecutorView {
   would_accept: number;
   accepted: number;
   skipped: number;
+  contracts: number;
+  max_accepts_per_pass: number;
   decisions: KalshiParlayDecisionView[];
   samples: KalshiParlaySampleView[];
 }
@@ -255,6 +258,8 @@ export function emptyExecutorView(): KalshiParlayExecutorView {
     would_accept: 0,
     accepted: 0,
     skipped: 0,
+    contracts: 10,
+    max_accepts_per_pass: 1,
     decisions: [],
     samples: [],
   };
@@ -299,6 +304,8 @@ export function shapeExecutorJob(payload: unknown): KalshiParlayExecutorView {
     would_accept: asInt(detail?.would_accept),
     accepted: asInt(detail?.accepted),
     skipped: asInt(detail?.skipped),
+    contracts: asInt(detail?.contracts, 10),
+    max_accepts_per_pass: asInt(detail?.max_accepts_per_pass, 1),
     decisions,
     samples,
   };

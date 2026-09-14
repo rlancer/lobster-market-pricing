@@ -7,6 +7,7 @@ import {
   KALSHI_RFQ_SOURCE,
   pickRfqProbeTargets,
   probeKalshiRfqQuotes,
+  rfqContracts,
   rfqProbeEnabled,
   rfqProbeUniverseStats,
   twoWayFromRfqQuotes,
@@ -96,6 +97,14 @@ const CROSS_GAME_LEGS: MveSelectedLeg[] = [
   { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
   { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
 ];
+
+describe("RFQ contract size", () => {
+  it("defaults to 10 contracts ($10 notional) and caps at PARLAY_MAX_CONTRACTS", () => {
+    expect(rfqContracts({})).toBe(10);
+    expect(rfqContracts({ KALSHI_RFQ_CONTRACTS: 1 })).toBe(1);
+    expect(rfqContracts({ KALSHI_RFQ_CONTRACTS: "25" })).toBe(10);
+  });
+});
 
 describe("RFQ quote mapping", () => {
   it("maps a single-maker two-way onto yes bid/ask", () => {
