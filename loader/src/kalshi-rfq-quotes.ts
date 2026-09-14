@@ -182,6 +182,11 @@ function isSameGameSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
   return parlayGameGroup(games) === "same_game";
 }
 
+function rankRfqTargets(a: RfqProbeTarget, b: RfqProbeTarget): number {
+  if (b.corr_room !== a.corr_room) return b.corr_room - a.corr_room;
+  return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
+}
+
 export function pickRfqProbeTargets(
   combos: KalshiMarketRow[],
   comboLegs: ComboLegs,
@@ -189,26 +194,30 @@ export function pickRfqProbeTargets(
   cap: number,
 ): RfqProbeTarget[] {
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
-  const out: RfqProbeTarget[] = [];
+  const needQuote: RfqProbeTarget[] = [];
+  const haveClob: RfqProbeTarget[] = [];
   for (const combo of combos) {
-    if (!isOpenCombo(combo) || comboHasTwoSidedBook(combo)) continue;
+    if (!isOpenCombo(combo)) continue;
     const spec = comboLegs.get(combo.market_ticker) ?? [];
     if (!isSameGameSportsTwoLeg(spec)) continue;
     const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
     const q = selectedProb(byTicker.get(spec[1]!.market_ticker), spec[1]!.side);
     if (p == null || q == null) continue;
-    out.push({
+    const target: RfqProbeTarget = {
       market_ticker: combo.market_ticker,
       corr_room: corrRoom(p, q),
       p,
       q,
-    });
+    };
+    if (comboHasTwoSidedBook(combo)) haveClob.push(target);
+    else needQuote.push(target);
   }
-  out.sort((a, b) => {
-    if (b.corr_room !== a.corr_room) return b.corr_room - a.corr_room;
-    return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
-  });
-  return out.slice(0, Math.max(0, cap));
+  needQuote.sort(rankRfqTargets);
+  haveClob.sort(rankRfqTargets);
+  const capN = Math.max(0, cap);
+  const out = needQuote.slice(0, capN);
+  if (out.length < capN) out.push(...haveClob.slice(0, capN - out.length));
+  return out;
 }
 
 function quoteStatus(raw: unknown): string {

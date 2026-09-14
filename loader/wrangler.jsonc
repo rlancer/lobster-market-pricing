@@ -64,7 +64,7 @@
     // read-only keys 403 and skip. RFQs are cancelled; quotes are never accepted.
     "KALSHI_RFQ_PROBE_ENABLED": "1",
     "KALSHI_RFQ_PROBE_MAX": 12,
-    "KALSHI_RFQ_WAIT_MS": 2500,
+    "KALSHI_RFQ_WAIT_MS": 8000,
     "KALSHI_RFQ_POLL_MS": 1000
   },
   "d1_databases": [
