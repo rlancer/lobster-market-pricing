@@ -211,6 +211,8 @@ test.describe('Admin Kalshi parlay console', () => {
         attempted: 1,
         would_accept: 1,
         accepted: 1,
+        same_game_two_leg: 2,
+        two_leg: 9,
         decisions: [{
           market_ticker: 'KXMVE-GAME',
           would_accept: true,
@@ -267,6 +269,7 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('10 contracts · $10 notional')).toBeVisible();
     await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
     await expect(page.getByText('Last pass accepted 1 YES quote')).toBeVisible();
+    await expect(page.getByText('Same-game two-leg 2')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Considered' })).toBeVisible();
     await expect(page.getByText('Henry 110+ AND Jackson 40+')).toBeVisible();
     await expect(page.getByText(/YES Henry 110+/)).toBeVisible();
@@ -274,8 +277,10 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('Detmers 18+ AND Anderson 16+')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeDisabled();
     if (existsSync('/opt/cursor/artifacts')) {
+      await page.getByText(/not correlated enough/).scrollIntoViewIfNeeded();
+      await page.setViewportSize({ width: 1280, height: 1600 });
       await page.screenshot({
-        path: '/opt/cursor/artifacts/admin_kalshi_parlay_live.png',
+        path: '/opt/cursor/artifacts/kalshi_parlay_considered_trail.png',
         fullPage: true,
       });
     }
