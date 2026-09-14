@@ -736,6 +736,86 @@ export interface QualityGateMonitor {
   improvements: QualityGateImprovement[];
 }
 
+/** Admin monitor for GET /api/admin/kalshi-parlay (loader last_pass.detail, gated). */
+export type KalshiParlayIdleReason =
+  | 'execute_off'
+  | 'no_api_keys'
+  | 'no_targets'
+  | 'forbidden'
+  | null;
+
+export interface KalshiParlayDecision {
+  market_ticker: string;
+  would_accept: boolean;
+  accepted: boolean;
+  reasons: string[];
+  error: string | null;
+  yes_bid: number | null;
+  yes_ask: number | null;
+  rfq_id: string | null;
+  quote_id: string | null;
+}
+
+export interface KalshiParlaySample {
+  market_ticker: string;
+  n_legs: number;
+  game_group: string;
+  tape: string;
+}
+
+export interface KalshiParlayExecutor {
+  job_id: string;
+  enabled: boolean;
+  cadence_seconds: number;
+  market_gated: boolean;
+  next_attempt_after: number | null;
+  last_success_at: number | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  last_pass_at: number | null;
+  last_pass_duration_ms: number | null;
+  pass_attempted: number | null;
+  execute: boolean;
+  live: boolean;
+  idle_reason: KalshiParlayIdleReason;
+  open_combos: number;
+  open_legs: number;
+  combo_legs: number;
+  two_leg: number;
+  same_game_two_leg: number;
+  cross_game_two_leg: number;
+  missing_leg_mids: number;
+  attempted: number;
+  would_accept: number;
+  accepted: number;
+  skipped: number;
+  decisions: KalshiParlayDecision[];
+  samples: KalshiParlaySample[];
+}
+
+export interface KalshiParlayHourly {
+  job_id: string;
+  enabled: boolean;
+  last_success_at: number | null;
+  last_pass_at: number | null;
+  last_error: string | null;
+  rfq_probe: string | null;
+  live: boolean | null;
+}
+
+export interface KalshiParlayLoop {
+  passing: boolean;
+  next_alarm: number | null;
+}
+
+export interface KalshiParlayMonitor {
+  fetched_at: string;
+  executor: KalshiParlayExecutor;
+  hourly: KalshiParlayHourly | null;
+  loop: KalshiParlayLoop | null;
+  errors: { hourly: string | null; loop: string | null };
+}
+
 /** Admin test-run batch — bug/PR metadata plus the generated shares. */
 export interface QaBatch {
   batch_id: string;
@@ -2139,6 +2219,12 @@ export const api = {
     ),
   adminQualityGateRemoderate: () =>
     post<{ ok: true; scanned: number; unlisted: number }>('/api/admin/quality-gate/remoderate', {}),
+  adminKalshiParlay: () => get<KalshiParlayMonitor>('/api/admin/kalshi-parlay'),
+  adminKalshiParlayTrigger: () =>
+    post<{ ok: boolean; job: string; background?: boolean; note?: string; error?: string }>(
+      '/api/admin/kalshi-parlay/trigger',
+      {},
+    ),
   me: () => get<ProfileMe>('/api/me'),
   updateProfile: async (body: {
     handle?: string;

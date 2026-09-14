@@ -15,6 +15,7 @@ export const ADMIN_TOOL_PATHS = [
   '/brand',
   '/admin/test-runs',
   '/admin/quality-gate',
+  '/admin/kalshi-parlay',
 ] as const;
 
 export function isAdminEmail(email: string | null | undefined): boolean {

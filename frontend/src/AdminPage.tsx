@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Banner, Button, Heading, HStack, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
-import { Bot, ChevronRight, FlaskConical, Mail, MessagesSquare, Palette, ShieldCheck, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import { Bot, ChevronRight, FlaskConical, Mail, MessagesSquare, Palette, ShieldCheck, Target, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
 import { api } from './api';
 import { authClient } from './auth';
@@ -66,6 +66,12 @@ const ADMIN_TOOLS: AdminTool[] = [
     description: 'Watch the Floor monitor — allows, rejects, fail-open, remediator unlists, and private briefing email.',
     icon: ShieldCheck,
   },
+  {
+    to: '/admin/kalshi-parlay',
+    label: 'Kalshi parlay bot',
+    description: 'Same-game RFQ executor last_pass — would_accept, universe mix, never LIVE from this page.',
+    icon: Target,
+  },
 ];
 
 type EmailTestState =
@@ -103,7 +109,7 @@ export default function AdminPage() {
       <VStack gap={2}>
         <Heading level={1}>Admin</Heading>
         <Text type="supporting">
-          Operator tools for bots, users, chats, suggested trades, Chat capabilities, brand, test runs, and the quality gate. Open one from here instead of crowding the left nav.
+          Operator tools for bots, users, chats, suggested trades, Chat capabilities, brand, test runs, the quality gate, and the Kalshi parlay bot. Open one from here instead of crowding the left nav.
         </Text>
       </VStack>
 

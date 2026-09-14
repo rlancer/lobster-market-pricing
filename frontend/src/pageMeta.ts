@@ -207,6 +207,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/admin/kalshi-parlay') {
+    return {
+      title: pageTitle('Kalshi parlay bot'),
+      description:
+        'Admin console for the Kalshi same-game parlay RFQ executor — last_pass would_accept, universe mix, and dry-run trigger. Never turns LIVE on.',
+      path: '/admin/kalshi-parlay',
+    };
+  }
+
   if (path === '/admin/test-runs') {
     return {
       title: pageTitle('Test runs'),
@@ -220,7 +229,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Admin'),
       description:
-        'Admin hub for bots, users, chats, Chat capabilities, brand, test runs, the quality gate, and an Email Service smoke test — operator tools behind one left-nav entry.',
+        'Admin hub for bots, users, chats, Chat capabilities, brand, test runs, the quality gate, the Kalshi parlay bot, and an Email Service smoke test — operator tools behind one left-nav entry.',
       path: '/admin',
     };
   }

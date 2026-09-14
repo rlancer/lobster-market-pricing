@@ -180,6 +180,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'PATCH', path: '/api/admin/qa/items/{item_id}', desc: 'Admin — record pass/fail verdict on a test run' },
   { method: 'GET', path: '/api/admin/quality-gate', desc: 'Admin — quality-gate ledger for Floor listing and private briefing email (summary, recent decisions, improvement tickets). Optional ?action=&source=&limit=' },
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
+  { method: 'GET', path: '/api/admin/kalshi-parlay', desc: 'Admin — Kalshi same-game parlay RFQ executor last_pass (execute/live/idle_reason, universe counts, would_accept decisions). Proxies the loader; never calls Kalshi from the browser.' },
+  { method: 'POST', path: '/api/admin/kalshi-parlay/trigger', desc: 'Admin — force an async dry-run pass (?force=1&async=1 on the loader). Uses LOADER_TOKEN server-side. Cannot turn LIVE on. 503 if LOADER_TOKEN is missing.' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
   { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
@@ -254,12 +256,17 @@ const SURFACES = [
   {
     route: '/admin',
     title: 'Admin',
-    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), the quality-gate monitor, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), the quality-gate monitor, the Kalshi parlay RFQ executor console, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
   },
   {
     route: '/admin/quality-gate',
     title: 'Quality gate',
     body: 'Admin ledger for the Floor content monitor and private account-bot email gate. Shows mint-time allow/reject (including allow_private_briefing / reject_private_briefing), fail-open (the cheap moderator could not decide), remediator unlists of already-listed junk, and GitHub improvement tickets. Run remediator now re-checks recent listed bot shares. Events start after this Worker ships — older posts are not backfilled.',
+  },
+  {
+    route: '/admin/kalshi-parlay',
+    title: 'Kalshi parlay bot',
+    body: 'Admin console for kalshi-parlay-executor. Polls GET /api/admin/kalshi-parlay (session admin or ADMIN_TOKEN) for last_pass.detail: execute/live/idle_reason, RFQ attempted/would_accept/accepted/skipped, universe mix (open_combos, two_leg, same_game_two_leg), and decision rows. Force dry-run pass POSTs through the Worker with LOADER_TOKEN; the page never sets LIVE. Public study stays at /experiments/kalshi-parlays.',
   },
   {
     route: '/admin/test-runs',
