@@ -102,21 +102,36 @@ if (!kalshiAuthConfigured(env)) {
   process.exit(2);
 }
 
-const base = DEFAULT_KALSHI_API_BASE.replace(/\/$/, "");
-const market = await statusOf("GET", `${base}/markets?limit=1&status=open`, env, "GET /markets");
-const rfqs = await statusOf(
-  "GET",
-  `${base}/communications/rfqs?user_filter=self&status=open&limit=1`,
-  env,
-  "GET /communications/rfqs",
-);
+const elections = "https://api.elections.kalshi.com/trade-api/v2";
+const trade = "https://external-api.kalshi.com/trade-api/v2";
 
-if (market >= 200 && market < 300 && rfqs >= 200 && rfqs < 300) {
+async function checkHost(base: string, label: string): Promise<{ market: number; rfqs: number; balance: number }> {
+  const hostEnv = { ...env, KALSHI_API_BASE: base };
+  const market = await statusOf("GET", `${base}/markets?limit=1&status=open`, hostEnv, `${label} GET /markets`);
+  const rfqs = await statusOf(
+    "GET",
+    `${base}/communications/rfqs?user_filter=self&status=open&limit=1`,
+    hostEnv,
+    `${label} GET /communications/rfqs`,
+  );
+  const balance = await statusOf("GET", `${base}/portfolio/balance`, hostEnv, `${label} GET /portfolio/balance`);
+  return { market, rfqs, balance };
+}
+
+const a = await checkHost(elections, "elections");
+const b = await checkHost(trade, "external-api");
+
+if (
+  (a.market >= 200 && a.market < 300 && a.rfqs >= 200 && a.rfqs < 300) ||
+  (b.market >= 200 && b.market < 300 && b.rfqs >= 200 && b.rfqs < 300)
+) {
   console.log("ok: trading communications reachable (no RFQ created)");
   process.exit(0);
 }
-if (rfqs === 401 || rfqs === 403) {
-  console.log("communications forbidden — key can GET markets but cannot RFQ (need trading permission)");
+if (a.rfqs === 401 || a.rfqs === 403 || b.rfqs === 401 || b.rfqs === 403) {
+  console.log(
+    "communications unauthorized — key can GET markets but cannot RFQ (need a trading-capable API key, not read-only)",
+  );
   process.exit(3);
 }
 process.exit(1);
