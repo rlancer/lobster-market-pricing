@@ -4,8 +4,8 @@
  *
  * Listing other members' RFQs does not expose maker prices. Quotes are
  * private to the requester, so the durable way to fill the tape is:
- * create a small RFQ → poll GET /communications/quotes?rfq_id= → DELETE
- * the RFQ. Never accept or confirm (no execution).
+ * create an RFQ → poll GET /communications/quotes?rfq_id=&rfq_user_filter=self
+ * → DELETE the RFQ. Never accept or confirm (no execution).
  *
  * Cap is on same-game two-leg sports combos ranked by corr room
  * (Fréchet high − p×q). Do not RFQ the full sports catalog.
@@ -31,7 +31,7 @@ export const KALSHI_RFQ_PROBE_MAX_DEFAULT = 12;
 export const KALSHI_RFQ_WAIT_MS_DEFAULT = 2500;
 export const KALSHI_RFQ_POLL_MS_DEFAULT = 1000;
 export const KALSHI_RFQ_POLLS_DEFAULT = 3;
-export const KALSHI_RFQ_CONTRACTS_DEFAULT = 1;
+export const KALSHI_RFQ_CONTRACTS_DEFAULT = 10;
 
 export interface RfqTwoWay {
   yes_bid: number;
@@ -335,9 +335,12 @@ async function cancelOwnOpenRfqs(env: KalshiEnv): Promise<"ok" | "forbidden"> {
 
 async function fetchQuotesForRfq(env: KalshiEnv, rfqId: string): Promise<unknown[]> {
   try {
-    const url = `${kalshiBase(env)}/communications/quotes?rfq_id=${encodeURIComponent(rfqId)}&limit=100`;
+    const url = `${kalshiBase(env)}/communications/quotes?rfq_id=${encodeURIComponent(rfqId)}&rfq_user_filter=self&limit=100`;
     const result = await rfqRequest("GET", url, env, `kalshi rfq quotes ${rfqId}`);
-    if (result.status < 200 || result.status >= 300) return [];
+    if (result.status < 200 || result.status >= 300) {
+      console.warn(`kalshi rfq probe: quotes http=${result.status}`);
+      return [];
+    }
     const quotes = asRecord(result.json)?.quotes;
     return Array.isArray(quotes) ? quotes : [];
   } catch {
@@ -395,15 +398,25 @@ async function probeOneCombo(env: KalshiEnv, marketTicker: string): Promise<{
   const created = await createRfq(env, marketTicker);
   if (created.forbidden) return { twoWay: null, forbidden: true };
   const rfqId = created.id;
-  if (!rfqId) return { twoWay: null, forbidden: false };
+  if (!rfqId) {
+    console.warn(`kalshi rfq probe: ${marketTicker} create returned no id`);
+    return { twoWay: null, forbidden: false };
+  }
   try {
     await sleep(rfqWaitMs(env));
     const polls = rfqPolls(env);
     for (let i = 0; i < polls; i++) {
       if (i > 0) await sleep(rfqPollMs(env));
-      const twoWay = twoWayFromRfqQuotes(await fetchQuotesForRfq(env, rfqId));
+      const quotes = await fetchQuotesForRfq(env, rfqId);
+      const twoWay = twoWayFromRfqQuotes(quotes);
+      if (quotes.length > 0) {
+        console.warn(
+          `kalshi rfq probe: ${marketTicker} poll=${i + 1} quotes=${quotes.length} twoWay=${!!twoWay}`,
+        );
+      }
       if (twoWay) return { twoWay, forbidden: false };
     }
+    console.warn(`kalshi rfq probe: ${marketTicker} no two-way after ${polls} polls`);
     return { twoWay: null, forbidden: false };
   } finally {
     await cancelRfq(env, rfqId);
@@ -427,14 +440,21 @@ export async function probeKalshiRfqQuotes(
 
   try {
     const cleanup = await cancelOwnOpenRfqs(env);
-    if (cleanup === "forbidden") return combos;
+    if (cleanup === "forbidden") {
+      console.warn("kalshi rfq probe: skipped communications 401/403 (need write::trade)");
+      return combos;
+    }
 
     const byTicker = new Map(combos.map((row) => [row.market_ticker, row]));
     let filled = 0;
+    let forbidden = false;
     for (const target of targets) {
       try {
         const result = await probeOneCombo(env, target.market_ticker);
-        if (result.forbidden) break;
+        if (result.forbidden) {
+          forbidden = true;
+          break;
+        }
         if (!result.twoWay) continue;
         const row = byTicker.get(target.market_ticker);
         if (!row) continue;
@@ -444,11 +464,12 @@ export async function probeKalshiRfqQuotes(
         // Keep ingesting remaining targets; RFQ is best-effort.
       }
     }
-    if (filled > 0) {
-      console.warn(`kalshi rfq probe: filled ${filled}/${targets.length} same-game combos`);
-    }
+    console.warn(
+      `kalshi rfq probe: filled ${filled}/${targets.length} same-game combos${forbidden ? " (create 401/403)" : ""}`,
+    );
     return combos.map((row) => byTicker.get(row.market_ticker) ?? row);
-  } catch {
+  } catch (error) {
+    console.warn(`kalshi rfq probe: aborted ${error instanceof Error ? error.message : String(error)}`.slice(0, 240));
     return combos;
   }
 }

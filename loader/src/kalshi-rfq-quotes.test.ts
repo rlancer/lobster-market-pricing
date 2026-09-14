@@ -215,7 +215,7 @@ describe("RFQ probe HTTP", () => {
       if (url.endsWith("/communications/rfqs") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
         expect(body.rest_remainder).toBe(false);
-        expect(body.contracts_fp).toBe("1.00");
+        expect(body.contracts_fp).toBe("10.00");
         expect(body.replace_existing).toBe(true);
         return new Response(JSON.stringify({ id: "rfq-1" }), { status: 201 });
       }
@@ -257,6 +257,7 @@ describe("RFQ probe HTTP", () => {
       expect(out[0]!.yes_bid).toBeCloseTo(0.18);
       expect(out[0]!.yes_ask).toBeCloseTo(0.21);
       expect(calls.some((c) => c.method === "POST" && c.url.includes("/communications/rfqs"))).toBe(true);
+      expect(calls.some((c) => c.method === "GET" && c.url.includes("rfq_user_filter=self"))).toBe(true);
       expect(calls.some((c) => c.method === "DELETE" && c.url.includes("/rfqs/rfq-1"))).toBe(true);
       expect(calls.some((c) => /accept|confirm/i.test(c.url))).toBe(false);
     } finally {

@@ -139,7 +139,7 @@ export interface KalshiEnv {
   KALSHI_RFQ_POLL_MS?: number | string;
   /** Quote poll attempts per RFQ (default 3). */
   KALSHI_RFQ_POLLS?: number | string;
-  /** Whole-contract RFQ size (default 1, cap 10). Never accepted. */
+  /** Whole-contract RFQ size (default 10, cap 10). Never accepted. */
   KALSHI_RFQ_CONTRACTS?: number | string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
