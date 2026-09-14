@@ -312,7 +312,7 @@ describe("EtlScheduler — due-scan", () => {
       "fundamentals-daily", "futures-ohlc-daily", "cfe-futures-daily", "indices-ohlc-daily",
       "crypto-spot-ohlc-daily", "short-interest-daily", "reg-sho-daily", "research-briefs-daily",
       "sec-filings-daily", "instruments-daily", "fred-yields-daily", "fred-macro-daily",
-      "kalshi-markets-hourly",
+      "kalshi-markets-hourly", "kalshi-parlay-executor",
     ]);
   });
 });
@@ -369,6 +369,25 @@ describe("EtlScheduler — single-flight", () => {
     await scheduler.tick();
     expect(await s.get("passing")).toBeNull();
   });
+
+  it("clears leftover passing on isolate start (deploy/eviction)", async () => {
+    const db = new FakeDb();
+    const s = makeStorage({ passing: Date.now() });
+    const started: string[] = [];
+    const scheduler = new EtlScheduler(
+      {
+        storage: s,
+        async blockConcurrencyWhile(callback) {
+          started.push("block");
+          await callback();
+        },
+      },
+      env(db) as never,
+    );
+    expect(scheduler).toBeTruthy();
+    expect(started).toEqual(["block"]);
+    expect(await s.get("passing")).toBeNull();
+  });
 });
 
 describe("EtlScheduler — job observability routes", () => {
@@ -377,7 +396,7 @@ describe("EtlScheduler — job observability routes", () => {
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
     const list = await scheduler.jobsList();
 
-    expect(list.jobs).toHaveLength(21);
+    expect(list.jobs).toHaveLength(22);
     const byId = new Map((list.jobs as Row[]).map((j) => [j.job_id, j]));
     const cboe = byId.get("cboe-options")!;
     expect(cboe.scope).toBe("items");
@@ -473,6 +492,11 @@ describe("EtlScheduler — job observability routes", () => {
     expect(kalshi.enabled).toBe(1);
     expect(kalshi.market_gated).toBe(0);
     expect(kalshi.cadence_seconds).toBe(3600);
+    const parlay = byId.get("kalshi-parlay-executor")!;
+    expect(parlay.scope).toBe("batch");
+    expect(parlay.enabled).toBe(1);
+    expect(parlay.market_gated).toBe(0);
+    expect(parlay.cadence_seconds).toBe(300);
   });
 
   it("unknown job returns an error; trigger returns 404", async () => {
@@ -540,7 +564,11 @@ describe("EtlScheduler — batch-scoped jobs", () => {
       universe: () => ["A1", "B2", "C3"],
       run: async (items) => {
         rec.ranItems = items;
-        return { runId: "r1", failures: [{ symbol: "B2", error: "boom" }] };
+        return {
+          runId: "r1",
+          failures: [{ symbol: "B2", error: "boom" }],
+          detail: { execute: true, accepted: 0 },
+        };
       },
     };
     const scheduler = new EtlScheduler(ctx(makeStorage()), env(db) as never);
@@ -552,6 +580,7 @@ describe("EtlScheduler — batch-scoped jobs", () => {
     expect(pass.attempted).toBe(3);
     expect(pass.succeeded).toBe(2);
     expect(pass.failed).toBe(1);
+    expect(pass.detail).toEqual({ execute: true, accepted: 0 });
     // Batch jobs touch no item store.
     expect(db.symbolState.size).toBe(0);
     // Scheduled at the daily cadence, not the poll interval.

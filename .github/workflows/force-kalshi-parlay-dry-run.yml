@@ -1,0 +1,308 @@
+name: Force Kalshi parlay executor dry-run
+
+# Deploy this ref with KALSHI_PARLAY_EXECUTE=1 and KALSHI_PARLAY_LIVE=0,
+# force one kalshi-parlay-executor pass, then force kalshi-markets-hourly
+# while EXECUTE is on. Asserts would_accept/skip logs, RFQs deleted never
+# accepted, and the hourly RFQ probe skipped. Restores EXECUTE=0.
+#
+# Never sets KALSHI_PARLAY_LIVE=1.
+#
+# Required GitHub secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, LOADER_TOKEN
+#
+# Trigger: workflow_dispatch, or push to cursor/run-kalshi-parlay-dry-run-*
+# (gh workflow_dispatch is 403 for the Cursor integration token).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'cursor/run-kalshi-parlay-dry-run-*'
+
+concurrency:
+  group: kalshi-parlay-dry-run
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      LOADER_TOKEN: ${{ secrets.LOADER_TOKEN }}
+      LOADER_URL: https://cboe-to-r2.robertlancer.workers.dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Require secrets and LIVE=0
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID LOADER_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing from GitHub secrets"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          if grep -E '"KALSHI_PARLAY_LIVE":[[:space:]]*"1"' loader/wrangler.jsonc; then
+            echo "::error::Refusing to deploy with KALSHI_PARLAY_LIVE=1"
+            exit 1
+          fi
+          if ! grep -E '"KALSHI_PARLAY_LIVE":[[:space:]]*"0"' loader/wrangler.jsonc; then
+            echo "::error::KALSHI_PARLAY_LIVE must be \"0\" in wrangler.jsonc"
+            exit 1
+          fi
+          echo "Secrets present (values not printed). LIVE stays 0."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: loader/package-lock.json
+
+      - name: Install loader dependencies
+        run: cd loader && npm ci
+
+      - name: Refuse LIVE/EXECUTE Worker secrets
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          npx wrangler secret list > /tmp/loader-secrets.txt
+          if grep -E 'KALSHI_PARLAY_(LIVE|EXECUTE)' /tmp/loader-secrets.txt; then
+            echo "::error::Worker secrets KALSHI_PARLAY_LIVE/EXECUTE would override wrangler vars — refusing"
+            exit 1
+          fi
+          echo "No KALSHI_PARLAY_* Worker secrets (vars from wrangler.jsonc apply)."
+
+      - name: Deploy loader with EXECUTE=1 LIVE=0
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("wrangler.jsonc")
+          text = p.read_text()
+          if '"KALSHI_PARLAY_LIVE": "1"' in text:
+              raise SystemExit("LIVE is 1 — refusing deploy")
+          if '"KALSHI_PARLAY_LIVE": "0"' not in text:
+              raise SystemExit("LIVE is not 0 — refusing deploy")
+          text2 = text.replace('"KALSHI_PARLAY_EXECUTE": "0"', '"KALSHI_PARLAY_EXECUTE": "1"', 1)
+          if text2 == text:
+              raise SystemExit("failed to set EXECUTE=1")
+          p.write_text(text2)
+          print("Set KALSHI_PARLAY_EXECUTE=1 for this deploy; LIVE stays 0")
+          PY
+          npx wrangler d1 migrations apply cboe-loader-state --remote
+          npx wrangler deploy
+          echo "DEPLOYED_EXECUTE=1" >> "$GITHUB_ENV"
+
+      - name: Wait for executor last_pass (alarm or force)
+        run: |
+          set -euo pipefail
+          before_at=$(curl -sS "$LOADER_URL/jobs/kalshi-parlay-executor" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+          echo "before_at=$before_at"
+          # First GET reconstructs the DO (clears leftover passing from deploy).
+          # The alarm may then run due jobs — including this executor — under
+          # the same passing lock, so prefer an alarm-written last_pass over
+          # 409-retrying a force while tick() is still draining the due set.
+          triggered=0
+          for i in $(seq 1 80); do
+            loop=$(curl -sS "$LOADER_URL/loop/status")
+            status=$(curl -sS "$LOADER_URL/jobs/kalshi-parlay-executor")
+            passing=$(echo "$loop" | jq -r '.passing')
+            ok=$(echo "$status" | jq -r '.ok')
+            execute=$(echo "$status" | jq -r '.job.last_pass.detail.execute // empty')
+            idle=$(echo "$status" | jq -r '.job.last_pass.detail.idle_reason // empty')
+            attempted=$(echo "$status" | jq -r '.job.last_pass.detail.attempted // empty')
+            after_at=$(echo "$status" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+            echo "poll $i: ok=$ok passing=$passing execute=$execute idle=$idle attempted=$attempted finished_at=$after_at"
+            if [ "$ok" = "true" ] && [ "$execute" = "true" ] && [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
+              echo "$status" | jq '{ok, job_id:.job.job_id, last_pass:.job.last_pass}'
+              echo "$status" > /tmp/parlay-executor-last.json
+              exit 0
+            fi
+            if [ "$ok" != "true" ]; then
+              sleep 5
+              continue
+            fi
+            if [ "$passing" = "true" ]; then
+              sleep 15
+              continue
+            fi
+            if [ "$triggered" != "1" ]; then
+              set +e
+              resp=$(curl -sS -X POST \
+                -H "Authorization: Bearer $LOADER_TOKEN" \
+                -m 60 \
+                -w '\n__HTTP_%{http_code}' \
+                "$LOADER_URL/jobs/kalshi-parlay-executor/trigger?force=1&async=1")
+              curl_ec=$?
+              set -e
+              if [ "$curl_ec" -eq 0 ]; then
+                body="${resp%__HTTP_*}"
+                code="${resp##*__HTTP_}"
+                echo "trigger HTTP $code $body"
+                if [ "$code" = "200" ] && echo "$body" | grep -q '"ok":true'; then
+                  triggered=1
+                fi
+              fi
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for parlay-executor last_pass.detail.execute=true"
+          curl -sS "$LOADER_URL/loop/status" | jq '{ok,passing,next_alarm}'
+          curl -sS "$LOADER_URL/jobs/kalshi-parlay-executor" | jq .
+          exit 1
+
+      - name: Force kalshi-markets-hourly (probe must skip)
+        run: |
+          set -euo pipefail
+          before_at=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+          echo "before_at=$before_at"
+          triggered=0
+          for i in $(seq 1 80); do
+            loop=$(curl -sS "$LOADER_URL/loop/status")
+            status=$(curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly")
+            passing=$(echo "$loop" | jq -r '.passing')
+            probe=$(echo "$status" | jq -r '.job.last_pass.detail.rfq_probe // empty')
+            after_at=$(echo "$status" | jq -r '.job.last_pass.finished_at // .job.last_pass.at // empty')
+            echo "poll $i: passing=$passing rfq_probe=$probe finished_at=$after_at"
+            if [ "$probe" = "skipped_executor" ] && [ -n "$after_at" ] && [ "$after_at" != "$before_at" ]; then
+              echo "$status" | jq '{ok, job_id:.job.job_id, last_pass:(.job.last_pass|{run_id,duration_ms,failed,succeeded,attempted,finished_at,transport_error,detail})}'
+              echo "$status" > /tmp/kalshi-hourly-last.json
+              exit 0
+            fi
+            if [ "$passing" = "true" ]; then
+              sleep 15
+              continue
+            fi
+            if [ "$triggered" != "1" ]; then
+              set +e
+              resp=$(curl -sS -X POST \
+                -H "Authorization: Bearer $LOADER_TOKEN" \
+                -m 60 \
+                -w '\n__HTTP_%{http_code}' \
+                "$LOADER_URL/jobs/kalshi-markets-hourly/trigger?force=1&async=1")
+              curl_ec=$?
+              set -e
+              if [ "$curl_ec" -eq 0 ]; then
+                body="${resp%__HTTP_*}"
+                code="${resp##*__HTTP_}"
+                echo "trigger HTTP $code $body"
+                if [ "$code" = "200" ] && echo "$body" | grep -q '"ok":true'; then
+                  triggered=1
+                fi
+              fi
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for hourly last_pass.detail.rfq_probe=skipped_executor"
+          curl -sS "$LOADER_URL/jobs/kalshi-markets-hourly" | jq .
+          exit 1
+
+      - name: Assert dry-run
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          function readJson(path) {
+            if (!fs.existsSync(path)) return null;
+            try { return JSON.parse(fs.readFileSync(path, "utf8")); }
+            catch { return null; }
+          }
+          const execStatus = readJson("/tmp/parlay-executor-last.json");
+          const hourlyStatus = readJson("/tmp/kalshi-hourly-last.json");
+          const detail = execStatus?.job?.last_pass?.detail || {};
+          const hourlyPass = hourlyStatus?.job?.last_pass || {};
+          const hourlyDetail = hourlyPass.detail || {};
+          const decisions = Array.isArray(detail.decisions) ? detail.decisions : [];
+          const errors = [];
+          if (!execStatus?.ok) errors.push("missing parlay-executor last_pass");
+          if (detail.live === true) errors.push("last_pass.detail.live is true");
+          if (detail.execute !== true) errors.push("last_pass.detail.execute is not true");
+          if (Number(detail.accepted || 0) !== 0) errors.push(`accepted=${detail.accepted} (must be 0)`);
+          if (decisions.some((row) => row.accepted === true)) {
+            errors.push("a decision has accepted=true");
+          }
+          if (Number(detail.attempted || 0) > 0) {
+            const scored = decisions.filter((row) => row.would_accept === true || (row.reasons && row.reasons.length) || row.error);
+            if (!scored.length) errors.push("attempted RFQs but no would_accept/skip reasons on last_pass.detail");
+            const leftover = decisions.filter((row) => row.rfq_id && row.accepted !== true);
+            if (!leftover.length && !decisions.some((row) => row.error === "forbidden")) {
+              errors.push("attempted RFQs but none recorded as deleted (rfq_id set, accepted false)");
+            }
+          } else {
+            const idle = detail.idle_reason;
+            if (!["no_targets", "no_api_keys", "forbidden"].includes(idle)) {
+              errors.push(`attempted=0 but idle_reason=${idle} (want no_targets|no_api_keys|forbidden)`);
+            }
+          }
+          if (!hourlyStatus?.ok) errors.push("missing kalshi-markets-hourly last_pass");
+          if (hourlyPass.transport_error) errors.push(`hourly transport_error=${hourlyPass.transport_error}`);
+          if (hourlyDetail.rfq_probe !== "skipped_executor") {
+            errors.push(`hourly rfq_probe=${hourlyDetail.rfq_probe} (want skipped_executor)`);
+          }
+          if (hourlyDetail.live === true) errors.push("hourly last_pass.detail.live is true");
+          console.log(JSON.stringify({
+            execute: detail.execute,
+            live: detail.live,
+            idle_reason: detail.idle_reason,
+            open_combos: detail.open_combos,
+            open_legs: detail.open_legs,
+            combo_legs: detail.combo_legs,
+            two_leg: detail.two_leg,
+            same_game_two_leg: detail.same_game_two_leg,
+            cross_game_two_leg: detail.cross_game_two_leg,
+            missing_leg_mids: detail.missing_leg_mids,
+            samples: detail.samples,
+            attempted: detail.attempted,
+            would_accept: detail.would_accept,
+            accepted: detail.accepted,
+            skipped: detail.skipped,
+            decisions,
+            hourly: {
+              attempted: hourlyPass.attempted,
+              succeeded: hourlyPass.succeeded,
+              failed: hourlyPass.failed,
+              rfq_probe: hourlyDetail.rfq_probe,
+              live: hourlyDetail.live,
+            },
+          }, null, 2));
+          if (errors.length) {
+            console.error(errors.map((e) => `::error::${e}`).join("\n"));
+            process.exit(1);
+          }
+          NODE
+
+      - name: Upload dry-run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalshi-parlay-dry-run
+          path: |
+            /tmp/parlay-executor-last.json
+            /tmp/kalshi-hourly-last.json
+          if-no-files-found: ignore
+
+      - name: Restore EXECUTE=0 (never leave LIVE on)
+        if: always() && env.DEPLOYED_EXECUTE == '1'
+        working-directory: loader
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" checkout -- loader/wrangler.jsonc
+          if grep -E '"KALSHI_PARLAY_LIVE":[[:space:]]*"1"' wrangler.jsonc; then
+            echo "::error::LIVE became 1 while restoring — refusing deploy"
+            exit 1
+          fi
+          if ! grep -E '"KALSHI_PARLAY_EXECUTE":[[:space:]]*"0"' wrangler.jsonc; then
+            echo "::error::EXECUTE is not 0 after git checkout"
+            exit 1
+          fi
+          npx wrangler deploy
+          echo "cboe-to-r2 restored with EXECUTE=0 LIVE=0"

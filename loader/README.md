@@ -275,6 +275,47 @@ never accepted or confirmed. Read-only keys 403 and skip. Set
 `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
+### Same-game parlay executor (`kalshi-parlay-executor`)
+
+Separate from the hourly tape. Buys unpriced same-game correlation:
+
+1. Open MVE combos + selected legs (no candle backfill, no research RFQ overlay).
+   Same-game grouping uses `mve_selected_legs.event_ticker`, not `category`.
+2. Rank same-game two-leg sports stacks by corr room (`min(p,q) − p×q`).
+3. Create an RFQ, wait for a private two-way, score it.
+4. **Filter (all required):** 2 legs, same game, same side (yes+yes or no+no),
+   corr room ≥ 15¢, spread ≤ 8¢, ask ≤ independence + 2¢, |φ| < 0.15,
+   single-maker `quote_id`. Skip mixed yes/no, n>2, leftover `yes_last`,
+   and quotes already at Fréchet.
+5. Default: log `would_accept` and **delete** the RFQ.
+6. Live: `KALSHI_PARLAY_EXECUTE=1` **and** `KALSHI_PARLAY_LIVE=1`, then
+   `PUT .../quotes/{id}/accept` with `accepted_side: "yes"`. The **maker**
+   confirms (HVM 3s). This job never calls `/confirm`. Size is the existing
+   RFQ contract cap (default 10).
+
+Wrangler defaults both flags to `"0"`. Turning on EXECUTE skips the hourly RFQ
+probe so two Creates do not 409. Force a pass from Actions
+(`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
+
+```bash
+curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
+  "$LOADER_URL/jobs/kalshi-parlay-executor/trigger?force=1&async=1"
+```
+
+`GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
+`accepted`, skip reasons). An empty pass records `idle_reason`
+(`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
+`open_combos`, `open_legs`, `combo_legs`, `two_leg`, `same_game_two_leg`,
+`cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
+`mve_selected_legs` (including `event_ticker`), not the lake `category`
+encoding.
+Dry-run with EXECUTE on and LIVE off:
+`.github/workflows/force-kalshi-parlay-dry-run.yml` (push
+`cursor/run-kalshi-parlay-dry-run-*`, or Actions dispatch). That workflow
+temporarily deploys EXECUTE=1, never LIVE=1, then restores EXECUTE=0.
+
+Do not enable LIVE until dry-run `would_accept` rows match the notebook.
+
 **Optional API auth** — market GETs work anonymously, but a Kalshi
 API key usually gets a higher rate tier. The loader RSA-PSS-signs
 each request when secrets are set (`KALSHI-ACCESS-*` headers). Read-only keys

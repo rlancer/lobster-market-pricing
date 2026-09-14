@@ -40,14 +40,17 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   FRED Treasury / rates curve observations → `options.yields`: DGS*
   constant-maturity, T10Y2Y/T10Y3M spreads, TIPS/breakevens, T5YIFR forward,
   DFF/SOFR; ~10y lookback), `fred-macro-daily` (batch, daily; FRED CPI/PCE/PPI
-  index + YoY → `options.macro`; ~20y lookback), and `kalshi-markets-hourly`
+  index + YoY → `options.macro`; ~20y lookback), `kalshi-markets-hourly`
   (batch, hourly; curated Kalshi
   Fed/CPI/index/crypto/oil event contracts plus sports parlays — MVE
   combos that name at least one sports leg (not crypto-only 15m stacks,
   not the full catalog) and those legs, including ~30 days of daily candles
   and an optional capped same-game RFQ quote probe (`KALSHI_RFQ_PROBE_ENABLED`,
   never accepts) — →
-  `options.kalshi_markets` from `symbols/kalshi-series.json`).
+  `options.kalshi_markets` from `symbols/kalshi-series.json`), and
+  `kalshi-parlay-executor` (batch, 5 min; same-game two-leg RFQ filter.
+  No-op unless `KALSHI_PARLAY_EXECUTE=1`. Accepts YES only when
+  `KALSHI_PARLAY_LIVE=1` as well; the hourly probe still never accepts).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

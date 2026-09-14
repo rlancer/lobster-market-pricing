@@ -21,6 +21,7 @@ import {
   mveCollectionTicker,
   parseMveSelectedLegs,
   seriesTickerFromMarketTicker,
+  type MveSelectedLeg,
 } from "./kalshi-mve.js";
 import { probeKalshiRfqQuotes } from "./kalshi-rfq-quotes.js";
 
@@ -141,6 +142,18 @@ export interface KalshiEnv {
   KALSHI_RFQ_POLLS?: number | string;
   /** Whole-contract RFQ size (default 10, cap 10). Never accepted. */
   KALSHI_RFQ_CONTRACTS?: number | string;
+  /**
+   * Set to "1" to run kalshi-parlay-executor (RFQ + score). Default off.
+   * Does not accept quotes unless KALSHI_PARLAY_LIVE is also "1".
+   */
+  KALSHI_PARLAY_EXECUTE?: string;
+  /**
+   * Set to "1" with KALSHI_PARLAY_EXECUTE to accept YES on passing RFQs.
+   * The maker confirms (HVM). The research probe never accepts.
+   */
+  KALSHI_PARLAY_LIVE?: string;
+  /** Executor cadence seconds (default 300). */
+  KALSHI_PARLAY_CADENCE_SECONDS?: number | string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   /** Max JSON body bytes per pipeline POST (default 4.5 MiB, under the 5 MB cap). */
@@ -904,6 +917,12 @@ async function fetchSportsCandles(
   return out;
 }
 
+export interface KalshiSportsParlayPack {
+  rows: KalshiMarketRow[];
+  /** Selected legs from Get Markets `mve_selected_legs`, including event_ticker. */
+  comboLegs: Map<string, MveSelectedLeg[]>;
+}
+
 /**
  * Sports parlays: MVE combo markets that name their legs, plus those leg
  * contracts. Open books are snapshotted live; settled/closed books in the
@@ -911,10 +930,14 @@ async function fetchSportsCandles(
  * Capped on combos (volume-first); every selected leg is kept.
  * Optional RFQ probe (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo
  * bid/ask from solicited maker quotes, then cancels — never accepts.
+ *
+ * Prefer this pack over re-parsing `category`: encodeMveCategory drops
+ * event_ticker, which makes same-game grouping fail for books without an
+ * NFL-style date+teams slug in the market ticker.
  */
-export async function fetchKalshiSportsParlays(
+export async function fetchKalshiSportsParlayPack(
   env: KalshiEnv = {},
-): Promise<KalshiMarketRow[]> {
+): Promise<KalshiSportsParlayPack> {
   const meta = Object.values(KALSHI_SERIES).find((s) => s.ingest === "mve");
   const cap = meta ? maxMarketsFor(meta.series_ticker, env) : DEFAULT_MAX_MARKETS_PER_SERIES;
   const investing = investingKalshiSeries();
@@ -957,10 +980,16 @@ export async function fetchKalshiSportsParlays(
   const probedCombos = await probeKalshiRfqQuotes(env, openCombos, openPack.comboLegs, legs);
   const probedByTicker = new Map(probedCombos.map((row) => [row.market_ticker, row]));
   const liveWithRfq = live.map((row) => probedByTicker.get(row.market_ticker) ?? row);
-  if (lookbackDays <= 0) return liveWithRfq;
+  if (lookbackDays <= 0) return { rows: liveWithRfq, comboLegs: merged.comboLegs };
 
   const candles = await fetchSportsCandles(env, bases, startTs, endTs);
-  return [...liveWithRfq, ...candles];
+  return { rows: [...liveWithRfq, ...candles], comboLegs: merged.comboLegs };
+}
+
+export async function fetchKalshiSportsParlays(
+  env: KalshiEnv = {},
+): Promise<KalshiMarketRow[]> {
+  return (await fetchKalshiSportsParlayPack(env)).rows;
 }
 
 // ---------------------------------------------------------------------------

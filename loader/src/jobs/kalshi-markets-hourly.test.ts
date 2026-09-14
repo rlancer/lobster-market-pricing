@@ -119,7 +119,12 @@ describe("kalshi-markets-hourly job adapter", () => {
       expect(job.marketGated).toBe(false);
       expect(job.cadenceSeconds).toBe(3600);
       const run = await job.run(UNIVERSE, env());
-      expect(run).toEqual({ runId: null, failures: [] });
+      expect(run.runId).toBeNull();
+      expect(run.failures).toEqual([]);
+      expect(run.detail).toEqual({
+        rfq_probe: "research_tape_never_accepts",
+        live: false,
+      });
       expect(fetched).toBe(0);
     } finally {
       vi.unstubAllGlobals();
@@ -143,6 +148,10 @@ describe("kalshi-markets-hourly job adapter", () => {
       }));
       expect(run.failures).toEqual([]);
       expect(run.runId).toBe("run-1");
+      expect(run.detail).toEqual({
+        rfq_probe: "research_tape_never_accepts",
+        live: false,
+      });
       expect(posts).toHaveLength(UNIVERSE.length);
     } finally {
       vi.unstubAllGlobals();
@@ -174,9 +183,19 @@ describe("kalshi-markets-hourly job adapter", () => {
       expect(run.failures).toHaveLength(1);
       expect(run.failures[0].symbol).toBe("KXFED");
       expect(run.runId).toBe("run-1");
+      expect(run.detail?.rfq_probe).toBe("research_tape_never_accepts");
       expect(posts).toHaveLength(UNIVERSE.length - 1);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("records rfq_probe skipped_executor when parlay execute is on", async () => {
+    const job = kalshiMarketsHourlyJob(env());
+    const run = await job.run(UNIVERSE, env({ KALSHI_PARLAY_EXECUTE: "1" }));
+    expect(run.detail).toEqual({
+      rfq_probe: "skipped_executor",
+      live: false,
+    });
   });
 });
