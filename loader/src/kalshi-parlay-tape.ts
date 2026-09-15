@@ -80,19 +80,28 @@ function asKalshiRow(row: ParlayFillMarketRow): KalshiMarketRow {
 }
 
 export async function fetchKalshiPortfolioFills(env: KalshiEnv): Promise<ParlayPortfolioFill[]> {
-  const url = `${kalshiBase(env)}/portfolio/fills?limit=200`;
-  const result = await kalshiRequest("GET", url, env, "kalshi portfolio fills");
-  const fills = asRecord(result.json)?.fills;
-  if (!Array.isArray(fills)) return [];
   const out: ParlayPortfolioFill[] = [];
   const seen = new Set<string>();
-  for (const raw of fills) {
-    const fill = parseKalshiPortfolioFill(raw);
-    if (!fill) continue;
-    const key = `${fill.market_ticker}|${fill.created_time}|${fill.side}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(fill);
+  let cursor = "";
+  for (let page = 0; page < 10; page++) {
+    const qs = new URLSearchParams({ limit: "200" });
+    if (cursor) qs.set("cursor", cursor);
+    const url = `${kalshiBase(env)}/portfolio/fills?${qs.toString()}`;
+    const result = await kalshiRequest("GET", url, env, "kalshi portfolio fills");
+    const rec = asRecord(result.json);
+    const fills = rec?.fills;
+    if (!Array.isArray(fills)) break;
+    for (const raw of fills) {
+      const fill = parseKalshiPortfolioFill(raw);
+      if (!fill) continue;
+      const key = `${fill.market_ticker}|${fill.created_time}|${fill.side}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(fill);
+    }
+    const next = strip(rec?.cursor);
+    if (!next || next === cursor || fills.length < 200) break;
+    cursor = next;
   }
   return out;
 }

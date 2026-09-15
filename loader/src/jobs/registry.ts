@@ -70,8 +70,8 @@ import { companyFactsDailyJob } from "./company-facts-daily.js";
 //   - kalshi-markets-hourly — batch, ungated, hourly; curated Kalshi event
 //     contracts (Fed/CPI/indexes/crypto/oil + sports parlays) → options.kalshi_markets.
 //   - kalshi-parlay-executor — batch, ungated, 5 min; same-game sports RFQ
-//     live accept (KALSHI_PARLAY_EXECUTE + KALSHI_PARLAY_LIVE), $10 notional,
-//     at most one fill per pass. Hourly probe never accepts.
+//     live accept (KALSHI_PARLAY_EXECUTE + KALSHI_PARLAY_LIVE), $5 notional,
+//     $100 run cash cap, at most one fill per pass. Hourly probe never accepts.
 export function buildJobs(env: SchedulerEnv): JobSpec[] {
   return [
     cboeOptionsJob(env),

@@ -1,20 +1,32 @@
 /**
  * Same-game sports parlay RFQ filter.
  *
- * Buy the combo YES only when makers quote near independence on a two-leg
- * same-game same-side stack with enough Fréchet room to clear spread + fees.
- * This is the executable rule from the kalshi-parlays notebook — not a CLOB
- * screen, not mixed yes/no, not n>2, not leftover yes_last.
+ * Two executable books:
+ *   - corr_room_yes: buy combo YES when makers quote near independence
+ *     (Fréchet room ≥ 15¢, ask ≤ p×q + 2¢, |φ| < 0.15). Historical live rule.
+ *   - same_game_underdog (default): buy combo YES on a two-leg same-game
+ *     same-side stack when the ask is ≤ 50¢. Last night's tape paid on the
+ *     cheap YES side; corr-room took nothing. accepted_side stays "yes".
+ *
+ * Not a CLOB screen, not mixed yes/no, not n>2, not leftover yes_last.
  */
 
 export const PARLAY_MIN_CORR_ROOM = 0.15;
 export const PARLAY_MAX_SPREAD = 0.08;
 export const PARLAY_MAX_ASK_OVER_INDEP = 0.02;
 export const PARLAY_MAX_ABS_PHI = 0.15;
-/** Kalshi $1 face — 10 contracts is $10 notional / max payout. */
+/** Kalshi $1 face — cap 10 contracts ($10 notional / max payout). */
 export const PARLAY_MAX_CONTRACTS = 10;
 export const PARLAY_MAX_ACCEPTS_PER_PASS_DEFAULT = 1;
 export const PARLAY_MAX_ACCEPTS_PER_PASS_CAP = 12;
+/** Buy YES only when the ask is the cheap side of a $1 binary. */
+export const PARLAY_UNDERDOG_MAX_COST = 0.50;
+
+export const PARLAY_BOOK_CORR_ROOM = "corr_room_yes";
+export const PARLAY_BOOK_UNDERDOG = "same_game_underdog";
+export const PARLAY_BOOK_DEFAULT = PARLAY_BOOK_UNDERDOG;
+
+export type ParlayBookId = typeof PARLAY_BOOK_CORR_ROOM | typeof PARLAY_BOOK_UNDERDOG;
 
 export interface ParlayQuoteInput {
   market_ticker: string;
@@ -68,6 +80,12 @@ export function parlayMaxAcceptsPerPass(env: {
   );
 }
 
+export function parlayBook(env: { KALSHI_PARLAY_BOOK?: unknown } = {}): ParlayBookId {
+  const raw = String(env.KALSHI_PARLAY_BOOK ?? PARLAY_BOOK_DEFAULT).trim().toLowerCase();
+  if (raw === PARLAY_BOOK_CORR_ROOM || raw === "corr_room") return PARLAY_BOOK_CORR_ROOM;
+  return PARLAY_BOOK_UNDERDOG;
+}
+
 export function independenceJoint(p: number, q: number): number {
   return clamp01(p) * clamp01(q);
 }
@@ -92,7 +110,47 @@ export function sameSide(sides: Array<"yes" | "no">): boolean {
   return sides.every((side) => side === sides[0]);
 }
 
+/** Corr-room YES — the kalshi-parlays notebook / historical live filter. */
 export function evaluateParlayQuote(input: ParlayQuoteInput): ParlayQuoteDecision {
+  return finishQuote(input, (stats, reasons) => {
+    if (!(stats.corr_room >= PARLAY_MIN_CORR_ROOM - 1e-12)) reasons.push("corr_room");
+    if (!(stats.ask_vs_indep <= PARLAY_MAX_ASK_OVER_INDEP + 1e-12)) reasons.push("ask_vs_indep");
+    if (stats.phi == null || Math.abs(stats.phi) >= PARLAY_MAX_ABS_PHI) reasons.push("phi");
+  });
+}
+
+/**
+ * Same-game underdog YES: drop independence / φ gates; take the cheap YES
+ * side (ask ≤ 50¢) on a two-leg same-game same-side two-way.
+ */
+export function evaluateUnderdogYesQuote(input: ParlayQuoteInput): ParlayQuoteDecision {
+  return finishQuote(input, (stats, reasons) => {
+    if (!(Number.isFinite(stats.yes_ask) && stats.yes_ask <= PARLAY_UNDERDOG_MAX_COST + 1e-12)) {
+      reasons.push("underdog_cost");
+    }
+  });
+}
+
+export function evaluateParlayExecutorQuote(
+  input: ParlayQuoteInput,
+  book: ParlayBookId = PARLAY_BOOK_DEFAULT,
+): ParlayQuoteDecision {
+  if (book === PARLAY_BOOK_CORR_ROOM) return evaluateParlayQuote(input);
+  return evaluateUnderdogYesQuote(input);
+}
+
+function finishQuote(
+  input: ParlayQuoteInput,
+  extra: (
+    stats: {
+      yes_ask: number;
+      corr_room: number;
+      ask_vs_indep: number;
+      phi: number | null;
+    },
+    reasons: string[],
+  ) => void,
+): ParlayQuoteDecision {
   const reasons: string[] = [];
   const p = clamp01(input.p);
   const q = clamp01(input.q);
@@ -105,15 +163,13 @@ export function evaluateParlayQuote(input: ParlayQuoteInput): ParlayQuoteDecisio
   if (input.sides.length !== 2) reasons.push("not_two_leg");
   if (!input.same_game) reasons.push("not_same_game");
   if (!sameSide(input.sides)) reasons.push("mixed_side");
-  if (!(corr_room >= PARLAY_MIN_CORR_ROOM - 1e-12)) reasons.push("corr_room");
   if (!(Number.isFinite(spread) && spread >= 0 && spread <= PARLAY_MAX_SPREAD + 1e-12)) {
     reasons.push("spread");
   }
   if (!(Number.isFinite(input.yes_ask) && input.yes_ask > 0 && input.yes_ask < 1)) {
     reasons.push("ask");
   }
-  if (!(ask_vs_indep <= PARLAY_MAX_ASK_OVER_INDEP + 1e-12)) reasons.push("ask_vs_indep");
-  if (phi == null || Math.abs(phi) >= PARLAY_MAX_ABS_PHI) reasons.push("phi");
+  extra({ yes_ask: input.yes_ask, corr_room, ask_vs_indep, phi }, reasons);
   if (!input.quote_id) reasons.push("no_quote_id");
 
   const ok = reasons.length === 0;

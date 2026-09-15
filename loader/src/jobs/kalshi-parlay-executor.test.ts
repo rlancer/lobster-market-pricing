@@ -16,8 +16,10 @@ describe("kalshi-parlay-executor job adapter", () => {
     expect(result.detail).toMatchObject({
       execute: false,
       live: false,
-      contracts: 10,
+      contracts: 5,
       max_accepts_per_pass: 1,
+      book: "same_game_underdog",
+      max_spend: 100,
       idle_reason: "execute_off",
       attempted: 0,
       would_accept: 0,

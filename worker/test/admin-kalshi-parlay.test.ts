@@ -93,8 +93,14 @@ describe("shapeExecutorJob", () => {
     const view = shapeExecutorJob(executorPayload({
       execute: true,
       live: false,
-      contracts: 10,
+      contracts: 5,
       max_accepts_per_pass: 1,
+      book: "same_game_underdog",
+      max_spend: 100,
+      spent: 12.4,
+      spend_remaining: 87.6,
+      spend_since: "2026-09-15T20:30:00.000Z",
+      spend_run_id: "underdog-5x100",
       idle_reason: null,
       open_combos: 80,
       two_leg: 7,
@@ -126,8 +132,13 @@ describe("shapeExecutorJob", () => {
     assert.equal(view.same_game_two_leg, 1);
     assert.equal(view.decisions[0]?.quote_id, "q1");
     assert.equal(view.decisions[0]?.yes_ask, 0.22);
-    assert.equal(view.contracts, 10);
+    assert.equal(view.contracts, 5);
     assert.equal(view.max_accepts_per_pass, 1);
+    assert.equal(view.book, "same_game_underdog");
+    assert.equal(view.max_spend, 100);
+    assert.equal(view.spent, 12.4);
+    assert.equal(view.spend_remaining, 87.6);
+    assert.equal(view.spend_run_id, "underdog-5x100");
   });
 
   it("maps considered legs and skip reasons", () => {
@@ -185,8 +196,9 @@ describe("shapeExecutorJob", () => {
     assert.equal(view.idle_reason, null);
     assert.equal(view.attempted, 0);
     assert.equal(view.decisions.length, 0);
-    assert.equal(view.contracts, 10);
+    assert.equal(view.contracts, 5);
     assert.equal(view.max_accepts_per_pass, 1);
+    assert.equal(view.max_spend, 100);
     assert.equal(view.last_pass_at, NOW - 90_000);
   });
 

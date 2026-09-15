@@ -266,7 +266,7 @@ const SURFACES = [
   {
     route: '/admin/kalshi-parlay',
     title: 'Kalshi parlay bot',
-    body: 'Admin console for kalshi-parlay-executor. Polls GET /api/admin/kalshi-parlay (session admin or ADMIN_TOKEN) for last_pass.detail: execute/live/idle_reason, RFQ attempted/would_accept/accepted/skipped, the considered trail (same-game two-leg books with selected legs, corr room, and why each was skipped or taken), 10-contract ($10 notional) size, at most one live fill per pass, universe mix, and decision rows. Force dry-run pass POSTs through the Worker with LOADER_TOKEN and is disabled while LIVE; the page never sets LIVE. Public study stays at /experiments/kalshi-parlays.',
+    body: 'Admin console for kalshi-parlay-executor. Polls GET /api/admin/kalshi-parlay (session admin or ADMIN_TOKEN) for last_pass.detail: execute/live/idle_reason, RFQ attempted/would_accept/accepted/skipped, the considered trail (same-game two-leg books with selected legs, corr room, and why each was skipped or taken), 5-contract ($5 notional) size, $100 run cash cap, at most one live fill per pass, universe mix, and decision rows. Force dry-run pass POSTs through the Worker with LOADER_TOKEN and is disabled while LIVE; the page never sets LIVE. Public study stays at /experiments/kalshi-parlays.',
   },
   {
     route: '/admin/test-runs',

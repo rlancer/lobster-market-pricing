@@ -8,7 +8,8 @@ import {
   collectKalshiParlayTape,
 } from "../kalshi-parlay-tape.js";
 import { KALSHI_PARLAY_FILL_SOURCE } from "../kalshi-parlay-fills.js";
-import { parlayExecuteEnabled, parlayLiveEnabled, parlayMaxAcceptsPerPass } from "../kalshi-parlay-filter.js";
+import { parlayBook, parlayExecuteEnabled, parlayLiveEnabled, parlayMaxAcceptsPerPass } from "../kalshi-parlay-filter.js";
+import { parlayMaxSpend, parlaySpendRunId } from "../kalshi-parlay-spend.js";
 import { rfqContracts } from "../kalshi-rfq-quotes.js";
 import {
   emptyParlayPass,
@@ -22,10 +23,20 @@ function num(env: SchedulerEnv, key: string, dflt: number): number {
   return Number.isFinite(v) && v >= 0 ? v : dflt;
 }
 
-function sizeFlags(env: SchedulerEnv): { contracts: number; max_accepts_per_pass: number } {
+function sizeFlags(env: SchedulerEnv): {
+  contracts: number;
+  max_accepts_per_pass: number;
+  book: ReturnType<typeof parlayBook>;
+  max_spend: number;
+  spend_run_id: string;
+} {
+  const kalshi = env as unknown as KalshiEnv;
   return {
-    contracts: rfqContracts(env as unknown as KalshiEnv),
+    contracts: rfqContracts(kalshi),
     max_accepts_per_pass: parlayMaxAcceptsPerPass(env),
+    book: parlayBook(kalshi),
+    max_spend: parlayMaxSpend(kalshi),
+    spend_run_id: parlaySpendRunId(kalshi),
   };
 }
 
@@ -60,8 +71,8 @@ async function withParlayTape(
 }
 
 // Same-game sports parlay RFQ executor. Batch, ungated, 5-minute cadence.
-// Live: KALSHI_PARLAY_EXECUTE=1 and KALSHI_PARLAY_LIVE=1, 10 contracts
-// ($10 notional), at most one accept per pass. Scans every open sports MVE
+// Live: KALSHI_PARLAY_EXECUTE=1 and KALSHI_PARLAY_LIVE=1, 5 contracts
+// ($5 notional), at most one accept per pass, $100 run cash cap. Scans every open sports MVE
 // from the Trade API (not the lake volume-80 cap). Never the full catalog.
 // The hourly KXMVE research probe stays separate and never accepts.
 // Each pass also publishes portfolio combo fills + this pass's RFQ two-ways
@@ -84,6 +95,10 @@ export function kalshiParlayExecutorJob(env: SchedulerEnv): BatchJob {
           execute: true,
           live: parlayLiveEnabled(e),
           ...sizeFlags(e),
+          spent: pass.spent,
+          spend_remaining: pass.spend_remaining,
+          spend_since: pass.spend_since,
+          spend_error: pass.spend_error,
         });
         return {
           runId: null,

@@ -7,13 +7,17 @@
 import type { KalshiMarketRow } from "./kalshi.js";
 import { isSameGameSportsTwoLeg, type MveSelectedLeg } from "./kalshi-mve.js";
 import {
+  PARLAY_BOOK_CORR_ROOM,
   PARLAY_MAX_ABS_PHI,
   PARLAY_MAX_ASK_OVER_INDEP,
   PARLAY_MAX_SPREAD,
   PARLAY_MIN_CORR_ROOM,
+  PARLAY_UNDERDOG_MAX_COST,
   corrRoom,
   independenceJoint,
+  parlayBook,
   sameSide,
+  type ParlayBookId,
 } from "./kalshi-parlay-filter.js";
 import { selectedProb } from "./kalshi-rfq-quotes.js";
 
@@ -85,6 +89,14 @@ function explainCode(
       return "Ranked below the RFQ cap this pass";
     case "max_accepts":
       return "Not solicited — already filled this pass";
+    case "max_spend":
+      return "Run cash cap reached — no further accepts";
+    case "spend_unknown":
+      return "Live accept blocked — no spend watermark (D1 run id or KALSHI_PARLAY_SPEND_SINCE)";
+    case "underdog_cost":
+      return ask != null
+        ? `YES ask ${fmtCents(ask)} is above the ${fmtCents(PARLAY_UNDERDOG_MAX_COST)} underdog cap`
+        : `YES ask is above the ${fmtCents(PARLAY_UNDERDOG_MAX_COST)} underdog cap`;
     case "no_two_way":
       return "Makers did not quote a two-way";
     case "forbidden":
@@ -130,7 +142,9 @@ export function listSameGameConsidered(
   combos: KalshiMarketRow[],
   comboLegs: Map<string, MveSelectedLeg[]>,
   legs: KalshiMarketRow[],
+  opts?: { book?: ParlayBookId },
 ): ParlayConsidered[] {
+  const book = opts?.book ?? parlayBook({});
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
   const out: ParlayConsidered[] = [];
   for (const combo of combos) {
@@ -154,10 +168,19 @@ export function listSameGameConsidered(
     let skip: string | null = null;
     if (p == null || q == null) skip = "missing_leg_mids";
     else if (!sameSide(sides)) skip = "mixed_side";
-    else if (room != null && room < PARLAY_MIN_CORR_ROOM - 1e-12) skip = "corr_room";
+    else if (
+      book === PARLAY_BOOK_CORR_ROOM
+      && room != null
+      && room < PARLAY_MIN_CORR_ROOM - 1e-12
+    ) {
+      skip = "corr_room";
+    }
+    const eligible = book === PARLAY_BOOK_CORR_ROOM
+      ? "Eligible — ranked for RFQ by corr room"
+      : "Eligible — ranked for RFQ by cheapest independence";
     const reason = skip
       ? explainParlaySkip([skip], { corr_room: room, independence })
-      : "Eligible — ranked for RFQ by corr room";
+      : eligible;
     out.push({
       market_ticker: combo.market_ticker,
       title: clip(combo.title || combo.market_ticker),
@@ -172,9 +195,15 @@ export function listSameGameConsidered(
     });
   }
   out.sort((a, b) => {
-    const roomA = a.corr_room ?? -1;
-    const roomB = b.corr_room ?? -1;
-    if (roomB !== roomA) return roomB - roomA;
+    if (book !== PARLAY_BOOK_CORR_ROOM) {
+      const ia = a.independence ?? Number.POSITIVE_INFINITY;
+      const ib = b.independence ?? Number.POSITIVE_INFINITY;
+      if (ia !== ib) return ia - ib;
+    } else {
+      const roomA = a.corr_room ?? -1;
+      const roomB = b.corr_room ?? -1;
+      if (roomB !== roomA) return roomB - roomA;
+    }
     return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
   });
   return out;
@@ -188,6 +217,7 @@ export function annotateParlayConsidered(
     live: boolean;
     acceptedCount: number;
     maxAccepts: number;
+    spendBlocked?: "max_spend" | "spend_unknown" | null;
   },
 ): ParlayConsidered[] {
   const byDecision = new Map(opts.decisions.map((row) => [row.market_ticker, row]));
@@ -230,6 +260,14 @@ export function annotateParlayConsidered(
       };
     }
     if (opts.targetTickers.has(row.market_ticker)) {
+      if (!row.skip && opts.spendBlocked) {
+        return {
+          ...row,
+          status: "skipped" as const,
+          skip: opts.spendBlocked,
+          reason: explainParlaySkip([opts.spendBlocked]),
+        };
+      }
       if (!row.skip && opts.live && opts.acceptedCount >= opts.maxAccepts) {
         return {
           ...row,

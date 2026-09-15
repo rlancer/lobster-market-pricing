@@ -742,6 +742,7 @@ export type KalshiParlayIdleReason =
   | 'no_api_keys'
   | 'no_targets'
   | 'forbidden'
+  | 'max_spend'
   | null;
 
 export interface KalshiParlayDecision {
@@ -811,6 +812,13 @@ export interface KalshiParlayExecutor {
   skipped: number;
   contracts: number;
   max_accepts_per_pass: number;
+  book: string;
+  max_spend: number;
+  spent: number;
+  spend_remaining: number;
+  spend_since: string | null;
+  spend_run_id: string;
+  spend_error: string | null;
   decisions: KalshiParlayDecision[];
   considered: KalshiParlayConsidered[];
   samples: KalshiParlaySample[];

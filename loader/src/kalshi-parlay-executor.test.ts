@@ -25,6 +25,21 @@ async function generateTestPem(): Promise<string> {
   return `-----BEGIN PRIVATE KEY-----\n${lines.join("\n")}\n-----END PRIVATE KEY-----`;
 }
 
+function liveSpendEnv(pem: string, extra: Record<string, unknown> = {}) {
+  return {
+    KALSHI_PARLAY_EXECUTE: "1",
+    KALSHI_PARLAY_LIVE: "1",
+    KALSHI_ACCESS_KEY_ID: "key",
+    KALSHI_PRIVATE_KEY_PEM: pem,
+    KALSHI_RFQ_WAIT_MS: 0,
+    KALSHI_RFQ_POLL_MS: 0,
+    KALSHI_MIN_REQUEST_GAP_MS: 0,
+    HTTP_RETRIES: 0,
+    KALSHI_PARLAY_SPEND_SINCE: "2026-09-15T12:00:00.000Z",
+    ...extra,
+  };
+}
+
 const SAME_GAME_LEGS: MveSelectedLeg[] = [
   { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
   { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
@@ -357,6 +372,9 @@ describe("runKalshiParlayExecutorPass", () => {
       const url = String(input);
       const method = (init?.method || "GET").toUpperCase();
       calls.push({ url, method, body: init?.body ? String(init.body) : null });
+      if (url.includes("/portfolio/fills")) {
+        return new Response(JSON.stringify({ fills: [] }), { status: 200 });
+      }
       if (url.includes("mve_filter=only")) {
         return new Response(JSON.stringify({
           markets: [{
@@ -430,29 +448,20 @@ describe("runKalshiParlayExecutorPass", () => {
       return new Response("unexpected " + method + " " + url, { status: 500 });
     });
     try {
-      const pass = await runKalshiParlayExecutorPass({
-        KALSHI_PARLAY_EXECUTE: "1",
-        KALSHI_PARLAY_LIVE: "1",
-        KALSHI_ACCESS_KEY_ID: "key",
-        KALSHI_PRIVATE_KEY_PEM: pem,
-        KALSHI_RFQ_WAIT_MS: 0,
-        KALSHI_RFQ_POLL_MS: 0,
-        KALSHI_MIN_REQUEST_GAP_MS: 0,
-        HTTP_RETRIES: 0,
-      });
+      const pass = await runKalshiParlayExecutorPass(liveSpendEnv(pem));
       expect(pass.accepted).toBe(1);
       const accept = calls.find((c) => /accept/i.test(c.url));
       expect(accept?.method).toBe("PUT");
       expect(accept?.body).toContain("yes");
       const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/communications/rfqs"));
-      expect(create?.body).toContain('"contracts_fp":"10.00"');
+      expect(create?.body).toContain('"contracts_fp":"5.00"');
       expect(calls.some((c) => /confirm/i.test(c.url))).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("live stops after one $10 fill even when two quotes would pass", async () => {
+  it("live stops after one fill even when two quotes would pass", async () => {
     const pem = await generateTestPem();
     const extraLegs: MveSelectedLeg[] = [
       { event_ticker: "KXNFLRSHYDS-26SEP13ATLPIT", market_ticker: "KXNFLRSHYDS-26SEP13ATLPIT-ATLBJAE6-70", side: "yes" },
@@ -464,6 +473,9 @@ describe("runKalshiParlayExecutorPass", () => {
       const url = String(input);
       const method = (init?.method || "GET").toUpperCase();
       calls.push({ url, method });
+      if (url.includes("/portfolio/fills")) {
+        return new Response(JSON.stringify({ fills: [] }), { status: 200 });
+      }
       if (url.includes("mve_filter=only")) {
         return new Response(JSON.stringify({
           markets: [
@@ -577,16 +589,7 @@ describe("runKalshiParlayExecutorPass", () => {
       return new Response("unexpected " + method + " " + url, { status: 500 });
     });
     try {
-      const pass = await runKalshiParlayExecutorPass({
-        KALSHI_PARLAY_EXECUTE: "1",
-        KALSHI_PARLAY_LIVE: "1",
-        KALSHI_ACCESS_KEY_ID: "key",
-        KALSHI_PRIVATE_KEY_PEM: pem,
-        KALSHI_RFQ_WAIT_MS: 0,
-        KALSHI_RFQ_POLL_MS: 0,
-        KALSHI_MIN_REQUEST_GAP_MS: 0,
-        HTTP_RETRIES: 0,
-      });
+      const pass = await runKalshiParlayExecutorPass(liveSpendEnv(pem));
       expect(pass.same_game_two_leg).toBe(2);
       expect(pass.attempted).toBe(1);
       expect(pass.accepted).toBe(1);
@@ -599,7 +602,7 @@ describe("runKalshiParlayExecutorPass", () => {
     }
   });
 
-  it("dry-run skips a Fréchet-priced tape, deletes the RFQ, and never accepts", async () => {
+  it("dry-run skips a Fréchet-priced tape on the corr-room book", async () => {
     const pem = await generateTestPem();
     const calls: Array<{ url: string; method: string }> = [];
     const warns: string[] = [];
@@ -685,6 +688,7 @@ describe("runKalshiParlayExecutorPass", () => {
     try {
       const pass = await runKalshiParlayExecutorPass({
         KALSHI_PARLAY_EXECUTE: "1",
+        KALSHI_PARLAY_BOOK: "corr_room_yes",
         KALSHI_ACCESS_KEY_ID: "key",
         KALSHI_PRIVATE_KEY_PEM: pem,
         KALSHI_RFQ_WAIT_MS: 0,
@@ -821,6 +825,92 @@ describe("runKalshiParlayExecutorPass", () => {
       expect(fetched).toContain("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110");
       expect(fetched).toContain("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40");
       expect(fetched).not.toContain("KXNFLGAME-26SEP13AAA");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refuses a live accept once run spend is at the $100 cap", async () => {
+    const pem = await generateTestPem();
+    const calls: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method || "GET").toUpperCase();
+      calls.push({ url, method });
+      if (url.includes("/portfolio/fills")) {
+        return new Response(JSON.stringify({
+          fills: [{
+            action: "buy",
+            count_fp: "200.00",
+            created_time: "2026-09-15T18:00:00.000Z",
+            fee_cost: "0",
+            side: "yes",
+            ticker: "KXMVECROSSCATEGORY-SHARD1-SPENT",
+            yes_price_dollars: "0.50",
+            no_price_dollars: "0.50",
+          }],
+        }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({
+          markets: [{
+            ticker: "KXMVECROSSCATEGORY-HENRYJACK",
+            series_ticker: "KXMVE",
+            title: "Henry 110+ AND Jackson 40+",
+            status: "active",
+            mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+            mve_selected_legs: SAME_GAME_LEGS,
+            yes_bid_dollars: "0.00",
+            yes_ask_dollars: "0.00",
+            last_price_dollars: "0.00",
+            volume_fp: "0",
+            close_time: "2026-09-14T00:00:00Z",
+          }],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({
+          markets: [
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Henry 110+",
+              status: "active",
+              yes_bid_dollars: "0.39",
+              yes_ask_dollars: "0.41",
+              last_price_dollars: "0.40",
+              volume_fp: "100",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+            {
+              ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40",
+              event_ticker: "KXNFLRSHYDS-26SEP13BALIND",
+              series_ticker: "KXNFLRSHYDS",
+              title: "Jackson 40+",
+              status: "active",
+              yes_bid_dollars: "0.48",
+              yes_ask_dollars: "0.50",
+              last_price_dollars: "0.49",
+              volume_fp: "80",
+              close_time: "2026-09-14T00:00:00Z",
+            },
+          ],
+        }), { status: 200 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    });
+    try {
+      const pass = await runKalshiParlayExecutorPass(liveSpendEnv(pem));
+      expect(pass.idle_reason).toBe("max_spend");
+      expect(pass.spent).toBe(100);
+      expect(pass.max_spend).toBe(100);
+      expect(pass.accepted).toBe(0);
+      expect(pass.attempted).toBe(0);
+      expect(pass.considered.some((row) => row.skip === "max_spend")).toBe(true);
+      expect(calls.some((c) => /accept/i.test(c.url))).toBe(false);
+      expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/communications/rfqs"))).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }

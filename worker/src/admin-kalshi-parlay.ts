@@ -6,7 +6,7 @@
  * so last_pass.detail (would_accept / accepted / considered) stays behind requireBotAdmin.
  *
  * POST trigger uses LOADER_TOKEN server-side only. This surface never sets
- * KALSHI_PARLAY_LIVE. Live size (contracts / max_accepts_per_pass) is read
+ * KALSHI_PARLAY_LIVE. Live size (contracts / max_accepts_per_pass / max_spend) is read
  * from loader last_pass.detail.
  */
 
@@ -14,13 +14,14 @@ export const EXECUTOR_JOB_ID = "kalshi-parlay-executor";
 export const HOURLY_JOB_ID = "kalshi-markets-hourly";
 export const LOADER_BASE_DEFAULT = "https://cboe-to-r2.robertlancer.workers.dev";
 
-const IDLE_REASONS = new Set(["execute_off", "no_api_keys", "no_targets", "forbidden"]);
+const IDLE_REASONS = new Set(["execute_off", "no_api_keys", "no_targets", "forbidden", "max_spend"]);
 
 export type ParlayIdleReason =
   | "execute_off"
   | "no_api_keys"
   | "no_targets"
   | "forbidden"
+  | "max_spend"
   | null;
 
 export interface KalshiParlayAdminEnv {
@@ -96,6 +97,13 @@ export interface KalshiParlayExecutorView {
   skipped: number;
   contracts: number;
   max_accepts_per_pass: number;
+  book: string;
+  max_spend: number;
+  spent: number;
+  spend_remaining: number;
+  spend_since: string | null;
+  spend_run_id: string;
+  spend_error: string | null;
   decisions: KalshiParlayDecisionView[];
   considered: KalshiParlayConsidered[];
   samples: KalshiParlaySampleView[];
@@ -319,8 +327,15 @@ export function emptyExecutorView(): KalshiParlayExecutorView {
     would_accept: 0,
     accepted: 0,
     skipped: 0,
-    contracts: 10,
+    contracts: 5,
     max_accepts_per_pass: 1,
+    book: "same_game_underdog",
+    max_spend: 100,
+    spent: 0,
+    spend_remaining: 100,
+    spend_since: null,
+    spend_run_id: "underdog-5x100",
+    spend_error: null,
     decisions: [],
     considered: [],
     samples: [],
@@ -369,8 +384,15 @@ export function shapeExecutorJob(payload: unknown): KalshiParlayExecutorView {
     would_accept: asInt(detail?.would_accept),
     accepted: asInt(detail?.accepted),
     skipped: asInt(detail?.skipped),
-    contracts: asInt(detail?.contracts, 10),
+    contracts: asInt(detail?.contracts, 5),
     max_accepts_per_pass: asInt(detail?.max_accepts_per_pass, 1),
+    book: asStr(detail?.book, "same_game_underdog") || "same_game_underdog",
+    max_spend: asInt(detail?.max_spend, 100),
+    spent: asNumOrNull(detail?.spent) ?? 0,
+    spend_remaining: asNumOrNull(detail?.spend_remaining) ?? Math.max(0, asInt(detail?.max_spend, 100) - (asNumOrNull(detail?.spent) ?? 0)),
+    spend_since: asStrOrNull(detail?.spend_since),
+    spend_run_id: asStr(detail?.spend_run_id, "underdog-5x100") || "underdog-5x100",
+    spend_error: asStrOrNull(detail?.spend_error),
     decisions,
     considered,
     samples,
