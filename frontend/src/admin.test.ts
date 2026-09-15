@@ -45,6 +45,8 @@ test('isExperimentsNavPath covers experiments and legacy notebooks paths', () =>
   assert.equal(isExperimentsNavPath('/experiments/desk-approaches'), true);
   assert.equal(isExperimentsNavPath('/experiments/firm-pipeline'), true);
   assert.equal(isExperimentsNavPath('/experiments/kalshi-parlays'), true);
+  assert.equal(isExperimentsNavPath('/experiments/kalshi-parlay-books'), true);
+  assert.equal(isExperimentsNavPath('/experiments/kalshi-parlay-payoffs'), true);
   assert.equal(isExperimentsNavPath('/notebooks'), true);
   assert.equal(isExperimentsNavPath('/notebooks/text-vs-image'), true);
   assert.equal(isExperimentsNavPath('/admin'), false);

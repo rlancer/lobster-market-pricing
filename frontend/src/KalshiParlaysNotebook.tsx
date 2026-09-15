@@ -414,6 +414,10 @@ export default function KalshiParlaysNotebookPage() {
                   settlement 0/1. Strategy P&amp;L is BUY YES at the ask.
                   Actual P&amp;L is the fill side that landed — on
                   2026-09-14 that was BUY NO at 1 − bid.
+                  Alternate books (underdog / payoff YES vs corr-room) live in{' '}
+                  <Link to="/experiments/kalshi-parlay-books">parlay books</Link>
+                  {' '}and{' '}
+                  <Link to="/experiments/kalshi-parlay-payoffs">payoff calibration</Link>.
                 </Text>
                 {snapshot.backtest ? (
                   <>
