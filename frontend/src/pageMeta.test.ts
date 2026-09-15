@@ -140,4 +140,10 @@ test('experiments routes have titles', () => {
   const parlays = pageMetaForUrl('/experiments/kalshi-parlays');
   assert.equal(parlays.title, `Kalshi parlay mispricing · ${SITE_NAME}`);
   assert.match(parlays.description ?? '', /Fed combos/i);
+  const books = pageMetaForUrl('/experiments/kalshi-parlay-books');
+  assert.equal(books.title, `Kalshi parlay books · ${SITE_NAME}`);
+  assert.match(books.description ?? '', /underdog/i);
+  const payoffs = pageMetaForUrl('/experiments/kalshi-parlay-payoffs');
+  assert.equal(payoffs.title, `Kalshi parlay payoffs · ${SITE_NAME}`);
+  assert.match(payoffs.description ?? '', /hit rate/i);
 });

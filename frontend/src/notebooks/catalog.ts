@@ -36,6 +36,20 @@ export const EXPERIMENTS: ExperimentMeta[] = [
       'Are listed Fed combos priced as if the rate and dissent legs were independent, and does buying same-game Kalshi sports RFQs near independence actually pay after settlement?',
     status: 'ready',
   },
+  {
+    slug: 'kalshi-parlay-books',
+    title: 'Kalshi parlay books',
+    subtitle:
+      'Head-to-head on last night’s fills: corr-room YES versus buying the cheap side of the $1 binary (underdog / payoff YES) with always-YES and always-NO baselines.',
+    status: 'ready',
+  },
+  {
+    slug: 'kalshi-parlay-payoffs',
+    title: 'Kalshi parlay payoffs',
+    subtitle:
+      'Bucket combo YES prices against empirical hit rate and breakeven. Why 65% NO hits still lost money, and why cheap YES is positively skewed.',
+    status: 'ready',
+  },
 ];
 
 /** @deprecated Use EXPERIMENTS */

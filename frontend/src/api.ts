@@ -1883,6 +1883,84 @@ export interface KalshiParlaySnapshot {
   errors: string[];
 }
 
+export type KalshiParlayBookId =
+  | 'corr_room_yes'
+  | 'underdog'
+  | 'payoff_yes'
+  | 'same_game_underdog'
+  | 'always_yes'
+  | 'always_no';
+
+export interface KalshiParlayBookScore {
+  taken: number;
+  settled: number;
+  wins: number;
+  hit_rate: number | null;
+  pnl: number;
+  avg_price: number | null;
+  avg_rr: number | null;
+  breakeven: number | null;
+}
+
+export interface KalshiParlayBooksSnapshot {
+  design_id: string;
+  slug: string;
+  fetched_at: string;
+  contracts: number;
+  payoff_yes_max_ask: number;
+  underdog_max_cost: number;
+  universes: {
+    fills: { n: number; settled: number };
+    rfq: { n: number; settled: number };
+    combined: { n: number; settled: number };
+  };
+  books: Array<{
+    id: KalshiParlayBookId;
+    name: string;
+    thesis: string;
+    fills: KalshiParlayBookScore;
+    rfq: KalshiParlayBookScore;
+    combined: KalshiParlayBookScore;
+  }>;
+  buckets: Array<{
+    lo: number;
+    hi: number;
+    label: string;
+    n: number;
+    hits: number;
+    hit_rate: number | null;
+    avg_yes: number | null;
+    breakeven: number | null;
+    yes_pnl: number;
+    no_pnl: number;
+    avg_yes_win: number | null;
+    avg_yes_loss: number | null;
+    yes_rr: number | null;
+  }>;
+  tickets: Array<{
+    market_ticker: string;
+    title: string;
+    quoted_at: string | null;
+    universe: 'fill' | 'rfq';
+    yes_price: number;
+    no_price: number;
+    contracts: number;
+    p: number | null;
+    q: number | null;
+    same_game: boolean | null;
+    same_side: boolean | null;
+    corr_room: number | null;
+    independence: number | null;
+    phi: number | null;
+    corr_room_ok: boolean;
+    settlement: 0 | 1 | null;
+  }>;
+  headline: string;
+  bullets: string[];
+  notes: string[];
+  errors: string[];
+}
+
 /** Published experiment run returned by GET /api/experiments/:slug/runs/latest. */
 export interface ExperimentRunPayload {
   id: string;
@@ -2222,6 +2300,8 @@ export const api = {
     get<DeskExperimentDesign>('/api/experiments/firm-pipeline/design'),
   kalshiParlayExperiment: () =>
     get<KalshiParlaySnapshot>('/api/experiments/kalshi-parlays'),
+  kalshiParlayBooksExperiment: () =>
+    get<KalshiParlayBooksSnapshot>('/api/experiments/kalshi-parlay-books'),
   /** Admin: persist a completed run so visitors do not re-spend OpenRouter credits. */
   adminSaveExperimentRun: (slug: string, body: SaveExperimentRunBody) =>
     post<{ ok: true; run: ExperimentRunPayload }>(

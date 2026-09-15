@@ -33,6 +33,8 @@ import TextVsImageNotebookPage from './TextVsImageNotebook';
 import DeskApproachesNotebookPage from './DeskApproachesNotebook';
 import FirmPipelineNotebookPage from './FirmPipelineNotebook';
 import KalshiParlaysNotebookPage from './KalshiParlaysNotebook';
+import KalshiParlayBooksNotebookPage from './KalshiParlayBooksNotebook';
+import KalshiParlayPayoffsNotebookPage from './KalshiParlayPayoffsNotebook';
 import { parseAsOfSearch } from './asOfDate';
 import { parseChatId } from './chatSession';
 import { etDateString } from './tickerChartRange';
@@ -318,6 +320,18 @@ const kalshiParlaysExperimentRoute = createRoute({
   component: KalshiParlaysNotebookPage,
 });
 
+const kalshiParlayBooksExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/kalshi-parlay-books',
+  component: KalshiParlayBooksNotebookPage,
+});
+
+const kalshiParlayPayoffsExperimentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/experiments/kalshi-parlay-payoffs',
+  component: KalshiParlayPayoffsNotebookPage,
+});
+
 /** Legacy /notebooks paths redirect to /experiments. */
 const notebooksRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -443,6 +457,8 @@ const routeTree = rootRoute.addChildren([
   deskApproachesExperimentRoute,
   firmPipelineExperimentRoute,
   kalshiParlaysExperimentRoute,
+  kalshiParlayBooksExperimentRoute,
+  kalshiParlayPayoffsExperimentRoute,
   notebooksRedirectRoute,
   textVsImageNotebookRedirectRoute,
   docsRoute,
