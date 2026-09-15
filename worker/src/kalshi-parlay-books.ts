@@ -335,7 +335,11 @@ export async function runKalshiParlayBooksExperiment(deps: {
       for (const row of hydrated.extra) markets.push(row);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      errors.push(`settlement hydrate: ${message}`);
+      errors.push(
+        /HTTP 429/.test(message)
+          ? "settlement hydrate: Kalshi HTTP 429 — RFQ P&L waits on lake source=kalshi_settlement"
+          : `settlement hydrate: ${message}`,
+      );
     }
   }
   return scoreParlayBooks(markets, { now: deps.now?.(), errors });

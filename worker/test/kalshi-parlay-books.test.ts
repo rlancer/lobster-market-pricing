@@ -4,6 +4,7 @@ import { encodeMveCategory } from "../src/kalshi-parlay";
 import {
   decideParlayBook,
   PAYOFF_YES_MAX_ASK,
+  runKalshiParlayBooksExperiment,
   scoreParlayBooks,
   sidePnl,
   type ParlayBookId,
@@ -208,5 +209,35 @@ describe("parlay book bakeoff", () => {
     assert.equal(snapshot.universes.combined.n, 0);
     assert.equal(snapshot.books.length, 6);
     assert.match(snapshot.headline, /No settled live fills/);
+  });
+
+  it("shortens Kalshi 429 hydrate errors for the notebook", async () => {
+    const snapshot = await runKalshiParlayBooksExperiment({
+      queryKalshiSports: async () => [{
+        series_ticker: "KXMVE",
+        market_ticker: "KXMVE-T1",
+        event_ticker: null,
+        title: "fill",
+        yes_subtitle: "buy_no",
+        theme: "sports",
+        category: "mve|KXMVESPORT-MLB|yes:KXMLBHITS-A@KXMLBGAME-X,yes:KXMLBHITS-B@KXMLBGAME-Y",
+        status: "active",
+        market_type: "multivariate",
+        yes_bid: 0.2,
+        yes_ask: 0.2,
+        yes_last: 0.2,
+        volume: 10,
+        close_time: null,
+        fetched_at: "2026-09-15T00:00:00.000Z",
+        source: "kalshi_parlay_fill",
+        no_bid: 0.8,
+      }],
+      fetchJson: async () => {
+        throw new Error('Kalshi HTTP 429: {"error":{"code":"too_many_requests","message":"too many requests"}}');
+      },
+    });
+    assert.equal(snapshot.errors.length, 1);
+    assert.match(snapshot.errors[0]!, /HTTP 429/);
+    assert.doesNotMatch(snapshot.errors[0]!, /too_many_requests/);
   });
 });
