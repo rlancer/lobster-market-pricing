@@ -407,7 +407,7 @@ export default function KalshiParlaysNotebookPage() {
                   The live executor buys a same-game two-leg combo YES only
                   when a maker RFQ sits near independence: corr room ≥ 15¢,
                   spread ≤ 8¢, ask ≤ p×q + 2¢, |φ| &lt; 0.15, same side.
-                  Last night&apos;s production tickets are graded from
+                  Last night&apos;s production tickets are graded from{' '}
                   <code>source=kalshi_parlay_fill</code> (Kalshi portfolio
                   fills published by the executor). The filter replay still
                   uses lake <code>source=kalshi_rfq</code> two-ways against
