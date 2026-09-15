@@ -1,7 +1,7 @@
 /** Kalshi parlay experiment — public labels + formatting. */
 
 export const KALSHI_PARLAY_SLUG = 'kalshi-parlays';
-export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v7';
+export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v8';
 
 export function fmtProb(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
@@ -18,6 +18,17 @@ export function fmtGap(value: number | null | undefined): string {
   const cents = value * 100;
   const sign = cents > 0 ? '+' : '';
   return `${sign}${cents.toFixed(1)}¢`;
+}
+
+export function fmtUsd(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+  return `${sign}$${Math.abs(value).toFixed(2)}`;
+}
+
+export function fmtPct(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return `${(value * 100).toFixed(0)}%`;
 }
 
 export function flagLabel(flag: string): string {

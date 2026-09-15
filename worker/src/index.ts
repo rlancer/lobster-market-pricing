@@ -4141,8 +4141,8 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
             ` FROM options.kalshi_markets` +
             ` WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
             ` ORDER BY fetched_at DESC` +
-            ` LIMIT 5000`,
-          "kalshi_parlay_sports_v7",
+            ` LIMIT 8000`,
+          "kalshi_parlay_sports_v8",
           QUERY_TTL_MS,
         );
         return rows.map((row) => ({
@@ -4167,7 +4167,7 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
         return [];
       }
     };
-    const cacheKey = "kalshi_parlays_v7";
+    const cacheKey = "kalshi_parlays_v8";
     const hit = cache.get(cacheKey);
     const now = Date.now();
     const cachedSnap = hit

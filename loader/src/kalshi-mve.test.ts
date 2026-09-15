@@ -42,6 +42,16 @@ describe("mve selected legs + category encoding", () => {
       "KXNFLGAME-26SEP13KC-KC",
       "KXNFLGAME-26SEP13BUF-BUF",
     ]);
+    expect(parsed?.legs.map((l) => l.event_ticker)).toEqual([
+      "KXNFLGAME-26SEP13KC",
+      "KXNFLGAME-26SEP13BUF",
+    ]);
+  });
+
+  it("still parses older category rows that omit @event", () => {
+    const parsed = parseMveCategory("mve|KXMVESPORT-NFL|yes:KXNFLGAME-1-KC,no:KXNFLGAME-1-BUF");
+    expect(parsed?.legs[0]?.event_ticker).toBeNull();
+    expect(parsed?.legs[1]?.side).toBe("no");
   });
 
   it("rejects a one-leg category", () => {

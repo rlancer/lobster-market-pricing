@@ -46,7 +46,9 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   combos that name at least one sports leg (not crypto-only 15m stacks,
   not the full catalog) and those legs, including ~30 days of daily candles
   and an optional capped same-game RFQ quote probe (`KALSHI_RFQ_PROBE_ENABLED`,
-  never accepts) — →
+  never accepts). Settled books also publish `source=kalshi_settlement` 0/1
+  rows (candles stay quotes). Combo `category` keeps `event_ticker` as
+  `yes:LEG@EVENT`. →
   `options.kalshi_markets` from `symbols/kalshi-series.json`), and
   `kalshi-parlay-executor` (batch, 5 min; same-game two-leg RFQ filter.
   EXECUTE is on; LIVE is off (`KALSHI_PARLAY_LIVE=0`) after production

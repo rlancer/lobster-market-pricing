@@ -479,6 +479,7 @@ describe("publishKalshiSeries sports parlays", () => {
       expect(combo?.market_type).toBe("multivariate");
       const parsed = parseMveCategory(String(combo?.category || ""));
       expect(parsed?.legs).toHaveLength(2);
+      expect(parsed?.legs[0]?.event_ticker).toBe("KXNFLGAME-26SEP13KC");
       expect(kc?.theme).toBe("sports");
       expect(kc?.series_ticker).toBe("KXNFLGAME");
     } finally {
@@ -680,7 +681,18 @@ describe("publishKalshiSeries sports parlays", () => {
       expect(settledCandle?.yes_bid).toBeCloseTo(0.18);
       expect(settledCandle?.status).toBe("settled");
       const settlementPrint = body.find((r) => r.market_ticker === "KXNFLPARLAY-26AUG16-DALNYG" && r.yes_last === 1);
-      expect(settlementPrint).toBeUndefined();
+      expect(settlementPrint?.source).toBe("kalshi_settlement");
+      expect(settlementPrint?.fetched_at).toBe("2026-08-17T00:00:00Z");
+      const dalSettle = body.find((r) => r.market_ticker === "KXNFLGAME-26AUG16DAL-DAL" && r.source === "kalshi_settlement");
+      const nygSettle = body.find((r) => r.market_ticker === "KXNFLGAME-26AUG16NYG-NYG" && r.source === "kalshi_settlement");
+      expect(dalSettle?.yes_last).toBe(1);
+      expect(nygSettle?.yes_last).toBe(0);
+      const settlementCandle = body.find((r) =>
+        r.market_ticker === "KXNFLPARLAY-26AUG16-DALNYG"
+        && r.fetched_at !== "2026-08-17T00:00:00Z"
+        && r.yes_last === 1
+      );
+      expect(settlementCandle).toBeUndefined();
       expect(body.some((r) => r.market_ticker === "KXNFLGAME-26AUG16DAL-DAL" && r.fetched_at === candleIso)).toBe(true);
     } finally {
       vi.unstubAllGlobals();

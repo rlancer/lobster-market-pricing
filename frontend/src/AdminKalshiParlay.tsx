@@ -165,7 +165,7 @@ export default function AdminKalshiParlayPage() {
           <Link to="/experiments/kalshi-parlays" className="admin-kalshi-parlay-link">
             Kalshi parlays
           </Link>
-          .
+          {' '}(design v8 backtests the filter against settlement).
         </Text>
       </VStack>
 

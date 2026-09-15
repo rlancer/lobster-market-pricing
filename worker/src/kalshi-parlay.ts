@@ -8,7 +8,7 @@
  */
 
 export const KALSHI_PARLAY_SLUG = "kalshi-parlays";
-export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v7";
+export const KALSHI_PARLAY_DESIGN_ID = "kalshi-parlays-v8";
 
 export type FedRateKey = "hike_25" | "cut_25" | "hold";
 export type FedDissentKey = "zero" | "some";
@@ -428,11 +428,17 @@ export interface MveSelectedLeg {
   side: "yes" | "no";
 }
 
+function packCategoryToken(raw: string): string {
+  return raw.replaceAll("|", "").replaceAll("@", "").replaceAll(",", "").toUpperCase();
+}
+
 export function encodeMveCategory(collection: string, legs: MveSelectedLeg[]): string {
-  const col = (collection || "unknown").replaceAll("|", "").toUpperCase() || "UNKNOWN";
+  const col = packCategoryToken(collection || "unknown") || "UNKNOWN";
   const packed = legs.map((leg) => {
-    const ticker = leg.market_ticker.replaceAll("|", "").toUpperCase();
-    return `${leg.side === "no" ? "no" : "yes"}:${ticker}`;
+    const ticker = packCategoryToken(leg.market_ticker);
+    const event = packCategoryToken(leg.event_ticker || "");
+    const side = leg.side === "no" ? "no" : "yes";
+    return event ? `${side}:${ticker}@${event}` : `${side}:${ticker}`;
   });
   return `${MVE_CATEGORY_PREFIX}${col}|${packed.join(",")}`;
 }
@@ -454,10 +460,13 @@ export function parseMveCategory(category: string | null | undefined): {
     const idx = part.indexOf(":");
     if (idx < 0) continue;
     const side = part.slice(0, idx).toLowerCase() === "no" ? "no" : "yes";
-    const market_ticker = part.slice(idx + 1).trim().toUpperCase();
+    const restLeg = part.slice(idx + 1).trim().toUpperCase();
+    const at = restLeg.indexOf("@");
+    const market_ticker = (at >= 0 ? restLeg.slice(0, at) : restLeg).trim();
+    const event_ticker = at >= 0 ? restLeg.slice(at + 1).trim() || null : null;
     if (!market_ticker || seen.has(market_ticker)) continue;
     seen.add(market_ticker);
-    legs.push({ event_ticker: null, market_ticker, side });
+    legs.push({ event_ticker, market_ticker, side });
   }
   if (legs.length < 2) return null;
   return { collection, legs };

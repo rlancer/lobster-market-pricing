@@ -44,6 +44,7 @@ import {
   toQuoteView,
   type LakeKalshiMarket,
 } from "../src/kalshi-parlay-experiment";
+import { backtestParlayStrategy } from "../src/kalshi-parlay-backtest";
 
 describe("parseKalshiNumber + quoteMid", () => {
   it("parses dollar strings and numbers", () => {
@@ -173,6 +174,8 @@ describe("scoreMultiLegParlay + MVE category", () => {
     const parsed = parseMveCategory(packed);
     assert.equal(parsed?.collection, "KXMVESPORT-NFL");
     assert.equal(parsed?.legs[1]?.side, "no");
+    assert.equal(parsed?.legs[0]?.event_ticker, "A");
+    assert.equal(parsed?.legs[1]?.event_ticker, "B");
   });
 
   it("groups 1H spread and total on the same NFL game", () => {
@@ -1020,8 +1023,9 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v7");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v8");
     assert.equal(snapshot.sports_source, "none");
+    assert.equal(snapshot.backtest.would_accept, 0);
     assert.equal(snapshot.sports.length, 0);
     assert.equal(snapshot.listed.length, 4);
     const hikeSome = snapshot.listed.find((r) => r.id.endsWith("25H-T0"));
@@ -1123,6 +1127,7 @@ describe("runKalshiParlayExperiment", () => {
     assert.ok(row.score.flags.includes("cross_game"));
     assert.equal(snapshot.verdict.sports_scored, 1);
     assert.equal(snapshot.mve.scanned, 1);
+    assert.equal(snapshot.backtest.rfq_quotes, 0);
   });
 
   it("scores settled sports parlays from the last lake snapshot", () => {
@@ -1403,6 +1408,116 @@ describe("kalshiParlayCacheTtlMs", () => {
     assert.equal(kalshiParlayCacheTtlMs({ listed: [], errors: ["KXFEDCOMBO: Kalshi HTTP 429"] }), 90_000);
     assert.equal(kalshiParlayCacheTtlMs({ listed: [{ id: "x" }], errors: [] }), 10 * 60 * 1000);
     assert.equal(kalshiParlayCacheTtlMs({ listed: [], errors: [] }), 10 * 60 * 1000);
+  });
+});
+
+describe("parlay strategy backtest", () => {
+  function lakeRow(partial: Partial<LakeKalshiMarket> & Pick<LakeKalshiMarket, "market_ticker">): LakeKalshiMarket {
+    return {
+      series_ticker: "KXMVE",
+      event_ticker: null,
+      title: partial.market_ticker,
+      yes_subtitle: null,
+      theme: "sports",
+      category: null,
+      status: "active",
+      market_type: "binary",
+      yes_bid: 0.4,
+      yes_ask: 0.42,
+      yes_last: 0.41,
+      volume: 10,
+      close_time: null,
+      fetched_at: "2026-09-14T23:00:00.000Z",
+      source: "kalshi",
+      ...partial,
+    };
+  }
+
+  it("buys YES at the ask on a same-game RFQ near independence and grades settlement", () => {
+    const category = encodeMveCategory("KXMVESPORT-MLB", [
+      { event_ticker: "KXMLBGAME-26SEP14ATLHOU", market_ticker: "KXMLBHITS-HARRIS-3", side: "yes" },
+      { event_ticker: "KXMLBGAME-26SEP14ATLHOU", market_ticker: "KXMLBHITS-BREGMAN-3", side: "yes" },
+    ]);
+    const result = backtestParlayStrategy([
+      lakeRow({
+        market_ticker: "KXMVE-HARRIS-BREGMAN",
+        title: "Harris 3+ AND Bregman 3+",
+        category,
+        market_type: "multivariate",
+        yes_bid: 0.18,
+        yes_ask: 0.20,
+        yes_last: 0.19,
+        source: "kalshi_rfq",
+        fetched_at: "2026-09-14T23:10:00.000Z",
+      }),
+      lakeRow({
+        market_ticker: "KXMVE-HARRIS-BREGMAN",
+        title: "Harris 3+ AND Bregman 3+",
+        category,
+        status: "settled",
+        yes_bid: 1,
+        yes_ask: 1,
+        yes_last: 1,
+        source: "kalshi_settlement",
+        fetched_at: "2026-09-15T04:00:00.000Z",
+        close_time: "2026-09-15T04:00:00.000Z",
+      }),
+      lakeRow({
+        market_ticker: "KXMLBHITS-HARRIS-3",
+        event_ticker: "KXMLBGAME-26SEP14ATLHOU",
+        yes_bid: 0.39,
+        yes_ask: 0.41,
+        yes_last: 0.40,
+      }),
+      lakeRow({
+        market_ticker: "KXMLBHITS-BREGMAN-3",
+        event_ticker: "KXMLBGAME-26SEP14ATLHOU",
+        yes_bid: 0.48,
+        yes_ask: 0.50,
+        yes_last: 0.49,
+      }),
+    ]);
+    assert.equal(result.would_accept, 1);
+    assert.equal(result.strategy.settled, 1);
+    assert.equal(result.strategy.yes_wins, 1);
+    assert.ok(result.strategy.yes_pnl > 7);
+    assert.ok(result.strategy.no_pnl < -8);
+    assert.equal(result.fills[0]?.settlement, 1);
+  });
+
+  it("skips mixed-side RFQs and still reports the control tape", () => {
+    const category = encodeMveCategory("KXMVESPORT-MLB", [
+      { event_ticker: "KXMLBGAME-26SEP14ATLHOU", market_ticker: "KXMLBHITS-HARRIS-3", side: "yes" },
+      { event_ticker: "KXMLBGAME-26SEP14ATLHOU", market_ticker: "KXMLBHITS-BREGMAN-3", side: "no" },
+    ]);
+    const result = backtestParlayStrategy([
+      lakeRow({
+        market_ticker: "KXMVE-MIXED",
+        title: "mixed",
+        category,
+        market_type: "multivariate",
+        yes_bid: 0.18,
+        yes_ask: 0.20,
+        source: "kalshi_rfq",
+      }),
+      lakeRow({
+        market_ticker: "KXMLBHITS-HARRIS-3",
+        event_ticker: "KXMLBGAME-26SEP14ATLHOU",
+        yes_bid: 0.39,
+        yes_ask: 0.41,
+        yes_last: 0.40,
+      }),
+      lakeRow({
+        market_ticker: "KXMLBHITS-BREGMAN-3",
+        event_ticker: "KXMLBGAME-26SEP14ATLHOU",
+        yes_bid: 0.48,
+        yes_ask: 0.50,
+        yes_last: 0.49,
+      }),
+    ]);
+    assert.equal(result.would_accept, 0);
+    assert.equal(result.same_game, 1);
+    assert.equal(result.fills.length, 0);
   });
 });
 

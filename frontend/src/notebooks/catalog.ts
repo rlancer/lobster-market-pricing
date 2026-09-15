@@ -33,7 +33,7 @@ export const EXPERIMENTS: ExperimentMeta[] = [
     slug: 'kalshi-parlays',
     title: 'Kalshi parlay mispricing',
     subtitle:
-      'Are listed Fed combos priced as if the rate and dissent legs were independent, and are Kalshi sports RFQ-auction parlays quoted away from the product of their lake legs once a solicited two-way or auction print exists?',
+      'Are listed Fed combos priced as if the rate and dissent legs were independent, and does buying same-game Kalshi sports RFQs near independence actually pay after settlement?',
     status: 'ready',
   },
 ];
