@@ -1,7 +1,7 @@
 /** Kalshi parlay experiment — public labels + formatting. */
 
 export const KALSHI_PARLAY_SLUG = 'kalshi-parlays';
-export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v8';
+export const KALSHI_PARLAY_DESIGN_ID = 'kalshi-parlays-v9';
 
 export function fmtProb(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';

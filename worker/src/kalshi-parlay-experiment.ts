@@ -46,6 +46,7 @@ import {
   type ParlayBacktest,
 } from "./kalshi-parlay-backtest";
 import { isKalshiSettlementSource } from "../../loader/src/kalshi-settlement.js";
+import { isKalshiParlayFillSource } from "../../loader/src/kalshi-parlay-fills.js";
 
 export { KALSHI_PARLAY_DESIGN_ID, KALSHI_PARLAY_SLUG };
 
@@ -181,6 +182,8 @@ export interface LakeKalshiMarket {
   fetched_at?: string | null;
   /** `kalshi_rfq` when the snapshot is a solicited RFQ two-way, else `kalshi`. */
   source?: string | null;
+  no_bid?: number | null;
+  liquidity?: number | null;
 }
 
 export interface KalshiParlayDeps {
@@ -578,7 +581,7 @@ function groupLakeByTicker(markets: LakeKalshiMarket[]): Map<string, LakeKalshiM
 }
 
 function isQuoteTape(row: LakeKalshiMarket): boolean {
-  return !isKalshiSettlementSource(row.source);
+  return !isKalshiSettlementSource(row.source) && !isKalshiParlayFillSource(row.source);
 }
 
 function pickTwoSidedSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | null {
@@ -591,7 +594,7 @@ function pickTwoSidedSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | nul
 
 function pickComboTapeSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | null {
   return pickTwoSidedSnapshot(snaps)
-    ?? snaps.find((row) => hasTradableQuote(lakeToQuote(row)))
+    ?? snaps.find((row) => isQuoteTape(row) && hasTradableQuote(lakeToQuote(row)))
     ?? null;
 }
 
@@ -1165,6 +1168,14 @@ export function buildVerdict(
     bullets.push("Lake return pairs were computed, but none of the homemade parlay underlyings cleared |ρ|≥0.35 this window.");
   }
   if (backtest) {
+    const live = backtest.live;
+    if (live.settled) {
+      const actualSign = live.actual_pnl >= 0 ? "+" : "−";
+      const yesSign = live.yes_counterfactual_pnl >= 0 ? "+" : "−";
+      bullets.push(
+        `Live fills: ${live.settled} settled tickets from the executor book, ${live.wins} filled-side hits (${live.hit_rate != null ? `${(live.hit_rate * 100).toFixed(0)}%` : "—"}). Actual P&L ${actualSign}$${Math.abs(live.actual_pnl).toFixed(2)}; YES at the same prices would have been ${yesSign}$${Math.abs(live.yes_counterfactual_pnl).toFixed(2)}.`,
+      );
+    }
     const s = backtest.strategy;
     if (s.settled) {
       const yesSign = s.yes_pnl >= 0 ? "+" : "−";

@@ -407,16 +407,61 @@ export default function KalshiParlaysNotebookPage() {
                   The live executor buys a same-game two-leg combo YES only
                   when a maker RFQ sits near independence: corr room ≥ 15¢,
                   spread ≤ 8¢, ask ≤ p×q + 2¢, |φ| &lt; 0.15, same side.
-                  This grades that rule on lake <code>source=kalshi_rfq</code>
-                  two-ways against settlement 0/1
-                  (<code>source=kalshi_settlement</code>). One ticket per
-                  combo at 10 contracts. Strategy P&amp;L is BUY YES at the
-                  ask minus Kalshi taker fees. NO P&amp;L is what 2026-09-14
-                  production realized when <code>accepted_side=yes</code>
-                  filled BUY NO at 1 − bid.
+                  Last night&apos;s production tickets are graded from
+                  <code>source=kalshi_parlay_fill</code> (Kalshi portfolio
+                  fills published by the executor). The filter replay still
+                  uses lake <code>source=kalshi_rfq</code> two-ways against
+                  settlement 0/1. Strategy P&amp;L is BUY YES at the ask.
+                  Actual P&amp;L is the fill side that landed — on
+                  2026-09-14 that was BUY NO at 1 − bid.
                 </Text>
                 {snapshot.backtest ? (
                   <>
+                    {snapshot.backtest.live && snapshot.backtest.live.n > 0 ? (
+                      <>
+                        <Text type="supporting">
+                          Live fills {snapshot.backtest.live.n} · settled {snapshot.backtest.live.settled} · filled-side hits {fmtPct(snapshot.backtest.live.hit_rate)} · actual {fmtUsd(snapshot.backtest.live.actual_pnl)} · YES-at-same-price {fmtUsd(snapshot.backtest.live.yes_counterfactual_pnl)}
+                        </Text>
+                        <div className="notebook-results">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Live fill</th>
+                                <th>Side / prices</th>
+                                <th>Result</th>
+                                <th>Actual P&amp;L</th>
+                                <th>YES if filled</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {snapshot.backtest.live.fills.map((fill) => (
+                                <tr key={`${fill.market_ticker}-${fill.quoted_at ?? ''}`} className={fill.actual_pnl != null && fill.actual_pnl < 0 ? 'notebook-row-winner' : undefined}>
+                                  <td>
+                                    <strong>{fill.title}</strong>
+                                    <div className="notebook-answer"><code>{fill.market_ticker}</code></div>
+                                  </td>
+                                  <td className="num">
+                                    BUY {fill.fill_side.toUpperCase()} × {fill.contracts}
+                                    <div className="notebook-answer">
+                                      YES {fmtProb(fill.yes_price)} · NO {fmtProb(fill.no_price)}
+                                    </div>
+                                  </td>
+                                  <td className="num">
+                                    {fill.settlement == null ? 'open' : fill.settlement === 1 ? 'YES' : 'NO'}
+                                  </td>
+                                  <td className="num">{fmtUsd(fill.actual_pnl)}</td>
+                                  <td className="num">{fmtUsd(fill.yes_counterfactual_pnl)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    ) : (
+                      <Text type="supporting">
+                        No executor fills in the lake yet. Each kalshi-parlay-executor pass publishes GET /portfolio/fills onto source=kalshi_parlay_fill.
+                      </Text>
+                    )}
                     <Text type="supporting">
                       {snapshot.backtest.rfq_quotes} sports RFQ books · {snapshot.backtest.same_game} same-game aligned · {snapshot.backtest.would_accept} would accept · {snapshot.backtest.strategy.settled} settled · hit rate {fmtPct(snapshot.backtest.strategy.hit_rate)}
                     </Text>

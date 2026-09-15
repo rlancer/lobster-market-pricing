@@ -1,6 +1,7 @@
 /**
  * Backtest the live same-game parlay filter (evaluateParlayQuote) on lake
- * RFQ two-ways graded by settlement 0/1.
+ * RFQ two-ways graded by settlement 0/1, plus actual executor fills
+ * (source=kalshi_parlay_fill) from the Kalshi portfolio.
  *
  * Intended fill: BUY YES at the RFQ ask (what the executor asked for).
  * Production 2026-09-14 fills were BUY NO at 1 − yes_bid — report that
@@ -11,6 +12,10 @@ import {
   evaluateParlayQuote,
   PARLAY_MAX_CONTRACTS,
 } from "../../loader/src/kalshi-parlay-filter.js";
+import {
+  isKalshiParlayFillSource,
+  parseFillSide,
+} from "../../loader/src/kalshi-parlay-fills.js";
 import {
   inferComboSettlement,
   isKalshiSettlementSource,
@@ -38,6 +43,10 @@ export interface ParlayBacktestMarket {
   yes_bid: number | null;
   yes_ask: number | null;
   yes_last: number | null;
+  no_bid?: number | null;
+  volume?: number | null;
+  liquidity?: number | null;
+  yes_subtitle?: string | null;
   close_time?: string | null;
   fetched_at?: string | null;
   source?: string | null;
@@ -72,6 +81,30 @@ export interface ParlayBacktestCohort {
   avg_corr_room: number | null;
 }
 
+export interface ParlayLiveFill {
+  market_ticker: string;
+  title: string;
+  quoted_at: string | null;
+  fill_side: "yes" | "no";
+  contracts: number;
+  yes_price: number;
+  no_price: number;
+  fee: number;
+  settlement: 0 | 1 | null;
+  actual_pnl: number | null;
+  yes_counterfactual_pnl: number | null;
+}
+
+export interface ParlayLiveCohort {
+  n: number;
+  settled: number;
+  wins: number;
+  hit_rate: number | null;
+  actual_pnl: number;
+  yes_counterfactual_pnl: number;
+  fills: ParlayLiveFill[];
+}
+
 export interface ParlayBacktest {
   contracts: number;
   rfq_quotes: number;
@@ -80,6 +113,7 @@ export interface ParlayBacktest {
   would_accept: number;
   strategy: ParlayBacktestCohort;
   all_rfq: ParlayBacktestCohort;
+  live: ParlayLiveCohort;
   fills: ParlayBacktestFill[];
   notes: string[];
 }
@@ -117,6 +151,18 @@ function emptyCohort(): ParlayBacktestCohort {
   };
 }
 
+function emptyLive(): ParlayLiveCohort {
+  return {
+    n: 0,
+    settled: 0,
+    wins: 0,
+    hit_rate: null,
+    actual_pnl: 0,
+    yes_counterfactual_pnl: 0,
+    fills: [],
+  };
+}
+
 function emptyBacktest(contracts: number, notes: string[] = []): ParlayBacktest {
   return {
     contracts,
@@ -126,6 +172,7 @@ function emptyBacktest(contracts: number, notes: string[] = []): ParlayBacktest 
     would_accept: 0,
     strategy: emptyCohort(),
     all_rfq: emptyCohort(),
+    live: emptyLive(),
     fills: [],
     notes,
   };
@@ -172,6 +219,7 @@ function nearestTradable(
   let bestAbs = Infinity;
   for (const row of snaps) {
     if (isKalshiSettlementSource(row.source)) continue;
+    if (isKalshiParlayFillSource(row.source)) continue;
     if (!hasTradableQuote(row)) continue;
     const delta = Math.abs(fetchedMs(row) - atMs);
     if (delta < bestAbs) {
@@ -180,6 +228,81 @@ function nearestTradable(
     }
   }
   return best;
+}
+
+function liveFillPnl(
+  fillSide: "yes" | "no",
+  settlement: 0 | 1,
+  yesPrice: number,
+  noPrice: number,
+  contracts: number,
+  feeTotal: number,
+): { actual: number; yes_counterfactual: number } {
+  const yesFee = contracts * kalshiTakerFee(yesPrice);
+  const actual = fillSide === "yes"
+    ? contracts * (settlement - yesPrice) - feeTotal
+    : contracts * ((1 - settlement) - noPrice) - feeTotal;
+  const yes_counterfactual = contracts * (settlement - yesPrice) - yesFee;
+  return { actual: round4(actual), yes_counterfactual: round4(yes_counterfactual) };
+}
+
+function scoreLiveFills(
+  markets: ParlayBacktestMarket[],
+  byTicker: Map<string, ParlayBacktestMarket[]>,
+): ParlayLiveCohort {
+  const tickets: ParlayLiveFill[] = [];
+  for (const row of markets) {
+    if (!isKalshiParlayFillSource(row.source)) continue;
+    const fill_side = parseFillSide(row.yes_subtitle);
+    const yes_price = row.yes_bid;
+    const no_price = row.no_bid ?? (yes_price != null ? 1 - yes_price : null);
+    const contracts = row.volume != null && row.volume > 0
+      ? row.volume
+      : PARLAY_MAX_CONTRACTS;
+    if (!fill_side || yes_price == null || no_price == null) continue;
+    const fee = row.liquidity != null && Number.isFinite(row.liquidity)
+      ? row.liquidity
+      : contracts * kalshiTakerFee(fill_side === "no" ? no_price : yes_price);
+    const settlement = tickerSettlement(byTicker.get(row.market_ticker) ?? []);
+    const pnl = settlement === 0 || settlement === 1
+      ? liveFillPnl(fill_side, settlement, yes_price, no_price, contracts, fee)
+      : { actual: null, yes_counterfactual: null };
+    tickets.push({
+      market_ticker: row.market_ticker,
+      title: row.title,
+      quoted_at: row.fetched_at ?? null,
+      fill_side,
+      contracts,
+      yes_price,
+      no_price,
+      fee,
+      settlement,
+      actual_pnl: pnl.actual,
+      yes_counterfactual_pnl: pnl.yes_counterfactual,
+    });
+  }
+  tickets.sort((a, b) => (b.quoted_at || "").localeCompare(a.quoted_at || ""));
+  let settled = 0;
+  let wins = 0;
+  let actual_pnl = 0;
+  let yes_counterfactual_pnl = 0;
+  for (const ticket of tickets) {
+    if (ticket.settlement !== 0 && ticket.settlement !== 1) continue;
+    settled += 1;
+    const won = ticket.fill_side === "yes" ? ticket.settlement === 1 : ticket.settlement === 0;
+    if (won) wins += 1;
+    if (ticket.actual_pnl != null) actual_pnl += ticket.actual_pnl;
+    if (ticket.yes_counterfactual_pnl != null) yes_counterfactual_pnl += ticket.yes_counterfactual_pnl;
+  }
+  return {
+    n: tickets.length,
+    settled,
+    wins,
+    hit_rate: hitRate(wins, settled),
+    actual_pnl: round4(actual_pnl),
+    yes_counterfactual_pnl: round4(yes_counterfactual_pnl),
+    fills: tickets.slice(0, FILL_TABLE_LIMIT),
+  };
 }
 
 function fillPnl(
@@ -336,6 +459,16 @@ export function backtestParlayStrategy(
     "Strategy P&L is BUY YES at the RFQ ask minus Kalshi taker fees, 10 contracts. "
     + "NO P&L is what production realized on 2026-09-14 when accepted_side=yes filled BUY NO.",
   );
+  const live = scoreLiveFills(markets, byTicker);
+  if (!live.n) {
+    notes.push(
+      "No source=kalshi_parlay_fill rows yet. The executor publishes portfolio combo fills on each pass — last night's BUY NO tickets land after that ingest.",
+    );
+  } else if (live.settled) {
+    notes.push(
+      `Live fills: ${live.settled} settled tickets, actual P&L ${live.actual_pnl >= 0 ? "+" : "−"}$${Math.abs(live.actual_pnl).toFixed(2)} versus YES-at-ask ${live.yes_counterfactual_pnl >= 0 ? "+" : "−"}$${Math.abs(live.yes_counterfactual_pnl).toFixed(2)}.`,
+    );
+  }
 
   return {
     contracts,
@@ -345,6 +478,7 @@ export function backtestParlayStrategy(
     would_accept: wouldAccept.length,
     strategy: summarize(wouldAccept),
     all_rfq: summarize(sameGame),
+    live,
     fills: wouldAccept
       .slice()
       .sort((a, b) => {
@@ -359,6 +493,12 @@ export function backtestParlayStrategy(
 }
 
 export function backtestHeadline(backtest: ParlayBacktest): string | null {
+  const live = backtest.live;
+  if (live.settled) {
+    const verb = live.actual_pnl >= 0 ? "made" : "lost";
+    const yesVerb = live.yes_counterfactual_pnl >= 0 ? "made" : "lost";
+    return `Last night's ${live.settled} live fill${live.settled === 1 ? "" : "s"} ${verb} $${Math.abs(live.actual_pnl).toFixed(2)} (${live.wins}/${live.settled} filled-side hits). Buying YES at the same prices would have ${yesVerb} $${Math.abs(live.yes_counterfactual_pnl).toFixed(2)}.`;
+  }
   const s = backtest.strategy;
   if (!s.settled) return null;
   const yesVerb = s.yes_pnl >= 0 ? "made" : "lost";
@@ -391,7 +531,7 @@ export function missingSettlementTickers(markets: ParlayBacktestMarket[]): strin
   const out: string[] = [];
   for (const [ticker, snaps] of byTicker) {
     if (!snaps.some((row) => parseMveCategory(row.category))) continue;
-    if (!snaps.some(isRfqTwoWay)) continue;
+    if (!snaps.some(isRfqTwoWay) && !snaps.some((row) => isKalshiParlayFillSource(row.source))) continue;
     if (tickerSettlement(snaps) != null) continue;
     out.push(ticker);
   }

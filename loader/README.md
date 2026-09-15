@@ -305,10 +305,13 @@ Wrangler currently ships EXECUTE=1 and **LIVE=0**. Production accepts with
 Turning LIVE off does **not** unwind those fills — sell them on Kalshi.
 Do not set LIVE=1 until the accept side matches a YES position in
 `GET /portfolio/positions`. The public notebook
-(`/experiments/kalshi-parlays`, design `kalshi-parlays-v8`) backtests the
+(`/experiments/kalshi-parlays`, design `kalshi-parlays-v9`) backtests the
 filter on lake RFQ two-ways against `source=kalshi_settlement` 0/1:
-strategy P&L is BUY YES at the ask; NO P&L is the 2026-09-14 fill side.
-Turning on EXECUTE skips the hourly RFQ probe
+strategy P&L is BUY YES at the ask; actual P&L is the fill side. Each
+executor pass publishes `GET /portfolio/fills` as
+`source=kalshi_parlay_fill` (and this pass's RFQ two-ways as
+`kalshi_rfq`) so last night's BUY NO tickets are not stuck on Kalshi's
+private book. Turning on EXECUTE skips the hourly RFQ probe
 so two Creates do not 409. Force a pass from
 Actions (`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
 

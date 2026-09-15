@@ -1829,6 +1829,27 @@ export interface KalshiParlaySnapshot {
       avg_ask: number | null;
       avg_corr_room: number | null;
     };
+    live: {
+      n: number;
+      settled: number;
+      wins: number;
+      hit_rate: number | null;
+      actual_pnl: number;
+      yes_counterfactual_pnl: number;
+      fills: Array<{
+        market_ticker: string;
+        title: string;
+        quoted_at: string | null;
+        fill_side: 'yes' | 'no';
+        contracts: number;
+        yes_price: number;
+        no_price: number;
+        fee: number;
+        settlement: 0 | 1 | null;
+        actual_pnl: number | null;
+        yes_counterfactual_pnl: number | null;
+      }>;
+    };
     fills: Array<{
       market_ticker: string;
       title: string;

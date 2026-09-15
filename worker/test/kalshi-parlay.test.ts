@@ -1023,7 +1023,7 @@ describe("runKalshiParlayExperiment", () => {
       },
     });
 
-    assert.equal(snapshot.design_id, "kalshi-parlays-v8");
+    assert.equal(snapshot.design_id, "kalshi-parlays-v9");
     assert.equal(snapshot.sports_source, "none");
     assert.equal(snapshot.backtest.would_accept, 0);
     assert.equal(snapshot.sports.length, 0);
@@ -1518,6 +1518,39 @@ describe("parlay strategy backtest", () => {
     assert.equal(result.would_accept, 0);
     assert.equal(result.same_game, 1);
     assert.equal(result.fills.length, 0);
+  });
+
+  it("grades last-night BUY NO fills against settlement and a YES counterfactual", () => {
+    const result = backtestParlayStrategy([
+      lakeRow({
+        market_ticker: "KXMVECROSSCATEGORY-SHARD1-S20269E72B42AB9D-AB9C373A907",
+        title: "Harris 3+ AND Bregman 3+",
+        yes_subtitle: "buy_no",
+        yes_bid: 0.25,
+        yes_ask: 0.25,
+        no_bid: 0.75,
+        volume: 10,
+        liquidity: 0.1313,
+        source: "kalshi_parlay_fill",
+        fetched_at: "2026-09-15T00:52:39.777723Z",
+      }),
+      lakeRow({
+        market_ticker: "KXMVECROSSCATEGORY-SHARD1-S20269E72B42AB9D-AB9C373A907",
+        title: "Harris 3+ AND Bregman 3+",
+        status: "settled",
+        yes_bid: 0,
+        yes_ask: 0,
+        yes_last: 0,
+        source: "kalshi_settlement",
+        fetched_at: "2026-09-15T04:13:18.619804Z",
+      }),
+    ]);
+    assert.equal(result.live.n, 1);
+    assert.equal(result.live.settled, 1);
+    assert.equal(result.live.wins, 1);
+    assert.ok(Math.abs(result.live.actual_pnl - 2.3687) < 1e-3);
+    assert.ok(result.live.yes_counterfactual_pnl < -2.5);
+    assert.equal(result.live.fills[0]?.fill_side, "no");
   });
 });
 

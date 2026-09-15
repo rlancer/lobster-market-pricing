@@ -1125,6 +1125,46 @@ export function normalizeKalshiRecords(
   });
 }
 
+/** Publish already-mapped kalshi_markets rows. No-ops without a pipeline URL. */
+export async function publishKalshiMarketRows(
+  rows: KalshiMarketRow[],
+  env: KalshiEnv = {},
+  label = "tape",
+): Promise<KalshiPublishResult> {
+  const url = env.PIPELINE_KALSHI_MARKETS_URL || "";
+  const runId = env.runId?.() ?? crypto.randomUUID();
+  const fetchedAt = new Date(env.now ? env.now() : Date.now()).toISOString();
+  if (!url || rows.length === 0) {
+    return {
+      item: label,
+      row_count: rows.length,
+      published: false,
+      run_id: runId,
+      fetched_at: fetchedAt,
+    };
+  }
+  const records = normalizeKalshiRecords(rows, runId, fetchedAt);
+  const maxBody = Math.floor(num(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
+  const chunks = chunkKalshiPipelineRecords(records, maxBody);
+  const auth = env.PIPELINE_AUTH_TOKEN || "";
+  for (let i = 0; i < chunks.length; i++) {
+    await requestJson(
+      url,
+      chunks[i],
+      `kalshi:${runId}:${label}:${i + 1}/${chunks.length}`,
+      auth,
+      env,
+    );
+  }
+  return {
+    item: label,
+    row_count: rows.length,
+    published: true,
+    run_id: runId,
+    fetched_at: fetchedAt,
+  };
+}
+
 export async function publishKalshiSeries(
   seriesId: string,
   env: KalshiEnv = {},
