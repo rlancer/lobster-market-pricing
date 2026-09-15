@@ -39,6 +39,14 @@ import {
   type MveTapeKind,
   type TwoLegScore,
 } from "./kalshi-parlay";
+import {
+  backtestHeadline,
+  backtestParlayStrategy,
+  hydrateParlaySettlements,
+  type ParlayBacktest,
+} from "./kalshi-parlay-backtest";
+import { isKalshiSettlementSource } from "../../loader/src/kalshi-settlement.js";
+import { isKalshiParlayFillSource } from "../../loader/src/kalshi-parlay-fills.js";
 
 export { KALSHI_PARLAY_DESIGN_ID, KALSHI_PARLAY_SLUG };
 
@@ -145,6 +153,7 @@ export interface KalshiParlaySnapshot {
   marginals: MarginalCheck[];
   correlations: ReturnCorr[];
   mve: MveCensus;
+  backtest: ParlayBacktest;
   verdict: KalshiParlayVerdict;
   errors: string[];
 }
@@ -173,6 +182,8 @@ export interface LakeKalshiMarket {
   fetched_at?: string | null;
   /** `kalshi_rfq` when the snapshot is a solicited RFQ two-way, else `kalshi`. */
   source?: string | null;
+  no_bid?: number | null;
+  liquidity?: number | null;
 }
 
 export interface KalshiParlayDeps {
@@ -569,8 +580,13 @@ function groupLakeByTicker(markets: LakeKalshiMarket[]): Map<string, LakeKalshiM
   return map;
 }
 
+function isQuoteTape(row: LakeKalshiMarket): boolean {
+  return !isKalshiSettlementSource(row.source) && !isKalshiParlayFillSource(row.source);
+}
+
 function pickTwoSidedSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | null {
   for (const row of snaps) {
+    if (!isQuoteTape(row)) continue;
     if (isTwoSided(lakeToQuote(row))) return row;
   }
   return null;
@@ -578,7 +594,7 @@ function pickTwoSidedSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | nul
 
 function pickComboTapeSnapshot(snaps: LakeKalshiMarket[]): LakeKalshiMarket | null {
   return pickTwoSidedSnapshot(snaps)
-    ?? snaps.find((row) => hasTradableQuote(lakeToQuote(row)))
+    ?? snaps.find((row) => isQuoteTape(row) && hasTradableQuote(lakeToQuote(row)))
     ?? null;
 }
 
@@ -589,6 +605,7 @@ function pickNearestTradable(
   let best: LakeKalshiMarket | null = null;
   let bestAbs = Infinity;
   for (const row of snaps) {
+    if (!isQuoteTape(row)) continue;
     if (!hasTradableQuote(lakeToQuote(row))) continue;
     const delta = Math.abs(fetchedMs(row) - atMs);
     if (delta < bestAbs) {
@@ -657,7 +674,7 @@ export function scoreMveParlays(
       }
       probs.push(prob);
       spreads.push(quoteSpread(q));
-      games.push(sportsGameKey(legRow.market_ticker, legRow.event_ticker));
+      games.push(sportsGameKey(spec.market_ticker, spec.event_ticker || legRow.event_ticker));
       legs.push({
         role: `${spec.side} · ${legRow.yes_subtitle || spec.market_ticker}`,
         quote: toQuoteView(q),
@@ -868,7 +885,8 @@ export function censusFromScoredParlays(
   const titles: string[] = [];
   for (const [, snaps] of comboEntries) {
     if (pickTwoSidedSnapshot(snaps)) ever += 1;
-    const latest = snaps[0]!;
+    const quoteSnaps = snaps.filter(isQuoteTape);
+    const latest = quoteSnaps[0] ?? snaps[0]!;
     if (isTwoSided(lakeToQuote(latest))) latestTwo += 1;
     else empty += 1;
     if (titles.length < 5 && latest.title) titles.push(latest.title.slice(0, 80));
@@ -1052,6 +1070,7 @@ export function buildVerdict(
   correlations: ReturnCorr[],
   sports: TwoLegRow[] = [],
   cryptoMves: TwoLegRow[] = [],
+  backtest?: ParlayBacktest,
 ): KalshiParlayVerdict {
   const scored = listed.filter((r) => r.score.joint != null);
   const flagged = scored.filter((r) => r.score.flags.includes("independence_gap"));
@@ -1148,8 +1167,37 @@ export function buildVerdict(
   } else if (correlations.length) {
     bullets.push("Lake return pairs were computed, but none of the homemade parlay underlyings cleared |ρ|≥0.35 this window.");
   }
+  if (backtest) {
+    const live = backtest.live;
+    if (live.settled) {
+      const actualSign = live.actual_pnl >= 0 ? "+" : "−";
+      const yesSign = live.yes_counterfactual_pnl >= 0 ? "+" : "−";
+      bullets.push(
+        `Live fills: ${live.settled} settled tickets from the executor book, ${live.wins} filled-side hits (${live.hit_rate != null ? `${(live.hit_rate * 100).toFixed(0)}%` : "—"}). Actual P&L ${actualSign}$${Math.abs(live.actual_pnl).toFixed(2)}; YES at the same prices would have been ${yesSign}$${Math.abs(live.yes_counterfactual_pnl).toFixed(2)}.`,
+      );
+    }
+    const s = backtest.strategy;
+    if (s.settled) {
+      const yesSign = s.yes_pnl >= 0 ? "+" : "−";
+      const noSign = s.no_pnl >= 0 ? "+" : "−";
+      bullets.push(
+        `Live filter backtest: ${s.settled} settled RFQ${s.settled === 1 ? "" : "s"} that would have been accepted, ${s.yes_wins} YES hits (${s.hit_rate != null ? `${(s.hit_rate * 100).toFixed(0)}%` : "—"}) on 10-contract tickets. BUY YES at the ask ${yesSign}$${Math.abs(s.yes_pnl).toFixed(2)}; the 2026-09-14 BUY NO fills would have been ${noSign}$${Math.abs(s.no_pnl).toFixed(2)}.`,
+      );
+    } else if (backtest.would_accept) {
+      bullets.push(
+        `Live filter would accept ${backtest.would_accept} of ${backtest.same_game} same-game RFQ two-ways this window; none have a settlement 0/1 yet.`,
+      );
+    } else if (backtest.rfq_quotes) {
+      bullets.push(
+        `${backtest.rfq_quotes} sports RFQ two-ways in the lake; none cleared the live same-game filter.`,
+      );
+    }
+  }
 
-  const headline = flagged.length
+  const backtestLine = backtest ? backtestHeadline(backtest) : null;
+  const headline = backtestLine
+    ? backtestLine
+    : flagged.length
     ? "Yes — listed Fed parlays are not priced as independent legs."
     : (mve.tape_flagged ?? 0)
       ? "Listed Fed parlays are close to independence this snapshot; the sports combo tape is not."
@@ -1215,6 +1263,37 @@ export async function runKalshiParlayExperiment(
   }
   if (sportsMarkets.length) {
     sportsSource = "lake";
+    if (!skipRest) {
+      try {
+        const hydrated = await hydrateParlaySettlements(sportsMarkets, deps.fetchJson, {
+          base: deps.kalshiBase || KALSHI_PUBLIC_API_BASE,
+        });
+        for (const row of hydrated.extra) {
+          sportsMarkets.push({
+            series_ticker: row.market_ticker.match(/^(KX[A-Z]+)/)?.[1] ?? "KXMVE",
+            market_ticker: row.market_ticker,
+            event_ticker: row.event_ticker ?? null,
+            title: row.title,
+            yes_subtitle: null,
+            theme: "sports",
+            category: row.category,
+            status: row.status,
+            market_type: "multivariate",
+            yes_bid: row.yes_bid,
+            yes_ask: row.yes_ask,
+            yes_last: row.yes_last,
+            volume: null,
+            close_time: row.close_time ?? null,
+            fetched_at: row.fetched_at ?? null,
+            source: row.source ?? "kalshi_settlement",
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`settlement hydrate: ${message}`);
+        if (/HTTP 429/.test(message)) skipRest = true;
+      }
+    }
   } else if (skipRest) {
     errors.push("mve: skipped after Kalshi 429");
     errors.push("sports: skipped after Kalshi 429");
@@ -1257,7 +1336,8 @@ export async function runKalshiParlayExperiment(
   if (sportsMarkets.length) {
     mve = censusFromScoredParlays(scoredMve.all, sportsMarkets);
   }
-  const verdict = buildVerdict(listed, homemade, marginals, mve, correlations, sports, cryptoMves);
+  const backtest = backtestParlayStrategy(sportsMarkets);
+  const verdict = buildVerdict(listed, homemade, marginals, mve, correlations, sports, cryptoMves, backtest);
 
   return {
     design_id: KALSHI_PARLAY_DESIGN_ID,
@@ -1271,6 +1351,7 @@ export async function runKalshiParlayExperiment(
     marginals,
     correlations,
     mve,
+    backtest,
     verdict,
     errors,
   };

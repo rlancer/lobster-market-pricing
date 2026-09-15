@@ -4133,41 +4133,66 @@ async function handleBots(env: Env, req: Request, path: string, ctx: ExecutionCo
       })).filter((row) => row.symbol && row.date && Number.isFinite(row.close) && row.close > 0);
     };
     const queryKalshiSports = async () => {
+      const mapRow = (row: Record<string, unknown>) => ({
+        series_ticker: String(row.series_ticker || "").toUpperCase(),
+        market_ticker: String(row.market_ticker || "").toUpperCase(),
+        event_ticker: row.event_ticker ? String(row.event_ticker).toUpperCase() : null,
+        title: String(row.title || row.market_ticker || ""),
+        yes_subtitle: row.yes_subtitle != null ? String(row.yes_subtitle) : null,
+        theme: String(row.theme || ""),
+        category: row.category != null ? String(row.category) : null,
+        status: String(row.status || "unknown"),
+        market_type: row.market_type != null ? String(row.market_type) : null,
+        yes_bid: numOrNull(row.yes_bid),
+        yes_ask: numOrNull(row.yes_ask),
+        yes_last: numOrNull(row.yes_last),
+        no_bid: numOrNull(row.no_bid),
+        volume: numOrNull(row.volume),
+        liquidity: numOrNull(row.liquidity),
+        close_time: row.close_time != null ? String(row.close_time) : null,
+        fetched_at: row.fetched_at != null ? String(row.fetched_at) : null,
+        source: row.source != null ? String(row.source) : null,
+      });
+      const cols =
+        `SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
+        `  yes_bid, yes_ask, yes_last, no_bid, volume, liquidity, close_time, fetched_at, source` +
+        ` FROM options.kalshi_markets`;
       try {
-        const rows = await r2sql(
+        const latest = await r2sql(
           env,
-          `SELECT series_ticker, market_ticker, event_ticker, title, yes_subtitle, theme, category, status, market_type,` +
-            `  yes_bid, yes_ask, yes_last, volume, close_time, fetched_at, source` +
-            ` FROM options.kalshi_markets` +
-            ` WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
-            ` ORDER BY fetched_at DESC` +
-            ` LIMIT 5000`,
-          "kalshi_parlay_sports_v7",
+          `${cols} WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
+            ` ORDER BY fetched_at DESC LIMIT 8000`,
+          "kalshi_parlay_sports_v9",
           QUERY_TTL_MS,
         );
-        return rows.map((row) => ({
-          series_ticker: String(row.series_ticker || "").toUpperCase(),
-          market_ticker: String(row.market_ticker || "").toUpperCase(),
-          event_ticker: row.event_ticker ? String(row.event_ticker).toUpperCase() : null,
-          title: String(row.title || row.market_ticker || ""),
-          yes_subtitle: row.yes_subtitle != null ? String(row.yes_subtitle) : null,
-          theme: String(row.theme || ""),
-          category: row.category != null ? String(row.category) : null,
-          status: String(row.status || "unknown"),
-          market_type: row.market_type != null ? String(row.market_type) : null,
-          yes_bid: numOrNull(row.yes_bid),
-          yes_ask: numOrNull(row.yes_ask),
-          yes_last: numOrNull(row.yes_last),
-          volume: numOrNull(row.volume),
-          close_time: row.close_time != null ? String(row.close_time) : null,
-          fetched_at: row.fetched_at != null ? String(row.fetched_at) : null,
-          source: row.source != null ? String(row.source) : null,
-        })).filter((row) => row.market_ticker);
+        let tape: Array<Record<string, unknown>> = [];
+        try {
+          tape = await r2sql(
+            env,
+            `${cols} WHERE source IN (${lit("kalshi_rfq")}, ${lit("kalshi_settlement")}, ${lit("kalshi_parlay_fill")})` +
+              ` ORDER BY fetched_at DESC LIMIT 4000`,
+            "kalshi_parlay_tape_v9",
+            QUERY_TTL_MS,
+          );
+        } catch {
+          tape = [];
+        }
+        const seen = new Set<string>();
+        const out = [];
+        for (const raw of [...tape, ...latest]) {
+          const row = mapRow(raw);
+          if (!row.market_ticker) continue;
+          const key = `${row.market_ticker}|${row.source || ""}|${row.fetched_at || ""}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(row);
+        }
+        return out;
       } catch {
         return [];
       }
     };
-    const cacheKey = "kalshi_parlays_v7";
+    const cacheKey = "kalshi_parlays_v9";
     const hit = cache.get(cacheKey);
     const now = Date.now();
     const cachedSnap = hit

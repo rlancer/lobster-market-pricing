@@ -5,7 +5,8 @@
 // combo markets plus the legs those combos select — not the full sports catalog —
 // and ~30 days of daily candlesticks for those tickers (settled/closed MVE in
 // the window). Candle rows set fetched_at to the period end so latest-wins
-// keeps history; settlement 0/1 snapshots are not published.
+// keeps quote history; settlement 0/1 is a separate source=kalshi_settlement
+// row (not mixed into candles) so the parlay backtest can grade fills.
 // Publishes to options.kalshi_markets via PIPELINE_KALSHI_MARKETS_URL.
 //
 // Public Trade API (no auth for market data):
@@ -25,6 +26,12 @@ import {
   type MveSelectedLeg,
 } from "./kalshi-mve.js";
 import { probeKalshiRfqQuotes } from "./kalshi-rfq-quotes.js";
+import {
+  asSettlementSnapshot,
+  isKalshiSettledStatus,
+  kalshiResultYes,
+  looksLikeSettlementPrint,
+} from "./kalshi-settlement.js";
 
 export {
   encodeMveCategory,
@@ -652,6 +659,9 @@ export function mapKalshiMarketRaw(
   const series_ticker = (defaults.series_ticker
     || strip(m.series_ticker).toUpperCase()
     || seriesTickerFromMarketTicker(market_ticker));
+  const status = strip(m.status) || "unknown";
+  const last = parseKalshiNumber(m.last_price_dollars ?? m.last_price);
+  const resultYes = isKalshiSettledStatus(status) ? kalshiResultYes(m.result) : null;
   return {
     series_ticker,
     market_ticker,
@@ -660,11 +670,11 @@ export function mapKalshiMarketRaw(
     yes_subtitle: strip(m.yes_sub_title) || strip(m.subtitle) || null,
     theme: defaults.theme,
     category: defaults.category ?? null,
-    status: strip(m.status) || "unknown",
+    status,
     market_type: defaults.market_type || strip(m.market_type) || null,
     yes_bid: parseKalshiNumber(m.yes_bid_dollars ?? m.yes_bid),
     yes_ask: parseKalshiNumber(m.yes_ask_dollars ?? m.yes_ask),
-    yes_last: parseKalshiNumber(m.last_price_dollars ?? m.last_price),
+    yes_last: last ?? resultYes,
     no_bid: parseKalshiNumber(m.no_bid_dollars ?? m.no_bid),
     no_ask: parseKalshiNumber(m.no_ask_dollars ?? m.no_ask),
     volume: parseKalshiNumber(m.volume_fp ?? m.volume),
@@ -763,20 +773,6 @@ function kalshiMaxPages(env: KalshiEnv): number {
   return Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
 }
 
-function isSettledKalshiStatus(status: string): boolean {
-  return /^(settled|finalized)$/i.test(status);
-}
-
-/** Settlement 0/1 prints are outcomes, not quotes — skip them so latest-wins keeps the last live candle. */
-function looksLikeSettlementPrint(
-  bid: number | null,
-  ask: number | null,
-  last: number | null,
-): boolean {
-  const binary = (v: number | null) => v == null || v === 0 || v === 1;
-  if (last !== 0 && last !== 1) return false;
-  return binary(bid) && binary(ask);
-}
 
 function candleCloseDollars(raw: unknown): number | null {
   const rec = asRecord(raw);
@@ -955,16 +951,18 @@ export interface KalshiSportsParlayPack {
 /**
  * Sports parlays: MVE combo markets that name their legs, plus those leg
  * contracts. Open books are snapshotted live; settled/closed books in the
- * lookback window are daily candlesticks only (no settlement 0/1 overwrite).
- * Capped on combos (volume-first) for the lake tape; every selected leg
- * of those capped combos is kept. Optional RFQ probe
- * (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo bid/ask from solicited
- * maker quotes, then cancels — never accepts. The live executor does not
- * use this pack — see fetchKalshiParlayExecutorPack.
+ * lookback window are daily candlesticks plus a tagged settlement 0/1
+ * row (`source=kalshi_settlement`) so the backtest can grade fills
+ * without mixing 0/1 into quote candles. Capped on combos (volume-first)
+ * for the lake tape; every selected leg of those capped combos is kept.
+ * Optional RFQ probe (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo
+ * bid/ask from solicited maker quotes, then cancels — never accepts.
+ * The live executor does not use this pack — see
+ * fetchKalshiParlayExecutorPack.
  *
- * Prefer this pack over re-parsing `category`: encodeMveCategory drops
- * event_ticker, which makes same-game grouping fail for books without an
- * NFL-style date+teams slug in the market ticker.
+ * Combo `category` keeps `event_ticker` as `yes:LEG@EVENT` so same-game
+ * grouping works for MLB/WNBA props that lack an NFL-style date+teams
+ * slug. Older `yes:LEG` rows still parse.
  */
 export async function fetchKalshiSportsParlayPack(
   env: KalshiEnv = {},
@@ -1005,7 +1003,7 @@ export async function fetchKalshiSportsParlayPack(
   }
   const legs = await fetchMarketsByTickers(legTickers, env);
   const bases = [...merged.rows, ...legs];
-  const live = bases.filter((row) => !isSettledKalshiStatus(row.status));
+  const live = bases.filter((row) => !isKalshiSettledStatus(row.status));
   const openComboTickers = new Set(openPack.ranked.map((row) => row.market_ticker));
   const openCombos = live.filter((row) => openComboTickers.has(row.market_ticker));
   const probedCombos = await probeKalshiRfqQuotes(env, openCombos, openPack.comboLegs, legs);
@@ -1014,7 +1012,13 @@ export async function fetchKalshiSportsParlayPack(
   if (lookbackDays <= 0) return { rows: liveWithRfq, comboLegs: merged.comboLegs };
 
   const candles = await fetchSportsCandles(env, bases, startTs, endTs);
-  return { rows: [...liveWithRfq, ...candles], comboLegs: merged.comboLegs };
+  const settlements: KalshiMarketRow[] = [];
+  for (const row of bases) {
+    if (!isKalshiSettledStatus(row.status)) continue;
+    const snap = asSettlementSnapshot(row);
+    if (snap) settlements.push(snap);
+  }
+  return { rows: [...liveWithRfq, ...candles, ...settlements], comboLegs: merged.comboLegs };
 }
 
 /**
@@ -1028,7 +1032,7 @@ export async function fetchKalshiParlayExecutorPack(
 ): Promise<KalshiSportsParlayPack> {
   const investing = investingKalshiSeries();
   const openPack = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, null);
-  const live = openPack.ranked.filter((row) => !isSettledKalshiStatus(row.status));
+  const live = openPack.ranked.filter((row) => !isKalshiSettledStatus(row.status));
   const comboTickers = new Set(live.map((row) => row.market_ticker));
   const legs = await fetchMarketsByTickers(
     executorSameGameLegTickers(openPack.comboLegs, comboTickers),
@@ -1119,6 +1123,46 @@ export function normalizeKalshiRecords(
     for (const f of KALSHI_MARKETS_FIELDS) out[f] = rec[f];
     return out;
   });
+}
+
+/** Publish already-mapped kalshi_markets rows. No-ops without a pipeline URL. */
+export async function publishKalshiMarketRows(
+  rows: KalshiMarketRow[],
+  env: KalshiEnv = {},
+  label = "tape",
+): Promise<KalshiPublishResult> {
+  const url = env.PIPELINE_KALSHI_MARKETS_URL || "";
+  const runId = env.runId?.() ?? crypto.randomUUID();
+  const fetchedAt = new Date(env.now ? env.now() : Date.now()).toISOString();
+  if (!url || rows.length === 0) {
+    return {
+      item: label,
+      row_count: rows.length,
+      published: false,
+      run_id: runId,
+      fetched_at: fetchedAt,
+    };
+  }
+  const records = normalizeKalshiRecords(rows, runId, fetchedAt);
+  const maxBody = Math.floor(num(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
+  const chunks = chunkKalshiPipelineRecords(records, maxBody);
+  const auth = env.PIPELINE_AUTH_TOKEN || "";
+  for (let i = 0; i < chunks.length; i++) {
+    await requestJson(
+      url,
+      chunks[i],
+      `kalshi:${runId}:${label}:${i + 1}/${chunks.length}`,
+      auth,
+      env,
+    );
+  }
+  return {
+    item: label,
+    row_count: rows.length,
+    published: true,
+    run_id: runId,
+    fetched_at: fetchedAt,
+  };
 }
 
 export async function publishKalshiSeries(

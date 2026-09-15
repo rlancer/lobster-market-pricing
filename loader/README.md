@@ -255,10 +255,12 @@ investing series; sports parlays use `GET /markets?mve_filter=only&status=open`
 (and `status=settled|closed` with `min_settled_ts` / `min_close_ts` for the
 lookback window) then `GET /markets?tickers=…` for the selected legs and
 `GET /markets/candlesticks?period_interval=1440` for daily history. Combo rows encode
-collection + legs in `category` as `mve|{collection}|{yes|no}:{LEG},…` on the
+collection + legs in `category` as `mve|{collection}|{yes|no}:{LEG}@{EVENT},…` on the
 existing stream schema (no extra columns — Pipelines has no stream update).
-Candle rows set `fetched_at` to the candle end so latest-wins keeps a month of
-quotes; settlement 0/1 snapshots are not published. Each
+`@{EVENT}` is optional so older rows still parse. Candle rows set `fetched_at`
+to the candle end so latest-wins keeps a month of quotes; settlement 0/1 is a
+separate `source=kalshi_settlement` row (not mixed into candles) so the parlay
+backtest can grade fills. Each
 pass caps markets per series (volume-first; sports cap is on combos, and every
 selected leg is kept), is batch-scoped / ungated, and
 runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
@@ -302,7 +304,14 @@ Wrangler currently ships EXECUTE=1 and **LIVE=0**. Production accepts with
 ≈ `$1 − yes_bid`, e.g. $8.96 to win $10) instead of BUY YES at the ask.
 Turning LIVE off does **not** unwind those fills — sell them on Kalshi.
 Do not set LIVE=1 until the accept side matches a YES position in
-`GET /portfolio/positions`. Turning on EXECUTE skips the hourly RFQ probe
+`GET /portfolio/positions`. The public notebook
+(`/experiments/kalshi-parlays`, design `kalshi-parlays-v9`) backtests the
+filter on lake RFQ two-ways against `source=kalshi_settlement` 0/1:
+strategy P&L is BUY YES at the ask; actual P&L is the fill side. Each
+executor pass publishes `GET /portfolio/fills` as
+`source=kalshi_parlay_fill` (and this pass's RFQ two-ways as
+`kalshi_rfq`) so last night's BUY NO tickets are not stuck on Kalshi's
+private book. Turning on EXECUTE skips the hourly RFQ probe
 so two Creates do not 409. Force a pass from
 Actions (`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
 

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { flagLabel, fmtGap, fmtProb, fmtRho, gapTone } from './kalshiParlays.ts';
+import { flagLabel, fmtGap, fmtPct, fmtProb, fmtRho, fmtUsd, gapTone } from './kalshiParlays.ts';
+
+test('formats dollars and percents', () => {
+  assert.equal(fmtUsd(7.89), '+$7.89');
+  assert.equal(fmtUsd(-8.3), '−$8.30');
+  assert.equal(fmtPct(0.4), '40%');
+});
 
 test('formats probabilities as cents', () => {
   assert.equal(fmtProb(0.615), '61.5¢');

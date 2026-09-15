@@ -127,7 +127,7 @@ const JOBS = [
   ['instruments-daily', 'Daily', 'Manifest classification → options.instruments (security_type equity|etf|index|future|crypto) for type-filtered OHLC queries.'],
   ['fred-yields-daily', 'Daily', 'FRED Treasury / rates curve → options.yields (DGS* constant-maturity, spreads, TIPS/breakevens, T5YIFR, DFF/SOFR).'],
   ['fred-macro-daily', 'Daily', 'FRED CPI/PCE/PPI index + YoY → options.macro (realized inflation levels).'],
-  ['kalshi-markets-hourly', 'Hourly', 'Curated Kalshi event contracts (Fed/CPI/indexes/crypto/oil) plus sports parlays (MVE combos + selected legs, ~30d candles) → options.kalshi_markets.'],
+  ['kalshi-markets-hourly', 'Hourly', 'Curated Kalshi event contracts (Fed/CPI/indexes/crypto/oil) plus sports parlays (MVE combos + selected legs, ~30d candles, settlement 0/1) → options.kalshi_markets.'],
 ];
 
 const TABLES =
@@ -186,7 +186,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
   { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
   { method: 'GET', path: '/api/experiments/firm-pipeline/design', desc: 'Public firm-pipeline design: same frozen cases as desk-approaches, TradingAgents-style stages (solo / reports→trader / bull-bear / risk committee)' },
-  { method: 'GET', path: '/api/experiments/kalshi-parlays', desc: 'Public live snapshot: Kalshi Fed combo mids vs independence of rate/dissent legs, homemade index/crypto parlays with lake return correlation, and sports RFQ-auction parlays from options.kalshi_markets (design kalshi-parlays-v7: solicited RFQ two-ways, same-game corr room vs independence, volume-backed auction prints, sports vs crypto split)' },
+  { method: 'GET', path: '/api/experiments/kalshi-parlays', desc: 'Public live snapshot: Kalshi Fed combo mids vs independence of rate/dissent legs, homemade index/crypto parlays with lake return correlation, and sports RFQ-auction parlays from options.kalshi_markets (design kalshi-parlays-v9: solicited RFQ two-ways, same-game corr room vs independence, settlement-graded live fills + filter backtest, volume-backed auction prints, sports vs crypto split)' },
   { method: 'POST', path: '/api/admin/notebooks/probe', desc: 'Admin — single OpenRouter probe for the text-vs-image experiment' },
   { method: 'POST', path: '/api/admin/experiments/desk-approaches/probe', desc: 'Admin — run one desk-approaches cell (approach × as-of case) against the frozen snapshot' },
   { method: 'POST', path: '/api/admin/experiments/firm-pipeline/probe', desc: 'Admin — run one firm-pipeline cell (pipeline stage × as-of case) against the same frozen snapshot' },
@@ -241,7 +241,7 @@ const SURFACES = [
   {
     route: '/experiments',
     title: 'Experiments',
-    body: 'Public studies. Kalshi parlay mispricing compares listed Fed combos to independence of the rate and dissent legs, homemade index/crypto parlays scored with lake return correlation, and sports RFQ-auction parlays from options.kalshi_markets (MVE combos plus selected legs). Empty combo books are the RFQ venue; the hourly ingest solicits a capped same-game RFQ two-way (source=kalshi_rfq) and cancels without filling. Crypto 15m/daily CROSSCATEGORY stacks are scored separately from NFL props. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction. Trading firm pipeline reuses that tape and grades TradingAgents-style stages (reports, bull/bear, later risk committee). Published LLM runs load from the Worker so visitors do not spend OpenRouter credits.',
+    body: 'Public studies. Kalshi parlay mispricing compares listed Fed combos to independence of the rate and dissent legs, homemade index/crypto parlays scored with lake return correlation, and sports RFQ-auction parlays from options.kalshi_markets (MVE combos plus selected legs). Empty combo books are the RFQ venue; the hourly ingest solicits a capped same-game RFQ two-way (source=kalshi_rfq) and cancels without filling. Design v8 backtests that live filter against settlement 0/1 (source=kalshi_settlement) and reports YES-at-ask P&L versus the BUY NO fills from 2026-09-14. Crypto 15m/daily CROSSCATEGORY stacks are scored separately from NFL props. Text vs image compares encodings on a synthetic panel. Analyst desk vs sessions freezes an as-of snapshot and grades solo / production desk role-play / isolated specialist sessions against held-out 5- and 20-session direction. Trading firm pipeline reuses that tape and grades TradingAgents-style stages (reports, bull/bear, later risk committee). Published LLM runs load from the Worker so visitors do not spend OpenRouter credits.',
   },
   {
     route: '/data',

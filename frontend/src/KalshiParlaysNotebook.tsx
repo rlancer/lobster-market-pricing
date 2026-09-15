@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Heading, Text, Token, VStack } from '@astryxdesign/core';
 import { api, type KalshiParlayRow, type KalshiParlaySnapshot } from './api';
-import { flagLabel, fmtGap, fmtProb, fmtRho, gapTone } from './notebooks/kalshiParlays';
+import { flagLabel, fmtGap, fmtPct, fmtProb, fmtRho, fmtUsd, gapTone } from './notebooks/kalshiParlays';
 import './Notebooks.css';
 
 type TocEntry = { id: string; num: string; label: string };
@@ -193,6 +193,7 @@ export default function KalshiParlaysNotebookPage() {
       { id: 'marginals', label: 'Cross-book marginals' },
       { id: 'homemade', label: 'Homemade parlays' },
       { id: 'sports', label: 'Sports parlays' },
+      { id: 'backtest', label: 'Strategy backtest' },
       { id: 'crypto', label: 'Crypto target-price MVEs' },
       { id: 'mve', label: 'Combo CLOB' },
       { id: 'method', label: 'Method' },
@@ -400,7 +401,146 @@ export default function KalshiParlaysNotebookPage() {
               </VStack>
             </Section>
 
-            <Section id="crypto" num={tocById.get('crypto')?.num ?? '06'} title="Crypto target-price MVEs">
+            <Section id="backtest" num={tocById.get('backtest')?.num ?? '06'} title="Strategy backtest">
+              <VStack gap={3}>
+                <Text>
+                  The live executor buys a same-game two-leg combo YES only
+                  when a maker RFQ sits near independence: corr room ≥ 15¢,
+                  spread ≤ 8¢, ask ≤ p×q + 2¢, |φ| &lt; 0.15, same side.
+                  Last night&apos;s production tickets are graded from{' '}
+                  <code>source=kalshi_parlay_fill</code> (Kalshi portfolio
+                  fills published by the executor). The filter replay still
+                  uses lake <code>source=kalshi_rfq</code> two-ways against
+                  settlement 0/1. Strategy P&amp;L is BUY YES at the ask.
+                  Actual P&amp;L is the fill side that landed — on
+                  2026-09-14 that was BUY NO at 1 − bid.
+                </Text>
+                {snapshot.backtest ? (
+                  <>
+                    {snapshot.backtest.live && snapshot.backtest.live.n > 0 ? (
+                      <>
+                        <Text type="supporting">
+                          Live fills {snapshot.backtest.live.n} · settled {snapshot.backtest.live.settled} · filled-side hits {fmtPct(snapshot.backtest.live.hit_rate)} · actual {fmtUsd(snapshot.backtest.live.actual_pnl)} · YES-at-same-price {fmtUsd(snapshot.backtest.live.yes_counterfactual_pnl)}
+                        </Text>
+                        <div className="notebook-results">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Live fill</th>
+                                <th>Side / prices</th>
+                                <th>Result</th>
+                                <th>Actual P&amp;L</th>
+                                <th>YES if filled</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {snapshot.backtest.live.fills.map((fill) => (
+                                <tr key={`${fill.market_ticker}-${fill.quoted_at ?? ''}`} className={fill.actual_pnl != null && fill.actual_pnl < 0 ? 'notebook-row-winner' : undefined}>
+                                  <td>
+                                    <strong>{fill.title}</strong>
+                                    <div className="notebook-answer"><code>{fill.market_ticker}</code></div>
+                                  </td>
+                                  <td className="num">
+                                    BUY {fill.fill_side.toUpperCase()} × {fill.contracts}
+                                    <div className="notebook-answer">
+                                      YES {fmtProb(fill.yes_price)} · NO {fmtProb(fill.no_price)}
+                                    </div>
+                                  </td>
+                                  <td className="num">
+                                    {fill.settlement == null ? 'open' : fill.settlement === 1 ? 'YES' : 'NO'}
+                                  </td>
+                                  <td className="num">{fmtUsd(fill.actual_pnl)}</td>
+                                  <td className="num">{fmtUsd(fill.yes_counterfactual_pnl)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    ) : (
+                      <Text type="supporting">
+                        No executor fills in the lake yet. Each kalshi-parlay-executor pass publishes GET /portfolio/fills onto source=kalshi_parlay_fill.
+                      </Text>
+                    )}
+                    <Text type="supporting">
+                      {snapshot.backtest.rfq_quotes} sports RFQ books · {snapshot.backtest.same_game} same-game aligned · {snapshot.backtest.would_accept} would accept · {snapshot.backtest.strategy.settled} settled · hit rate {fmtPct(snapshot.backtest.strategy.hit_rate)}
+                    </Text>
+                    <div className="notebook-results">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Cohort</th>
+                            <th>n / settled</th>
+                            <th>YES hits</th>
+                            <th>YES P&amp;L</th>
+                            <th>NO P&amp;L</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="notebook-row-winner">
+                            <td><strong>Live filter</strong></td>
+                            <td className="num">{snapshot.backtest.strategy.n} / {snapshot.backtest.strategy.settled}</td>
+                            <td className="num">{snapshot.backtest.strategy.yes_wins} ({fmtPct(snapshot.backtest.strategy.hit_rate)})</td>
+                            <td className="num">{fmtUsd(snapshot.backtest.strategy.yes_pnl)}</td>
+                            <td className="num">{fmtUsd(snapshot.backtest.strategy.no_pnl)}</td>
+                          </tr>
+                          <tr>
+                            <td>All same-game RFQs</td>
+                            <td className="num">{snapshot.backtest.all_rfq.n} / {snapshot.backtest.all_rfq.settled}</td>
+                            <td className="num">{snapshot.backtest.all_rfq.yes_wins} ({fmtPct(snapshot.backtest.all_rfq.hit_rate)})</td>
+                            <td className="num">{fmtUsd(snapshot.backtest.all_rfq.yes_pnl)}</td>
+                            <td className="num">{fmtUsd(snapshot.backtest.all_rfq.no_pnl)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    {snapshot.backtest.fills.length ? (
+                      <div className="notebook-results">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Combo</th>
+                              <th>Ask / indep.</th>
+                              <th>Result</th>
+                              <th>YES P&amp;L</th>
+                              <th>NO P&amp;L</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snapshot.backtest.fills.map((fill) => (
+                              <tr key={`${fill.market_ticker}-${fill.quoted_at ?? ''}`}>
+                                <td>
+                                  <strong>{fill.title}</strong>
+                                  <div className="notebook-answer"><code>{fill.market_ticker}</code></div>
+                                </td>
+                                <td className="num">
+                                  {fmtProb(fill.yes_ask)}
+                                  <div className="notebook-answer">indep {fmtProb(fill.independence)}</div>
+                                </td>
+                                <td className="num">
+                                  {fill.settlement == null ? 'open' : fill.settlement === 1 ? 'YES' : 'NO'}
+                                </td>
+                                <td className="num">{fmtUsd(fill.yes_pnl)}</td>
+                                <td className="num">{fmtUsd(fill.no_pnl)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <Text type="supporting">No filter-pass RFQs to list this window.</Text>
+                    )}
+                    {snapshot.backtest.notes.map((note) => (
+                      <Text key={note} type="supporting">{note}</Text>
+                    ))}
+                  </>
+                ) : (
+                  <Text type="supporting">No backtest payload this snapshot.</Text>
+                )}
+              </VStack>
+            </Section>
+
+            <Section id="crypto" num={tocById.get('crypto')?.num ?? '07'} title="Crypto target-price MVEs">
               <VStack gap={3}>
                 <Text>
                   <code>KXMVECROSSCATEGORY</code> also packs 15-minute and daily
@@ -457,7 +597,10 @@ export default function KalshiParlaysNotebookPage() {
               print in (0, 1). Empty 0/0/0 with last 0 is not C. A gap larger than half the
               combo spread plus half the leg spreads is flagged; clearing
               Kalshi taker fees (~7% of expected earnings) is a stricter bar.
-              Phi and tetrachoric ρ are defined for two legs only.
+              Phi and tetrachoric ρ are defined for two legs only. The live
+              executor filter is backtested on those RFQ two-ways against
+              settlement 0/1 rows (<code>source=kalshi_settlement</code>) —
+              BUY YES at the ask versus the BUY NO fills from 2026-09-14.
             </Text>
             <Text>
               Bernoulli phi is the Pearson correlation of the two 0/1 outcomes:
@@ -474,7 +617,9 @@ export default function KalshiParlaysNotebookPage() {
                   hourly KXMVE ingest (MVE combos + selected legs + daily candles).
                   Combo mids use the last two-sided snapshot, solicited RFQ
                   two-way, or RFQ auction print; legs are the nearest
-                  tradable snapshot to that time. Crypto target-price CROSSCATEGORY
+                  tradable snapshot to that time. Combo <code>category</code> keeps
+                  <code>event_ticker</code> as <code>yes:LEG@EVENT</code>. Settlement
+                  0/1 is a tagged lake row, not a quote. Crypto target-price CROSSCATEGORY
                   stacks are scored separately from NFL/sports props. Dissent
                   &gt;0 is the complement of the 0-dissent contract. Return series
               from <code>options.ohlc</code>, latest-wins per symbol/date. Chat

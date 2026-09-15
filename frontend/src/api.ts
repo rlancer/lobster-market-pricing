@@ -1803,6 +1803,71 @@ export interface KalshiParlaySnapshot {
     corr_room_mean?: number | null;
     corr_room_max?: number | null;
   };
+  backtest?: {
+    contracts: number;
+    rfq_quotes: number;
+    aligned: number;
+    same_game: number;
+    would_accept: number;
+    strategy: {
+      n: number;
+      settled: number;
+      yes_wins: number;
+      hit_rate: number | null;
+      yes_pnl: number;
+      no_pnl: number;
+      avg_ask: number | null;
+      avg_corr_room: number | null;
+    };
+    all_rfq: {
+      n: number;
+      settled: number;
+      yes_wins: number;
+      hit_rate: number | null;
+      yes_pnl: number;
+      no_pnl: number;
+      avg_ask: number | null;
+      avg_corr_room: number | null;
+    };
+    live: {
+      n: number;
+      settled: number;
+      wins: number;
+      hit_rate: number | null;
+      actual_pnl: number;
+      yes_counterfactual_pnl: number;
+      fills: Array<{
+        market_ticker: string;
+        title: string;
+        quoted_at: string | null;
+        fill_side: 'yes' | 'no';
+        contracts: number;
+        yes_price: number;
+        no_price: number;
+        fee: number;
+        settlement: 0 | 1 | null;
+        actual_pnl: number | null;
+        yes_counterfactual_pnl: number | null;
+      }>;
+    };
+    fills: Array<{
+      market_ticker: string;
+      title: string;
+      quoted_at: string | null;
+      p: number;
+      q: number;
+      yes_bid: number;
+      yes_ask: number;
+      independence: number;
+      corr_room: number;
+      would_accept: boolean;
+      reasons: string[];
+      settlement: 0 | 1 | null;
+      yes_pnl: number | null;
+      no_pnl: number | null;
+    }>;
+    notes: string[];
+  };
   verdict: {
     headline: string;
     bullets: string[];

@@ -346,7 +346,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Kalshi parlay mispricing'),
       description:
-        'Live study of Kalshi Fed combos versus independence of the rate and dissent legs, homemade index/crypto parlays scored with return correlation, and sports RFQ-auction parlays from the lake.',
+        'Live study of Kalshi Fed combos versus independence of the rate and dissent legs, homemade index/crypto parlays scored with return correlation, sports RFQ-auction parlays from the lake, and a settlement-graded backtest of the live same-game filter.',
       path: '/experiments/kalshi-parlays',
     };
   }

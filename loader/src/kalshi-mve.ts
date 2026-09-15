@@ -4,7 +4,8 @@
  * Kalshi MVE combo markets carry `mve_collection_ticker` + `mve_selected_legs`.
  * The existing kalshi_markets stream schema has no extra columns, so the
  * collection and legs are stored in `category` as a documented encoding:
- *   mve|{collection}|{yes|no}:{LEG_TICKER},{yes|no}:{LEG_TICKER},…
+ *   mve|{collection}|{yes|no}:{LEG_TICKER}@{EVENT},{yes|no}:{LEG_TICKER}@{EVENT},…
+ * Event tickers are optional (`yes:LEG` still parses) so older lake rows work.
  * Combo rows use theme=sports and market_type=multivariate. Leg contracts are
  * published as their own sports rows so independence scoring can join on
  * market_ticker. Do not scrape the full sports catalog — only MVE combos
@@ -92,11 +93,17 @@ export function mveCollectionTicker(raw: unknown): string {
   return strip(rec?.mve_collection_ticker).toUpperCase();
 }
 
+function packCategoryToken(raw: string): string {
+  return raw.replaceAll("|", "").replaceAll("@", "").replaceAll(",", "").toUpperCase();
+}
+
 export function encodeMveCategory(collection: string, legs: MveSelectedLeg[]): string {
-  const col = (collection || "unknown").replaceAll("|", "").toUpperCase() || "UNKNOWN";
+  const col = packCategoryToken(collection || "unknown") || "UNKNOWN";
   const packed = legs.map((leg) => {
-    const ticker = leg.market_ticker.replaceAll("|", "").toUpperCase();
-    return `${leg.side === "no" ? "no" : "yes"}:${ticker}`;
+    const ticker = packCategoryToken(leg.market_ticker);
+    const event = packCategoryToken(leg.event_ticker || "");
+    const side = leg.side === "no" ? "no" : "yes";
+    return event ? `${side}:${ticker}@${event}` : `${side}:${ticker}`;
   });
   return `${MVE_CATEGORY_PREFIX}${col}|${packed.join(",")}`;
 }
@@ -118,10 +125,13 @@ export function parseMveCategory(category: string | null | undefined): {
     const idx = part.indexOf(":");
     if (idx < 0) continue;
     const side = part.slice(0, idx).toLowerCase() === "no" ? "no" : "yes";
-    const market_ticker = part.slice(idx + 1).trim().toUpperCase();
+    const restLeg = part.slice(idx + 1).trim().toUpperCase();
+    const at = restLeg.indexOf("@");
+    const market_ticker = (at >= 0 ? restLeg.slice(0, at) : restLeg).trim();
+    const event_ticker = at >= 0 ? restLeg.slice(at + 1).trim() || null : null;
     if (!market_ticker || seen.has(market_ticker)) continue;
     seen.add(market_ticker);
-    legs.push({ event_ticker: null, market_ticker, side });
+    legs.push({ event_ticker, market_ticker, side });
   }
   if (legs.length < 2) return null;
   return { collection, legs };
