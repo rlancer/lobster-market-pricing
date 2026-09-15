@@ -1,21 +1,25 @@
 /**
- * Operator trail for one executor pass: every same-game two-leg book, its
- * selected legs, corr room, and why it was RFQ'd / skipped / filled.
- * Mix n>2 and cross-game stay in universe counts — they are not considered.
+ * Operator trail for one executor pass: every book the active filter
+ * will score (same-game two-leg, or cross-game two-leg on the longshot
+ * book), its selected legs, corr room / independence, and why it was
+ * RFQ'd / skipped / filled. Mix n>2 stay in universe counts.
  */
 
 import type { KalshiMarketRow } from "./kalshi.js";
-import { isSameGameSportsTwoLeg, type MveSelectedLeg } from "./kalshi-mve.js";
+import { isCrossGameSportsTwoLeg, isSameGameSportsTwoLeg, type MveSelectedLeg } from "./kalshi-mve.js";
 import {
   PARLAY_BOOK_CORR_ROOM,
+  PARLAY_BOOK_LONGSHOT,
   PARLAY_MAX_ABS_PHI,
   PARLAY_MAX_ASK_OVER_INDEP,
   PARLAY_MAX_SPREAD,
   PARLAY_MIN_CORR_ROOM,
+  PARLAY_MIN_PAYOUT_MULTIPLE,
   PARLAY_UNDERDOG_MAX_COST,
   corrRoom,
   independenceJoint,
   parlayBook,
+  parlayPayoutMultiple,
   sameSide,
   type ParlayBookId,
 } from "./kalshi-parlay-filter.js";
@@ -41,6 +45,7 @@ export interface ParlayConsidered {
   q: number | null;
   corr_room: number | null;
   independence: number | null;
+  fair_payout: number | null;
   status: ParlayConsideredStatus;
   skip: string | null;
   reason: string;
@@ -117,6 +122,12 @@ function explainCode(
       return "Not a two-leg stack";
     case "not_same_game":
       return "Not same-game";
+    case "not_cross_game":
+      return "Not a two-leg cross-game stack";
+    case "payout":
+      return ask != null
+        ? `YES ask ${fmtCents(ask)} pays ${parlayPayoutMultiple(ask).toFixed(1)}x — need at least ${PARLAY_MIN_PAYOUT_MULTIPLE}x (ask ≤ ${(100 / PARLAY_MIN_PAYOUT_MULTIPLE).toFixed(2)}¢)`
+        : `YES ask does not pay at least ${PARLAY_MIN_PAYOUT_MULTIPLE}x`;
     default:
       return code.replace(/_/g, " ");
   }
@@ -150,7 +161,10 @@ export function listSameGameConsidered(
   for (const combo of combos) {
     if (!isOpenCombo(combo)) continue;
     const spec = comboLegs.get(combo.market_ticker) ?? [];
-    if (!isSameGameSportsTwoLeg(spec)) continue;
+    const targetStack = book === PARLAY_BOOK_LONGSHOT
+      ? isCrossGameSportsTwoLeg(spec)
+      : isSameGameSportsTwoLeg(spec);
+    if (!targetStack) continue;
     const mappedLegs: ParlayConsideredLeg[] = spec.map((leg) => {
       const row = byTicker.get(leg.market_ticker);
       return {
@@ -177,7 +191,9 @@ export function listSameGameConsidered(
     }
     const eligible = book === PARLAY_BOOK_CORR_ROOM
       ? "Eligible — ranked for RFQ by corr room"
-      : "Eligible — ranked for RFQ by cheapest independence";
+      : book === PARLAY_BOOK_LONGSHOT
+        ? "Eligible — ranked for RFQ by cheapest independence (cross-game 35x)"
+        : "Eligible — ranked for RFQ by cheapest independence";
     const reason = skip
       ? explainParlaySkip([skip], { corr_room: room, independence })
       : eligible;
@@ -189,6 +205,9 @@ export function listSameGameConsidered(
       q,
       corr_room: room,
       independence,
+      fair_payout: independence != null && independence > 0
+        ? parlayPayoutMultiple(independence)
+        : null,
       status: "skipped",
       skip,
       reason,
@@ -285,13 +304,6 @@ export function annotateParlayConsidered(
       reason: explainParlaySkip(["rfq_rank"]),
     };
   });
-  annotated.sort((a, b) => {
-    const status = rankStatus(a.status) - rankStatus(b.status);
-    if (status !== 0) return status;
-    const roomA = a.corr_room ?? -1;
-    const roomB = b.corr_room ?? -1;
-    if (roomB !== roomA) return roomB - roomA;
-    return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
-  });
+  annotated.sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
   return annotated.slice(0, PARLAY_CONSIDERED_CAP);
 }

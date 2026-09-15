@@ -33,12 +33,12 @@ const FIXTURE = {
     skipped: 0,
     contracts: 5,
     max_accepts_per_pass: 1,
-    book: 'same_game_underdog',
+    book: 'cross_game_longshot',
     max_spend: 100,
     spent: 0,
     spend_remaining: 100,
     spend_since: null,
-    spend_run_id: 'underdog-5x100',
+    spend_run_id: 'longshot-35x100',
     spend_error: null,
     decisions: [],
     considered: [],
@@ -190,14 +190,14 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('EXECUTE off', { exact: true })).toBeVisible();
     await expect(page.getByText('5 contracts · $5 notional')).toBeVisible();
     await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
-    await expect(page.getByText('Book same-game underdog YES')).toBeVisible();
+    await expect(page.getByText('Book cross-game 35x YES')).toBeVisible();
     await expect(page.getByText('Spent $0.00 / $100')).toBeVisible();
     await expect(page.getByText('Open combos 80')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
     await expect(page.getByText(/not the hourly lake volume-80 cap/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Considered' })).toBeVisible();
-    await expect(page.getByText('No same-game two-leg books on the last pass.')).toBeVisible();
+    await expect(page.getByText('No two-leg books for this filter on the last pass.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Kalshi parlays' })).toHaveAttribute('href', '/experiments/kalshi-parlays');
     expect(loaderHits).toEqual([]);

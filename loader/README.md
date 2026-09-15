@@ -277,21 +277,26 @@ never accepted or confirmed. Read-only keys 403 and skip. Set
 `KALSHI_FETCH_SERIES_META=1` only when category enrichment from Get
 Series is worth the extra call.
 
-### Same-game parlay executor (`kalshi-parlay-executor`)
+### Sports parlay executor (`kalshi-parlay-executor`)
 
-Separate from the hourly tape. Buys unpriced same-game correlation:
+Separate from the hourly tape. Buys a two-leg sports combo YES:
 
 1. Every open sports MVE from Get Markets (no lake volume-80 cap, no candle
-   backfill, no research RFQ overlay). Legs are fetched only for same-game
-   two-leg stacks. Same-game grouping uses `mve_selected_legs.event_ticker`,
-   not `category`. Do not scrape the full sports catalog.
-2. Rank same-game two-leg sports stacks by cheapest independence (underdog
-   book) or corr room (`min(p,q) − p×q`) when `KALSHI_PARLAY_BOOK=corr_room_yes`.
+   backfill, no research RFQ overlay). Legs are fetched for the active
+   book's two-leg stacks (same-game, or cross-game on
+   `KALSHI_PARLAY_BOOK=cross_game_longshot`). Game grouping uses
+   `mve_selected_legs.event_ticker`, not `category`. Do not scrape the
+   full sports catalog.
+2. Rank those stacks by cheapest independence (underdog / longshot) or
+   corr room (`min(p,q) − p×q`) when `KALSHI_PARLAY_BOOK=corr_room_yes`.
 3. Create an RFQ, wait for a private two-way, score it.
-4. **Filter (default `same_game_underdog`):** 2 legs, same game, same side,
-   YES ask ≤ 50¢, spread ≤ 8¢, single-maker `quote_id`. Skip mixed yes/no,
-   n>2, leftover `yes_last`. The corr-room book still requires corr room ≥
-   15¢, ask ≤ independence + 2¢, |φ| < 0.15.
+4. **Filter (code default `same_game_underdog`):** 2 legs, same game, same
+   side, YES ask ≤ 50¢ (payout ≥ 2x), spread ≤ 8¢, single-maker
+   `quote_id`. **Production book `cross_game_longshot`:** 2 legs, *cross*
+   game, same side, YES ask ≤ 1/35 (~2.86¢, payout ≥ 35x) *and* at or
+   below independence. Skip mixed yes/no, n>2, leftover `yes_last`. The
+   corr-room book still requires corr room ≥ 15¢, ask ≤ independence + 2¢,
+   |φ| < 0.15.
 5. Default: log `would_accept` and **delete** the RFQ.
 6. Live: `KALSHI_PARLAY_EXECUTE=1` **and** `KALSHI_PARLAY_LIVE=1`, then
    `PUT .../quotes/{id}/accept` with `accepted_side: "yes"`. The **maker**
@@ -302,6 +307,14 @@ Separate from the hourly tape. Buys unpriced same-game correlation:
    `started_at`, overridable with `KALSHI_PARLAY_SPEND_SINCE`) is capped at
    `KALSHI_PARLAY_MAX_SPEND` (default **$100**). Last night's BUY NO fills
    do not count — they are before this run's watermark.
+
+Those Kalshi app cards (`$119.99 pays $4,493`) are listed two-leg MVE
+combos. Payout multiple is `1 / yes_ask`. A 48% × 16% cross-game stack
+is ~13x at independence; a 2.67¢ ask is 37x and cheap vs p×q — that is
+the longshot book. Same-game underdog at 50¢ is 2x and will never print
+35:1. The hourly research probe still RFQs same-game only. Building a
+combo that is not already listed is `POST /multivariate_event_collections/{ticker}/markets`
+then RFQ that ticker — the executor does not create markets.
 
 Wrangler currently ships EXECUTE=1 and **LIVE=0**. Production accepts with
 `accepted_side: "yes"` filled **BUY NO** (portfolio `position_fp` −10, cost
@@ -325,19 +338,20 @@ curl -sS -X POST -H "Authorization: Bearer $LOADER_TOKEN" \
 ```
 
 `GET /jobs/kalshi-parlay-executor` then shows `last_pass.detail` (`would_accept`,
-`accepted`, skip reasons, and `considered`). `considered` is every same-game
-two-leg book scored this pass (cap 24): combo title, selected legs (side +
-mid), corr room (`min(p,q) − p×q`), status, and a human skip reason such as
-“Legs are not correlated enough (corr room 8¢, need 15¢)”. n>2 and
-cross-game stay in the universe counts plus `samples`; they are not
-considered. An empty pass records `idle_reason`
-(`execute_off` / `no_api_keys` / `no_targets` / `forbidden`) plus
+`accepted`, skip reasons, and `considered`). `considered` is every two-leg
+book the active filter scores this pass (cap 24): combo title, selected
+legs (side + mid), independence / fair payout (`1/(p×q)`), status, and a
+human skip reason. n>2 stacks stay in the universe counts plus `samples`.
+Cross-game two-legs are considered on `cross_game_longshot`; same-game on
+the other books. An empty pass records `idle_reason`
+(`execute_off` / `no_api_keys` / `no_targets` / `forbidden` / `max_spend`) plus
 `open_combos`, `open_legs`, `combo_legs`, `two_leg`, `same_game_two_leg`,
 `cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
 `mve_selected_legs` (including `event_ticker`) from the live API, not the
 hourly lake tape and not the lake `category` encoding. Hourly KXMVE still
-caps 80 combos by volume for research; empty-CLOB same-game books (volume 0)
-are kept on the executor pass and ranked by corr room. The scheduler shrinks
+caps 80 combos by volume for research; empty-CLOB two-leg books (volume 0)
+are kept on the executor pass and ranked by cheapest independence (corr
+room on the legacy book). The scheduler shrinks
 `samples` / `considered` / `decisions` if `last_pass.detail` would exceed
 48 KB — it does not wipe counts.
 

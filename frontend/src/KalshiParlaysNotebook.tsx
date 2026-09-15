@@ -404,9 +404,12 @@ export default function KalshiParlaysNotebookPage() {
             <Section id="backtest" num={tocById.get('backtest')?.num ?? '06'} title="Strategy backtest">
               <VStack gap={3}>
                 <Text>
-                  The live executor buys a same-game two-leg combo YES only
-                  when a maker RFQ sits near independence: corr room ≥ 15¢,
-                  spread ≤ 8¢, ask ≤ p×q + 2¢, |φ| &lt; 0.15, same side.
+                  The public backtest still grades the original same-game
+                  corr-room YES filter (corr room ≥ 15¢, ask ≤ p×q + 2¢).
+                  Production&apos;s executable book is now cross-game
+                  longshot YES: two different games, ask ≤ 1/35 (payout ≥
+                  35x) and at or cheaper than independence — the Kalshi
+                  app cards that show <code>$120 pays $4,493</code>.
                   Last night&apos;s production tickets are graded from{' '}
                   <code>source=kalshi_parlay_fill</code> (Kalshi portfolio
                   fills published by the executor). The filter replay still

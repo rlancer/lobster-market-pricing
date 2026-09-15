@@ -5,6 +5,7 @@ import {
   chunkKalshiPipelineRecords,
   collectSportsCombos,
   executorSameGameLegTickers,
+  executorTwoLegSportsTickers,
   kalshiAuthConfigured,
   kalshiSeriesList,
   kalshiSignPath,
@@ -179,20 +180,39 @@ const VOL0_SAME_GAME = {
   close_time: "2026-09-14T00:00:00Z",
 };
 
+const VOL0_CROSS_GAME = {
+  ticker: "KXMVE-KC-TB",
+  series_ticker: "KXMVE",
+  title: "KC -2.5 AND TB -27.5",
+  status: "active",
+  mve_collection_ticker: "KXMVECROSSCATEGORY-SHARD1-R",
+  mve_selected_legs: [
+    { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLSPREAD-26SEP13KCDEN-KC2", side: "yes" },
+    { event_ticker: "KXNFLGAME-26SEP13TB", market_ticker: "KXNFLSPREAD-26SEP13TBCLE-TB27", side: "yes" },
+  ],
+  volume_fp: "0",
+  volume_24h_fp: "0",
+  close_time: "2026-09-14T00:00:00Z",
+};
+
 describe("sports combo universe vs lake cap", () => {
   it("volume-80 lake cap drops a volume-0 same-game two-leg; executor scan keeps it", () => {
-    const raw = [...Array.from({ length: 80 }, (_, i) => noiseCombo(i)), VOL0_SAME_GAME];
+    const raw = [...Array.from({ length: 80 }, (_, i) => noiseCombo(i)), VOL0_SAME_GAME, VOL0_CROSS_GAME];
     const investing = new Set<string>();
     const lake = collectSportsCombos(raw, investing, 80);
     const live = collectSportsCombos(raw, investing, null);
     expect(lake.ranked).toHaveLength(80);
     expect(lake.ranked.map((row) => row.market_ticker)).not.toContain(VOL0_SAME_GAME.ticker);
-    expect(live.ranked).toHaveLength(81);
+    expect(live.ranked).toHaveLength(82);
     expect(live.ranked.map((row) => row.market_ticker)).toContain(VOL0_SAME_GAME.ticker);
     const comboTickers = new Set(live.ranked.map((row) => row.market_ticker));
     expect(executorSameGameLegTickers(live.comboLegs, comboTickers)).toEqual([
       "KXMLBOUTS-26SEP142138SEALAA-DETMERS18",
       "KXMLBOUTS-26SEP142138SEALAA-ANDERSON16",
+    ]);
+    expect(executorTwoLegSportsTickers(live.comboLegs, comboTickers, "cross_game")).toEqual([
+      "KXNFLSPREAD-26SEP13KCDEN-KC2",
+      "KXNFLSPREAD-26SEP13TBCLE-TB27",
     ]);
     expect(executorSameGameLegTickers(lake.comboLegs, new Set(lake.ranked.map((row) => row.market_ticker)))).toEqual([]);
   });

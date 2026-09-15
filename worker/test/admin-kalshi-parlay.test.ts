@@ -118,6 +118,7 @@ describe("shapeExecutorJob", () => {
         error: null,
         yes_bid: 0.18,
         yes_ask: 0.22,
+        payout_multiple: 4.545,
         rfq_id: "rfq1",
         quote_id: "q1",
       }],
@@ -132,6 +133,7 @@ describe("shapeExecutorJob", () => {
     assert.equal(view.same_game_two_leg, 1);
     assert.equal(view.decisions[0]?.quote_id, "q1");
     assert.equal(view.decisions[0]?.yes_ask, 0.22);
+    assert.equal(view.decisions[0]?.payout_multiple, 4.545);
     assert.equal(view.contracts, 5);
     assert.equal(view.max_accepts_per_pass, 1);
     assert.equal(view.book, "same_game_underdog");
@@ -156,6 +158,7 @@ describe("shapeExecutorJob", () => {
         q: 0.9,
         corr_room: 0.04,
         independence: 0.36,
+        fair_payout: 2.78,
         status: "skipped",
         skip: "corr_room",
         reason: "Legs are not correlated enough (corr room 4¢, need 15¢)",
@@ -163,6 +166,7 @@ describe("shapeExecutorJob", () => {
     }));
     assert.equal(view.considered.length, 1);
     assert.equal(view.considered[0]?.legs[0]?.title, "Henry 110+");
+    assert.equal(view.considered[0]?.fair_payout, 2.78);
     assert.match(view.considered[0]?.reason ?? "", /not correlated enough/);
   });
 

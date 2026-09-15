@@ -50,16 +50,17 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   rows (candles stay quotes). Combo `category` keeps `event_ticker` as
   `yes:LEG@EVENT`. →
   `options.kalshi_markets` from `symbols/kalshi-series.json`), and
-  `kalshi-parlay-executor` (batch, 5 min; same-game two-leg RFQ filter.
+  `kalshi-parlay-executor` (batch, 5 min; sports two-leg RFQ filter.
   EXECUTE is on; LIVE is off (`KALSHI_PARLAY_LIVE=0`) after production
   accepts filled BUY NO instead of YES. Turning LIVE off does not unwind
-  fills. Default book is same-game underdog YES (ask ≤ 50¢). Live when
-  EXECUTE=1 and LIVE=1: 5 contracts = $5 notional, at most one YES accept
-  per pass, $100 run cash cap (`KALSHI_PARLAY_SPEND_RUN_ID`). Scans every
-  open sports MVE from the Trade API — not the lake volume-80 cap — and
-  fetches legs only for same-game two-leg stacks. `last_pass.detail.considered`
-  is the operator trail (legs, corr room, skip reason) for those books.
-  The hourly probe still never accepts).
+  fills. Production book is cross-game longshot YES (ask ≤ 1/35 and ≤
+  independence). Code default remains same-game underdog YES (ask ≤ 50¢).
+  Live when EXECUTE=1 and LIVE=1: 5 contracts = $5 notional, at most one
+  YES accept per pass, $100 run cash cap (`KALSHI_PARLAY_SPEND_RUN_ID`).
+  Scans every open sports MVE from the Trade API — not the lake volume-80
+  cap — and fetches legs for the active book's two-leg stacks.
+  `last_pass.detail.considered` is the operator trail (legs, fair payout,
+  skip reason). The hourly probe still never accepts).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

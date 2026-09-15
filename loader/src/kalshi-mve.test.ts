@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   encodeMveCategory,
   eventPrefixFromTicker,
+  isCrossGameSportsTwoLeg,
   isSameGameSportsTwoLeg,
   isSportsParlayCandidate,
   parseMveCategory,
@@ -135,6 +136,14 @@ describe("game grouping", () => {
       { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
       { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
       { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALFLOW-50", side: "yes" },
+    ])).toBe(false);
+    expect(isCrossGameSportsTwoLeg([
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
+    ])).toBe(true);
+    expect(isCrossGameSportsTwoLeg([
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
     ])).toBe(false);
   });
 });

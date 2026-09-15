@@ -1,12 +1,13 @@
 /**
- * Kalshi same-game parlay executor.
+ * Kalshi sports parlay executor.
  *
  * Separate from kalshi-markets-hourly / the RFQ research probe:
  *   1. Fetch every open sports MVE from Get Markets (no lake volume-80
- *      cap) plus selected-leg snapshots only for same-game two-leg stacks.
- *      No candle backfill, no research RFQ overlay. Same-game grouping
+ *      cap) plus selected-leg snapshots for the active book's two-leg
+ *      stacks (same-game, or cross-game on `cross_game_longshot`).
+ *      No candle backfill, no research RFQ overlay. Game grouping
  *      uses mve_selected_legs.event_ticker, not category.
- *   2. Rank same-game two-leg sports stacks (underdog: cheapest independence;
+ *   2. Rank those stacks (longshot/underdog: cheapest independence;
  *      corr-room book: Fréchet room).
  *   3. Create an RFQ, wait for a private two-way, score it.
  *   4. Default: log would_accept and DELETE the RFQ.
@@ -29,6 +30,7 @@ import {
   kalshiRequest,
 } from "./kalshi.js";
 import type { MveSelectedLeg } from "./kalshi-mve.js";
+import { isCrossGameSportsTwoLeg, isSameGameSportsTwoLeg } from "./kalshi-mve.js";
 import {
   annotateParlayConsidered,
   listSameGameConsidered,
@@ -36,6 +38,7 @@ import {
 } from "./kalshi-parlay-considered.js";
 import {
   evaluateParlayExecutorQuote,
+  PARLAY_BOOK_LONGSHOT,
   parlayBook,
   parlayExecuteEnabled,
   parlayLiveEnabled,
@@ -138,7 +141,8 @@ export function decisionFromTwoWay(
   const sides = (legs ?? []).map((leg) => leg.side);
   return evaluateParlayExecutorQuote({
     market_ticker: target.market_ticker,
-    same_game: true,
+    same_game: isSameGameSportsTwoLeg(legs ?? []),
+    cross_game: isCrossGameSportsTwoLeg(legs ?? []),
     sides,
     p: target.p,
     q: target.q,
@@ -232,7 +236,7 @@ async function executeOne(
     }
     if (!live) {
       console.warn(
-        `kalshi parlay executor: would_accept ${target.market_ticker} ask=${solicited.twoWay.yes_ask.toFixed(3)} indep=${filter.independence.toFixed(3)} room=${filter.corr_room.toFixed(3)}`,
+        `kalshi parlay executor: would_accept ${target.market_ticker} ask=${solicited.twoWay.yes_ask.toFixed(3)} payout=${filter.payout_multiple.toFixed(1)}x indep=${filter.independence.toFixed(3)} room=${filter.corr_room.toFixed(3)}`,
       );
       return base;
     }
@@ -362,6 +366,7 @@ export function parlayExecutorPassDetail(
       error: row.error,
       yes_bid: row.yes_bid,
       yes_ask: row.yes_ask,
+      payout_multiple: row.filter?.payout_multiple ?? null,
       rfq_id: row.rfq_id,
       quote_id: row.quote_id,
     })),
@@ -416,6 +421,7 @@ export async function runKalshiParlayExecutorPass(
     spend_error: budget.error,
   };
   const rank = book === "corr_room_yes" ? "corr_room" as const : "cheap_independence" as const;
+  const universeKind = book === PARLAY_BOOK_LONGSHOT ? "cross_game" as const : "same_game" as const;
   const spendBlock: "max_spend" | "spend_unknown" | null = live && !budget.can_accept
     ? (budget.spent >= budget.max_spend - 1e-12 ? "max_spend" : "spend_unknown")
     : null;
@@ -423,7 +429,7 @@ export async function runKalshiParlayExecutorPass(
   const pack = await fetchKalshiParlayExecutorPack(env);
   const { combos, legs } = splitOpenSportsRows(pack.rows);
   const comboLegs = pack.comboLegs;
-  const universe = rfqProbeUniverseStats(combos, comboLegs, legs);
+  const universe = rfqProbeUniverseStats(combos, comboLegs, legs, universeKind);
   const consideredBase = listSameGameConsidered(combos, comboLegs, legs, { book });
   const annotate = (
     idle: ParlayIdleReason,
@@ -454,7 +460,7 @@ export async function runKalshiParlayExecutorPass(
 
   const targets = live && spendBlock === "max_spend"
     ? []
-    : pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env), rank);
+    : pickRfqProbeTargets(combos, comboLegs, legs, rfqProbeMax(env), rank, universeKind);
   const targetTickers = new Set(targets.map((row) => row.market_ticker));
 
   if (live && spendBlock === "max_spend") {

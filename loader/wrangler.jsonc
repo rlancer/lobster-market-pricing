@@ -77,12 +77,12 @@
     "KALSHI_PARLAY_LIVE": "0",
     "KALSHI_PARLAY_CADENCE_SECONDS": 300,
     "KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS": 1,
-    // Underdog YES (ask ≤ 50¢) on same-game two-leg same-side stacks.
-    // Cash debit since this run id is capped at $100. Last night's BUY NO
-    // tape is excluded because D1 stamps started_at on first pass.
-    "KALSHI_PARLAY_BOOK": "same_game_underdog",
+    // Cross-game longshot YES: payout ≥ 35x (ask ≤ ~2.86¢) and ≤ independence.
+    // $5 notional, $100 run cash cap. Last night's BUY NO tape is excluded
+    // because D1 stamps started_at on first pass of this run id.
+    "KALSHI_PARLAY_BOOK": "cross_game_longshot",
     "KALSHI_PARLAY_MAX_SPEND": 100,
-    "KALSHI_PARLAY_SPEND_RUN_ID": "underdog-5x100"
+    "KALSHI_PARLAY_SPEND_RUN_ID": "longshot-35x100"
   },
   "d1_databases": [
     {

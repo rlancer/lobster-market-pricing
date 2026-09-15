@@ -129,6 +129,28 @@ describe("decisionFromTwoWay", () => {
     expect(decision.ok).toBe(true);
     expect(decision.action).toBe("buy_yes");
   });
+
+  it("takes a 37x cross-game quote on the longshot book", () => {
+    const ask = 119.99 / 4493;
+    const decision = decisionFromTwoWay(
+      { market_ticker: "KC-TB", corr_room: 0.08, p: 0.48, q: 0.16 },
+      [
+        { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+        { event_ticker: "KXNFLGAME-26SEP13TB", market_ticker: "KXNFLGAME-26SEP13TB-TB", side: "yes" },
+      ],
+      {
+        yes_bid: 0.02,
+        yes_ask: ask,
+        no_bid: 1 - ask,
+        no_ask: 0.98,
+        mid: (0.02 + ask) / 2,
+        quote_id: "q-long",
+      },
+      "cross_game_longshot",
+    );
+    expect(decision.ok).toBe(true);
+    expect(decision.payout_multiple).toBeGreaterThan(35);
+  });
 });
 
 describe("acceptParlayQuote", () => {

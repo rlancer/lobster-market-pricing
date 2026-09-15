@@ -188,12 +188,23 @@ export function parlayGameGroup(eventTickers: string[]): "same_game" | "cross_ga
   return "mixed";
 }
 
-/** Live RFQ target: two sports legs on the same game (event_ticker or NFL-style slug). */
-export function isSameGameSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
+function isSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
   if (legs.length !== 2) return false;
   const tickers = legs.map((leg) => leg.market_ticker);
   if (mveTapeKind(tickers) !== "sports") return false;
-  if (tickers.some((ticker) => mveLegKind(ticker) !== "sports")) return false;
+  return tickers.every((ticker) => mveLegKind(ticker) === "sports");
+}
+
+/** Live RFQ target: two sports legs on the same game (event_ticker or NFL-style slug). */
+export function isSameGameSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
+  if (!isSportsTwoLeg(legs)) return false;
   const games = legs.map((leg) => sportsGameKey(leg.market_ticker, leg.event_ticker));
   return parlayGameGroup(games) === "same_game";
+}
+
+/** Two sports legs on different games — independence is the fair joint. */
+export function isCrossGameSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
+  if (!isSportsTwoLeg(legs)) return false;
+  const games = legs.map((leg) => sportsGameKey(leg.market_ticker, leg.event_ticker));
+  return parlayGameGroup(games) === "cross_game";
 }

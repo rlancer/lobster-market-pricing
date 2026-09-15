@@ -1,12 +1,15 @@
 /**
- * Same-game sports parlay RFQ filter.
+ * Sports parlay RFQ filter.
  *
- * Two executable books:
+ * Three executable books:
  *   - corr_room_yes: buy combo YES when makers quote near independence
  *     (Fréchet room ≥ 15¢, ask ≤ p×q + 2¢, |φ| < 0.15). Historical live rule.
- *   - same_game_underdog (default): buy combo YES on a two-leg same-game
- *     same-side stack when the ask is ≤ 50¢. Last night's tape paid on the
- *     cheap YES side; corr-room took nothing. accepted_side stays "yes".
+ *   - same_game_underdog (code default): buy combo YES on a two-leg same-game
+ *     same-side stack when the ask is ≤ 50¢. Payout is 1/ask (≥ 2x at the cap).
+ *   - cross_game_longshot: buy combo YES on a two-leg cross-game same-side
+ *     stack when the ask is ≤ 1/35 (~2.86¢, risk 1 to make 35) AND at or
+ *     below independence. Those are the Kalshi app "2 MARKET COMBO" cards
+ *     ($120 pays $4,493). accepted_side stays "yes".
  *
  * Not a CLOB screen, not mixed yes/no, not n>2, not leftover yes_last.
  */
@@ -21,16 +24,25 @@ export const PARLAY_MAX_ACCEPTS_PER_PASS_DEFAULT = 1;
 export const PARLAY_MAX_ACCEPTS_PER_PASS_CAP = 12;
 /** Buy YES only when the ask is the cheap side of a $1 binary. */
 export const PARLAY_UNDERDOG_MAX_COST = 0.50;
+/** Risk 1 to make 35 → pay at most 1/35 per $1 face. */
+export const PARLAY_MIN_PAYOUT_MULTIPLE = 35;
+export const PARLAY_LONGSHOT_MAX_COST = 1 / PARLAY_MIN_PAYOUT_MULTIPLE;
 
 export const PARLAY_BOOK_CORR_ROOM = "corr_room_yes";
 export const PARLAY_BOOK_UNDERDOG = "same_game_underdog";
+export const PARLAY_BOOK_LONGSHOT = "cross_game_longshot";
 export const PARLAY_BOOK_DEFAULT = PARLAY_BOOK_UNDERDOG;
 
-export type ParlayBookId = typeof PARLAY_BOOK_CORR_ROOM | typeof PARLAY_BOOK_UNDERDOG;
+export type ParlayBookId =
+  | typeof PARLAY_BOOK_CORR_ROOM
+  | typeof PARLAY_BOOK_UNDERDOG
+  | typeof PARLAY_BOOK_LONGSHOT;
 
 export interface ParlayQuoteInput {
   market_ticker: string;
   same_game: boolean;
+  /** True only for two sports legs on different games — not mixed n>2. */
+  cross_game?: boolean;
   sides: Array<"yes" | "no">;
   /** Selected-side probabilities of the two legs (NO uses 1 − yes mid). */
   p: number;
@@ -49,6 +61,8 @@ export interface ParlayQuoteDecision {
   spread: number;
   ask_vs_indep: number;
   phi: number | null;
+  /** 1 / yes_ask — Kalshi "$X pays $Y" multiple. */
+  payout_multiple: number;
   action: "buy_yes" | "skip";
 }
 
@@ -83,7 +97,21 @@ export function parlayMaxAcceptsPerPass(env: {
 export function parlayBook(env: { KALSHI_PARLAY_BOOK?: unknown } = {}): ParlayBookId {
   const raw = String(env.KALSHI_PARLAY_BOOK ?? PARLAY_BOOK_DEFAULT).trim().toLowerCase();
   if (raw === PARLAY_BOOK_CORR_ROOM || raw === "corr_room") return PARLAY_BOOK_CORR_ROOM;
+  if (
+    raw === PARLAY_BOOK_LONGSHOT
+    || raw === "longshot"
+    || raw === "cross_game"
+    || raw === "high_payout"
+  ) {
+    return PARLAY_BOOK_LONGSHOT;
+  }
   return PARLAY_BOOK_UNDERDOG;
+}
+
+/** Kalshi combo "$X pays $Y" multiple for a $1 binary. */
+export function parlayPayoutMultiple(ask: number): number {
+  if (!(Number.isFinite(ask) && ask > 0)) return 0;
+  return 1 / ask;
 }
 
 export function independenceJoint(p: number, q: number): number {
@@ -131,11 +159,26 @@ export function evaluateUnderdogYesQuote(input: ParlayQuoteInput): ParlayQuoteDe
   });
 }
 
+/**
+ * Cross-game longshot YES: payout ≥ 35x (ask ≤ ~2.86¢) and the quote is
+ * at or cheaper than independence. Same-game correlation is the wrong model
+ * here — two NFL games on one slate are close to p×q.
+ */
+export function evaluateLongshotYesQuote(input: ParlayQuoteInput): ParlayQuoteDecision {
+  return finishQuote(input, (stats, reasons) => {
+    if (!(Number.isFinite(stats.yes_ask) && stats.yes_ask <= PARLAY_LONGSHOT_MAX_COST + 1e-12)) {
+      reasons.push("payout");
+    }
+    if (!(stats.ask_vs_indep <= 1e-12)) reasons.push("ask_vs_indep");
+  }, "cross_game");
+}
+
 export function evaluateParlayExecutorQuote(
   input: ParlayQuoteInput,
   book: ParlayBookId = PARLAY_BOOK_DEFAULT,
 ): ParlayQuoteDecision {
   if (book === PARLAY_BOOK_CORR_ROOM) return evaluateParlayQuote(input);
+  if (book === PARLAY_BOOK_LONGSHOT) return evaluateLongshotYesQuote(input);
   return evaluateUnderdogYesQuote(input);
 }
 
@@ -150,6 +193,7 @@ function finishQuote(
     },
     reasons: string[],
   ) => void,
+  game: "same_game" | "cross_game" = "same_game",
 ): ParlayQuoteDecision {
   const reasons: string[] = [];
   const p = clamp01(input.p);
@@ -159,9 +203,11 @@ function finishQuote(
   const spread = input.yes_ask - input.yes_bid;
   const ask_vs_indep = input.yes_ask - independence;
   const phi = bernoulliPhi(p, q, input.yes_ask);
+  const payout_multiple = parlayPayoutMultiple(input.yes_ask);
 
   if (input.sides.length !== 2) reasons.push("not_two_leg");
-  if (!input.same_game) reasons.push("not_same_game");
+  if (game === "same_game" && !input.same_game) reasons.push("not_same_game");
+  if (game === "cross_game" && !input.cross_game) reasons.push("not_cross_game");
   if (!sameSide(input.sides)) reasons.push("mixed_side");
   if (!(Number.isFinite(spread) && spread >= 0 && spread <= PARLAY_MAX_SPREAD + 1e-12)) {
     reasons.push("spread");
@@ -181,6 +227,7 @@ function finishQuote(
     spread,
     ask_vs_indep,
     phi,
+    payout_multiple,
     action: ok ? "buy_yes" : "skip",
   };
 }
