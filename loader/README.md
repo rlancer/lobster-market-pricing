@@ -297,8 +297,13 @@ Separate from the hourly tape. Buys unpriced same-game correlation:
    `KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS` (default **1**) fill per 5-minute
    pass.
 
-Wrangler ships EXECUTE=1 and LIVE=1 at that $10 size. Turning on EXECUTE
-skips the hourly RFQ probe so two Creates do not 409. Force a pass from
+Wrangler currently ships EXECUTE=1 and **LIVE=0**. Production accepts with
+`accepted_side: "yes"` filled **BUY NO** (portfolio `position_fp` −10, cost
+≈ `$1 − yes_bid`, e.g. $8.96 to win $10) instead of BUY YES at the ask.
+Turning LIVE off does **not** unwind those fills — sell them on Kalshi.
+Do not set LIVE=1 until the accept side matches a YES position in
+`GET /portfolio/positions`. Turning on EXECUTE skips the hourly RFQ probe
+so two Creates do not 409. Force a pass from
 Actions (`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
 
 ```bash
