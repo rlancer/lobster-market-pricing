@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Heading, Text, Token, VStack } from '@astryxdesign/core';
 import { api, type KalshiParlayRow, type KalshiParlaySnapshot } from './api';
-import { flagLabel, fmtGap, fmtPct, fmtProb, fmtRho, fmtUsd } from './notebooks/kalshiParlays';
+import { flagLabel, fmtGap, fmtPct, fmtProb, fmtRho, fmtUsd, gapTone } from './notebooks/kalshiParlays';
 import './Notebooks.css';
 
 type TocEntry = { id: string; num: string; label: string };
