@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  evaluateParlayExecutorQuote,
   evaluateParlayQuote,
+  parlayBook,
   parlayExecuteEnabled,
   parlayLiveEnabled,
   parlayMaxAcceptsPerPass,
@@ -17,11 +19,16 @@ describe("parlay execute flags", () => {
     })).toBe(true);
   });
 
-  it("defaults live size to one $10 notional fill per pass", () => {
+  it("defaults live size to one fill per pass", () => {
     expect(parlayMaxAcceptsPerPass({})).toBe(1);
     expect(parlayMaxAcceptsPerPass({ KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS: 3 })).toBe(3);
     expect(parlayMaxAcceptsPerPass({ KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS: "0" })).toBe(1);
     expect(parlayMaxAcceptsPerPass({ KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS: 99 })).toBe(12);
+  });
+
+  it("defaults the executable book to same-game underdog YES", () => {
+    expect(parlayBook({})).toBe("same_game_underdog");
+    expect(parlayBook({ KALSHI_PARLAY_BOOK: "corr_room_yes" })).toBe("corr_room_yes");
   });
 });
 
@@ -106,5 +113,47 @@ describe("evaluateParlayQuote", () => {
       yes_ask: 0.20,
       quote_id: null,
     }).reasons).toContain("no_quote_id");
+  });
+});
+
+describe("evaluateUnderdogYesQuote", () => {
+  it("takes a same-game YES ask at 41¢ even when the quote is already at Fréchet", () => {
+    const decision = evaluateParlayExecutorQuote({
+      market_ticker: "FRECHET",
+      same_game: true,
+      sides: ["yes", "yes"],
+      p: 0.40,
+      q: 0.49,
+      yes_bid: 0.38,
+      yes_ask: 0.41,
+      quote_id: "q-rho",
+    }, "same_game_underdog");
+    expect(decision.ok).toBe(true);
+    expect(decision.action).toBe("buy_yes");
+    expect(evaluateParlayQuote({
+      market_ticker: "FRECHET",
+      same_game: true,
+      sides: ["yes", "yes"],
+      p: 0.40,
+      q: 0.49,
+      yes_bid: 0.38,
+      yes_ask: 0.41,
+      quote_id: "q-rho",
+    }).ok).toBe(false);
+  });
+
+  it("skips YES asks above 50¢", () => {
+    const decision = evaluateParlayExecutorQuote({
+      market_ticker: "FAVORITE",
+      same_game: true,
+      sides: ["yes", "yes"],
+      p: 0.80,
+      q: 0.80,
+      yes_bid: 0.58,
+      yes_ask: 0.62,
+      quote_id: "q-fav",
+    }, "same_game_underdog");
+    expect(decision.ok).toBe(false);
+    expect(decision.reasons).toContain("underdog_cost");
   });
 });

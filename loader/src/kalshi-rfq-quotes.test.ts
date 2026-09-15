@@ -99,8 +99,8 @@ const CROSS_GAME_LEGS: MveSelectedLeg[] = [
 ];
 
 describe("RFQ contract size", () => {
-  it("defaults to 10 contracts ($10 notional) and caps at PARLAY_MAX_CONTRACTS", () => {
-    expect(rfqContracts({})).toBe(10);
+  it("defaults to 5 contracts ($5 notional) and caps at PARLAY_MAX_CONTRACTS", () => {
+    expect(rfqContracts({})).toBe(5);
     expect(rfqContracts({ KALSHI_RFQ_CONTRACTS: 1 })).toBe(1);
     expect(rfqContracts({ KALSHI_RFQ_CONTRACTS: "25" })).toBe(10);
   });
@@ -203,6 +203,33 @@ describe("RFQ probe target ranking", () => {
       12,
     );
     expect(filled.map((t) => t.market_ticker)).toEqual(["HIGH-ROOM", "LOW-ROOM", "ALREADY-TWO"]);
+  });
+
+  it("ranks empty books by cheapest independence for the underdog book", () => {
+    const cheap = combo({ market_ticker: "CHEAP" });
+    const expensive = combo({ market_ticker: "EXPENSIVE" });
+    const comboLegs = new Map<string, MveSelectedLeg[]>([
+      ["CHEAP", [
+        { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-A", side: "yes" },
+        { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-B", side: "yes" },
+      ]],
+      ["EXPENSIVE", SAME_GAME_LEGS],
+    ]);
+    const legs = [
+      leg("KXNFLRSHYDS-26SEP13BALIND-A", 0.14, 0.16),
+      leg("KXNFLRSHYDS-26SEP13BALIND-B", 0.14, 0.16),
+      leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.39, 0.41),
+      leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.48, 0.50),
+    ];
+    const ranked = pickRfqProbeTargets(
+      [expensive, cheap],
+      comboLegs,
+      legs,
+      2,
+      "cheap_independence",
+    );
+    expect(ranked.map((t) => t.market_ticker)).toEqual(["CHEAP", "EXPENSIVE"]);
+    expect(ranked[0]!.p * ranked[0]!.q).toBeLessThan(ranked[1]!.p * ranked[1]!.q);
   });
 
   it("counts open same-game two-legs separately from missing tradable mids", () => {
@@ -377,7 +404,7 @@ describe("RFQ probe HTTP", () => {
       if (url.endsWith("/communications/rfqs") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
         expect(body.rest_remainder).toBe(false);
-        expect(body.contracts_fp).toBe("10.00");
+        expect(body.contracts_fp).toBe("5.00");
         expect(body.replace_existing).toBe(true);
         return new Response(JSON.stringify({ id: "rfq-1" }), { status: 201 });
       }

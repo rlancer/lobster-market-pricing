@@ -285,19 +285,23 @@ Separate from the hourly tape. Buys unpriced same-game correlation:
    backfill, no research RFQ overlay). Legs are fetched only for same-game
    two-leg stacks. Same-game grouping uses `mve_selected_legs.event_ticker`,
    not `category`. Do not scrape the full sports catalog.
-2. Rank same-game two-leg sports stacks by corr room (`min(p,q) − p×q`).
+2. Rank same-game two-leg sports stacks by cheapest independence (underdog
+   book) or corr room (`min(p,q) − p×q`) when `KALSHI_PARLAY_BOOK=corr_room_yes`.
 3. Create an RFQ, wait for a private two-way, score it.
-4. **Filter (all required):** 2 legs, same game, same side (yes+yes or no+no),
-   corr room ≥ 15¢, spread ≤ 8¢, ask ≤ independence + 2¢, |φ| < 0.15,
-   single-maker `quote_id`. Skip mixed yes/no, n>2, leftover `yes_last`,
-   and quotes already at Fréchet.
+4. **Filter (default `same_game_underdog`):** 2 legs, same game, same side,
+   YES ask ≤ 50¢, spread ≤ 8¢, single-maker `quote_id`. Skip mixed yes/no,
+   n>2, leftover `yes_last`. The corr-room book still requires corr room ≥
+   15¢, ask ≤ independence + 2¢, |φ| < 0.15.
 5. Default: log `would_accept` and **delete** the RFQ.
 6. Live: `KALSHI_PARLAY_EXECUTE=1` **and** `KALSHI_PARLAY_LIVE=1`, then
    `PUT .../quotes/{id}/accept` with `accepted_side: "yes"`. The **maker**
    confirms (HVM 3s). This job never calls `/confirm`. Size is
-   `KALSHI_RFQ_CONTRACTS` (default **10 contracts = $10 notional**). At most
+   `KALSHI_RFQ_CONTRACTS` (default **5 contracts = $5 notional**). At most
    `KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS` (default **1**) fill per 5-minute
-   pass.
+   pass. Cumulative cash debit since `KALSHI_PARLAY_SPEND_RUN_ID` (D1
+   `started_at`, overridable with `KALSHI_PARLAY_SPEND_SINCE`) is capped at
+   `KALSHI_PARLAY_MAX_SPEND` (default **$100**). Last night's BUY NO fills
+   do not count — they are before this run's watermark.
 
 Wrangler currently ships EXECUTE=1 and **LIVE=0**. Production accepts with
 `accepted_side: "yes"` filled **BUY NO** (portfolio `position_fp` −10, cost

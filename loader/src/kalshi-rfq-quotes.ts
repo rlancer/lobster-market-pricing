@@ -38,7 +38,7 @@ export const KALSHI_RFQ_PROBE_MAX_DEFAULT = 12;
 export const KALSHI_RFQ_WAIT_MS_DEFAULT = 2500;
 export const KALSHI_RFQ_POLL_MS_DEFAULT = 1000;
 export const KALSHI_RFQ_POLLS_DEFAULT = 3;
-export const KALSHI_RFQ_CONTRACTS_DEFAULT = 10;
+export const KALSHI_RFQ_CONTRACTS_DEFAULT = 5;
 
 export interface RfqTwoWay {
   yes_bid: number;
@@ -56,6 +56,8 @@ export interface RfqProbeTarget {
   p: number;
   q: number;
 }
+
+export type RfqTargetRank = "corr_room" | "cheap_independence";
 
 type ComboLegs = Map<string, MveSelectedLeg[]>;
 
@@ -189,9 +191,17 @@ function isOpenCombo(row: KalshiMarketRow): boolean {
   return !/^(settled|finalized|closed)$/i.test(row.status);
 }
 
-function rankRfqTargets(a: RfqProbeTarget, b: RfqProbeTarget): number {
-  if (b.corr_room !== a.corr_room) return b.corr_room - a.corr_room;
-  return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
+function rankRfqTargets(rank: RfqTargetRank) {
+  return (a: RfqProbeTarget, b: RfqProbeTarget): number => {
+    if (rank === "cheap_independence") {
+      const ia = a.p * a.q;
+      const ib = b.p * b.q;
+      if (ia !== ib) return ia - ib;
+    } else if (b.corr_room !== a.corr_room) {
+      return b.corr_room - a.corr_room;
+    }
+    return a.market_ticker < b.market_ticker ? -1 : a.market_ticker > b.market_ticker ? 1 : 0;
+  };
 }
 
 export interface RfqProbeUniverseStats {
@@ -269,6 +279,7 @@ export function pickRfqProbeTargets(
   comboLegs: ComboLegs,
   legs: KalshiMarketRow[],
   cap: number,
+  rank: RfqTargetRank = "corr_room",
 ): RfqProbeTarget[] {
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
   const needQuote: RfqProbeTarget[] = [];
@@ -289,8 +300,9 @@ export function pickRfqProbeTargets(
     if (comboHasTwoSidedBook(combo)) haveClob.push(target);
     else needQuote.push(target);
   }
-  needQuote.sort(rankRfqTargets);
-  haveClob.sort(rankRfqTargets);
+  const cmp = rankRfqTargets(rank);
+  needQuote.sort(cmp);
+  haveClob.sort(cmp);
   const capN = Math.max(0, cap);
   const out = needQuote.slice(0, capN);
   if (out.length < capN) out.push(...haveClob.slice(0, capN - out.length));

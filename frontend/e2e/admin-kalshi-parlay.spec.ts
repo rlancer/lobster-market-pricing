@@ -31,8 +31,15 @@ const FIXTURE = {
     would_accept: 0,
     accepted: 0,
     skipped: 0,
-    contracts: 10,
+    contracts: 5,
     max_accepts_per_pass: 1,
+    book: 'same_game_underdog',
+    max_spend: 100,
+    spent: 0,
+    spend_remaining: 100,
+    spend_since: null,
+    spend_run_id: 'underdog-5x100',
+    spend_error: null,
     decisions: [],
     considered: [],
     samples: [],
@@ -181,8 +188,10 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByRole('heading', { name: 'Kalshi parlay bot' })).toBeVisible();
     await expect(page.getByText('Idle', { exact: true })).toBeVisible();
     await expect(page.getByText('EXECUTE off', { exact: true })).toBeVisible();
-    await expect(page.getByText('10 contracts · $10 notional')).toBeVisible();
+    await expect(page.getByText('5 contracts · $5 notional')).toBeVisible();
     await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
+    await expect(page.getByText('Book same-game underdog YES')).toBeVisible();
+    await expect(page.getByText('Spent $0.00 / $100')).toBeVisible();
     await expect(page.getByText('Open combos 80')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
@@ -200,7 +209,7 @@ test.describe('Admin Kalshi parlay console', () => {
     }
   });
 
-  test('live mode shows the LIVE banner, $10 size, and disables force', async ({ page }) => {
+  test('live mode shows the LIVE banner, $5 size, spend cap, and disables force', async ({ page }) => {
     await mockAdminKalshiParlay(page, {
       ...FIXTURE,
       executor: {
@@ -266,7 +275,7 @@ test.describe('Admin Kalshi parlay console', () => {
     await page.goto('/admin/kalshi-parlay');
     await expect(page.getByRole('heading', { name: 'Kalshi parlay bot' })).toBeVisible();
     await expect(page.getByText('LIVE is on')).toBeVisible();
-    await expect(page.getByText('10 contracts · $10 notional')).toBeVisible();
+    await expect(page.getByText('5 contracts · $5 notional')).toBeVisible();
     await expect(page.getByText('Max 1 fill / pass')).toBeVisible();
     await expect(page.getByText('Last pass accepted 1 YES quote')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 2')).toBeVisible();

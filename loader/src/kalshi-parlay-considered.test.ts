@@ -70,7 +70,7 @@ function leg(ticker: string, bid: number, ask: number, title = ticker): KalshiMa
 }
 
 describe("listSameGameConsidered", () => {
-  it("shows legs and skips when corr room is below 15¢", () => {
+  it("shows legs and skips when corr room is below 15¢ on the corr-room book", () => {
     const rows = listSameGameConsidered(
       [combo({ market_ticker: "LOW-ROOM" })],
       new Map([["LOW-ROOM", SAME_GAME_LEGS]]),
@@ -78,6 +78,7 @@ describe("listSameGameConsidered", () => {
         leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.88, 0.92, "Henry 110+"),
         leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.88, 0.92, "Jackson 40+"),
       ],
+      { book: "corr_room_yes" },
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.legs.map((l) => l.title)).toEqual(["Henry 110+", "Jackson 40+"]);
@@ -86,6 +87,20 @@ describe("listSameGameConsidered", () => {
     expect(rows[0]!.reason).toMatch(/not correlated enough/);
     expect(rows[0]!.reason).toMatch(/need 15¢/);
     expect(rows[0]!.corr_room).toBeLessThan(0.15);
+  });
+
+  it("keeps a low-corr same-game stack eligible on the underdog book", () => {
+    const rows = listSameGameConsidered(
+      [combo({ market_ticker: "LOW-ROOM" })],
+      new Map([["LOW-ROOM", SAME_GAME_LEGS]]),
+      [
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.88, 0.92, "Henry 110+"),
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.88, 0.92, "Jackson 40+"),
+      ],
+      { book: "same_game_underdog" },
+    );
+    expect(rows[0]!.skip).toBeNull();
+    expect(rows[0]!.reason).toMatch(/cheapest independence/);
   });
 
   it("flags missing tradable leg mids", () => {
@@ -146,6 +161,7 @@ describe("annotateParlayConsidered", () => {
         leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.88, 0.92, "Henry 110+"),
         leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.88, 0.92, "Jackson 40+"),
       ],
+      { book: "corr_room_yes" },
     );
     const annotated = annotateParlayConsidered(listed, {
       targetTickers: new Set(["LOW"]),

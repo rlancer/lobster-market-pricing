@@ -149,7 +149,7 @@ export interface KalshiEnv {
   KALSHI_RFQ_POLL_MS?: number | string;
   /** Quote poll attempts per RFQ (default 3). */
   KALSHI_RFQ_POLLS?: number | string;
-  /** Whole-contract RFQ size (default 10, cap 10). $1 face → $10 notional. */
+  /** Whole-contract RFQ size (default 5, cap 10). $1 face → $5 notional. */
   KALSHI_RFQ_CONTRACTS?: number | string;
   /**
    * Set to "1" to run kalshi-parlay-executor (RFQ + score).
@@ -165,6 +165,26 @@ export interface KalshiEnv {
   KALSHI_PARLAY_CADENCE_SECONDS?: number | string;
   /** Live fills allowed per 5-minute pass (default 1, cap 12). */
   KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS?: number | string;
+  /**
+   * Executable book: same_game_underdog (default, YES ask ≤ 50¢) or
+   * corr_room_yes (independence / φ gates).
+   */
+  KALSHI_PARLAY_BOOK?: string;
+  /** Cumulative cash-debit cap in dollars for the spend run (default 100). */
+  KALSHI_PARLAY_MAX_SPEND?: number | string;
+  /** Spend-run id. Changing it stamps a new D1 started_at watermark. */
+  KALSHI_PARLAY_SPEND_RUN_ID?: string;
+  /** Optional ISO watermark; overrides D1 started_at when set. */
+  KALSHI_PARLAY_SPEND_SINCE?: string;
+  /** Loader D1 — spend-run watermark lives in loader_meta. */
+  LOADER_DB?: {
+    prepare(query: string): {
+      bind(...values: unknown[]): {
+        first(): Promise<Record<string, unknown> | null>;
+        run(): Promise<unknown>;
+      };
+    };
+  };
   PIPELINE_KALSHI_MARKETS_URL?: string;
   PIPELINE_AUTH_TOKEN?: string;
   /** Max JSON body bytes per pipeline POST (default 4.5 MiB, under the 5 MB cap). */

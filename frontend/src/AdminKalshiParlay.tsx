@@ -159,8 +159,9 @@ export default function AdminKalshiParlayPage() {
         <Text type="supporting">
           Same-game two-leg sports RFQ executor (kalshi-parlay-executor on cboe-to-r2).
           Last pass shows every same-game book it scored — legs, corr room, and
-          why it was skipped or taken. Size is 10 contracts ($10 notional) with
-          at most one live fill per pass. This page never turns LIVE on or off.
+          why it was skipped or taken. Size is {executor?.contracts ?? 5} contracts
+          (${executor?.contracts ?? 5} notional) with a ${executor?.max_spend ?? 100} cash
+          cap and at most one live fill per pass. This page never turns LIVE on or off.
           Public notebook:{' '}
           <Link to="/experiments/kalshi-parlays" className="admin-kalshi-parlay-link">
             Kalshi parlays
@@ -173,7 +174,7 @@ export default function AdminKalshiParlayPage() {
         <Banner
           status="error"
           title="LIVE is on"
-          description="Accepts can fill in the Kalshi account at 10 contracts ($10 notional) per RFQ, at most one fill per 5-minute pass. This console cannot change LIVE."
+          description={`Accepts can fill in the Kalshi account at ${executor?.contracts ?? 5} contracts ($${executor?.contracts ?? 5} notional) per RFQ, at most one fill per 5-minute pass, until the $${executor?.max_spend ?? 100} run cash cap. This console cannot change LIVE.`}
         />
       ) : null}
       {accepted > 0 ? (
@@ -181,6 +182,13 @@ export default function AdminKalshiParlayPage() {
           status="warning"
           title={`Last pass accepted ${accepted} YES quote${accepted === 1 ? '' : 's'}`}
           description="Fills land in the Kalshi account, not on this page."
+        />
+      ) : null}
+      {(executor?.spend_remaining ?? 100) <= 0 ? (
+        <Banner
+          status="warning"
+          title="Run cash cap reached"
+          description={`Spent $${(executor?.spent ?? 0).toFixed(2)} of $${executor?.max_spend ?? 100} since ${executor?.spend_since || 'this spend run'}. Further live accepts are refused until you change KALSHI_PARLAY_SPEND_RUN_ID.`}
         />
       ) : null}
 
@@ -193,6 +201,9 @@ export default function AdminKalshiParlayPage() {
         ) : null}
         {executor?.idle_reason === 'execute_off' ? (
           <Token label="EXECUTE off" color="gray" size="sm" />
+        ) : null}
+        {executor?.idle_reason === 'max_spend' ? (
+          <Token label="Spend cap reached" color="red" size="sm" />
         ) : null}
         {data?.hourly ? (
           <Token
@@ -207,13 +218,23 @@ export default function AdminKalshiParlayPage() {
           <Token label="Job disabled" color="orange" size="sm" />
         )}
         <Token
-          label={`${executor?.contracts ?? 10} contracts · $${executor?.contracts ?? 10} notional`}
+          label={`${executor?.contracts ?? 5} contracts · $${executor?.contracts ?? 5} notional`}
           color="gray"
           size="sm"
         />
         <Token
           label={`Max ${executor?.max_accepts_per_pass ?? 1} fill / pass`}
           color="gray"
+          size="sm"
+        />
+        <Token
+          label={executor?.book === 'corr_room_yes' ? 'Book corr-room YES' : 'Book same-game underdog YES'}
+          color="blue"
+          size="sm"
+        />
+        <Token
+          label={`Spent $${(executor?.spent ?? 0).toFixed(2)} / $${executor?.max_spend ?? 100}`}
+          color={(executor?.spend_remaining ?? 100) <= 0 ? 'red' : 'gray'}
           size="sm"
         />
       </HStack>
@@ -294,7 +315,8 @@ export default function AdminKalshiParlayPage() {
             <Text type="supporting">
               Open sports MVEs from the live Kalshi API, not the hourly lake
               volume-80 cap. Legs load only for same-game two-leg stacks; RFQs
-              rank by corr room. n{'>'}2 and cross-game stay in the counts but
+              rank by cheapest independence on the underdog book (corr room on
+              the legacy book). n{'>'}2 and cross-game stay in the counts but
               are not solicited.
             </Text>
             <HStack gap={2} wrap="wrap">
@@ -387,12 +409,12 @@ export default function AdminKalshiParlayPage() {
           <VStack gap={2}>
             <Heading level={2}>Filter</Heading>
             <Text type="supporting">
-              Takes only 2-leg same-game same-side sports stacks: corr room at least 15 cents,
-              spread at most 8 cents, ask at most independence + 2 cents, |phi| {'<'} 0.15,
-              single-maker quote_id. Skips mixed yes/no, n{'>'}2, leftover yes_last, and
-              Fréchet-priced tapes. Dry-run logs would_accept and DELETE the RFQ. Live YES
-              accept needs EXECUTE=1 and LIVE=1 at 10 contracts ($10 notional), at most one
-              fill per pass; the maker confirms (HVM 3s). The job never calls /confirm.
+              {executor.book === 'corr_room_yes'
+                ? 'Takes only 2-leg same-game same-side sports stacks: corr room at least 15 cents, spread at most 8 cents, ask at most independence + 2 cents, |phi| < 0.15, single-maker quote_id.'
+                : 'Takes only 2-leg same-game same-side sports stacks when the YES ask is at most 50 cents (underdog YES). Spread at most 8 cents, single-maker quote_id. Drops independence / φ gates — last night those took nothing while cheap YES paid.'}
+              {' '}Skips mixed yes/no, n{'>'}2, leftover yes_last. Dry-run logs would_accept and DELETE the RFQ. Live YES
+              accept needs EXECUTE=1 and LIVE=1 at {executor.contracts} contracts (${executor.contracts} notional), at most one
+              fill per pass, until ${executor.max_spend} cash debit on run {executor.spend_run_id}; the maker confirms (HVM 3s). The job never calls /confirm.
             </Text>
           </VStack>
 
