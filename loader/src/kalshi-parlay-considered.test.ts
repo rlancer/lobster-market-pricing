@@ -103,6 +103,41 @@ describe("listSameGameConsidered", () => {
     expect(rows[0]!.reason).toMatch(/cheapest independence/);
   });
 
+  it("lists cross-game two-legs with fair payout on the longshot book", () => {
+    const crossLegs: MveSelectedLeg[] = [
+      { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
+      { event_ticker: "KXNFLGAME-26SEP13DEN", market_ticker: "KXNFLGAME-26SEP13DEN-KC2", side: "yes" },
+    ];
+    const rows = listSameGameConsidered(
+      [
+        combo({ market_ticker: "SAME" }),
+        combo({ market_ticker: "CROSS", title: "KC -2.5 AND TB -27.5" }),
+      ],
+      new Map([
+        ["SAME", SAME_GAME_LEGS],
+        ["CROSS", crossLegs],
+      ]),
+      [
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.39, 0.41, "Henry"),
+        leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.48, 0.50, "Jackson"),
+        {
+          ...leg("KXNFLGAME-26SEP13KC-KC", 0.47, 0.49, "KC wins by over 2.5"),
+          event_ticker: "KXNFLGAME-26SEP13KC",
+        },
+        {
+          ...leg("KXNFLGAME-26SEP13DEN-KC2", 0.15, 0.17, "TB wins by over 27.5"),
+          event_ticker: "KXNFLGAME-26SEP13DEN",
+        },
+      ],
+      { book: "cross_game_longshot" },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.market_ticker).toBe("CROSS");
+    expect(rows[0]!.skip).toBeNull();
+    expect(rows[0]!.fair_payout).toBeCloseTo(1 / (0.48 * 0.16), 1);
+    expect(rows[0]!.reason).toMatch(/35x/);
+  });
+
   it("flags missing tradable leg mids", () => {
     const rows = listSameGameConsidered(
       [combo()],

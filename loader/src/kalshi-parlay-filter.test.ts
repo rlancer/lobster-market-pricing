@@ -29,6 +29,8 @@ describe("parlay execute flags", () => {
   it("defaults the executable book to same-game underdog YES", () => {
     expect(parlayBook({})).toBe("same_game_underdog");
     expect(parlayBook({ KALSHI_PARLAY_BOOK: "corr_room_yes" })).toBe("corr_room_yes");
+    expect(parlayBook({ KALSHI_PARLAY_BOOK: "cross_game_longshot" })).toBe("cross_game_longshot");
+    expect(parlayBook({ KALSHI_PARLAY_BOOK: "longshot" })).toBe("cross_game_longshot");
   });
 });
 
@@ -155,5 +157,63 @@ describe("evaluateUnderdogYesQuote", () => {
     }, "same_game_underdog");
     expect(decision.ok).toBe(false);
     expect(decision.reasons).toContain("underdog_cost");
+  });
+});
+
+describe("evaluateLongshotYesQuote", () => {
+  const kcTb = {
+    market_ticker: "KC-TB-SPREAD",
+    same_game: false,
+    cross_game: true,
+    sides: ["yes", "yes"] as Array<"yes" | "no">,
+    p: 0.48,
+    q: 0.16,
+    quote_id: "q-combo",
+  };
+
+  it("takes the Kalshi 2-market combo that pays 37x below independence", () => {
+    const ask = 119.99 / 4493;
+    const decision = evaluateParlayExecutorQuote({
+      ...kcTb,
+      yes_bid: 0.02,
+      yes_ask: ask,
+    }, "cross_game_longshot");
+    expect(decision.ok).toBe(true);
+    expect(decision.action).toBe("buy_yes");
+    expect(decision.payout_multiple).toBeCloseTo(37.45, 1);
+    expect(decision.independence).toBeCloseTo(0.0768, 4);
+    expect(decision.ask_vs_indep).toBeLessThan(0);
+  });
+
+  it("skips a 25x card that does not clear 35x", () => {
+    const ask = 89.97 / 2278;
+    const decision = evaluateParlayExecutorQuote({
+      ...kcTb,
+      yes_bid: 0.03,
+      yes_ask: ask,
+    }, "cross_game_longshot");
+    expect(decision.ok).toBe(false);
+    expect(decision.reasons).toContain("payout");
+    expect(decision.payout_multiple).toBeCloseTo(25.3, 1);
+  });
+
+  it("skips a 50¢ same-game underdog and a quote above independence", () => {
+    expect(evaluateParlayExecutorQuote({
+      market_ticker: "SAME",
+      same_game: true,
+      cross_game: false,
+      sides: ["yes", "yes"],
+      p: 0.48,
+      q: 0.16,
+      yes_bid: 0.02,
+      yes_ask: 0.0267,
+      quote_id: "q-same",
+    }, "cross_game_longshot").reasons).toContain("not_cross_game");
+
+    expect(evaluateParlayExecutorQuote({
+      ...kcTb,
+      yes_bid: 0.08,
+      yes_ask: 0.09,
+    }, "cross_game_longshot").reasons).toEqual(expect.arrayContaining(["payout", "ask_vs_indep"]));
   });
 });

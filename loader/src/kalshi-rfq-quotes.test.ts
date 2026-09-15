@@ -232,6 +232,34 @@ describe("RFQ probe target ranking", () => {
     expect(ranked[0]!.p * ranked[0]!.q).toBeLessThan(ranked[1]!.p * ranked[1]!.q);
   });
 
+  it("RFQs cross-game two-legs when the longshot universe is selected", () => {
+    const same = combo({ market_ticker: "SAME" });
+    const cross = combo({
+      market_ticker: "CROSS-GAME",
+      category: "mve|COLL|yes:KXNFLGAME-26SEP13KC-KC,yes:KXNFLGAME-26SEP13BUF-BUF",
+    });
+    const comboLegs = new Map<string, MveSelectedLeg[]>([
+      ["SAME", SAME_GAME_LEGS],
+      ["CROSS-GAME", CROSS_GAME_LEGS],
+    ]);
+    const legs = [
+      leg("KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", 0.39, 0.41),
+      leg("KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", 0.48, 0.50),
+      leg("KXNFLGAME-26SEP13KC-KC", 0.47, 0.49),
+      leg("KXNFLGAME-26SEP13BUF-BUF", 0.15, 0.17),
+    ];
+    const ranked = pickRfqProbeTargets(
+      [same, cross],
+      comboLegs,
+      legs,
+      12,
+      "cheap_independence",
+      "cross_game",
+    );
+    expect(ranked.map((t) => t.market_ticker)).toEqual(["CROSS-GAME"]);
+    expect(ranked[0]!.p * ranked[0]!.q).toBeCloseTo(0.48 * 0.16, 4);
+  });
+
   it("counts open same-game two-legs separately from missing tradable mids", () => {
     const priced = combo({ market_ticker: "PRICED" });
     const unpriced = combo({ market_ticker: "UNPRICED" });

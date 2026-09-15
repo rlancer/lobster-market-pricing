@@ -753,6 +753,7 @@ export interface KalshiParlayDecision {
   error: string | null;
   yes_bid: number | null;
   yes_ask: number | null;
+  payout_multiple: number | null;
   rfq_id: string | null;
   quote_id: string | null;
 }
@@ -772,6 +773,7 @@ export interface KalshiParlayConsidered {
   q: number | null;
   corr_room: number | null;
   independence: number | null;
+  fair_payout: number | null;
   status: string;
   skip: string | null;
   reason: string;

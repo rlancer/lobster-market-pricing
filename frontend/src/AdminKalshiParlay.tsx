@@ -72,6 +72,27 @@ function fmtCents(n: number | null): string {
   return `${(n * 100).toFixed(0)}¢`;
 }
 
+function fmtPayout(n: number | null): string {
+  if (n == null || !Number.isFinite(n) || n <= 0) return '—';
+  return `${n.toFixed(n >= 10 ? 0 : 1)}x`;
+}
+
+function bookLabel(book: string | undefined): string {
+  if (book === 'corr_room_yes') return 'Book corr-room YES';
+  if (book === 'cross_game_longshot') return 'Book cross-game 35x YES';
+  return 'Book same-game underdog YES';
+}
+
+function bookFilterCopy(book: string | undefined): string {
+  if (book === 'corr_room_yes') {
+    return 'Takes only 2-leg same-game same-side sports stacks: corr room at least 15 cents, spread at most 8 cents, ask at most independence + 2 cents, |phi| < 0.15, single-maker quote_id.';
+  }
+  if (book === 'cross_game_longshot') {
+    return 'Takes only 2-leg cross-game same-side sports stacks when the YES ask pays at least 35x (ask at most ~2.86 cents) and is at or cheaper than independence. Spread at most 8 cents, single-maker quote_id. Those are the Kalshi app 2-market combos ($120 pays $4,493).';
+  }
+  return 'Takes only 2-leg same-game same-side sports stacks when the YES ask is at most 50 cents (underdog YES, payout at least 2x). Spread at most 8 cents, single-maker quote_id. Drops independence / φ gates — last night those took nothing while cheap YES paid.';
+}
+
 function probeToken(probe: string | null): { label: string; color: 'blue' | 'gray' | 'orange' } {
   if (probe === 'skipped_executor') {
     return { label: 'Hourly RFQ probe skipped', color: 'blue' };
@@ -84,7 +105,7 @@ function probeToken(probe: string | null): { label: string; color: 'blue' | 'gra
 }
 
 /**
- * Admin console for the Kalshi same-game parlay RFQ executor.
+ * Admin console for the Kalshi sports parlay RFQ executor.
  * Status is proxied through the screener Worker — the browser never calls the loader.
  */
 export default function AdminKalshiParlayPage() {
@@ -157,8 +178,8 @@ export default function AdminKalshiParlayPage() {
       <VStack gap={2}>
         <Heading level={1}>Kalshi parlay bot</Heading>
         <Text type="supporting">
-          Same-game two-leg sports RFQ executor (kalshi-parlay-executor on cboe-to-r2).
-          Last pass shows every same-game book it scored — legs, corr room, and
+          Sports two-leg RFQ executor (kalshi-parlay-executor on cboe-to-r2).
+          Last pass shows every book it scored — legs, fair payout, and
           why it was skipped or taken. Size is {executor?.contracts ?? 5} contracts
           (${executor?.contracts ?? 5} notional) with a ${executor?.max_spend ?? 100} cash
           cap and at most one live fill per pass. This page never turns LIVE on or off.
@@ -228,7 +249,7 @@ export default function AdminKalshiParlayPage() {
           size="sm"
         />
         <Token
-          label={executor?.book === 'corr_room_yes' ? 'Book corr-room YES' : 'Book same-game underdog YES'}
+          label={bookLabel(executor?.book)}
           color="blue"
           size="sm"
         />
@@ -314,10 +335,9 @@ export default function AdminKalshiParlayPage() {
             <Heading level={2}>Universe</Heading>
             <Text type="supporting">
               Open sports MVEs from the live Kalshi API, not the hourly lake
-              volume-80 cap. Legs load only for same-game two-leg stacks; RFQs
-              rank by cheapest independence on the underdog book (corr room on
-              the legacy book). n{'>'}2 and cross-game stay in the counts but
-              are not solicited.
+              volume-80 cap. Legs load for the active book's two-leg stacks.
+              RFQs rank by cheapest independence (corr room on the legacy book).
+              n{'>'}2 stacks stay in the counts but are not solicited.
             </Text>
             <HStack gap={2} wrap="wrap">
               <Token label={`Open combos ${executor.open_combos}`} color="gray" size="sm" />
@@ -337,13 +357,13 @@ export default function AdminKalshiParlayPage() {
           <VStack gap={2}>
             <Heading level={2}>Considered</Heading>
             <Text type="supporting">
-              Same-game two-leg stacks from this pass. Legs are the selected
-              sports contracts; corr room is min(p, q) − p×q from those mids.
-              n{'>'}2 and cross-game are counted above but never appear here.
+              Two-leg stacks this book scores. Legs are the selected sports
+              contracts; fair payout is 1/(p×q). Quote payout is 1/ask after
+              an RFQ. n{'>'}2 never appear here.
             </Text>
             {!(executor.considered ?? []).length ? (
               <Text type="supporting">
-                No same-game two-leg books on the last pass.
+                No two-leg books for this filter on the last pass.
               </Text>
             ) : (
               <Table
@@ -381,6 +401,12 @@ export default function AdminKalshiParlayPage() {
                     ),
                   },
                   {
+                    key: 'fair_payout',
+                    header: 'Fair payout',
+                    width: pixel(110),
+                    renderCell: (row) => <Text size="sm">{fmtPayout(row.fair_payout)}</Text>,
+                  },
+                  {
                     key: 'corr_room',
                     header: 'Corr room',
                     width: pixel(100),
@@ -409,9 +435,7 @@ export default function AdminKalshiParlayPage() {
           <VStack gap={2}>
             <Heading level={2}>Filter</Heading>
             <Text type="supporting">
-              {executor.book === 'corr_room_yes'
-                ? 'Takes only 2-leg same-game same-side sports stacks: corr room at least 15 cents, spread at most 8 cents, ask at most independence + 2 cents, |phi| < 0.15, single-maker quote_id.'
-                : 'Takes only 2-leg same-game same-side sports stacks when the YES ask is at most 50 cents (underdog YES). Spread at most 8 cents, single-maker quote_id. Drops independence / φ gates — last night those took nothing while cheap YES paid.'}
+              {bookFilterCopy(executor.book)}
               {' '}Skips mixed yes/no, n{'>'}2, leftover yes_last. Dry-run logs would_accept and DELETE the RFQ. Live YES
               accept needs EXECUTE=1 and LIVE=1 at {executor.contracts} contracts (${executor.contracts} notional), at most one
               fill per pass, until ${executor.max_spend} cash debit on run {executor.spend_run_id}; the maker confirms (HVM 3s). The job never calls /confirm.
@@ -422,7 +446,7 @@ export default function AdminKalshiParlayPage() {
             <Heading level={2}>Decisions</Heading>
             {!executor.decisions.length ? (
               <Text type="supporting">
-                No RFQ decisions on the last pass. Same-game books still appear
+                No RFQ decisions on the last pass. Eligible books still appear
                 under Considered with the skip reason.
               </Text>
             ) : (
@@ -488,6 +512,16 @@ export default function AdminKalshiParlayPage() {
                     renderCell: (row) => <Text size="sm">{fmtPx(row.yes_ask)}</Text>,
                   },
                   {
+                    key: 'payout_multiple',
+                    header: 'Payout',
+                    width: pixel(90),
+                    renderCell: (row) => (
+                      <Text size="sm">
+                        {fmtPayout(row.payout_multiple ?? (row.yes_ask != null && row.yes_ask > 0 ? 1 / row.yes_ask : null))}
+                      </Text>
+                    ),
+                  },
+                  {
                     key: 'rfq_id',
                     header: 'RFQ',
                     width: pixel(120),
@@ -508,8 +542,8 @@ export default function AdminKalshiParlayPage() {
             <VStack gap={2}>
               <Heading level={2}>Open mix</Heading>
               <Text type="supporting">
-                Sample of open sports MVEs that are not same-game two-leg (n{'>'}2
-                or cross-game). They are scanned for counts, not RFQ'd.
+                Sample of open sports MVEs that this book does not RFQ (n{'>'}2
+                or the other game group). They are scanned for counts.
               </Text>
               <Table
                 className="admin-kalshi-parlay-table"

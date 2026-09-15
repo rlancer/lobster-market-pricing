@@ -211,7 +211,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Kalshi parlay bot'),
       description:
-        'Admin console for the Kalshi same-game parlay RFQ executor — last_pass considered trail (legs, corr room, skip reasons), $5 notional live fills (one per pass, $100 run cash cap). Never turns LIVE on.',
+        'Admin console for the Kalshi sports parlay RFQ executor — last_pass considered trail (legs, fair payout, skip reasons), $5 notional, $100 run cash cap. Production book is cross-game 35x YES. Never turns LIVE on.',
       path: '/admin/kalshi-parlay',
     };
   }

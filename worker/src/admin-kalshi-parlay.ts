@@ -1,5 +1,5 @@
 /**
- * Admin proxy for the Kalshi same-game parlay RFQ executor.
+ * Admin proxy for the Kalshi sports parlay RFQ executor.
  *
  * Loader GET /jobs/* is public on cboe-to-r2. This module pulls that JSON
  * through the screener Worker so the browser never talks to the loader, and
@@ -37,6 +37,7 @@ export interface KalshiParlayDecisionView {
   error: string | null;
   yes_bid: number | null;
   yes_ask: number | null;
+  payout_multiple: number | null;
   rfq_id: string | null;
   quote_id: string | null;
 }
@@ -56,6 +57,7 @@ export interface KalshiParlayConsidered {
   q: number | null;
   corr_room: number | null;
   independence: number | null;
+  fair_payout: number | null;
   status: string;
   skip: string | null;
   reason: string;
@@ -246,6 +248,7 @@ function mapDecision(raw: unknown): KalshiParlayDecisionView | null {
     error: asStrOrNull(row.error),
     yes_bid: asNumOrNull(row.yes_bid),
     yes_ask: asNumOrNull(row.yes_ask),
+    payout_multiple: asNumOrNull(row.payout_multiple),
     rfq_id: asStrOrNull(row.rfq_id),
     quote_id: asStrOrNull(row.quote_id),
   };
@@ -281,6 +284,7 @@ function mapConsidered(raw: unknown): KalshiParlayConsidered | null {
     q: asNumOrNull(row.q),
     corr_room: asNumOrNull(row.corr_room),
     independence: asNumOrNull(row.independence),
+    fair_payout: asNumOrNull(row.fair_payout),
     status: asStr(row.status, "skipped"),
     skip: asStrOrNull(row.skip),
     reason: asStr(row.reason, "Skipped"),

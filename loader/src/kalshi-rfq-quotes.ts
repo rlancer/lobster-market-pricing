@@ -22,6 +22,7 @@ import {
   parseKalshiNumber,
 } from "./kalshi.js";
 import {
+  isCrossGameSportsTwoLeg,
   isSameGameSportsTwoLeg,
   mveTapeKind,
   parlayGameGroup,
@@ -58,6 +59,7 @@ export interface RfqProbeTarget {
 }
 
 export type RfqTargetRank = "corr_room" | "cheap_independence";
+export type RfqTargetUniverse = "same_game" | "cross_game";
 
 type ComboLegs = Map<string, MveSelectedLeg[]>;
 
@@ -224,6 +226,7 @@ export function rfqProbeUniverseStats(
   combos: KalshiMarketRow[],
   comboLegs: ComboLegs,
   legs: KalshiMarketRow[],
+  universe: RfqTargetUniverse = "same_game",
 ): RfqProbeUniverseStats {
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
   let open_combos = 0;
@@ -256,8 +259,11 @@ export function rfqProbeUniverseStats(
     const sameGame = isSameGameSportsTwoLeg(spec);
     if (sameGame) sameGameSamples.push(sample);
     else otherSamples.push(sample);
-    if (!sameGame) continue;
-    same_game_two_leg += 1;
+    if (sameGame) same_game_two_leg += 1;
+    const targetStack = universe === "cross_game"
+      ? isCrossGameSportsTwoLeg(spec)
+      : sameGame;
+    if (!targetStack) continue;
     const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
     const q = selectedProb(byTicker.get(spec[1]!.market_ticker), spec[1]!.side);
     if (p == null || q == null) missing_leg_mids += 1;
@@ -280,6 +286,7 @@ export function pickRfqProbeTargets(
   legs: KalshiMarketRow[],
   cap: number,
   rank: RfqTargetRank = "corr_room",
+  universe: RfqTargetUniverse = "same_game",
 ): RfqProbeTarget[] {
   const byTicker = new Map(legs.map((row) => [row.market_ticker, row]));
   const needQuote: RfqProbeTarget[] = [];
@@ -287,7 +294,10 @@ export function pickRfqProbeTargets(
   for (const combo of combos) {
     if (!isOpenCombo(combo)) continue;
     const spec = comboLegs.get(combo.market_ticker) ?? [];
-    if (!isSameGameSportsTwoLeg(spec)) continue;
+    const targetStack = universe === "cross_game"
+      ? isCrossGameSportsTwoLeg(spec)
+      : isSameGameSportsTwoLeg(spec);
+    if (!targetStack) continue;
     const p = selectedProb(byTicker.get(spec[0]!.market_ticker), spec[0]!.side);
     const q = selectedProb(byTicker.get(spec[1]!.market_ticker), spec[1]!.side);
     if (p == null || q == null) continue;

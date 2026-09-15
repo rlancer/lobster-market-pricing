@@ -18,6 +18,7 @@
 import seriesManifest from "../symbols/kalshi-series.json" with { type: "json" };
 import {
   encodeMveCategory,
+  isCrossGameSportsTwoLeg,
   isSameGameSportsTwoLeg,
   isSportsParlayCandidate,
   mveCollectionTicker,
@@ -25,6 +26,7 @@ import {
   seriesTickerFromMarketTicker,
   type MveSelectedLeg,
 } from "./kalshi-mve.js";
+import { parlayBook } from "./kalshi-parlay-filter.js";
 import { probeKalshiRfqQuotes } from "./kalshi-rfq-quotes.js";
 import {
   asSettlementSnapshot,
@@ -40,6 +42,7 @@ export {
   parlayGameGroup,
   eventPrefixFromTicker,
   isSameGameSportsTwoLeg,
+  isCrossGameSportsTwoLeg,
   sportsGameKey,
 } from "./kalshi-mve.js";
 
@@ -166,8 +169,9 @@ export interface KalshiEnv {
   /** Live fills allowed per 5-minute pass (default 1, cap 12). */
   KALSHI_PARLAY_MAX_ACCEPTS_PER_PASS?: number | string;
   /**
-   * Executable book: same_game_underdog (default, YES ask ≤ 50¢) or
-   * corr_room_yes (independence / φ gates).
+   * Executable book: same_game_underdog (code default, YES ask ≤ 50¢),
+   * corr_room_yes (independence / φ gates), or cross_game_longshot
+   * (YES ask ≤ 1/35 and ≤ independence).
    */
   KALSHI_PARLAY_BOOK?: string;
   /** Cumulative cash-debit cap in dollars for the spend run (default 100). */
@@ -859,15 +863,21 @@ export function collectSportsCombos(
   return { ranked, comboLegs };
 }
 
-/** Leg tickers for same-game two-leg stacks only — not n>2 or cross-game. */
-export function executorSameGameLegTickers(
+/** Leg tickers for two-leg sports stacks the executor will score. */
+export function executorTwoLegSportsTickers(
   comboLegs: Map<string, MveSelectedLeg[]>,
   comboTickers: ReadonlySet<string>,
+  kind: "same_game" | "cross_game" | "both" = "same_game",
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const spec of comboLegs.values()) {
-    if (!isSameGameSportsTwoLeg(spec)) continue;
+    const ok = kind === "both"
+      ? isSameGameSportsTwoLeg(spec) || isCrossGameSportsTwoLeg(spec)
+      : kind === "cross_game"
+        ? isCrossGameSportsTwoLeg(spec)
+        : isSameGameSportsTwoLeg(spec);
+    if (!ok) continue;
     for (const leg of spec) {
       const ticker = leg.market_ticker;
       if (!ticker || comboTickers.has(ticker) || seen.has(ticker)) continue;
@@ -876,6 +886,14 @@ export function executorSameGameLegTickers(
     }
   }
   return out;
+}
+
+/** Leg tickers for same-game two-leg stacks only — not n>2 or cross-game. */
+export function executorSameGameLegTickers(
+  comboLegs: Map<string, MveSelectedLeg[]>,
+  comboTickers: ReadonlySet<string>,
+): string[] {
+  return executorTwoLegSportsTickers(comboLegs, comboTickers, "same_game");
 }
 
 function mergeSportsCombos(
@@ -1043,9 +1061,9 @@ export async function fetchKalshiSportsParlayPack(
 
 /**
  * Live executor scan: every open sports MVE from Get Markets (no lake
- * volume-80 cap), plus selected-leg snapshots only for same-game two-leg
- * stacks. No candle backfill, no research RFQ overlay, not the full
- * sports catalog. RFQ ranking stays corr-room in pickRfqProbeTargets.
+ * volume-80 cap), plus selected-leg snapshots for the active book's
+ * two-leg sports stacks (same-game, or cross-game on the longshot book).
+ * No candle backfill, no research RFQ overlay, not the full sports catalog.
  */
 export async function fetchKalshiParlayExecutorPack(
   env: KalshiEnv = {},
@@ -1054,8 +1072,9 @@ export async function fetchKalshiParlayExecutorPack(
   const openPack = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, null);
   const live = openPack.ranked.filter((row) => !isKalshiSettledStatus(row.status));
   const comboTickers = new Set(live.map((row) => row.market_ticker));
+  const kind = parlayBook(env) === "cross_game_longshot" ? "cross_game" : "same_game";
   const legs = await fetchMarketsByTickers(
-    executorSameGameLegTickers(openPack.comboLegs, comboTickers),
+    executorTwoLegSportsTickers(openPack.comboLegs, comboTickers, kind),
     env,
   );
   return { rows: [...live, ...legs], comboLegs: openPack.comboLegs };

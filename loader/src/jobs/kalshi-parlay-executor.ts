@@ -70,10 +70,11 @@ async function withParlayTape(
   }
 }
 
-// Same-game sports parlay RFQ executor. Batch, ungated, 5-minute cadence.
+// Sports two-leg parlay RFQ executor. Batch, ungated, 5-minute cadence.
 // Live: KALSHI_PARLAY_EXECUTE=1 and KALSHI_PARLAY_LIVE=1, 5 contracts
 // ($5 notional), at most one accept per pass, $100 run cash cap. Scans every open sports MVE
 // from the Trade API (not the lake volume-80 cap). Never the full catalog.
+// Production book is cross-game longshot YES (payout ≥ 35x).
 // The hourly KXMVE research probe stays separate and never accepts.
 // Each pass also publishes portfolio combo fills + this pass's RFQ two-ways
 // onto options.kalshi_markets so the public backtest can grade last night.
