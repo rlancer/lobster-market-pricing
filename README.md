@@ -5,7 +5,7 @@ A free, end-to-end options screener for US equities (S&P 500 + Nasdaq-100) and t
 - **Data source:** CBOE delayed quotes (official exchange data, includes Greeks) loaded into a Cloudflare-hosted Apache Iceberg lake by the in-repo loader (`loader/`: CBOE → Cloudflare Pipelines → R2 Data Catalog). This repo consumes that lake directly over **R2 SQL** — no local database, no Parquet, no in-browser DuckDB.
 - **Backend:** a lightweight **Cloudflare Worker** (`worker/`) that queries the Iceberg lake over the R2 SQL REST API and returns JSON. Deployed via `wrangler deploy`.
 - **Frontend:** React + TypeScript (Vite) — a plain `fetch()` client; no WASM, no Parquet, no httpfs.
-- **Toolchain:** managed with [mise](https://mise.jdx.dev) (Node, wrangler).
+- **Toolchain:** managed with [mise](https://mise.jdx.dev) (Node, wrangler, Python, uv).
 
 ```
 loader/ (in this repo):
@@ -31,7 +31,10 @@ tier) so repeat/cached responses are instant.
 
 ```
 lobster-market-pricing/
-├── mise.toml              # tool versions + tasks (Node, wrangler)
+├── mise.toml              # tool versions + tasks (Node, wrangler, Python, uv)
+├── notebooks/             # marimo research notebooks (uv project; local DuckDB cache)
+│   ├── apps/               # marimo notebooks only
+│   └── src/lobster_nb/     # lake attach + Kalshi auth helpers
 ├── worker/                # Cloudflare Worker backend (R2 SQL → JSON)
 │   ├── src/index.ts        # all endpoints, R2 SQL client, in-isolate cache
 │   ├── wrangler.jsonc       # Worker config (R2_SQL_ACCOUNT_ID, R2_SQL_BUCKET vars)
@@ -52,7 +55,7 @@ lobster-market-pricing/
 
 ## Prerequisites
 
-Only [mise](https://mise.jdx.dev) is required. Node 24, Python 3.12, and
+Only [mise](https://mise.jdx.dev) is required. Node 24, Python 3.12, uv, and
 wrangler are pinned in `mise.toml` and installed automatically:
 
 ```bash
@@ -60,6 +63,7 @@ mise trust        # one-time: trust this project's config
 mise install      # install pinned tools
 mise run sync     # npm install (frontend + worker)
 mise run loader-install  # npm ci (loader)
+mise run notebooks-sync  # uv sync (marimo research notebooks)
 ```
 
 ## Configuration
@@ -364,6 +368,23 @@ mise run frontend       # Vite dev server on http://127.0.0.1:5173
 Then open <http://127.0.0.1:5173>. The frontend calls the Worker (via
 `VITE_API_BASE`) which queries the live Iceberg lake over R2 SQL. No local
 data is needed.
+
+### Research notebooks (marimo)
+
+Local sidecar for lake SQL and Kalshi backtests — not part of the production
+API. `mise` pins Python 3.12 + uv; the uv project lives in `notebooks/`.
+
+```bash
+mise run notebooks-sync   # uv sync --python 3.12.11
+mise run notebooks        # marimo edit apps --no-token (http://127.0.0.1:2718)
+```
+
+Notebooks load the gitignored root `.env` via python-dotenv (mise cannot parse the
+multi-line Kalshi PEM). `--no-token` lets
+[marimo-pair](https://github.com/marimo-team/marimo-pair) attach to the live
+kernel. Query the lake as `lake.options.*` from DuckDB; keep high-frequency
+Kalshi candles in `notebooks/.cache/kalshi.duckdb` (gitignored). Do not write
+to the Iceberg catalog from notebooks. Details: `notebooks/AGENTS.md`.
 
 ### Deploy
 

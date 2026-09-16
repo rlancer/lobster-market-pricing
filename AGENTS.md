@@ -274,6 +274,8 @@ not leave stale ones around. The rule:
   (`/api/*`), plus the `/loader/*` pass-through.
 - `loader/` — CBOE → Cloudflare Pipelines → R2 Data Catalog ingestion
   (`cboe-to-r2`): continuous Durable Object scheduler, OHLC jobs, D1 state.
+- `notebooks/` — marimo research notebooks (`mise run notebooks`): uv project,
+  DuckDB cache, read-only Iceberg attach. See `notebooks/AGENTS.md`.
 - Root `README.md` — architecture, full API reference, run/deploy
   instructions; deeper operational docs live in the per-package `AGENTS.md`
   files. No `PLAN-*.md` / `WORKER-*.md` rollups at the root (see

@@ -30,3 +30,10 @@ loader/worker-configuration.d.ts
 
 # OHLC backfill resume state (written by loader/tools/ohlc_backfill.ts)
 loader/.backfill-state.json
+
+# Marimo / uv research notebooks
+notebooks/.venv/
+notebooks/.cache/
+notebooks/apps/__marimo__/
+*.duckdb
+*.duckdb.wal
