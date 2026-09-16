@@ -118,7 +118,9 @@ def _(attach_lake, mo):
         f"""
         ## Iceberg attach
 
-        Local DuckDB: `{_db_path}`. Query `lake.options.*` read-only.
+        Local DuckDB: `{_db_path}` (gitignored session memo, not a warehouse).
+        Query `lake.options.*` read-only. Empty `.cache` is correct on a new
+        machine — historical RFQ / settlement / fill live in Iceberg.
         Writes stay on local tables (`strategy_runs`, `live_markets`).
 
         Status: **{"attached" if _ok else "failed"}** -- `{_detail}`

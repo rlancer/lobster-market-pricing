@@ -1483,6 +1483,32 @@ async function econCalendar(env: Env, daysIn: number): Promise<EconCalendarRespo
 function num(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function numOrNull(v: unknown): number | null { const n = Number(v); return v == null || !Number.isFinite(n) ? null : n; }
 
+async function r2sqlFetchedAtPages(
+  env: Env,
+  whereSql: string,
+  cols: string,
+  cacheKey: string,
+  ttlMs: number,
+): Promise<R2Row[]> {
+  const pageSize = Math.min(4000, R2SQL_LIMIT_MAX);
+  const maxPages = 8;
+  const out: R2Row[] = [];
+  let before: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    const bound = before ? ` AND fetched_at < ${lit(before)}` : "";
+    const sql =
+      `${cols} WHERE ${whereSql}${bound} ORDER BY fetched_at DESC LIMIT ${pageSize}`;
+    const rows = await r2sql(env, sql, `${cacheKey}_p${page}`, ttlMs);
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    const last = rows[rows.length - 1]?.fetched_at;
+    const nextBefore = last != null ? String(last) : "";
+    if (!nextBefore || nextBefore === before) break;
+    before = nextBefore;
+  }
+  return out;
+}
+
 async function queryKalshiSportsLake(env: Env): Promise<LakeKalshiMarket[]> {
   const mapRow = (row: Record<string, unknown>): LakeKalshiMarket => ({
     series_ticker: String(row.series_ticker || "").toUpperCase(),
@@ -1509,20 +1535,20 @@ async function queryKalshiSportsLake(env: Env): Promise<LakeKalshiMarket[]> {
     `  yes_bid, yes_ask, yes_last, no_bid, volume, liquidity, close_time, fetched_at, source` +
     ` FROM options.kalshi_markets`;
   try {
-    const latest = await r2sql(
+    const latest = await r2sqlFetchedAtPages(
       env,
-      `${cols} WHERE theme = ${lit("sports")} OR category LIKE ${lit("mve|%")}` +
-        ` ORDER BY fetched_at DESC LIMIT 8000`,
-      "kalshi_parlay_sports_v9",
+      `(theme = ${lit("sports")} OR category LIKE ${lit("mve|%")})`,
+      cols,
+      "kalshi_parlay_sports_v10",
       QUERY_TTL_MS,
     );
     let tape: Array<Record<string, unknown>> = [];
     try {
-      tape = await r2sql(
+      tape = await r2sqlFetchedAtPages(
         env,
-        `${cols} WHERE source IN (${lit("kalshi_rfq")}, ${lit("kalshi_settlement")}, ${lit("kalshi_parlay_fill")})` +
-          ` ORDER BY fetched_at DESC LIMIT 4000`,
-        "kalshi_parlay_tape_v9",
+        `source IN (${lit("kalshi_rfq")}, ${lit("kalshi_settlement")}, ${lit("kalshi_parlay_fill")})`,
+        cols,
+        "kalshi_parlay_tape_v10",
         QUERY_TTL_MS,
       );
     } catch {

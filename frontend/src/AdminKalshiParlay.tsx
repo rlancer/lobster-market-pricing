@@ -334,8 +334,9 @@ export default function AdminKalshiParlayPage() {
           <VStack gap={2}>
             <Heading level={2}>Universe</Heading>
             <Text type="supporting">
-              Open sports MVEs from the live Kalshi API, not the hourly lake
-              volume-80 cap. Legs load for the active book's two-leg stacks.
+              Open sports MVEs from the live Kalshi API. Hourly lake ingest
+              persists every open two-leg sports book (empty CLOB included).
+              Legs load for the active book's two-leg stacks.
               RFQs rank by cheapest independence (corr room on the legacy book).
               n{'>'}2 stacks stay in the counts but are not solicited.
             </Text>

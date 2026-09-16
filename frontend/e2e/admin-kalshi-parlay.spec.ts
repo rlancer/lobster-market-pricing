@@ -195,7 +195,7 @@ test.describe('Admin Kalshi parlay console', () => {
     await expect(page.getByText('Open combos 80')).toBeVisible();
     await expect(page.getByText('Same-game two-leg 0')).toBeVisible();
     await expect(page.getByText('Cross-game two-leg 7')).toBeVisible();
-    await expect(page.getByText(/not the hourly lake volume-80 cap/)).toBeVisible();
+    await expect(page.getByText(/persists every open two-leg sports book/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Considered' })).toBeVisible();
     await expect(page.getByText('No two-leg books for this filter on the last pass.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Force dry-run pass' })).toBeEnabled();

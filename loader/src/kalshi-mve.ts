@@ -9,8 +9,9 @@
  * Combo rows use theme=sports and market_type=multivariate. Leg contracts are
  * published as their own sports rows so independence scoring can join on
  * market_ticker. Do not scrape the full sports catalog — only MVE combos
- * (open, plus settled/closed in the lookback window) and the legs those
- * combos actually select. Daily candlesticks carry the history.
+ * (open two-leg sports books every pass, plus settled/closed in the lookback
+ * window) and the legs those combos actually select. Daily candlesticks
+ * (volume-capped) carry quote history; settlement 0/1 is a tagged row.
  */
 
 export const MVE_CATEGORY_PREFIX = "mve|";
@@ -193,6 +194,15 @@ function isSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
   const tickers = legs.map((leg) => leg.market_ticker);
   if (mveTapeKind(tickers) !== "sports") return false;
   return tickers.every((ticker) => mveLegKind(ticker) === "sports");
+}
+
+/**
+ * Listed sports-parlay universe: exactly two legs, not crypto-only.
+ * n>2 CROSSCATEGORY stacks are not this tape.
+ */
+export function isListedSportsTwoLeg(legs: MveSelectedLeg[]): boolean {
+  if (legs.length !== 2) return false;
+  return mveTapeKind(legs.map((leg) => leg.market_ticker)) !== "crypto_mve";
 }
 
 /** Live RFQ target: two sports legs on the same game (event_ticker or NFL-style slug). */

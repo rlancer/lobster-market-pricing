@@ -733,7 +733,7 @@ describe("runKalshiParlayExecutorPass", () => {
     }
   });
 
-  it("keeps a volume-0 same-game two-leg that a volume-80 lake cap would drop", async () => {
+  it("keeps a volume-0 same-game two-leg among n>2 noise", async () => {
     const pem = await generateTestPem();
     const tickerUrls: string[] = [];
     const noise = Array.from({ length: 80 }, (_, i) => ({

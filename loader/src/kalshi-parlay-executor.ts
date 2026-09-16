@@ -2,11 +2,13 @@
  * Kalshi sports parlay executor.
  *
  * Separate from kalshi-markets-hourly / the RFQ research probe:
- *   1. Fetch every open sports MVE from Get Markets (no lake volume-80
- *      cap) plus selected-leg snapshots for the active book's two-leg
- *      stacks (same-game, or cross-game on `cross_game_longshot`).
- *      No candle backfill, no research RFQ overlay. Game grouping
- *      uses mve_selected_legs.event_ticker, not category.
+ *   1. Fetch every open sports MVE from Get Markets (including n>2
+ *      counts; no volume cap) plus selected-leg snapshots for the
+ *      active book's two-leg stacks (same-game, or cross-game on
+ *      `cross_game_longshot`). Hourly lake ingest also persists every
+ *      open two-leg sports MVE. No candle backfill, no research RFQ
+ *      overlay. Game grouping uses mve_selected_legs.event_ticker,
+ *      not category.
  *   2. Rank those stacks (longshot/underdog: cheapest independence;
  *      corr-room book: Fréchet room).
  *   3. Create an RFQ, wait for a private two-way, score it.

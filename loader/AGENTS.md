@@ -40,15 +40,17 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   FRED Treasury / rates curve observations → `options.yields`: DGS*
   constant-maturity, T10Y2Y/T10Y3M spreads, TIPS/breakevens, T5YIFR forward,
   DFF/SOFR; ~10y lookback), `fred-macro-daily` (batch, daily; FRED CPI/PCE/PPI
-  index + YoY → `options.macro`; ~20y lookback), `kalshi-markets-hourly`
+  index + YoY → `options.macro`; ~20y lookback),   `kalshi-markets-hourly`
   (batch, hourly; curated Kalshi
-  Fed/CPI/index/crypto/oil event contracts plus sports parlays — MVE
-  combos that name at least one sports leg (not crypto-only 15m stacks,
-  not the full catalog) and those legs, including ~30 days of daily candles
-  and an optional capped same-game RFQ quote probe (`KALSHI_RFQ_PROBE_ENABLED`,
+  Fed/CPI/index/crypto/oil event contracts plus sports parlays — every
+  open two-leg sports MVE (empty 0/0 CLOB included; not crypto-only 15m
+  stacks, not n>2 as the parlay universe, not the full catalog) and those
+  legs, including ~30 days of daily candles (volume-capped) and an optional
+  capped same-game RFQ quote probe (`KALSHI_RFQ_PROBE_ENABLED`,
   never accepts). Settled books also publish `source=kalshi_settlement` 0/1
-  rows (candles stay quotes). Combo `category` keeps `event_ticker` as
-  `yes:LEG@EVENT`. →
+  rows (candles stay quotes); two-leg / RFQ / fill tickers still get a
+  settlement row when they miss the candle volume cap. Combo `category`
+  keeps `event_ticker` as `yes:LEG@EVENT`. →
   `options.kalshi_markets` from `symbols/kalshi-series.json`), and
   `kalshi-parlay-executor` (batch, 5 min; sports two-leg RFQ filter.
   EXECUTE is on; LIVE is off (`KALSHI_PARLAY_LIVE=0`) after production
@@ -57,10 +59,13 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   independence). Code default remains same-game underdog YES (ask ≤ 50¢).
   Live when EXECUTE=1 and LIVE=1: 5 contracts = $5 notional, at most one
   YES accept per pass, $100 run cash cap (`KALSHI_PARLAY_SPEND_RUN_ID`).
-  Scans every open sports MVE from the Trade API — not the lake volume-80
-  cap — and fetches legs for the active book's two-leg stacks.
+  Scans every open sports MVE from the Trade API. Hourly KXMVE also
+  persists every open two-leg sports MVE (no volume-80 cap on that listed
+  universe) and fetches legs for the active book's two-leg stacks.
   `last_pass.detail.considered` is the operator trail (legs, fair payout,
-  skip reason). The hourly probe still never accepts).
+  skip reason). LIVE=0 still publishes solicited RFQ two-ways
+  (`source=kalshi_rfq`) plus portfolio fills. The hourly probe still never
+  accepts).
   Schedule ledger:
   `job_state` (`loader/migrations/0002_job_state.sql`). Job observability and
   manual kicks: `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/trigger`

@@ -1,13 +1,15 @@
 // Curated Kalshi event-contract snapshots for the options lake.
 //
 // Investing series (Fed/CPI/indexes/crypto/oil) come from symbols/kalshi-series.json
-// as series_ticker GETs. Sports parlays are the KXMVE ingest: open multivariate
-// combo markets plus the legs those combos select — not the full sports catalog —
-// and ~30 days of daily candlesticks for those tickers (settled/closed MVE in
-// the window). Candle rows set fetched_at to the period end so latest-wins
-// keeps quote history; settlement 0/1 is a separate source=kalshi_settlement
-// row (not mixed into candles) so the parlay backtest can grade fills.
-// Publishes to options.kalshi_markets via PIPELINE_KALSHI_MARKETS_URL.
+// as series_ticker GETs. Sports parlays are the KXMVE ingest: every open
+// two-leg sports MVE (empty 0/0 CLOB included) plus the legs those combos
+// select — not n>2 as the parlay universe, not the full sports catalog —
+// and ~30 days of daily candlesticks (volume-capped) for those tickers.
+// Settlement 0/1 is a separate source=kalshi_settlement row (not mixed into
+// candles); two-leg / RFQ / fill tickers still settle when they miss the
+// candle cap. Candle rows set fetched_at to the period end so latest-wins
+// keeps quote history. Publishes to options.kalshi_markets via
+// PIPELINE_KALSHI_MARKETS_URL.
 //
 // Public Trade API (no auth for market data):
 //   https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=…&status=open
@@ -19,6 +21,7 @@ import seriesManifest from "../symbols/kalshi-series.json" with { type: "json" }
 import {
   encodeMveCategory,
   isCrossGameSportsTwoLeg,
+  isListedSportsTwoLeg,
   isSameGameSportsTwoLeg,
   isSportsParlayCandidate,
   mveCollectionTicker,
@@ -30,9 +33,12 @@ import { parlayBook } from "./kalshi-parlay-filter.js";
 import { probeKalshiRfqQuotes } from "./kalshi-rfq-quotes.js";
 import {
   asSettlementSnapshot,
+  inferComboSettlement,
   isKalshiSettledStatus,
   kalshiResultYes,
   looksLikeSettlementPrint,
+  settlementYes,
+  KALSHI_SETTLEMENT_SOURCE,
 } from "./kalshi-settlement.js";
 
 export {
@@ -41,6 +47,7 @@ export {
   parseMveSelectedLegs,
   parlayGameGroup,
   eventPrefixFromTicker,
+  isListedSportsTwoLeg,
   isSameGameSportsTwoLeg,
   isCrossGameSportsTwoLeg,
   sportsGameKey,
@@ -107,13 +114,17 @@ export const REQUEST_TIMEOUT_SECONDS_DEFAULT = 20;
 export const PAGE_LIMIT_DEFAULT = 200;
 /** Cap pages — with limit=200 most series fit in 1–2 pages; fewer calls → fewer 429s. */
 export const MAX_PAGES_DEFAULT = 3;
+/** MVE Get Markets pages (open + lookback). Higher than series default so
+ *  volume-0 two-leg sports are not stranded behind n>2 CROSSCATEGORY noise. */
+export const MVE_MAX_PAGES_DEFAULT = 12;
 /** Floor gap between any two Kalshi GETs in this isolate (ms). */
 export const MIN_REQUEST_GAP_MS_DEFAULT = 400;
 /** Cap a single 429 sleep so one hot series cannot burn the whole pass budget. */
 export const MAX_429_WAIT_SECONDS = 12;
 /** Default sports-parlay candlestick lookback (days). */
 export const KALSHI_SPORTS_LOOKBACK_DAYS_DEFAULT = 30;
-/** Cap settled/closed sports combos pulled in that window. */
+/** Cap daily candles for settled/closed sports combos in that window.
+ *  Two-leg settlement 0/1 rows are not volume-capped. */
 export const KALSHI_SPORTS_LOOKBACK_MAX_DEFAULT = 200;
 /** Daily candles — Kalshi period_interval minutes. */
 export const KALSHI_CANDLE_INTERVAL_MIN = 1440;
@@ -199,6 +210,8 @@ export interface KalshiEnv {
   KALSHI_MAX_MARKETS?: number;
   KALSHI_PAGE_LIMIT?: number;
   KALSHI_MAX_PAGES?: number;
+  /** Page cap for MVE Get Markets (default 12). Investing series keep KALSHI_MAX_PAGES. */
+  KALSHI_MVE_MAX_PAGES?: number;
   /** Min ms between Kalshi GETs (default 400). */
   KALSHI_MIN_REQUEST_GAP_MS?: number;
   /**
@@ -206,7 +219,8 @@ export interface KalshiEnv {
    * open + settled/closed MVE combos and their selected legs. 0 = open only.
    */
   KALSHI_SPORTS_LOOKBACK_DAYS?: number | string;
-  /** Cap on settled/closed sports combos in the lookback window (default 200). */
+  /** Daily-candle cap on settled/closed sports combos (default 200). Settlements for
+   *  two-leg / RFQ / fill tickers are not this cap. */
   KALSHI_SPORTS_LOOKBACK_MAX?: number | string;
   now?: () => number;
   runId?: () => string;
@@ -238,6 +252,8 @@ export interface KalshiMarketRow {
   source: string;
   /** Per-row event time. Candle rows set this to the period end. */
   fetched_at?: string;
+  /** Kalshi `result` (yes/no). Not a lake column — used to tag settlement 0/1. */
+  result?: unknown;
 }
 
 export interface KalshiPublishResult {
@@ -710,6 +726,7 @@ export function mapKalshiMarketRaw(
     expiration_time: strip(m.expiration_time) || strip(m.expected_expiration_time) || null,
     related_symbol: defaults.related_symbol,
     source: KALSHI_SOURCE,
+    ...(m.result !== undefined ? { result: m.result } : {}),
   };
 }
 
@@ -797,6 +814,10 @@ function kalshiMaxPages(env: KalshiEnv): number {
   return Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
 }
 
+function kalshiMveMaxPages(env: KalshiEnv): number {
+  return envInt(env.KALSHI_MVE_MAX_PAGES, MVE_MAX_PAGES_DEFAULT, 1, 30);
+}
+
 
 function candleCloseDollars(raw: unknown): number | null {
   const rec = asRecord(raw);
@@ -811,7 +832,7 @@ async function fetchMveRawMarkets(
 ): Promise<unknown[]> {
   const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
   const pageLimit = kalshiPageLimit(env);
-  const maxPages = kalshiMaxPages(env);
+  const maxPages = kalshiMveMaxPages(env);
   const raw: unknown[] = [];
   let cursor = "";
   for (let page = 0; page < maxPages; page++) {
@@ -826,9 +847,9 @@ async function fetchMveRawMarkets(
 }
 
 /**
- * Sports MVE combos from Get Markets. Hourly lake ingest passes a volume cap
- * (KXMVE max_markets = 80). The live executor passes null so empty-CLOB
- * same-game two-legs (volume 0) are not dropped.
+ * Sports MVE combos from Get Markets. Hourly lake ingest then keeps the
+ * two-leg listed universe (no volume cap) via keepListedSportsUniverse.
+ * The live executor passes null so n>2 counts stay in the scan.
  */
 export function collectSportsCombos(
   rawMarkets: unknown[],
@@ -861,6 +882,103 @@ export function collectSportsCombos(
     if (!keep.has(key)) comboLegs.delete(key);
   }
   return { ranked, comboLegs };
+}
+
+export type SportsComboPack = {
+  ranked: KalshiMarketRow[];
+  comboLegs: Map<string, MveLegList>;
+};
+
+function filterSportsComboPack(
+  pack: SportsComboPack,
+  keep: ReadonlySet<string>,
+): SportsComboPack {
+  const ranked = pack.ranked.filter((row) => keep.has(row.market_ticker));
+  const comboLegs = new Map<string, MveLegList>();
+  for (const [ticker, legs] of pack.comboLegs) {
+    if (keep.has(ticker)) comboLegs.set(ticker, legs);
+  }
+  return { ranked, comboLegs };
+}
+
+/**
+ * Open sports tape: every two-leg sports MVE (volume 0 included).
+ * Pin tickers (this pass's RFQ / fill) stay even if they are n>2.
+ */
+export function keepListedSportsUniverse(
+  pack: SportsComboPack,
+  pinTickers: ReadonlySet<string> = new Set(),
+): SportsComboPack {
+  const keep = new Set<string>();
+  for (const row of pack.ranked) {
+    const legs = pack.comboLegs.get(row.market_ticker) ?? [];
+    if (pinTickers.has(row.market_ticker) || isListedSportsTwoLeg(legs)) {
+      keep.add(row.market_ticker);
+    }
+  }
+  return filterSportsComboPack(pack, keep);
+}
+
+/** Volume-rank and slice for daily candles only. Settlements use the unsliced pack. */
+export function sliceSportsCandleUniverse(
+  pack: SportsComboPack,
+  cap: number,
+): SportsComboPack {
+  const ranked = rankKalshiMarkets(pack.ranked).slice(0, Math.max(0, Math.floor(cap)));
+  return filterSportsComboPack(pack, new Set(ranked.map((row) => row.market_ticker)));
+}
+
+function sportsTapePinTickers(rows: KalshiMarketRow[]): Set<string> {
+  const pin = new Set<string>();
+  for (const row of rows) {
+    const source = String(row.source || "").trim().toLowerCase();
+    if (source === "kalshi_rfq" || source === "kalshi_parlay_fill") {
+      pin.add(row.market_ticker);
+    }
+  }
+  return pin;
+}
+
+function emitKalshiSettlementRows(
+  combos: KalshiMarketRow[],
+  comboLegs: Map<string, MveLegList>,
+  legs: KalshiMarketRow[],
+): KalshiMarketRow[] {
+  const byTicker = new Map<string, KalshiMarketRow>();
+  for (const row of [...legs, ...combos]) byTicker.set(row.market_ticker, row);
+  const out: KalshiMarketRow[] = [];
+  const seen = new Set<string>();
+  const push = (row: KalshiMarketRow | null) => {
+    if (!row) return;
+    const key = `${row.market_ticker}|${row.source}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(row);
+  };
+  for (const row of [...combos, ...legs]) {
+    if (!isKalshiSettledStatus(row.status)) continue;
+    push(asSettlementSnapshot(row));
+  }
+  for (const combo of combos) {
+    if (seen.has(`${combo.market_ticker}|${KALSHI_SETTLEMENT_SOURCE}`)) continue;
+    const spec = comboLegs.get(combo.market_ticker) ?? [];
+    const inferred = inferComboSettlement(spec.map((leg) => ({
+      side: leg.side,
+      settlement: settlementYes(byTicker.get(leg.market_ticker) ?? {}),
+    })));
+    if (inferred !== 0 && inferred !== 1) continue;
+    push(asSettlementSnapshot({
+      ...combo,
+      status: "settled",
+      yes_bid: inferred,
+      yes_ask: inferred,
+      yes_last: inferred,
+      no_bid: 1 - inferred,
+      no_ask: 1 - inferred,
+      source: KALSHI_SOURCE,
+    }));
+  }
+  return out;
 }
 
 /** Leg tickers for two-leg sports stacks the executor will score. */
@@ -988,11 +1106,12 @@ export interface KalshiSportsParlayPack {
 
 /**
  * Sports parlays: MVE combo markets that name their legs, plus those leg
- * contracts. Open books are snapshotted live; settled/closed books in the
- * lookback window are daily candlesticks plus a tagged settlement 0/1
- * row (`source=kalshi_settlement`) so the backtest can grade fills
- * without mixing 0/1 into quote candles. Capped on combos (volume-first)
- * for the lake tape; every selected leg of those capped combos is kept.
+ * contracts. Open two-leg sports books are snapshotted every pass (empty
+ * 0/0 CLOB included — no KXMVE volume-80 cap). Settled/closed books in the
+ * lookback window get daily candlesticks (volume-capped) plus a tagged
+ * settlement 0/1 row (`source=kalshi_settlement`) so the backtest can grade
+ * fills. Two-leg / RFQ / fill tickers always get a settlement row even when
+ * they miss the candle volume cap. Never mix 0/1 into quote candles.
  * Optional RFQ probe (KALSHI_RFQ_PROBE_ENABLED) fills same-game combo
  * bid/ask from solicited maker quotes, then cancels — never accepts.
  * The live executor does not use this pack — see
@@ -1005,30 +1124,33 @@ export interface KalshiSportsParlayPack {
 export async function fetchKalshiSportsParlayPack(
   env: KalshiEnv = {},
 ): Promise<KalshiSportsParlayPack> {
-  const meta = Object.values(KALSHI_SERIES).find((s) => s.ingest === "mve");
-  const cap = meta ? maxMarketsFor(meta.series_ticker, env) : DEFAULT_MAX_MARKETS_PER_SERIES;
   const investing = investingKalshiSeries();
-  const openPack = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, cap);
+  const openAll = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, null);
+  const openPack = keepListedSportsUniverse(openAll);
 
   const lookbackDays = kalshiSportsLookbackDays(env);
-  let histPack = { ranked: [] as KalshiMarketRow[], comboLegs: new Map<string, MveLegList>() };
+  let histAll: SportsComboPack = { ranked: [], comboLegs: new Map() };
   const nowMs = Date.now();
   const endTs = Math.floor(nowMs / 1000);
   const startTs = endTs - lookbackDays * 86400;
   if (lookbackDays > 0) {
     try {
-      const lookbackMax = kalshiSportsLookbackMax(env);
       const extraSettled = `&min_settled_ts=${startTs}`;
       const extraClosed = `&min_close_ts=${startTs}`;
       const settledRaw = await fetchMveRawMarkets(env, "settled", extraSettled);
       const closedRaw = await fetchMveRawMarkets(env, "closed", extraClosed);
-      histPack = collectSportsCombos([...settledRaw, ...closedRaw], investing, lookbackMax);
+      histAll = collectSportsCombos([...settledRaw, ...closedRaw], investing, null);
     } catch {
-      histPack = { ranked: [], comboLegs: new Map() };
+      histAll = { ranked: [], comboLegs: new Map() };
     }
   }
 
-  const merged = mergeSportsCombos(openPack, histPack);
+  const histListed = keepListedSportsUniverse(histAll);
+  const histCandles = lookbackDays > 0
+    ? sliceSportsCandleUniverse(histListed, kalshiSportsLookbackMax(env))
+    : { ranked: [] as KalshiMarketRow[], comboLegs: new Map<string, MveLegList>() };
+
+  const merged = mergeSportsCombos(openPack, histCandles);
   const keep = new Set(merged.rows.map((row) => row.market_ticker));
   const legTickers: string[] = [];
   const seenLegs = new Set<string>();
@@ -1049,21 +1171,44 @@ export async function fetchKalshiSportsParlayPack(
   const liveWithRfq = live.map((row) => probedByTicker.get(row.market_ticker) ?? row);
   if (lookbackDays <= 0) return { rows: liveWithRfq, comboLegs: merged.comboLegs };
 
-  const candles = await fetchSportsCandles(env, bases, startTs, endTs);
-  const settlements: KalshiMarketRow[] = [];
-  for (const row of bases) {
-    if (!isKalshiSettledStatus(row.status)) continue;
-    const snap = asSettlementSnapshot(row);
-    if (snap) settlements.push(snap);
+  const pinTickers = sportsTapePinTickers(liveWithRfq);
+  const settlementPack = keepListedSportsUniverse(histAll, pinTickers);
+  const settlementCombos = settlementPack.ranked.filter((row) => isKalshiSettledStatus(row.status));
+  const extraLegTickers: string[] = [];
+  for (const combo of settlementCombos) {
+    if (asSettlementSnapshot(combo)) continue;
+    for (const leg of settlementPack.comboLegs.get(combo.market_ticker) ?? []) {
+      if (keep.has(leg.market_ticker) || seenLegs.has(leg.market_ticker)) continue;
+      seenLegs.add(leg.market_ticker);
+      extraLegTickers.push(leg.market_ticker);
+    }
   }
-  return { rows: [...liveWithRfq, ...candles, ...settlements], comboLegs: merged.comboLegs };
+  const extraLegs = extraLegTickers.length
+    ? await fetchMarketsByTickers(extraLegTickers, env)
+    : [];
+  const candles = await fetchSportsCandles(env, bases, startTs, endTs);
+  const settlements = emitKalshiSettlementRows(
+    settlementCombos,
+    settlementPack.comboLegs,
+    [...legs, ...extraLegs],
+  );
+  const comboLegs = new Map(merged.comboLegs);
+  for (const [ticker, spec] of settlementPack.comboLegs) {
+    if (!comboLegs.has(ticker)) comboLegs.set(ticker, spec);
+  }
+  return {
+    rows: [...liveWithRfq, ...candles, ...settlements],
+    comboLegs,
+  };
 }
 
 /**
- * Live executor scan: every open sports MVE from Get Markets (no lake
- * volume-80 cap), plus selected-leg snapshots for the active book's
- * two-leg sports stacks (same-game, or cross-game on the longshot book).
- * No candle backfill, no research RFQ overlay, not the full sports catalog.
+ * Live executor scan: every open sports MVE from Get Markets (including
+ * n>2 counts; no volume cap), plus selected-leg snapshots for the active
+ * book's two-leg sports stacks (same-game, or cross-game on the longshot
+ * book). Hourly lake ingest now also persists every open two-leg sports
+ * MVE. No candle backfill, no research RFQ overlay, not the full sports
+ * catalog.
  */
 export async function fetchKalshiParlayExecutorPack(
   env: KalshiEnv = {},
@@ -1105,7 +1250,7 @@ export async function fetchKalshiSeriesMarkets(
     1000,
     Math.max(1, Math.floor(num(env.KALSHI_PAGE_LIMIT, PAGE_LIMIT_DEFAULT))),
   );
-  const maxPages = Math.max(1, Math.floor(num(env.KALSHI_MAX_PAGES, MAX_PAGES_DEFAULT)));
+  const maxPages = kalshiMaxPages(env);
 
   // Skip Get Series (category enrichment) by default — each series costs an
   // extra public-API call and Kalshi 429s under the allowlist burst. Set

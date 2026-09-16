@@ -1,7 +1,7 @@
 {
   "source": "curated Kalshi series for investing-relevant event contracts (kalshi-markets-hourly)",
   "updated": "2026-09-13",
-  "note": "Kalshi has thousands of markets. Investing series are fetched by series_ticker. Sports parlays use the KXMVE ingest: open multivariate combo markets plus the legs those combos select — not the full sports/entertainment catalog. related_symbol links investing series to a lake instrument (SPY, BTC-USD, CL=F, …). Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
+  "note": "Kalshi has thousands of markets. Investing series are fetched by series_ticker and keep per-series max_markets. Sports parlays use the KXMVE ingest: every open two-leg sports MVE (empty 0/0 CLOB included) plus selected legs — not n>2 as the parlay universe, not the full sports/entertainment catalog. KXMVE max_markets does not cap that open two-leg set. related_symbol links investing series to a lake instrument (SPY, BTC-USD, CL=F, …). Edit this file to expand coverage — do not scrape the full Kalshi catalog.",
   "api_base": "https://api.elections.kalshi.com/trade-api/v2",
   "max_markets_per_series_default": 80,
   "series": [
@@ -134,7 +134,7 @@
     {
       "series_ticker": "KXMVE",
       "theme": "sports",
-      "title": "Sports parlays (multivariate combos + selected legs)",
+      "title": "Sports parlays (every open two-leg MVE + selected legs; max_markets does not cap that universe)",
       "related_symbol": null,
       "max_markets": 80,
       "ingest": "mve"
