@@ -55,8 +55,9 @@
     "KALSHI_SERIES_PACE_MS": 3000,
     "KALSHI_MIN_REQUEST_GAP_MS": 400,
     "KALSHI_MAX_PAGES": 3,
-    // Sports parlays only (KXMVE): 30 days of daily candles for open +
-    // recently settled/closed MVE combos and their selected legs.
+    // Sports parlays only (KXMVE): 30 days of daily candles (volume-capped)
+    // for recently settled/closed two-leg combos. Settlement 0/1 is not that
+    // cap. Open two-leg sports books are always snapshotted (empty CLOB ok).
     "KALSHI_SPORTS_LOOKBACK_DAYS": 30,
     "KALSHI_SPORTS_LOOKBACK_MAX": 200,
     // Solicit RFQ quotes on a capped set of same-game sports parlays so the

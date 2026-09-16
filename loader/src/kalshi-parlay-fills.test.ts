@@ -8,7 +8,7 @@ import {
   KALSHI_PARLAY_FILL_SOURCE,
   PARLAY_FILL_NO,
 } from "./kalshi-parlay-fills.js";
-import { marketRowsFromParlayFills } from "./kalshi-parlay-tape.js";
+import { marketRowsFromParlayFills, rfqRowsFromExecutorQuotes, settlementRowsFromMarketRaw } from "./kalshi-parlay-tape.js";
 import { KALSHI_SETTLEMENT_SOURCE } from "./kalshi-settlement.js";
 
 const FILL_RAW = {
@@ -81,5 +81,36 @@ describe("kalshi parlay fill tape", () => {
     const orphan = fillToMarketRow(fill);
     expect(orphan.source).toBe(KALSHI_PARLAY_FILL_SOURCE);
     expect(orphan.series_ticker).toBe("KXMVECROSSCATEGORY");
+  });
+
+  it("publishes executor RFQ two-ways when LIVE is off (never accepted)", () => {
+    const rows = rfqRowsFromExecutorQuotes(
+      [{ market_ticker: FILL_RAW.ticker, yes_bid: 0.02, yes_ask: 0.03 }],
+      new Map(),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe("kalshi_rfq");
+    expect(rows[0].yes_bid).toBeCloseTo(0.02);
+    expect(rows[0].yes_ask).toBeCloseTo(0.03);
+  });
+
+  it("emits a settlement row from Get Markets for a settled RFQ ticker", () => {
+    const raw = {
+      ticker: FILL_RAW.ticker,
+      title: "Harris 3+ AND Bregman 3+",
+      status: "settled",
+      result: "no",
+      last_price_dollars: "0.12",
+      yes_bid_dollars: "0.00",
+      yes_ask_dollars: "0.00",
+      market_type: "multivariate",
+    };
+    const rows = settlementRowsFromMarketRaw(
+      [FILL_RAW.ticker, FILL_RAW.ticker],
+      new Map([[FILL_RAW.ticker, raw]]),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe(KALSHI_SETTLEMENT_SOURCE);
+    expect(rows[0].yes_last).toBe(0);
   });
 });

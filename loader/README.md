@@ -240,15 +240,18 @@ Probe: `node --experimental-strip-types tools/macro_probe.ts`.
 Fetches **curated** Kalshi prediction-market snapshots (not the full catalog)
 and publishes to `options.kalshi_markets`. The allowlist lives in
 `symbols/kalshi-series.json` — Fed/rates, CPI, GDP, S&P/Russell/Dow levels,
-BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (multivariate
-combo markets with `mve_selected_legs`, plus those legs — open books and
-~30 days of daily candlesticks for recently settled/closed parlays). Combos
-need at least one sports leg; pure crypto 15m/daily CROSSCATEGORY stacks are not
-`theme=sports`. Investing series
+BTC/ETH ranges, WTI, plus a `KXMVE` sports-parlay ingest (every **open
+two-leg** sports MVE, including empty 0/0 CLOB books, plus those legs —
+open snapshots and ~30 days of daily candlesticks for recently
+settled/closed parlays). Combos need at least one sports leg; n>2 stacks
+and pure crypto 15m/daily CROSSCATEGORY are not the parlay universe.
+Investing series
 optionally link to a lake `related_symbol` (SPY, TLT, BTC-USD, CL=F, …) for
 Chat joins, `/research/{ticker}` event markets (`GET /api/research/{ticker}/kalshi`),
 and Kalshi trade ideas. Sports rows use `theme=sports` and
 `related_symbol=null`; they are for the parlay experiment, not Chat.
+Chat `suggest_trades` stays on investing series (`related_symbol`); a flood
+of sports 0/0 rows must not change latest-wins research for Fed/CPI/index.
 
 Public Trade API (no key): `GET /markets?series_ticker=…&status=open` for
 investing series; sports parlays use `GET /markets?mve_filter=only&status=open`
@@ -260,15 +263,20 @@ existing stream schema (no extra columns — Pipelines has no stream update).
 `@{EVENT}` is optional so older rows still parse. Candle rows set `fetched_at`
 to the candle end so latest-wins keeps a month of quotes; settlement 0/1 is a
 separate `source=kalshi_settlement` row (not mixed into candles) so the parlay
-backtest can grade fills. Each
-pass caps markets per series (volume-first; sports cap is on combos, and every
-selected leg is kept), is batch-scoped / ungated, and
+backtest can grade fills. Pipeline POSTs chunk at ~4.5 MB
+(`KALSHI_PIPELINE_MAX_BODY_BYTES`) so KXMVE bodies do not 413. Each
+pass caps **investing** series by volume (`max_markets`). The open two-leg
+sports universe is **not** that cap — empty CLOB books are valid listed
+history. Daily candles for settled/closed sports still use
+`KALSHI_SPORTS_LOOKBACK_MAX` (default 200); two-leg / RFQ / fill tickers
+still emit a settlement row when they miss that candle slice. The job is
+batch-scoped / ungated, and
 runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
 event odds move outside the US equity session. Series are paced
 (`KALSHI_SERIES_PACE_MS`, default 3000; `KALSHI_CONCURRENCY` default 1;
 `KALSHI_MIN_REQUEST_GAP_MS` default 400) to avoid Kalshi `too_many_requests`
 429s; sports lookback defaults to 30 days (`KALSHI_SPORTS_LOOKBACK_DAYS`,
-cap `KALSHI_SPORTS_LOOKBACK_MAX` 200). When `KALSHI_RFQ_PROBE_ENABLED=1` and
+daily-candle cap `KALSHI_SPORTS_LOOKBACK_MAX` 200). When `KALSHI_RFQ_PROBE_ENABLED=1` and
 trading-capable Kalshi keys are set, the KXMVE pass also solicits RFQ quotes
 on up to `KALSHI_RFQ_PROBE_MAX` (default 12) **same-game two-leg** sports
 combos ranked by corr room, maps the private two-way onto `yes_bid` /
@@ -281,9 +289,10 @@ Series is worth the extra call.
 
 Separate from the hourly tape. Buys a two-leg sports combo YES:
 
-1. Every open sports MVE from Get Markets (no lake volume-80 cap, no candle
-   backfill, no research RFQ overlay). Legs are fetched for the active
-   book's two-leg stacks (same-game, or cross-game on
+1. Every open sports MVE from Get Markets (including n>2 counts, no candle
+   backfill, no research RFQ overlay). Hourly KXMVE also persists every
+   open two-leg sports MVE (empty CLOB included). Legs are fetched for the
+   active book's two-leg stacks (same-game, or cross-game on
    `KALSHI_PARLAY_BOOK=cross_game_longshot`). Game grouping uses
    `mve_selected_legs.event_ticker`, not `category`. Do not scrape the
    full sports catalog.
@@ -332,7 +341,8 @@ Each
 executor pass publishes `GET /portfolio/fills` as
 `source=kalshi_parlay_fill` (and this pass's RFQ two-ways as
 `kalshi_rfq`) so last night's BUY NO tickets are not stuck on Kalshi's
-private book. Turning on EXECUTE skips the hourly RFQ probe
+private book. LIVE=0 still publishes those solicited two-ways; it never
+accepts. Turning on EXECUTE skips the hourly RFQ probe
 so two Creates do not 409. Force a pass from
 Actions (`force-loader-pass.yml` → `kalshi-parlay-executor`, one pass) or:
 
@@ -352,10 +362,10 @@ the other books. An empty pass records `idle_reason`
 `open_combos`, `open_legs`, `combo_legs`, `two_leg`, `same_game_two_leg`,
 `cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
 `mve_selected_legs` (including `event_ticker`) from the live API, not the
-hourly lake tape and not the lake `category` encoding. Hourly KXMVE still
-caps 80 combos by volume for research; empty-CLOB two-leg books (volume 0)
-are kept on the executor pass and ranked by cheapest independence (corr
-room on the legacy book). The scheduler shrinks
+hourly lake tape and not the lake `category` encoding. Hourly KXMVE
+persists every open two-leg sports book (empty 0/0 CLOB included); n>2
+noise is not that listed universe. Daily candles stay volume-capped.
+The scheduler shrinks
 `samples` / `considered` / `decisions` if `last_pass.detail` would exceed
 48 KB — it does not wipe counts.
 

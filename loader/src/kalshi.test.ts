@@ -9,12 +9,14 @@ import {
   kalshiAuthConfigured,
   kalshiSeriesList,
   kalshiSignPath,
+  keepListedSportsUniverse,
   normalizeKalshiRecords,
   parseKalshiMarketsPayload,
   parseKalshiNumber,
   parseMveCategory,
   publishKalshiSeries,
   rankKalshiMarkets,
+  sliceSportsCandleUniverse,
   type KalshiMarketRow,
 } from "./kalshi.js";
 
@@ -196,25 +198,44 @@ const VOL0_CROSS_GAME = {
 };
 
 describe("sports combo universe vs lake cap", () => {
-  it("volume-80 lake cap drops a volume-0 same-game two-leg; executor scan keeps it", () => {
+  it("hourly listed universe keeps volume-0 two-legs; n>2 noise is not the parlay tape; executor scan stays uncapped", () => {
     const raw = [...Array.from({ length: 80 }, (_, i) => noiseCombo(i)), VOL0_SAME_GAME, VOL0_CROSS_GAME];
     const investing = new Set<string>();
-    const lake = collectSportsCombos(raw, investing, 80);
-    const live = collectSportsCombos(raw, investing, null);
-    expect(lake.ranked).toHaveLength(80);
-    expect(lake.ranked.map((row) => row.market_ticker)).not.toContain(VOL0_SAME_GAME.ticker);
-    expect(live.ranked).toHaveLength(82);
-    expect(live.ranked.map((row) => row.market_ticker)).toContain(VOL0_SAME_GAME.ticker);
-    const comboTickers = new Set(live.ranked.map((row) => row.market_ticker));
-    expect(executorSameGameLegTickers(live.comboLegs, comboTickers)).toEqual([
+    const all = collectSportsCombos(raw, investing, null);
+    const listed = keepListedSportsUniverse(all);
+    const capped = collectSportsCombos(raw, investing, 80);
+    expect(all.ranked).toHaveLength(82);
+    expect(listed.ranked).toHaveLength(2);
+    expect(listed.ranked.map((row) => row.market_ticker)).toEqual(
+      expect.arrayContaining([VOL0_SAME_GAME.ticker, VOL0_CROSS_GAME.ticker]),
+    );
+    expect(listed.ranked.map((row) => row.market_ticker)).not.toContain(noiseCombo(0).ticker);
+    expect(capped.ranked).toHaveLength(80);
+    expect(capped.ranked.map((row) => row.market_ticker)).not.toContain(VOL0_SAME_GAME.ticker);
+    const comboTickers = new Set(all.ranked.map((row) => row.market_ticker));
+    expect(executorSameGameLegTickers(all.comboLegs, comboTickers)).toEqual([
       "KXMLBOUTS-26SEP142138SEALAA-DETMERS18",
       "KXMLBOUTS-26SEP142138SEALAA-ANDERSON16",
     ]);
-    expect(executorTwoLegSportsTickers(live.comboLegs, comboTickers, "cross_game")).toEqual([
+    expect(executorTwoLegSportsTickers(all.comboLegs, comboTickers, "cross_game")).toEqual([
       "KXNFLSPREAD-26SEP13KCDEN-KC2",
       "KXNFLSPREAD-26SEP13TBCLE-TB27",
     ]);
-    expect(executorSameGameLegTickers(lake.comboLegs, new Set(lake.ranked.map((row) => row.market_ticker)))).toEqual([]);
+    expect(executorSameGameLegTickers(listed.comboLegs, new Set(listed.ranked.map((row) => row.market_ticker)))).toEqual([
+      "KXMLBOUTS-26SEP142138SEALAA-DETMERS18",
+      "KXMLBOUTS-26SEP142138SEALAA-ANDERSON16",
+    ]);
+  });
+
+  it("pins an RFQ/fill ticker that is outside the volume candle cap", () => {
+    const raw = [...Array.from({ length: 80 }, (_, i) => noiseCombo(i)), VOL0_SAME_GAME];
+    const all = collectSportsCombos(raw, new Set(), null);
+    const listed = keepListedSportsUniverse(all, new Set([VOL0_SAME_GAME.ticker, noiseCombo(0).ticker]));
+    expect(listed.ranked.map((row) => row.market_ticker)).toContain(VOL0_SAME_GAME.ticker);
+    expect(listed.ranked.map((row) => row.market_ticker)).toContain(noiseCombo(0).ticker);
+    const candles = sliceSportsCandleUniverse(listed, 1);
+    expect(candles.ranked).toHaveLength(1);
+    expect(candles.ranked[0].market_ticker).toBe(noiseCombo(0).ticker);
   });
 });
 
@@ -502,6 +523,140 @@ describe("publishKalshiSeries sports parlays", () => {
       expect(parsed?.legs[0]?.event_ticker).toBe("KXNFLGAME-26SEP13KC");
       expect(kc?.theme).toBe("sports");
       expect(kc?.series_ticker).toBe("KXNFLGAME");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("publishes volume-0 two-leg sports books and skips n>2 noise", async () => {
+    const posts: unknown[] = [];
+    const noise = Array.from({ length: 80 }, (_, i) => noiseCombo(i));
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("mve_filter=only")) {
+        return new Response(JSON.stringify({
+          markets: [...noise, VOL0_SAME_GAME, VOL0_CROSS_GAME],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({
+          markets: [
+            { ticker: "KXMLBOUTS-26SEP142138SEALAA-DETMERS18", series_ticker: "KXMLBOUTS", title: "Detmers 18+", status: "active" },
+            { ticker: "KXMLBOUTS-26SEP142138SEALAA-ANDERSON16", series_ticker: "KXMLBOUTS", title: "Anderson 16+", status: "active" },
+            { ticker: "KXNFLSPREAD-26SEP13KCDEN-KC2", series_ticker: "KXNFLSPREAD", title: "KC -2.5", status: "active" },
+            { ticker: "KXNFLSPREAD-26SEP13TBCLE-TB27", series_ticker: "KXNFLSPREAD", title: "TB -27.5", status: "active" },
+          ],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    });
+    try {
+      const result = await publishKalshiSeries("KXMVE", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_SPORTS_LOOKBACK_DAYS: 0,
+        runId: () => "run-mve-vol0",
+      });
+      expect(result.published).toBe(true);
+      const body = (posts[0] as Array<Record<string, unknown>>);
+      const tickers = body.map((r) => r.market_ticker);
+      expect(tickers).toContain(VOL0_SAME_GAME.ticker);
+      expect(tickers).toContain(VOL0_CROSS_GAME.ticker);
+      expect(tickers).not.toContain(noiseCombo(0).ticker);
+      expect(body.filter((r) => r.market_type === "multivariate")).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("emits settlement 0/1 for a volume-0 two-leg outside the candle cap", async () => {
+    const posts: unknown[] = [];
+    const loud = Array.from({ length: 5 }, (_, i) => ({
+      ticker: `KXNFLPARLAY-26AUG-LOUD${i}`,
+      series_ticker: "KXNFLPARLAY",
+      title: `Loud ${i}`,
+      status: "settled",
+      result: "yes",
+      last_price_dollars: "1.00",
+      yes_bid_dollars: "1.00",
+      yes_ask_dollars: "1.00",
+      mve_collection_ticker: "KXMVESPORT-NFL",
+      mve_selected_legs: [
+        { event_ticker: `KXNFLGAME-26AUG${i}AAA`, market_ticker: `KXNFLGAME-26AUG${i}AAA-A`, side: "yes" },
+        { event_ticker: `KXNFLGAME-26AUG${i}BBB`, market_ticker: `KXNFLGAME-26AUG${i}BBB-B`, side: "yes" },
+      ],
+      volume_fp: "9000",
+      volume_24h_fp: "9000",
+      close_time: "2026-08-17T00:00:00Z",
+    }));
+    const quiet = {
+      ticker: "KXMLBOUTS-26AUG-QUIET",
+      series_ticker: "KXMLBOUTS",
+      title: "Quiet two-leg",
+      status: "settled",
+      result: "no",
+      last_price_dollars: "0.00",
+      yes_bid_dollars: "0.00",
+      yes_ask_dollars: "0.00",
+      mve_collection_ticker: "KXMLBOUTS",
+      mve_selected_legs: [
+        { event_ticker: "KXMLBOUTS-26AUG-SEA", market_ticker: "KXMLBOUTS-26AUG-SEA-A", side: "yes" },
+        { event_ticker: "KXMLBOUTS-26AUG-SEA", market_ticker: "KXMLBOUTS-26AUG-SEA-B", side: "yes" },
+      ],
+      volume_fp: "0",
+      volume_24h_fp: "0",
+      close_time: "2026-08-17T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/markets/candlesticks")) {
+        return new Response(JSON.stringify({ markets: [] }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only") && url.includes("status=open")) {
+        return new Response(JSON.stringify({ markets: [], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only") && url.includes("status=settled")) {
+        return new Response(JSON.stringify({ markets: [...loud, quiet], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("mve_filter=only") && url.includes("status=closed")) {
+        return new Response(JSON.stringify({ markets: [], cursor: "" }), { status: 200 });
+      }
+      if (url.includes("tickers=")) {
+        return new Response(JSON.stringify({ markets: [], cursor: "" }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response("unexpected " + url, { status: 500 });
+    });
+    try {
+      const result = await publishKalshiSeries("KXMVE", {
+        PIPELINE_KALSHI_MARKETS_URL: "https://pipeline.test/kalshi",
+        PIPELINE_AUTH_TOKEN: "tok",
+        HTTP_RETRIES: 0,
+        KALSHI_MIN_REQUEST_GAP_MS: 0,
+        KALSHI_SPORTS_LOOKBACK_DAYS: 30,
+        KALSHI_SPORTS_LOOKBACK_MAX: 3,
+        now: () => Date.parse("2026-09-13T17:00:00.000Z"),
+        runId: () => "run-mve-settle-pin",
+      });
+      expect(result.published).toBe(true);
+      const body = posts.flatMap((chunk) => chunk as Array<Record<string, unknown>>);
+      const quietSettle = body.find((r) =>
+        r.market_ticker === "KXMLBOUTS-26AUG-QUIET" && r.source === "kalshi_settlement"
+      );
+      expect(quietSettle?.yes_last).toBe(0);
+      expect(body.filter((r) => r.source === "kalshi_settlement")).toHaveLength(6);
+      expect(body.some((r) => r.market_ticker === "KXMLBOUTS-26AUG-QUIET" && r.source === "kalshi")).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }

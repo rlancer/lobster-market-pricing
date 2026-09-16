@@ -47,7 +47,8 @@ def _(attach_lake, connect, mo):
         f"""
         ## Iceberg attach
 
-        Local DuckDB: `notebooks/.cache/kalshi.duckdb` (gitignored).
+        Local DuckDB: `notebooks/.cache/kalshi.duckdb` (gitignored session
+        memo, not a warehouse). Empty `.cache` is correct on a new machine.
 
         Status: **{'attached' if _ok else 'failed'}** — `{_detail}`
 

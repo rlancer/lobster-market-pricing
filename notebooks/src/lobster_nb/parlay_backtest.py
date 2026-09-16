@@ -745,7 +745,7 @@ SELECT
   close_time, fetched_at, source
 FROM lake.options.kalshi_markets
 WHERE source IN ('kalshi_rfq', 'kalshi_settlement', 'kalshi_parlay_fill')
-LIMIT 8000
+ORDER BY fetched_at
 """
 
 LAKE_SPORTS_SQL = """
@@ -755,8 +755,7 @@ SELECT
   close_time, fetched_at, source
 FROM lake.options.kalshi_markets
 WHERE theme = 'sports' OR CAST(category AS VARCHAR) LIKE 'mve|%'
-ORDER BY fetched_at DESC
-LIMIT 8000
+ORDER BY fetched_at
 """
 
 PROBE_SQL = """
@@ -794,7 +793,11 @@ def hydrate_settlements(
     get_json_fn: Any,
     max_tickers: int = 40,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Fill missing combo 0/1 from GET /markets?tickers=… Lake rows still win."""
+    """Fill missing combo 0/1 from GET /markets?tickers=… Lake rows still win.
+
+    This is a session hydrate, not the long-term store — the loader must
+    publish ``source=kalshi_settlement`` rows.
+    """
     from urllib.parse import quote
 
     missing = missing_settlement_tickers(markets)[: max(0, min(80, max_tickers))]
@@ -858,6 +861,12 @@ def hydrate_settlements(
 
 
 def load_lake_sports_tape(conn: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """Read RFQ / settlement / fill + sports snapshots from Iceberg.
+
+    Local DuckDB is a session memo, not the warehouse. An empty
+    ``notebooks/.cache`` is correct on a new machine — attach ``lake.*``
+    and query. Do not CREATE/INSERT/DELETE on the catalog.
+    """
     notes: list[str] = []
     tape: list[dict[str, Any]] = []
     latest: list[dict[str, Any]] = []

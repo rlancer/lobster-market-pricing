@@ -3,6 +3,7 @@ import {
   encodeMveCategory,
   eventPrefixFromTicker,
   isCrossGameSportsTwoLeg,
+  isListedSportsTwoLeg,
   isSameGameSportsTwoLeg,
   isSportsParlayCandidate,
   parseMveCategory,
@@ -128,9 +129,18 @@ describe("game grouping", () => {
       { event_ticker: "KXWNBAGAME-2026-09-14-NYL-LAS", market_ticker: "KXWNBAGAME-NYL-WIN", side: "yes" },
       { event_ticker: "KXWNBAGAME-2026-09-14-NYL-LAS", market_ticker: "KXWNBAGAME-LAS-WIN", side: "yes" },
     ])).toBe(true);
-    expect(isSameGameSportsTwoLeg([
+    expect(isListedSportsTwoLeg([
       { event_ticker: "KXNFLGAME-26SEP13KC", market_ticker: "KXNFLGAME-26SEP13KC-KC", side: "yes" },
       { event_ticker: "KXNFLGAME-26SEP13BUF", market_ticker: "KXNFLGAME-26SEP13BUF-BUF", side: "yes" },
+    ])).toBe(true);
+    expect(isListedSportsTwoLeg([
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTJACK8-40", side: "yes" },
+      { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALFLOW-50", side: "yes" },
+    ])).toBe(false);
+    expect(isListedSportsTwoLeg([
+      { event_ticker: "KXBTC15M-A", market_ticker: "KXBTC15M-26SEP131430-30", side: "yes" },
+      { event_ticker: "KXETH15M-A", market_ticker: "KXETH15M-26SEP131430-30", side: "yes" },
     ])).toBe(false);
     expect(isSameGameSportsTwoLeg([
       { event_ticker: "KXNFLRSHYDS-26SEP13BALIND", market_ticker: "KXNFLRSHYDS-26SEP13BALIND-BALTENRY22-110", side: "yes" },

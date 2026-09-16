@@ -16,7 +16,7 @@ import {
   parseMveSelectedLegs,
 } from "./kalshi-mve.js";
 import { applyRfqTwoWay } from "./kalshi-rfq-quotes.js";
-import { asSettlementSnapshot } from "./kalshi-settlement.js";
+import { asSettlementSnapshot, isKalshiSettledStatus } from "./kalshi-settlement.js";
 import {
   fillToMarketRow,
   parseKalshiPortfolioFill,
@@ -204,9 +204,35 @@ export function rfqRowsFromExecutorQuotes(
   return out;
 }
 
+/** Combo 0/1 from Get Markets for tickers that already have RFQ/fill in this pass. */
+export function settlementRowsFromMarketRaw(
+  tickers: string[],
+  marketRaw: Map<string, unknown>,
+): KalshiMarketRow[] {
+  const out: KalshiMarketRow[] = [];
+  const seen = new Set<string>();
+  for (const rawTicker of tickers) {
+    const ticker = rawTicker.trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    const raw = marketRaw.get(ticker);
+    if (!raw) continue;
+    const mapped = mappedFromRaw(raw);
+    if (!mapped || !isKalshiSettledStatus(mapped.status)) continue;
+    const category = categoryFromMarketRaw(raw);
+    const snap = asSettlementSnapshot({
+      ...mapped,
+      category: category ?? mapped.category,
+    });
+    if (snap) out.push(snap);
+  }
+  return out;
+}
+
 /**
  * Portfolio combo fills + inferred settlements + this pass's RFQ two-ways.
  * Swallows individual Kalshi errors so a 429 cannot fail the executor pass.
+ * LIVE=0 still publishes solicited two-ways; it does not accept.
  */
 export async function collectKalshiParlayTape(
   env: KalshiEnv,
@@ -239,5 +265,6 @@ export async function collectKalshiParlayTape(
   return [
     ...marketRowsFromParlayFills(fills, settlements, marketRaw),
     ...rfqRowsFromExecutorQuotes(quotes, marketRaw),
+    ...settlementRowsFromMarketRaw(tickers, marketRaw),
   ];
 }
