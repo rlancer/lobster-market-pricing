@@ -324,7 +324,11 @@ Do not set LIVE=1 until the accept side matches a YES position in
 `GET /portfolio/positions`. The public notebook
 (`/experiments/kalshi-parlays`, design `kalshi-parlays-v9`) backtests the
 filter on lake RFQ two-ways against `source=kalshi_settlement` 0/1:
-strategy P&L is BUY YES at the ask; actual P&L is the fill side. Each
+strategy P&L is BUY YES at the ask; actual P&L is the fill side. Companion
+notebooks `/experiments/kalshi-parlay-books` and
+`/experiments/kalshi-parlay-payoffs` (design `kalshi-parlay-books-v1`)
+bake off underdog / payoff YES versus that filter on the same tape.
+Each
 executor pass publishes `GET /portfolio/fills` as
 `source=kalshi_parlay_fill` (and this pass's RFQ two-ways as
 `kalshi_rfq`) so last night's BUY NO tickets are not stuck on Kalshi's

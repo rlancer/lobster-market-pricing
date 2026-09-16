@@ -351,6 +351,24 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/experiments/kalshi-parlay-books') {
+    return {
+      title: pageTitle('Kalshi parlay books'),
+      description:
+        'Settlement-graded bakeoff of Kalshi sports parlay books: corr-room YES versus underdog / payoff YES on last night’s executor fills and RFQ two-ways.',
+      path: '/experiments/kalshi-parlay-books',
+    };
+  }
+
+  if (path === '/experiments/kalshi-parlay-payoffs') {
+    return {
+      title: pageTitle('Kalshi parlay payoffs'),
+      description:
+        'Combo YES price buckets versus empirical hit rate and breakeven. Why expensive NO lost money at a 65% hit rate and why cheap YES is positively skewed.',
+      path: '/experiments/kalshi-parlay-payoffs',
+    };
+  }
+
   if (path === '/docs' || path.startsWith('/docs/')) {
     const slug = path === '/docs' ? 'overview' : (segments[1] ?? 'overview');
     const doc = DOCS[slug] ?? DOCS.overview;
