@@ -24,8 +24,8 @@ Do **not** `CREATE`/`INSERT`/`DELETE` on the attached `lake.*` catalog.
 
 ## Layout
 
-- `src/lobster_nb/` — env, Iceberg attach, Kalshi RSA-PSS helpers
-- `apps/` — marimo notebooks only (so `marimo edit apps` does not open library modules)
-- `.cache/kalshi.duckdb` — local HF cache + lake attach state (gitignored)
+- `src/lobster_nb/` — env, Iceberg attach, Kalshi RSA-PSS helpers, MVE parsers, parlay books/backtest
+- `apps/` — marimo notebooks only (so `marimo edit apps` does not open library modules): `lake.py` boot, `parlay_strategies.py` sports-parlay books vs lake RFQ + live CLOB
+- `.cache/kalshi.duckdb` — local cache + lake attach state (gitignored). `strategy_runs` / `live_markets` are local tables, never `lake.*`
 
 SQL cells should use the `conn` engine from `lobster_nb.lake.connect`.

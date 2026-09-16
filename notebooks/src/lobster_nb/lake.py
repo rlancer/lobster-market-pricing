@@ -27,10 +27,20 @@ def cache_path() -> Path:
     return cache_dir() / "kalshi.duckdb"
 
 
+def session_cache_path() -> Path:
+    """Sidecar when `kalshi.duckdb` is locked by another marimo kernel."""
+    return cache_dir() / "kalshi-session.duckdb"
+
+
 def connect(path: Path | None = None) -> duckdb.DuckDBPyConnection:
     load_repo_env()
     db = path or cache_path()
-    return duckdb.connect(str(db))
+    try:
+        return duckdb.connect(str(db))
+    except Exception:
+        if path is not None:
+            raise
+        return duckdb.connect(str(session_cache_path()))
 
 
 def attach_lake(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
