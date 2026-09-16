@@ -2,6 +2,7 @@
 node = "24.12.0"
 wrangler = "latest"
 python = "3.12.11"
+uv = "latest"
 
 [env]
 PYTHONUNBUFFERED = "1"
@@ -63,3 +64,20 @@ run = "cd loader && podman build --platform linux/amd64 -t cboe-to-r2-poc ."
 [tasks.loader-container-run]
 description = "Run the loader locally in stdout mode"
 run = "cd loader && podman run --rm -p 8080:8080 -e WRITE_MODE=stdout cboe-to-r2-poc"
+
+# ---------------------------------------------------------------------------
+# Research notebooks (notebooks/) — marimo + DuckDB via uv
+# Root .env is loaded only for these tasks (Kalshi + R2 catalog tokens).
+# Other mise tasks still do not auto-load .env.
+# ---------------------------------------------------------------------------
+[tasks.notebooks-sync]
+description = "Install marimo notebook deps with uv (Python 3.12 from mise)"
+run = "cd notebooks && uv sync --python 3.12.11"
+
+[tasks.notebooks]
+description = "Open marimo research notebooks (uv; --no-token for marimo-pair). Loads root .env."
+depends = ["notebooks-sync"]
+run = "cd notebooks && uv run marimo edit apps --no-token"
+
+[tasks.notebooks.env]
+_.file = ".env"
