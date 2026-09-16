@@ -376,16 +376,15 @@ API. `mise` pins Python 3.12 + uv; the uv project lives in `notebooks/`.
 
 ```bash
 mise run notebooks-sync   # uv sync --python 3.12.11
-mise run notebooks        # marimo edit apps --no-token (loads root .env)
+mise run notebooks        # marimo edit apps --no-token (http://127.0.0.1:2718)
 ```
 
-`mise run notebooks` is the only mise task that loads the gitignored root
-`.env` (Kalshi RSA key + `R2_DATA_CATALOG_TOKEN`). It starts marimo with
-`--no-token` so [marimo-pair](https://github.com/marimo-team/marimo-pair) can
-attach to the live kernel. Query the lake as `lake.options.*` from DuckDB;
-keep high-frequency Kalshi candles in `notebooks/.cache/kalshi.duckdb`
-(gitignored). Do not write to the Iceberg catalog from notebooks. Details:
-`notebooks/AGENTS.md`.
+Notebooks load the gitignored root `.env` via python-dotenv (mise cannot parse the
+multi-line Kalshi PEM). `--no-token` lets
+[marimo-pair](https://github.com/marimo-team/marimo-pair) attach to the live
+kernel. Query the lake as `lake.options.*` from DuckDB; keep high-frequency
+Kalshi candles in `notebooks/.cache/kalshi.duckdb` (gitignored). Do not write
+to the Iceberg catalog from notebooks. Details: `notebooks/AGENTS.md`.
 
 ### Deploy
 

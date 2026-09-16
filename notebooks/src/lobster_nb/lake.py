@@ -53,9 +53,11 @@ def attach_lake(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
         conn.execute("INSTALL httpfs")
         conn.execute("LOAD httpfs")
         conn.execute("DROP SECRET IF EXISTS r2_catalog")
-        # Read the token from process env so it never appears in the SQL string.
+        # Bind the token as a parameter so it never appears in a logged SQL string.
+        # DuckDB has no getenv() scalar; CREATE SECRET only accepts a bound literal.
         conn.execute(
-            "CREATE SECRET r2_catalog (TYPE ICEBERG, TOKEN getenv('R2_DATA_CATALOG_TOKEN'))"
+            "CREATE SECRET r2_catalog (TYPE ICEBERG, TOKEN $token)",
+            {"token": token},
         )
         conn.execute(
             f"ATTACH '{WAREHOUSE}' AS {LAKE_ALIAS} ("

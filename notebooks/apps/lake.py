@@ -34,7 +34,7 @@ def _(mo, secret_presence):
         {_lines}
         """
     )
-    return (presence,)
+    return
 
 
 @app.cell
@@ -69,16 +69,18 @@ def _(mo, ping):
         {'' if kalshi_status.get('ok') else '— ' + str(kalshi_status.get('error') or '')}
         """
     )
-    return (kalshi_status,)
+    return
 
 
 @app.cell
 def _(conn, lake_status, mo, r2_sql):
     if lake_status.get("ok"):
         tables = mo.sql(
-            """
-            SHOW ALL TABLES
-            """,
+            '''
+            SELECT market_ticker, theme, status
+            FROM lake.options.kalshi_markets
+            LIMIT 5
+            ''',
             engine=conn,
         )
     else:
@@ -91,7 +93,8 @@ def _(conn, lake_status, mo, r2_sql):
             f"{_fallback.get('error') or ''}"
         )
     tables
-    return (tables,)
+
+    return
 
 
 if __name__ == "__main__":

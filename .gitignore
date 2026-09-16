@@ -34,5 +34,6 @@ loader/.backfill-state.json
 # Marimo / uv research notebooks
 notebooks/.venv/
 notebooks/.cache/
+notebooks/apps/__marimo__/
 *.duckdb
 *.duckdb.wal

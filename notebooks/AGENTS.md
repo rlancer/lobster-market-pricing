@@ -12,9 +12,11 @@ mise run notebooks-sync
 mise run notebooks
 ```
 
-`mise run notebooks` loads the gitignored root `.env` (Kalshi + R2 catalog tokens)
-and starts marimo with `--no-token` so [marimo-pair](https://github.com/marimo-team/marimo-pair)
-can attach. Open the notebook UI; the kernel is the source of truth.
+`mise run notebooks` starts marimo with `--no-token` so
+[marimo-pair](https://github.com/marimo-team/marimo-pair) can attach
+(http://127.0.0.1:2718). Notebooks load the gitignored root `.env` via
+python-dotenv (do not load that file through mise — it cannot parse the
+multi-line Kalshi PEM). Open the notebook UI; the kernel is the source of truth.
 
 Do **not** edit `apps/*.py` from the IDE while a session is running — use
 `marimo._code_mode` from the pair scratchpad. Do **not** print secret values.
