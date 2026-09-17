@@ -26,7 +26,7 @@ def _():
         tape_self_check,
     )
 
-    load_repo_env()
+    _ = load_repo_env()
     return (
         BOOK_LONGSHOT,
         COVERAGE_HOURLY_SQL,

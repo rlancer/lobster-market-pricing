@@ -44,6 +44,14 @@
       "migrations_dir": "./migrations"
     }
   ],
+  // Private snapshot bucket for admin marimo HTML exports. No r2.dev public
+  // access and no CORS on the bucket — the Worker is the only reader.
+  "r2_buckets": [
+    {
+      "binding": "MARIMO_EXPORTS",
+      "bucket_name": "lobster-marimo-exports"
+    }
+  ],
   "images": {
     "binding": "IMAGES"
   },
@@ -99,6 +107,12 @@
           "database_name": "screener-schema-cache",
           "database_id": "b0efdfb0-9774-45ea-a6f2-e12361bcb4dd",
           "migrations_dir": "./migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MARIMO_EXPORTS",
+          "bucket_name": "lobster-marimo-exports"
         }
       ],
       "images": {

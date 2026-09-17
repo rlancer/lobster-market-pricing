@@ -216,6 +216,15 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     };
   }
 
+  if (path === '/admin/marimo' || path.startsWith('/admin/marimo/')) {
+    return {
+      title: pageTitle('Marimo notebooks'),
+      description:
+        'Admin snapshots of executed marimo research notebooks (Iceberg tape backtest). Private R2 HTML — not wasm, no lake tokens in the browser.',
+      path: path.startsWith('/admin/marimo/') ? path : '/admin/marimo',
+    };
+  }
+
   if (path === '/admin/test-runs') {
     return {
       title: pageTitle('Test runs'),
@@ -229,7 +238,7 @@ export function pageMetaForUrl(pathname: string, search = ''): PageMeta {
     return {
       title: pageTitle('Admin'),
       description:
-        'Admin hub for bots, users, chats, Chat capabilities, brand, test runs, the quality gate, the Kalshi parlay bot, and an Email Service smoke test — operator tools behind one left-nav entry.',
+        'Admin hub for bots, users, chats, Chat capabilities, brand, test runs, the quality gate, the Kalshi parlay bot, marimo notebook snapshots, and an Email Service smoke test — operator tools behind one left-nav entry.',
       path: '/admin',
     };
   }

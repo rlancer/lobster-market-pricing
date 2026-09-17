@@ -1,0 +1,23 @@
+.admin-marimo-page {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.admin-marimo-back {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  width: fit-content;
+}
+
+.admin-marimo-back:hover {
+  color: var(--color-text-primary);
+}
+
+.admin-marimo-frame {
+  display: block;
+  width: 100%;
+  height: 75vh;
+  border: 0;
+  background: var(--color-background);
+  border-radius: var(--radius-md);
+}

@@ -468,6 +468,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/admin/quality-gate/remoderate` | Admin — run `remoderateListedBotShares` now (`{ok, scanned, unlisted}`). |
 | `GET /api/admin/kalshi-parlay` | Admin — Kalshi sports parlay RFQ executor monitor. Proxies loader `GET /jobs/kalshi-parlay-executor`, `GET /jobs/kalshi-markets-hourly`, and `GET /loop/status`. Stable JSON with `execute` / `live` / `idle_reason`, RFQ counts, universe mix, `book` / `contracts` / `max_spend` / `spent`, `considered` (two-leg legs + fair payout + skip reason), and decision rows. Production book is cross-game longshot YES (payout ≥ 35x). Powers `/admin/kalshi-parlay`. Never calls Kalshi from the browser. |
 | `POST /api/admin/kalshi-parlay/trigger` | Admin — force an async dry-run pass (`POST …/jobs/kalshi-parlay-executor/trigger?force=1&async=1` with server-side `LOADER_TOKEN`). **503** if the token is missing. Cannot turn `KALSHI_PARLAY_LIVE` on. Disabled in the UI while LIVE. Live size is 5 contracts ($5 notional), at most one fill per pass, $100 run cash cap. |
+| `GET /api/admin/marimo` | Admin session (or `ADMIN_TOKEN`) — catalog of executed marimo HTML snapshots in the private `lobster-marimo-exports` R2 bucket (`present`, `exported_at`, `git_sha`). Not wasm. Powers `/admin/marimo`. |
+| `GET /api/admin/marimo/{slug}` | Admin — `text/html` snapshot for one notebook (currently `lake-tape-backtest`). Iceberg ran at export time; the browser never receives lake tokens. |
 | `DELETE /api/timeline/{id}` | Remove a share from the Floor. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
@@ -582,7 +584,9 @@ feed the bot trade book on the profile.
 **Admin** (`/admin`) is the left-nav hub for operator tools. **Users** (`/users`)
 and **Chats** (`/chats`) are admin directories — signed-up
 Google identities, and every lake chat conversation (profile when signed
-in, visitor fingerprint from IP + UA when anonymous).
+in, visitor fingerprint from IP + UA when anonymous). **Marimo notebooks**
+(`/admin/marimo`) serve executed HTML snapshots of Iceberg research
+notebooks from a private R2 bucket (not html-wasm).
 **Test runs** (`/admin/test-runs`) is the QA ledger: bug description, associated
 PR, and the unlisted `/share/{id}` links. Overview e2e (and any
 `qa_batch_id` trigger) mint shares without stamping `bot_handle`, so they

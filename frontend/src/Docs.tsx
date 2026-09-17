@@ -182,6 +182,8 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/kalshi-parlay', desc: 'Admin — Kalshi sports parlay RFQ executor last_pass (execute/live/idle_reason, universe counts, considered legs + fair payout + skip reasons, would_accept decisions). Proxies the loader; never calls Kalshi from the browser.' },
   { method: 'POST', path: '/api/admin/kalshi-parlay/trigger', desc: 'Admin — force an async dry-run pass (?force=1&async=1 on the loader). Uses LOADER_TOKEN server-side. Cannot turn LIVE on. Disabled in the UI while LIVE. 503 if LOADER_TOKEN is missing.' },
+  { method: 'GET', path: '/api/admin/marimo', desc: 'Admin — catalog of executed marimo HTML snapshots in private R2 (slug, present, exported_at, git_sha). Not wasm.' },
+  { method: 'GET', path: '/api/admin/marimo/{slug}', desc: 'Admin — executed HTML snapshot for one marimo notebook (text/html). Iceberg queries ran at export time; the browser never receives lake tokens.' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },
   { method: 'GET', path: '/api/experiments/desk-approaches/design', desc: 'Public as-of snapshot catalog + approach list for the desk-approaches experiment (invented tickers; held-out 5d/20d continues the as-of tape)' },
@@ -257,7 +259,7 @@ const SURFACES = [
   {
     route: '/admin',
     title: 'Admin',
-    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), the quality-gate monitor, the Kalshi parlay RFQ executor console, a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
+    body: 'Admin-only hub (lock in the left nav) for operator tools: bots, users, chats, Chat capabilities, brand, test runs (QA batches kept off the Floor), the quality-gate monitor, the Kalshi parlay RFQ executor console, executed marimo notebook snapshots (private R2 HTML, not wasm), a Cloudflare Email Service smoke-test button, and the dataset-ready status chip. Each tool keeps its own URL; the hub replaces listing them all under the divider.',
   },
   {
     route: '/admin/quality-gate',
@@ -268,6 +270,11 @@ const SURFACES = [
     route: '/admin/kalshi-parlay',
     title: 'Kalshi parlay bot',
     body: 'Admin console for kalshi-parlay-executor. Polls GET /api/admin/kalshi-parlay (session admin or ADMIN_TOKEN) for last_pass.detail: execute/live/idle_reason, RFQ attempted/would_accept/accepted/skipped, the considered trail (two-leg books with selected legs, fair payout, and why each was skipped or taken), 5-contract ($5 notional) size, $100 run cash cap, at most one live fill per pass, universe mix, and decision rows. Production book is cross-game longshot YES (payout ≥ 35x). Force dry-run pass POSTs through the Worker with LOADER_TOKEN and is disabled while LIVE; the page never sets LIVE. Public study stays at /experiments/kalshi-parlays.',
+  },
+  {
+    route: '/admin/marimo',
+    title: 'Marimo notebooks',
+    body: 'Admin snapshots of executed marimo research notebooks. The Kalshi sports tape backtest (`lake_tape_backtest.py`) is exported with `marimo export html` (runs Iceberg on a trusted machine) and stored in the private `lobster-marimo-exports` R2 bucket. `/admin/marimo` lists snapshots; `/admin/marimo/lake-tape-backtest` iframes the HTML. html-wasm is not used — Pyodide cannot attach the lake without shipping tokens. Re-export with `node notebooks/tools/export_marimo_to_r2.mjs` or the Export marimo notebook workflow.',
   },
   {
     route: '/admin/test-runs',

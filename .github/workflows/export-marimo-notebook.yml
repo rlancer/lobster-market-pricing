@@ -1,0 +1,79 @@
+name: Export marimo notebook
+
+# Runs `marimo export html` for the Iceberg sports-tape notebook and uploads
+# the snapshot to the private lobster-marimo-exports R2 bucket. Not html-wasm:
+# the notebook needs lake tokens that must not ship to the browser.
+#
+# Required secrets: R2_DATA_CATALOG_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+# CLOUDFLARE_API_TOKEN is optional when R2_DATA_CATALOG_TOKEN has R2 Storage Admin.
+# Optional: KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_PEM for the signed ping cell.
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Catalog slug to export"
+        type: choice
+        options:
+          - lake-tape-backtest
+        default: lake-tape-backtest
+  push:
+    paths:
+      - notebooks/apps/lake_tape_backtest.py
+      - notebooks/src/lobster_nb/**
+      - notebooks/tools/export_marimo_to_r2.mjs
+      - worker/src/admin-marimo.ts
+      - .github/workflows/export-marimo-notebook.yml
+
+concurrency:
+  group: export-marimo-notebook
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    name: Export ${{ github.event_name == 'workflow_dispatch' && inputs.slug || 'lake-tape-backtest' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      KALSHI_ACCESS_KEY_ID: ${{ secrets.KALSHI_ACCESS_KEY_ID }}
+      KALSHI_PRIVATE_KEY_PEM: ${{ secrets.KALSHI_PRIVATE_KEY_PEM }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker deps (wrangler)
+        run: cd worker && npm ci
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12.11"
+
+      - name: Sync notebook deps
+        run: cd notebooks && uv sync --python 3.12.11
+
+      - name: Require lake token
+        run: |
+          set -euo pipefail
+          if [ -z "${R2_DATA_CATALOG_TOKEN:-}" ]; then
+            echo "::error::R2_DATA_CATALOG_TOKEN secret is not set"
+            exit 1
+          fi
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID secret is not set"
+            exit 1
+          fi
+
+      - name: Export HTML and upload to R2
+        run: node notebooks/tools/export_marimo_to_r2.mjs --slug "${{ github.event_name == 'workflow_dispatch' && inputs.slug || 'lake-tape-backtest' }}"

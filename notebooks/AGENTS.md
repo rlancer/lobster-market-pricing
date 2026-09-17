@@ -36,3 +36,21 @@ Do **not** `CREATE`/`INSERT`/`DELETE` on the attached `lake.*` catalog.
   Do not dump DuckDB into the lake.
 
 SQL cells should use the `conn` engine from `lobster_nb.lake.connect`.
+
+## Admin HTML snapshot
+
+`marimo export html-wasm` is the wrong fit for `lake_tape_backtest.py`: Pyodide
+cannot attach Iceberg without shipping `R2_DATA_CATALOG_TOKEN` to the browser.
+Export executed HTML instead and store it in the private
+`lobster-marimo-exports` R2 bucket (no r2.dev public access). The Worker
+serves it at `GET /api/admin/marimo/lake-tape-backtest` (admin session or
+`ADMIN_TOKEN`). The UI is `/admin/marimo`.
+
+```bash
+node notebooks/tools/export_marimo_to_r2.mjs
+# or
+mise run notebooks-export-marimo
+```
+
+The GitHub workflow **Export marimo notebook** does the same from CI. Do not
+commit the HTML; `.cache/export/` is gitignored with the rest of `.cache`.

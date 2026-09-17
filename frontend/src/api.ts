@@ -736,6 +736,20 @@ export interface QualityGateMonitor {
   improvements: QualityGateImprovement[];
 }
 
+/** Admin catalog row from GET /api/admin/marimo. */
+export interface AdminMarimoNotebook {
+  slug: string;
+  title: string;
+  description: string;
+  source: string;
+  htmlKey: string;
+  metaKey: string;
+  present: boolean;
+  exported_at: string | null;
+  git_sha: string | null;
+  bytes: number | null;
+}
+
 /** Admin monitor for GET /api/admin/kalshi-parlay (loader last_pass.detail, gated). */
 export type KalshiParlayIdleReason =
   | 'execute_off'
@@ -2403,6 +2417,14 @@ export const api = {
       '/api/admin/kalshi-parlay/trigger',
       {},
     ),
+  adminMarimoList: () => get<{ items: AdminMarimoNotebook[] }>('/api/admin/marimo'),
+  adminMarimoHtml: async (slug: string) => {
+    const r = await fetch(`${API_BASE}/api/admin/marimo/${encodeURIComponent(slug)}`, {
+      credentials: 'include',
+    });
+    if (!r.ok) throw new Error(`API ${r.status}: ${await r.text().catch(() => r.statusText)}`);
+    return r.text();
+  },
   me: () => get<ProfileMe>('/api/me'),
   updateProfile: async (body: {
     handle?: string;
