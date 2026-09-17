@@ -32,6 +32,7 @@ import { enrichAdminChatItems } from "./admin-chats";
 import { listAdminSuggestedTrades } from "./admin-trades";
 import { listAdminUsers } from "./admin-users";
 import { handleAdminKalshiParlay } from "./admin-kalshi-parlay";
+import { handleAdminMarimo } from "./admin-marimo";
 import { createAuth, getSessionUser, googleConfigured, impersonationAllowed, isTrustedOrigin, type SessionUser } from "./auth";
 import { mintDevSession, resolveImpersonationEmail } from "./dev-session";
 import {
@@ -269,6 +270,11 @@ export interface Env extends Cloudflare.Env {
   IMPROVEMENT_ISSUE_TOKEN?: string;
   /** owner/repo override; defaults to rlancer/lobster-market-pricing. */
   IMPROVEMENT_ISSUE_REPO?: string;
+  /**
+   * R2 Storage Admin token. Admin marimo snapshots are read over Cloudflare
+   * R2 REST (no wrangler r2_buckets binding — the deploy token cannot bind R2).
+   */
+  R2_DATA_CATALOG_TOKEN?: string;
 }
 
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs
@@ -4909,6 +4915,11 @@ async function handle(env: Env, req: Request, ctx: ExecutionContext): Promise<Re
     requireAdmin: (r) => requireBotAdmin(env, r),
   });
   if (kalshiParlayAdmin) return kalshiParlayAdmin;
+
+  const marimoAdmin = await handleAdminMarimo(env, req, path, {
+    requireAdmin: (r) => requireBotAdmin(env, r),
+  });
+  if (marimoAdmin) return marimoAdmin;
 
   const qaRuns = await handleQaRuns(env, req, path);
   if (qaRuns) return qaRuns;

@@ -78,3 +78,8 @@ run = "cd notebooks && uv sync --python 3.12.11"
 description = "Open marimo research notebooks (uv; --no-token for marimo-pair)"
 depends = ["notebooks-sync"]
 run = "cd notebooks && uv run marimo edit apps --no-token --host 127.0.0.1 --port 2718"
+
+[tasks.notebooks-export-marimo]
+description = "Export lake_tape_backtest to executed HTML and upload to private R2"
+depends = ["notebooks-sync"]
+run = "node notebooks/tools/export_marimo_to_r2.mjs"

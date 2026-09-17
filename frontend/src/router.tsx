@@ -28,6 +28,7 @@ import AdminPage from './AdminPage';
 import AdminTestRunsPage from './AdminTestRuns';
 import AdminQualityGatePage from './AdminQualityGate';
 import AdminKalshiParlayPage from './AdminKalshiParlay';
+import { AdminMarimoIndexPage, AdminMarimoNotebookPage } from './AdminMarimo';
 import NotebooksPage from './Notebooks';
 import TextVsImageNotebookPage from './TextVsImageNotebook';
 import DeskApproachesNotebookPage from './DeskApproachesNotebook';
@@ -289,6 +290,18 @@ const adminKalshiParlayRoute = createRoute({
   component: AdminKalshiParlayPage,
 });
 
+const adminMarimoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/marimo',
+  component: AdminMarimoIndexPage,
+});
+
+const adminMarimoNotebookRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/marimo/$slug',
+  component: AdminMarimoNotebookPage,
+});
+
 
 const experimentsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -452,6 +465,8 @@ const routeTree = rootRoute.addChildren([
   adminTestRunsRoute,
   adminQualityGateRoute,
   adminKalshiParlayRoute,
+  adminMarimoRoute,
+  adminMarimoNotebookRoute,
   experimentsRoute,
   textVsImageExperimentRoute,
   deskApproachesExperimentRoute,

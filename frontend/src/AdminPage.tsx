@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Banner, Button, Heading, HStack, Icon, List, ListItem, Text, VStack } from '@astryxdesign/core';
-import { Bot, ChevronRight, FlaskConical, Mail, MessagesSquare, Palette, ShieldCheck, Target, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import { Bot, BookOpen, ChevronRight, FlaskConical, Mail, MessagesSquare, Palette, ShieldCheck, Target, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import { ADMIN_TOOL_PATHS } from './admin';
 import { api } from './api';
 import { authClient } from './auth';
@@ -72,6 +72,12 @@ const ADMIN_TOOLS: AdminTool[] = [
     description: 'Same-game RFQ executor last_pass — $5 notional live fills, $100 run cash cap, would_accept, universe mix. This page never flips LIVE.',
     icon: Target,
   },
+  {
+    to: '/admin/marimo',
+    label: 'Marimo notebooks',
+    description: 'Executed HTML snapshots of Iceberg research notebooks (private R2). Not wasm.',
+    icon: BookOpen,
+  },
 ];
 
 type EmailTestState =
@@ -109,7 +115,7 @@ export default function AdminPage() {
       <VStack gap={2}>
         <Heading level={1}>Admin</Heading>
         <Text type="supporting">
-          Operator tools for bots, users, chats, suggested trades, Chat capabilities, brand, test runs, the quality gate, and the Kalshi parlay bot. Open one from here instead of crowding the left nav.
+          Operator tools for bots, users, chats, suggested trades, Chat capabilities, brand, test runs, the quality gate, the Kalshi parlay bot, and marimo notebook snapshots. Open one from here instead of crowding the left nav.
         </Text>
       </VStack>
 

@@ -123,13 +123,14 @@ fi
 mock="$WORKDIR/put"
 setup_mock "$mock"
 set +e
-out=$(run_sync "$mock" ADMIN_TOKEN="tok-no-nl" LOADER_TOKEN="loader/ok" 2>&1)
+out=$(run_sync "$mock" ADMIN_TOKEN="tok-no-nl" LOADER_TOKEN="loader/ok" R2_DATA_CATALOG_TOKEN="cat-tok" 2>&1)
 status=$?
 set -e
 assert_eq "$status" "0" "set secrets exit 0"
 log=$(cat "$mock/puts/log")
 assert_contains "$log" $'ADMIN_TOKEN\tscreener-api\ttok-no-nl' "ADMIN_TOKEN put with exact value"
 assert_contains "$log" $'LOADER_TOKEN\tscreener-api\tloader/ok' "LOADER_TOKEN put with exact value"
+assert_contains "$log" $'R2_DATA_CATALOG_TOKEN\tscreener-api\tcat-tok' "R2_DATA_CATALOG_TOKEN put with exact value"
 assert_eq "$(grep -c $'^TAVILY' "$mock/puts/log" || true)" "0" "unset TAVILY is not put"
 
 # 5. Retry: fail twice, succeed on third

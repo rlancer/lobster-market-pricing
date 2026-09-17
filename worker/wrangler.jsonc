@@ -44,6 +44,10 @@
       "migrations_dir": "./migrations"
     }
   ],
+  // Marimo HTML snapshots live in private bucket lobster-marimo-exports.
+  // No r2_buckets binding: the GitHub Workers deploy token cannot bind R2
+  // (Authentication error 10000). The Worker reads objects via Cloudflare
+  // R2 REST + secret R2_DATA_CATALOG_TOKEN (R2 Storage Admin).
   "images": {
     "binding": "IMAGES"
   },

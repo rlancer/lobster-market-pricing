@@ -92,6 +92,12 @@ R2_SQL_TOKEN=cfat_...
 - `R2_SQL_BUCKET` — R2 bucket with Data Catalog enabled (warehouse is `{ACCOUNT_ID}_{BUCKET}`)
 - `CORS_ORIGIN` — fallback `*` for untrusted origins. Credentialed Chat login (including `/api/auth/*`) echoes a trusted `Origin` (lobster.mp and siblings) with `Access-Control-Allow-Credentials`. Better Auth itself does not set CORS headers.
 
+Admin marimo snapshots (`GET /api/admin/marimo/{slug}`) also need
+`R2_DATA_CATALOG_TOKEN` on the Worker (R2 Storage Admin). CI syncs it from
+GitHub after publish. There is no wrangler `r2_buckets` binding — the deploy
+token cannot bind R2, so the Worker reads `lobster-marimo-exports` over the
+Cloudflare R2 REST API.
+
 ### Loader — `LOADER_TOKEN` (secret)
 
 The loader Worker (`loader/`, deployed as `cboe-to-r2`) protects its `/run`,
@@ -383,8 +389,12 @@ Notebooks load the gitignored root `.env` via python-dotenv (mise cannot parse t
 multi-line Kalshi PEM). `--no-token` lets
 [marimo-pair](https://github.com/marimo-team/marimo-pair) attach to the live
 kernel. Query the lake as `lake.options.*` from DuckDB; keep high-frequency
-Kalshi candles in `notebooks/.cache/kalshi.duckdb` (gitignored). Do not write
-to the Iceberg catalog from notebooks. Details: `notebooks/AGENTS.md`.
+Kalshi candles in `notebooks/.cache/kalshi.duckdb` (gitignored). Apps:
+`apps/lake.py` (boot), `apps/parlay_strategies.py` (lake RFQ + live CLOB
+screen), `apps/lake_tape_backtest.py` (Iceberg-only sports tape backtest).
+Do not write to the Iceberg catalog from notebooks. An executed HTML snapshot
+of the tape notebook is served to admins at `/admin/marimo` (private R2,
+not html-wasm). Details: `notebooks/AGENTS.md`.
 
 ### Deploy
 
@@ -466,6 +476,8 @@ mise run loader-deploy    # npx wrangler deploy → cboe-to-r2 Worker + containe
 | `POST /api/admin/quality-gate/remoderate` | Admin — run `remoderateListedBotShares` now (`{ok, scanned, unlisted}`). |
 | `GET /api/admin/kalshi-parlay` | Admin — Kalshi sports parlay RFQ executor monitor. Proxies loader `GET /jobs/kalshi-parlay-executor`, `GET /jobs/kalshi-markets-hourly`, and `GET /loop/status`. Stable JSON with `execute` / `live` / `idle_reason`, RFQ counts, universe mix, `book` / `contracts` / `max_spend` / `spent`, `considered` (two-leg legs + fair payout + skip reason), and decision rows. Production book is cross-game longshot YES (payout ≥ 35x). Powers `/admin/kalshi-parlay`. Never calls Kalshi from the browser. |
 | `POST /api/admin/kalshi-parlay/trigger` | Admin — force an async dry-run pass (`POST …/jobs/kalshi-parlay-executor/trigger?force=1&async=1` with server-side `LOADER_TOKEN`). **503** if the token is missing. Cannot turn `KALSHI_PARLAY_LIVE` on. Disabled in the UI while LIVE. Live size is 5 contracts ($5 notional), at most one fill per pass, $100 run cash cap. |
+| `GET /api/admin/marimo` | Admin session (or `ADMIN_TOKEN`) — catalog of executed marimo HTML snapshots in the private `lobster-marimo-exports` R2 bucket (`present`, `exported_at`, `git_sha`). Worker reads via Cloudflare R2 REST + `R2_DATA_CATALOG_TOKEN`; no wrangler `r2_buckets` binding. Not wasm. Powers `/admin/marimo`. |
+| `GET /api/admin/marimo/{slug}` | Admin — `text/html` snapshot for one notebook (currently `lake-tape-backtest`). Iceberg ran at export time; the browser never receives lake tokens. |
 | `DELETE /api/timeline/{id}` | Remove a share from the Floor. The unlisted `/share/{id}` link still works. Owner of a human listing, or any admin (admins can also unlist bot shares by clearing `bot_handle`). |
 | `GET /api/bots` | Public list of enabled bot profiles (`handle`, `display_name`, `persona`, `bio`). |
 | `GET /api/bots/{handle}` | Public bot profile (enabled only). |
@@ -580,7 +592,10 @@ feed the bot trade book on the profile.
 **Admin** (`/admin`) is the left-nav hub for operator tools. **Users** (`/users`)
 and **Chats** (`/chats`) are admin directories — signed-up
 Google identities, and every lake chat conversation (profile when signed
-in, visitor fingerprint from IP + UA when anonymous).
+in, visitor fingerprint from IP + UA when anonymous). **Marimo notebooks**
+(`/admin/marimo`) serve executed HTML snapshots of Iceberg research
+notebooks from a private R2 bucket over REST (not html-wasm, not a Worker
+`r2_buckets` binding).
 **Test runs** (`/admin/test-runs`) is the QA ledger: bug description, associated
 PR, and the unlisted `/share/{id}` links. Overview e2e (and any
 `qa_batch_id` trigger) mint shares without stamping `bot_handle`, so they

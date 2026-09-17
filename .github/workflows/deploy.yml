@@ -177,6 +177,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
           SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
         run: bash ../.github/scripts/sync-screener-secrets.sh screener-api
         working-directory: worker
 
@@ -259,6 +260,7 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SCHWAB_CLIENT_ID: ${{ secrets.SCHWAB_CLIENT_ID }}
           SCHWAB_CLIENT_SECRET: ${{ secrets.SCHWAB_CLIENT_SECRET }}
+          R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
         run: bash ../.github/scripts/sync-screener-secrets.sh screener-api-dev
         working-directory: worker
 

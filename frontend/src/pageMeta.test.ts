@@ -80,6 +80,9 @@ test('chat, monitor, admin, brand, bots, users, chats, account, and share have r
   assert.match(pageMetaForUrl('/admin/quality-gate').description ?? '', /quality monitor/);
   assert.equal(pageMetaForUrl('/admin/kalshi-parlay').title, `Kalshi parlay bot · ${SITE_NAME}`);
   assert.match(pageMetaForUrl('/admin/kalshi-parlay').description ?? '', /\$5 notional/);
+  assert.equal(pageMetaForUrl('/admin/marimo').title, `Marimo notebooks · ${SITE_NAME}`);
+  assert.match(pageMetaForUrl('/admin/marimo').description ?? '', /Private R2/);
+  assert.equal(pageMetaForUrl('/admin/marimo/lake-tape-backtest').path, '/admin/marimo/lake-tape-backtest');
   assert.equal(pageMetaForUrl('/brand').title, `Brand · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/bots').title, `Bots · ${SITE_NAME}`);
   assert.equal(pageMetaForUrl('/users').title, `Users · ${SITE_NAME}`);
