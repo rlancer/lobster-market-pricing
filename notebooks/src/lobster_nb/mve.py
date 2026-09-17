@@ -191,6 +191,13 @@ def _is_sports_two_leg(legs: list[MveSelectedLeg]) -> bool:
     return all(mve_leg_kind(t) == "sports" for t in tickers)
 
 
+def is_listed_sports_two_leg(legs: list[MveSelectedLeg] | tuple[MveSelectedLeg, ...]) -> bool:
+    """Hourly listed universe: two legs, not crypto-only. n>2 is not the parlay tape."""
+    if len(legs) != 2:
+        return False
+    return mve_tape_kind([leg.market_ticker for leg in legs]) != "crypto_mve"
+
+
 def is_same_game_sports_two_leg(legs: list[MveSelectedLeg]) -> bool:
     if not _is_sports_two_leg(legs):
         return False

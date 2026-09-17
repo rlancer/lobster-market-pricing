@@ -11,9 +11,11 @@ from typing import Any, Iterable, Literal
 
 from lobster_nb.mve import (
     ParsedMveCategory,
+    is_listed_sports_two_leg,
     mve_tape_kind,
     parse_mve_category,
     parlay_game_group,
+    series_ticker_from_market_ticker,
     sports_game_key,
 )
 from lobster_nb.parlay import (
@@ -65,8 +67,13 @@ def _iso(raw: Any) -> str | None:
 
 
 def coerce_market(row: dict[str, Any]) -> dict[str, Any]:
+    ticker = _str(row.get("market_ticker")).upper()
+    series = _str(row.get("series_ticker")).upper() or (
+        series_ticker_from_market_ticker(ticker) if ticker else ""
+    )
     return {
-        "market_ticker": _str(row.get("market_ticker")).upper(),
+        "series_ticker": series or None,
+        "market_ticker": ticker,
         "event_ticker": _str(row.get("event_ticker")).upper() or None,
         "title": _str(row.get("title")) or _str(row.get("market_ticker")),
         "category": _str(row.get("category")) or None,
@@ -136,8 +143,20 @@ def is_rfq_two_way(row: dict[str, Any]) -> bool:
     )
 
 
-def ticker_settlement(snaps: list[dict[str, Any]]) -> Literal[0, 1] | None:
+def ticker_settlement(
+    snaps: list[dict[str, Any]],
+    at_ms: float | None = None,
+) -> Literal[0, 1] | None:
+    """Grade with later ``source=kalshi_settlement`` only.
+
+    Candle / hourly 0/1 prints are not outcomes. A settlement row whose
+    ``fetched_at`` is before the RFQ or fill is ignored (no leakage).
+    """
     for row in snaps:
+        if not is_kalshi_settlement_source(row.get("source")):
+            continue
+        if at_ms is not None and fetched_ms(row) < at_ms:
+            continue
         yes = settlement_yes(row)
         if yes in (0, 1):
             return yes
@@ -350,10 +369,10 @@ def score_quote(
     )
     books = {book: evaluate_parlay_executor_quote(inp, book, knobs) for book in BOOKS}
     any_decision = books[BOOK_CORR_ROOM]
-    combo_settle = ticker_settlement(by_ticker.get(combo["market_ticker"], []))
+    combo_settle = ticker_settlement(by_ticker.get(combo["market_ticker"], []), at_ms)
     leg_settle = infer_combo_settlement(
         [
-            (spec.side, ticker_settlement(by_ticker.get(spec.market_ticker, [])))
+            (spec.side, ticker_settlement(by_ticker.get(spec.market_ticker, []), at_ms))
             for spec in parsed.legs
         ]
     )
@@ -410,7 +429,7 @@ def score_live_fills(
             if row.get("liquidity") is not None and isfinite(row["liquidity"])
             else contracts * kalshi_taker_fee(no_price if fill_side == "no" else yes_price)
         )
-        settlement = ticker_settlement(by_ticker.get(row["market_ticker"], []))
+        settlement = ticker_settlement(by_ticker.get(row["market_ticker"], []), fetched_ms(row))
         actual = yes_cf = None
         if settlement in (0, 1):
             actual, yes_cf = live_fill_pnl(
@@ -452,7 +471,7 @@ def score_live_fills(
         hit_rate=_hit_rate(wins, settled),
         actual_pnl=round4(actual_pnl),
         yes_counterfactual_pnl=round4(yes_cf_pnl),
-        fills=tickets[:24],
+        fills=tickets,
     )
 
 
@@ -738,25 +757,38 @@ def score_live_combos(
     return rows, notes
 
 
-LAKE_TAPE_SQL = """
-SELECT
-  market_ticker, event_ticker, title, category, status, theme, market_type,
+LAKE_COLS = """
+  series_ticker, market_ticker, event_ticker, title, category, status, theme, market_type,
   yes_bid, yes_ask, yes_last, no_bid, volume, liquidity, yes_subtitle,
   close_time, fetched_at, source
+"""
+
+LAKE_TAPE_SQL = f"""
+SELECT {LAKE_COLS}
 FROM lake.options.kalshi_markets
 WHERE source IN ('kalshi_rfq', 'kalshi_settlement', 'kalshi_parlay_fill')
 ORDER BY fetched_at
 """
 
-LAKE_SPORTS_SQL = """
-SELECT
-  market_ticker, event_ticker, title, category, status, theme, market_type,
-  yes_bid, yes_ask, yes_last, no_bid, volume, liquidity, yes_subtitle,
-  close_time, fetched_at, source
+LAKE_SPORTS_SQL = f"""
+SELECT {LAKE_COLS}
 FROM lake.options.kalshi_markets
 WHERE theme = 'sports' OR CAST(category AS VARCHAR) LIKE 'mve|%'
 ORDER BY fetched_at
 """
+
+# Listed KXMVE* combos. series_ticker is KXMVECROSSCATEGORY (LIKE 'KXMVE%'),
+# not the ingest id `KXMVE`. Empty 0/0 CLOB rows are valid listed history.
+LAKE_LISTED_UNIVERSE_SQL = f"""
+SELECT {LAKE_COLS}
+FROM lake.options.kalshi_markets
+WHERE theme = 'sports'
+  AND CAST(category AS VARCHAR) LIKE 'mve|%'
+  AND CAST(series_ticker AS VARCHAR) LIKE 'KXMVE%'
+ORDER BY fetched_at
+"""
+
+LAKE_GRADE_TAPE_SQL = LAKE_TAPE_SQL
 
 PROBE_SQL = """
 SELECT market_ticker, source, theme, status, yes_bid, yes_ask, fetched_at
@@ -765,11 +797,287 @@ WHERE theme = 'sports'
 LIMIT 20
 """
 
+PROBE_SERIES_SQL = """
+SELECT CAST(series_ticker AS VARCHAR) AS series_ticker, COUNT(*) AS n
+FROM lake.options.kalshi_markets
+WHERE theme = 'sports'
+  AND CAST(category AS VARCHAR) LIKE 'mve|%'
+GROUP BY 1
+ORDER BY n DESC
+LIMIT 20
+"""
 
-def query_dicts(conn: Any, sql: str) -> list[dict[str, Any]]:
-    rel = conn.execute(sql)
+COVERAGE_HOURLY_SQL = f"""
+SELECT
+  date_trunc('hour', TRY_CAST(fetched_at AS TIMESTAMP)) AS hour,
+  COUNT(DISTINCT market_ticker) AS combo_tickers,
+  COUNT(*) AS rows
+FROM lake.options.kalshi_markets
+WHERE theme = 'sports'
+  AND CAST(category AS VARCHAR) LIKE 'mve|%'
+  AND CAST(series_ticker AS VARCHAR) LIKE 'KXMVE%'
+  AND LOWER(CAST(source AS VARCHAR)) = 'kalshi'
+  AND CAST(fetched_at AS VARCHAR) NOT LIKE '%T04:00:00%'
+  AND CAST(fetched_at AS VARCHAR) NOT LIKE '% 04:00:00%'
+GROUP BY 1
+ORDER BY 1
+"""
+
+
+def query_dicts(conn: Any, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+    rel = conn.execute(sql, params) if params is not None else conn.execute(sql)
     cols = [d[0] for d in rel.description]
     return [dict(zip(cols, row)) for row in rel.fetchall()]
+
+
+KXMVE_SERIES_PREFIX = "KXMVE"
+HOURLY_LISTED_SINCE = "2026-09-16"
+SEP15_FILL_START_MS = datetime(2026, 9, 14, 19, 0, tzinfo=timezone.utc).timestamp() * 1000
+SEP15_FILL_END_MS = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc).timestamp() * 1000
+
+
+def is_kxmve_series(series: str | None, market_ticker: str | None = None) -> bool:
+    """True for ``KXMVE`` *and* ``KXMVECROSSCATEGORY`` (LIKE 'KXMVE%')."""
+    raw = _str(series).upper()
+    if not raw and market_ticker:
+        raw = series_ticker_from_market_ticker(market_ticker)
+    return raw.startswith(KXMVE_SERIES_PREFIX)
+
+
+def _as_utc(raw: Any) -> datetime | None:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        dt = raw
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def is_daily_candle_snapshot(row: dict[str, Any]) -> bool:
+    """``source=kalshi`` daily candles. ``fetched_at`` is often ``T04:00:00Z``."""
+    if str(row.get("source") or "").lower() != "kalshi":
+        return False
+    dt = _as_utc(row.get("fetched_at"))
+    if dt is None:
+        blob = str(row.get("fetched_at") or "")
+        return "T04:00:00" in blob or " 04:00:00" in blob
+    return dt.hour == 4 and dt.minute == 0 and dt.second == 0
+
+
+def is_hourly_listed_snapshot(row: dict[str, Any]) -> bool:
+    if str(row.get("source") or "").lower() != "kalshi":
+        return False
+    return not is_daily_candle_snapshot(row)
+
+
+def is_empty_clob(row: dict[str, Any]) -> bool:
+    bid = row.get("yes_bid")
+    ask = row.get("yes_ask")
+    if bid is None or ask is None:
+        return False
+    return (bid == 0 and ask == 0) or (bid == 0 and ask == 1)
+
+
+def tape_row_kind(row: dict[str, Any]) -> str:
+    source = str(row.get("source") or "").strip().lower()
+    if source == KALSHI_RFQ_SOURCE:
+        return "rfq"
+    if source == "kalshi_settlement":
+        return "settlement"
+    if source == "kalshi_parlay_fill":
+        return "fill"
+    if source == "kalshi":
+        return "candle" if is_daily_candle_snapshot(row) else "hourly"
+    return source or "unknown"
+
+
+def listed_two_leg_combo(row: dict[str, Any]) -> ParsedMveCategory | None:
+    parsed = parse_mve_category(row.get("category"))
+    if not parsed or not is_listed_sports_two_leg(parsed.legs):
+        return None
+    if not is_kxmve_series(row.get("series_ticker"), row.get("market_ticker")):
+        return None
+    return parsed
+
+
+def hour_key(raw: Any) -> str | None:
+    dt = _as_utc(raw)
+    if dt is None:
+        return None
+    return dt.replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def day_key(raw: Any) -> str | None:
+    dt = _as_utc(raw)
+    if dt is None:
+        return None
+    return dt.date().isoformat()
+
+
+def coverage_over_time(markets: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Hourly ``source=kalshi`` listed two-leg counts. Empty 0/0 CLOB is valid."""
+    hourly: dict[str, dict[str, Any]] = {}
+    skipped_n3 = 0
+    skipped_crypto = 0
+    empty_rows = 0
+    for raw in markets:
+        row = coerce_market(raw) if "market_ticker" in raw else raw
+        if not is_hourly_listed_snapshot(row):
+            continue
+        parsed = parse_mve_category(row.get("category"))
+        if not parsed:
+            continue
+        if not is_kxmve_series(row.get("series_ticker"), row.get("market_ticker")):
+            continue
+        if len(parsed.legs) != 2:
+            skipped_n3 += 1
+            continue
+        if mve_tape_kind([leg.market_ticker for leg in parsed.legs]) == "crypto_mve":
+            skipped_crypto += 1
+            continue
+        if not is_listed_sports_two_leg(parsed.legs):
+            continue
+        hour = hour_key(row.get("fetched_at"))
+        if not hour:
+            continue
+        bucket = hourly.setdefault(
+            hour,
+            {
+                "hour": hour,
+                "day": day_key(row.get("fetched_at")),
+                "tickers": set(),
+                "rows": 0,
+                "empty_clob": 0,
+            },
+        )
+        bucket["tickers"].add(row["market_ticker"])
+        bucket["rows"] += 1
+        if is_empty_clob(row):
+            bucket["empty_clob"] += 1
+            empty_rows += 1
+    hours = []
+    for hour in sorted(hourly):
+        bucket = hourly[hour]
+        n = len(bucket["tickers"])
+        hours.append(
+            {
+                "hour": hour,
+                "day": bucket["day"],
+                "two_leg_tickers": n,
+                "rows": bucket["rows"],
+                "empty_clob": bucket["empty_clob"],
+                "gte_80": n >= 80,
+                "after_listed_universe": (bucket["day"] or "") >= HOURLY_LISTED_SINCE,
+            }
+        )
+    daily: dict[str, dict[str, Any]] = {}
+    for row in hours:
+        day = row["day"] or ""
+        slot = daily.setdefault(
+            day,
+            {"day": day, "hours": 0, "max_two_leg": 0, "hours_gte_80": 0},
+        )
+        slot["hours"] += 1
+        slot["max_two_leg"] = max(slot["max_two_leg"], row["two_leg_tickers"])
+        if row["gte_80"]:
+            slot["hours_gte_80"] += 1
+    days = [daily[k] for k in sorted(daily)]
+    recent = [h for h in hours if h["after_listed_universe"]]
+    summary = {
+        "hours": len(hours),
+        "skipped_n3": skipped_n3,
+        "skipped_crypto": skipped_crypto,
+        "empty_clob_rows": empty_rows,
+        "max_two_leg": max((h["two_leg_tickers"] for h in hours), default=0),
+        "recent_hours": len(recent),
+        "recent_hours_gte_80": sum(1 for h in recent if h["gte_80"]),
+        "listed_universe_since": HOURLY_LISTED_SINCE,
+    }
+    return hours, days, summary
+
+
+def source_mix(markets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = defaultdict(int)
+    for raw in markets:
+        row = coerce_market(raw) if "market_ticker" in raw else raw
+        counts[tape_row_kind(row)] += 1
+    return [{"kind": kind, "n": counts[kind]} for kind in sorted(counts)]
+
+
+def sep15_buy_no_fills(live: LiveFillCohort) -> list[LiveFill]:
+    """Production BUY NO tickets around 2026-09-14 evening / 2026-09-15 UTC."""
+    out: list[LiveFill] = []
+    for ticket in live.fills:
+        if ticket.fill_side != "no":
+            continue
+        ms = fetched_ms({"fetched_at": ticket.quoted_at})
+        if ms < SEP15_FILL_START_MS or ms > SEP15_FILL_END_MS:
+            continue
+        out.append(ticket)
+    return out
+
+
+def _leg_tickers(markets: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    combo_tickers = {row["market_ticker"] for row in markets if row.get("market_ticker")}
+    for row in markets:
+        parsed = parse_mve_category(row.get("category"))
+        if not parsed:
+            continue
+        for spec in parsed.legs:
+            ticker = spec.market_ticker
+            if not ticker or ticker in seen or ticker in combo_tickers:
+                continue
+            seen.add(ticker)
+            out.append(ticker)
+    return out
+
+
+def _query_tickers(
+    conn: Any,
+    tickers: list[str],
+    *,
+    skip_daily_candles: bool = False,
+) -> list[dict[str, Any]]:
+    """Join Iceberg once. Temp table is local DuckDB, not ``lake.*``."""
+    if not tickers:
+        return []
+    conn.execute("CREATE OR REPLACE TEMP TABLE nb_leg_tickers (market_ticker VARCHAR)")
+    conn.executemany(
+        "INSERT INTO nb_leg_tickers VALUES (?)",
+        [(ticker,) for ticker in tickers],
+    )
+    cols = ", ".join(f"m.{name.strip()}" for name in LAKE_COLS.split(",") if name.strip())
+    candle_clause = ""
+    if skip_daily_candles:
+        candle_clause = """
+          AND NOT (
+            LOWER(CAST(m.source AS VARCHAR)) = 'kalshi'
+            AND EXTRACT(hour FROM TRY_CAST(m.fetched_at AS TIMESTAMP)) = 4
+            AND EXTRACT(minute FROM TRY_CAST(m.fetched_at AS TIMESTAMP)) = 0
+            AND EXTRACT(second FROM TRY_CAST(m.fetched_at AS TIMESTAMP)) = 0
+          )
+        """
+    sql = (
+        f"SELECT {cols} FROM lake.options.kalshi_markets m "
+        f"JOIN nb_leg_tickers t ON m.market_ticker = t.market_ticker "
+        f"{candle_clause} ORDER BY m.fetched_at"
+    )
+    return query_dicts(conn, sql)
 
 
 def missing_settlement_tickers(markets: list[dict[str, Any]]) -> list[str]:
@@ -893,6 +1201,71 @@ def load_lake_sports_tape(conn: Any) -> tuple[list[dict[str, Any]], list[str]]:
     return out, notes
 
 
+def load_lake_tape(conn: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """Iceberg listed-universe + RFQ/settlement/fill + selected legs.
+
+    Cold start is clone + root ``.env``. Local DuckDB is a session memo, not
+    the warehouse. Do not CREATE/INSERT/DELETE on ``lake.*``.
+    """
+    notes: list[str] = []
+    listed: list[dict[str, Any]] = []
+    tape: list[dict[str, Any]] = []
+    try:
+        listed = query_dicts(conn, LAKE_LISTED_UNIVERSE_SQL)
+    except Exception as exc:
+        notes.append(f"listed-universe query failed: {str(exc)[:200]}")
+    try:
+        tape = query_dicts(conn, LAKE_GRADE_TAPE_SQL)
+    except Exception as exc:
+        notes.append(f"grade-tape query failed: {str(exc)[:200]}")
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for raw in [*tape, *listed]:
+        row = coerce_market(raw)
+        if not row["market_ticker"]:
+            continue
+        key = f"{row['market_ticker']}|{row.get('source') or ''}|{row.get('fetched_at') or ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    legs: list[dict[str, Any]] = []
+    needed = _leg_tickers(out)
+    try:
+        legs = _query_tickers(conn, needed, skip_daily_candles=True)
+    except Exception as exc:
+        notes.append(f"leg query failed: {str(exc)[:200]}")
+    for raw in legs:
+        row = coerce_market(raw)
+        if not row["market_ticker"]:
+            continue
+        key = f"{row['market_ticker']}|{row.get('source') or ''}|{row.get('fetched_at') or ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    mix = {item["kind"]: item["n"] for item in source_mix(out)}
+    notes.append(
+        f"Loaded {len(out)} lake rows "
+        f"(listed={len(listed)}, tape={len(tape)}, legs={len(legs)}, "
+        f"hourly={mix.get('hourly', 0)}, candle={mix.get('candle', 0)}, "
+        f"rfq={mix.get('rfq', 0)}, settlement={mix.get('settlement', 0)}, "
+        f"fill={mix.get('fill', 0)})."
+    )
+    notes.append(
+        "Universe is theme=sports, category LIKE 'mve|%', series_ticker LIKE "
+        "'KXMVE%' (KXMVECROSSCATEGORY, not the ingest id KXMVE). n>2 and "
+        "crypto-only stacks are not the listed tape. Empty 0/0 CLOB is valid."
+    )
+    notes.append(
+        "Hourly source=kalshi snapshots are split from daily candles "
+        "(fetched_at often T04:00:00Z). Leg quotes skip those candles so RFQ "
+        "alignment uses the hourly book. Grade RFQ/fills with later "
+        "source=kalshi_settlement only."
+    )
+    return out, notes
+
+
 def ensure_strategy_runs(conn: Any) -> None:
     conn.execute(
         """
@@ -978,3 +1351,181 @@ def live_book_summary(live_rows: list[dict[str, Any]], knobs: ParlayKnobs) -> li
                 }
             )
     return out
+
+
+def tape_self_check() -> list[str]:
+    """Iceberg tape helpers: series prefix, candle split, no-leakage settlement."""
+    from lobster_nb.mve import MveSelectedLeg, encode_mve_category
+
+    errors: list[str] = []
+
+    def check(cond: bool, msg: str) -> None:
+        if not cond:
+            errors.append(msg)
+
+    check(is_kxmve_series("KXMVECROSSCATEGORY"), "KXMVECROSSCATEGORY is KXMVE*")
+    check(is_kxmve_series("KXMVE"), "ingest id KXMVE still matches LIKE")
+    check(not is_kxmve_series("KXNFLGAME"), "NFL series is not KXMVE*")
+    check(not is_kxmve_series(None, "KXNFLRSHYDS-26SEP13BAL"), "leg ticker is not KXMVE*")
+
+    sports_cat = encode_mve_category(
+        "KXMVECROSSCATEGORY-SHARD1-R",
+        [
+            MveSelectedLeg("KXNFLGAME-26SEP14KCBUF", "KXNFLRSHYDS-A", "yes"),
+            MveSelectedLeg("KXNFLGAME-26SEP14DETWSH", "KXNFLRSHYDS-B", "yes"),
+        ],
+    )
+    n3_cat = encode_mve_category(
+        "KXMVECROSSCATEGORY-SHARD1-R",
+        [
+            MveSelectedLeg("KXNFLGAME-A", "KXNFLRSHYDS-A", "yes"),
+            MveSelectedLeg("KXNFLGAME-B", "KXNFLRSHYDS-B", "yes"),
+            MveSelectedLeg("KXNFLGAME-C", "KXNFLRSHYDS-C", "yes"),
+        ],
+    )
+    crypto_cat = encode_mve_category(
+        "KXMVECROSSCATEGORY-SHARD1-R",
+        [
+            MveSelectedLeg(None, "KXBTC15M-100", "yes"),
+            MveSelectedLeg(None, "KXETH15M-200", "yes"),
+        ],
+    )
+
+    def row(**kwargs: Any) -> dict[str, Any]:
+        base = {
+            "series_ticker": "KXMVECROSSCATEGORY",
+            "market_ticker": "KXMVECROSSCATEGORY-COMBO",
+            "event_ticker": None,
+            "title": "combo",
+            "category": sports_cat,
+            "status": "active",
+            "market_type": "multivariate",
+            "yes_bid": 0.0,
+            "yes_ask": 0.0,
+            "yes_last": 0.0,
+            "no_bid": 1.0,
+            "volume": 0,
+            "liquidity": None,
+            "yes_subtitle": None,
+            "close_time": None,
+            "fetched_at": "2026-09-16T18:12:03.123Z",
+            "source": "kalshi",
+            "theme": "sports",
+        }
+        base.update(kwargs)
+        return coerce_market(base)
+
+    hourly = row()
+    candle = row(fetched_at="2026-09-16T04:00:00.000Z", yes_bid=0.0, yes_ask=0.0, yes_last=1.0)
+    check(is_hourly_listed_snapshot(hourly), "hourly snapshot")
+    check(is_daily_candle_snapshot(candle), "T04:00:00Z is a candle")
+    check(not is_hourly_listed_snapshot(candle), "candles are not hourly")
+    check(is_empty_clob(hourly), "empty 0/0 CLOB is valid listed")
+
+    hours, days, summary = coverage_over_time(
+        [
+            hourly,
+            row(market_ticker="KXMVECROSSCATEGORY-TWO", fetched_at="2026-09-16T18:12:04Z"),
+            row(market_ticker="KXMVECROSSCATEGORY-N3", category=n3_cat),
+            row(market_ticker="KXMVECROSSCATEGORY-CRYPTO", category=crypto_cat),
+            candle,
+        ]
+    )
+    check(summary["skipped_n3"] == 1, "n>2 not universe")
+    check(summary["skipped_crypto"] == 1, "crypto-only not universe")
+    check(len(hours) == 1 and hours[0]["two_leg_tickers"] == 2, "hourly two-leg count")
+    check(hours[0]["empty_clob"] == 2, "0/0 counted")
+    check(days[0]["day"] == "2026-09-16", "daily rollup")
+
+    rfq_at = "2026-09-14T23:10:00.000Z"
+    fill_at = "2026-09-15T00:52:39.777723Z"
+    markets = [
+        row(
+            market_ticker="KXMVECROSSCATEGORY-RFQ",
+            category=sports_cat,
+            yes_bid=0.02,
+            yes_ask=0.0267,
+            yes_last=0.023,
+            source="kalshi_rfq",
+            fetched_at=rfq_at,
+        ),
+        row(
+            market_ticker="KXMVECROSSCATEGORY-RFQ",
+            category=sports_cat,
+            yes_bid=0,
+            yes_ask=0,
+            yes_last=1,
+            source="kalshi",
+            fetched_at="2026-09-15T04:00:00.000Z",
+        ),
+        row(
+            market_ticker="KXMLB-LEG-EARLY",
+            series_ticker="KXMLBHITS",
+            category=None,
+            market_type="binary",
+            yes_bid=0,
+            yes_ask=0,
+            yes_last=0,
+            source="kalshi_settlement",
+            fetched_at="2026-09-14T12:00:00.000Z",
+        ),
+        row(
+            market_ticker="KXNFLRSHYDS-A",
+            series_ticker="KXNFLRSHYDS",
+            event_ticker="KXNFLGAME-26SEP14KCBUF",
+            category=None,
+            market_type="binary",
+            yes_bid=0.47,
+            yes_ask=0.49,
+            yes_last=0.48,
+            fetched_at=rfq_at,
+        ),
+        row(
+            market_ticker="KXNFLRSHYDS-B",
+            series_ticker="KXNFLRSHYDS",
+            event_ticker="KXNFLGAME-26SEP14DETWSH",
+            category=None,
+            market_type="binary",
+            yes_bid=0.15,
+            yes_ask=0.17,
+            yes_last=0.16,
+            fetched_at=rfq_at,
+        ),
+        row(
+            market_ticker="KXMVECROSSCATEGORY-RFQ",
+            category=sports_cat,
+            status="settled",
+            yes_bid=0,
+            yes_ask=0,
+            yes_last=0,
+            source="kalshi_settlement",
+            fetched_at="2026-09-15T04:13:18.619804Z",
+        ),
+        row(
+            market_ticker="KXMVECROSSCATEGORY-RFQ",
+            category=sports_cat,
+            yes_subtitle="buy_no",
+            yes_bid=0.25,
+            yes_ask=0.25,
+            no_bid=0.75,
+            volume=10,
+            liquidity=0.1313,
+            source="kalshi_parlay_fill",
+            fetched_at=fill_at,
+        ),
+    ]
+    leaked = ticker_settlement(
+        [coerce_market(m) for m in markets if m["market_ticker"] == "KXMVECROSSCATEGORY-RFQ" and m["source"] == "kalshi"],
+        datetime(2026, 9, 14, 23, 10, tzinfo=timezone.utc).timestamp() * 1000,
+    )
+    check(leaked is None, "candle 0/1 is not settlement")
+    bt = backtest_parlay_books(markets, PRODUCTION_KNOBS)
+    check(bt.aligned == 1, "aligned RFQ")
+    check(bt.scored[0].settlement == 0, "later kalshi_settlement grades RFQ")
+    check(bt.live.n == 1 and bt.live.fills[0].fill_side == "no", "fill parsed")
+    check(bt.live.settled == 1, "later settlement grades fill")
+    cohort = sep15_buy_no_fills(bt.live)
+    check(len(cohort) == 1, "Sep 15 BUY NO cohort")
+    longshot = summarize_book(bt.scored, BOOK_LONGSHOT, "cross_game", PRODUCTION_KNOBS)
+    check(longshot.would_accept == 1, "production cross_game_longshot takes cheap cross-game ask")
+    return errors

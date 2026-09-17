@@ -383,8 +383,10 @@ Notebooks load the gitignored root `.env` via python-dotenv (mise cannot parse t
 multi-line Kalshi PEM). `--no-token` lets
 [marimo-pair](https://github.com/marimo-team/marimo-pair) attach to the live
 kernel. Query the lake as `lake.options.*` from DuckDB; keep high-frequency
-Kalshi candles in `notebooks/.cache/kalshi.duckdb` (gitignored). Do not write
-to the Iceberg catalog from notebooks. Details: `notebooks/AGENTS.md`.
+Kalshi candles in `notebooks/.cache/kalshi.duckdb` (gitignored). Apps:
+`apps/lake.py` (boot), `apps/parlay_strategies.py` (lake RFQ + live CLOB
+screen), `apps/lake_tape_backtest.py` (Iceberg-only sports tape backtest).
+Do not write to the Iceberg catalog from notebooks. Details: `notebooks/AGENTS.md`.
 
 ### Deploy
 
