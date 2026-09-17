@@ -182,7 +182,7 @@ const ENDPOINTS: { method: string; path: string; desc: ReactNode }[] = [
   { method: 'POST', path: '/api/admin/quality-gate/remoderate', desc: 'Admin — run the listed-bot remediator now and record a sweep' },
   { method: 'GET', path: '/api/admin/kalshi-parlay', desc: 'Admin — Kalshi sports parlay RFQ executor last_pass (execute/live/idle_reason, universe counts, considered legs + fair payout + skip reasons, would_accept decisions). Proxies the loader; never calls Kalshi from the browser.' },
   { method: 'POST', path: '/api/admin/kalshi-parlay/trigger', desc: 'Admin — force an async dry-run pass (?force=1&async=1 on the loader). Uses LOADER_TOKEN server-side. Cannot turn LIVE on. Disabled in the UI while LIVE. 503 if LOADER_TOKEN is missing.' },
-  { method: 'GET', path: '/api/admin/marimo', desc: 'Admin — catalog of executed marimo HTML snapshots in private R2 (slug, present, exported_at, git_sha). Not wasm.' },
+  { method: 'GET', path: '/api/admin/marimo', desc: 'Admin — catalog of executed marimo HTML snapshots in private R2 via REST (slug, present, exported_at, git_sha). Not wasm, not a Worker r2_buckets binding.' },
   { method: 'GET', path: '/api/admin/marimo/{slug}', desc: 'Admin — executed HTML snapshot for one marimo notebook (text/html). Iceberg queries ran at export time; the browser never receives lake tokens.' },
   { method: 'GET', path: '/api/admin/users', desc: 'Admin — list signed-up users (email, handle, signup time, chat count; session admin or ADMIN_TOKEN)' },
   { method: 'GET', path: '/api/experiments/{slug}/runs', desc: 'Public published experiment runs (newest first; optional design_id)' },

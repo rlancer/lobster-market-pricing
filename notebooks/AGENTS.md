@@ -43,8 +43,10 @@ SQL cells should use the `conn` engine from `lobster_nb.lake.connect`.
 cannot attach Iceberg without shipping `R2_DATA_CATALOG_TOKEN` to the browser.
 Export executed HTML instead and store it in the private
 `lobster-marimo-exports` R2 bucket (no r2.dev public access). The Worker
-serves it at `GET /api/admin/marimo/lake-tape-backtest` (admin session or
-`ADMIN_TOKEN`). The UI is `/admin/marimo`.
+reads objects via Cloudflare R2 REST with `R2_DATA_CATALOG_TOKEN` — there is
+no wrangler `r2_buckets` binding (the deploy token cannot bind R2). Serves
+`GET /api/admin/marimo/lake-tape-backtest` (admin session or `ADMIN_TOKEN`).
+The UI is `/admin/marimo`.
 
 ```bash
 node notebooks/tools/export_marimo_to_r2.mjs

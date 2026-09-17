@@ -5,7 +5,8 @@ name: Export marimo notebook
 # the notebook needs lake tokens that must not ship to the browser.
 #
 # Required secrets: R2_DATA_CATALOG_TOKEN, CLOUDFLARE_ACCOUNT_ID.
-# CLOUDFLARE_API_TOKEN is optional when R2_DATA_CATALOG_TOKEN has R2 Storage Admin.
+# The Workers deploy token (CLOUDFLARE_API_TOKEN) cannot write this bucket —
+# export_marimo_to_r2.mjs always puts with R2_DATA_CATALOG_TOKEN.
 # Optional: KALSHI_ACCESS_KEY_ID + KALSHI_PRIVATE_KEY_PEM for the signed ping cell.
 
 on:
@@ -39,7 +40,6 @@ jobs:
     timeout-minutes: 20
     env:
       R2_DATA_CATALOG_TOKEN: ${{ secrets.R2_DATA_CATALOG_TOKEN }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       KALSHI_ACCESS_KEY_ID: ${{ secrets.KALSHI_ACCESS_KEY_ID }}
       KALSHI_PRIVATE_KEY_PEM: ${{ secrets.KALSHI_PRIVATE_KEY_PEM }}

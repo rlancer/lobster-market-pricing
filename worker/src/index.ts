@@ -270,8 +270,11 @@ export interface Env extends Cloudflare.Env {
   IMPROVEMENT_ISSUE_TOKEN?: string;
   /** owner/repo override; defaults to rlancer/lobster-market-pricing. */
   IMPROVEMENT_ISSUE_REPO?: string;
-  /** Private R2 bucket of marimo HTML snapshots. Admin-only; never public. */
-  MARIMO_EXPORTS?: R2Bucket;
+  /**
+   * R2 Storage Admin token. Admin marimo snapshots are read over Cloudflare
+   * R2 REST (no wrangler r2_buckets binding — the deploy token cannot bind R2).
+   */
+  R2_DATA_CATALOG_TOKEN?: string;
 }
 
 // Latest snapshot per symbol: the lake is append-only (multiple loader runs

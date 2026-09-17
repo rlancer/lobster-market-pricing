@@ -5,53 +5,42 @@ import {
   listMarimoNotebooks,
   lookupMarimoNotebook,
   MARIMO_NOTEBOOKS,
+  marimoObjectUrl,
 } from "../src/admin-marimo.ts";
-
-class MemoryObject {
-  readonly uploaded = new Date("2026-09-17T01:02:03.000Z");
-  readonly httpMetadata = { contentType: "text/html; charset=utf-8" };
-  readonly size: number;
-  constructor(
-    readonly key: string,
-    private readonly payload: string,
-  ) {
-    this.size = new TextEncoder().encode(payload).byteLength;
-  }
-  get body(): ReadableStream<Uint8Array> {
-    return new Blob([this.payload]).stream();
-  }
-  async text(): Promise<string> {
-    return this.payload;
-  }
-  async json(): Promise<unknown> {
-    return JSON.parse(this.payload);
-  }
-}
-
-class MemoryBucket {
-  constructor(private readonly objects: Map<string, MemoryObject>) {}
-  async head(key: string): Promise<MemoryObject | null> {
-    return this.objects.get(key) ?? null;
-  }
-  async get(key: string): Promise<MemoryObject | null> {
-    return this.objects.get(key) ?? null;
-  }
-}
 
 const HTML = "<!doctype html><html><body>tape</body></html>";
 const META = JSON.stringify({
   exported_at: "2026-09-17T01:02:03.000Z",
   git_sha: "abc1234",
   source: "notebooks/apps/lake_tape_backtest.py",
+  bytes: HTML.length,
 });
 
-function bucketWithSnapshot(): MemoryBucket {
+const ENV = {
+  R2_SQL_ACCOUNT_ID: "acct123",
+  R2_DATA_CATALOG_TOKEN: "catalog-token",
+};
+
+function fetchMap(objects: Record<string, { status: number; body: string; contentType?: string }>): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const hit = Object.entries(objects).find(([key]) => url.endsWith(`/objects/${key}`));
+    if (!hit) return new Response("missing", { status: 404 });
+    const [, object] = hit;
+    return new Response(object.body, {
+      status: object.status,
+      headers: { "Content-Type": object.contentType ?? "application/octet-stream" },
+    });
+  }) as typeof fetch;
+}
+
+function snapshotFetch(): typeof fetch {
   const notebook = MARIMO_NOTEBOOKS[0];
   assert.ok(notebook);
-  return new MemoryBucket(new Map([
-    [notebook.htmlKey, new MemoryObject(notebook.htmlKey, HTML)],
-    [notebook.metaKey, new MemoryObject(notebook.metaKey, META)],
-  ]));
+  return fetchMap({
+    [notebook.htmlKey]: { status: 200, body: HTML, contentType: "text/html; charset=utf-8" },
+    [notebook.metaKey]: { status: 200, body: META, contentType: "application/json" },
+  });
 }
 
 const allowAdmin = async () => ({ ok: true as const });
@@ -66,55 +55,68 @@ describe("lookupMarimoNotebook", () => {
   });
 });
 
+describe("marimoObjectUrl", () => {
+  it("keeps object key slashes so R2 can find nested keys", () => {
+    assert.equal(
+      marimoObjectUrl("acct123", "marimo/lake-tape-backtest.html"),
+      "https://api.cloudflare.com/client/v4/accounts/acct123/r2/buckets/lobster-marimo-exports/objects/marimo/lake-tape-backtest.html",
+    );
+  });
+});
+
 describe("listMarimoNotebooks", () => {
   it("marks missing snapshots and fills metadata when present", async () => {
-    const empty = await listMarimoNotebooks(new MemoryBucket(new Map()) as unknown as R2Bucket);
+    const empty = await listMarimoNotebooks(ENV, fetchMap({}));
     assert.equal(empty.length, 1);
     assert.equal(empty[0]?.present, false);
     assert.equal(empty[0]?.bytes, null);
 
-    const listed = await listMarimoNotebooks(bucketWithSnapshot() as unknown as R2Bucket);
+    const listed = await listMarimoNotebooks(ENV, snapshotFetch());
     assert.equal(listed[0]?.present, true);
     assert.equal(listed[0]?.git_sha, "abc1234");
     assert.equal(listed[0]?.exported_at, "2026-09-17T01:02:03.000Z");
-    assert.ok((listed[0]?.bytes ?? 0) > 0);
+    assert.equal(listed[0]?.bytes, HTML.length);
   });
 });
 
 describe("handleAdminMarimo", () => {
   it("ignores unrelated paths", async () => {
-    const res = await handleAdminMarimo({}, new Request("https://api.lobster.mp/api/admin/users"), "/api/admin/users", {
+    const res = await handleAdminMarimo(ENV, new Request("https://api.lobster.mp/api/admin/users"), "/api/admin/users", {
       requireAdmin: allowAdmin,
+      fetchImpl: snapshotFetch(),
     });
     assert.equal(res, null);
   });
 
   it("requires an admin session", async () => {
     const res = await handleAdminMarimo(
-      { MARIMO_EXPORTS: bucketWithSnapshot() as unknown as R2Bucket },
+      ENV,
       new Request("https://api.lobster.mp/api/admin/marimo"),
       "/api/admin/marimo",
-      { requireAdmin: denyAdmin },
+      { requireAdmin: denyAdmin, fetchImpl: snapshotFetch() },
     );
     assert.ok(res);
     assert.equal(res.status, 401);
   });
 
-  it("503s when the bucket binding is missing", async () => {
-    const res = await handleAdminMarimo({}, new Request("https://api.lobster.mp/api/admin/marimo"), "/api/admin/marimo", {
-      requireAdmin: allowAdmin,
-    });
+  it("503s when the catalog token is missing", async () => {
+    const res = await handleAdminMarimo(
+      { R2_SQL_ACCOUNT_ID: "acct123" },
+      new Request("https://api.lobster.mp/api/admin/marimo"),
+      "/api/admin/marimo",
+      { requireAdmin: allowAdmin, fetchImpl: snapshotFetch() },
+    );
     assert.ok(res);
     assert.equal(res.status, 503);
-    assert.match(await res.text(), /not bound/);
+    assert.match(await res.text(), /not configured/);
   });
 
   it("lists catalog rows", async () => {
     const res = await handleAdminMarimo(
-      { MARIMO_EXPORTS: bucketWithSnapshot() as unknown as R2Bucket },
+      ENV,
       new Request("https://api.lobster.mp/api/admin/marimo"),
       "/api/admin/marimo",
-      { requireAdmin: allowAdmin },
+      { requireAdmin: allowAdmin, fetchImpl: snapshotFetch() },
     );
     assert.ok(res);
     assert.equal(res.status, 200);
@@ -125,10 +127,10 @@ describe("handleAdminMarimo", () => {
 
   it("serves the HTML snapshot", async () => {
     const res = await handleAdminMarimo(
-      { MARIMO_EXPORTS: bucketWithSnapshot() as unknown as R2Bucket },
+      ENV,
       new Request("https://api.lobster.mp/api/admin/marimo/lake-tape-backtest"),
       "/api/admin/marimo/lake-tape-backtest",
-      { requireAdmin: allowAdmin },
+      { requireAdmin: allowAdmin, fetchImpl: snapshotFetch() },
     );
     assert.ok(res);
     assert.equal(res.status, 200);
@@ -137,12 +139,47 @@ describe("handleAdminMarimo", () => {
     assert.equal(await res.text(), HTML);
   });
 
-  it("404s when the snapshot is not uploaded", async () => {
+  it("sends the catalog token as Bearer on R2 REST reads", async () => {
+    const auths: string[] = [];
+    const inner = snapshotFetch();
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      auths.push(new Headers(init?.headers).get("authorization") ?? "");
+      return inner(input, init);
+    }) as typeof fetch;
     const res = await handleAdminMarimo(
-      { MARIMO_EXPORTS: new MemoryBucket(new Map()) as unknown as R2Bucket },
+      ENV,
       new Request("https://api.lobster.mp/api/admin/marimo/lake-tape-backtest"),
       "/api/admin/marimo/lake-tape-backtest",
-      { requireAdmin: allowAdmin },
+      { requireAdmin: allowAdmin, fetchImpl },
+    );
+    assert.ok(res);
+    assert.equal(res.status, 200);
+    assert.ok(auths.length >= 1);
+    assert.ok(auths.every((value) => value === "Bearer catalog-token"));
+  });
+
+  it("502s when R2 REST fails", async () => {
+    const res = await handleAdminMarimo(
+      ENV,
+      new Request("https://api.lobster.mp/api/admin/marimo/lake-tape-backtest"),
+      "/api/admin/marimo/lake-tape-backtest",
+      {
+        requireAdmin: allowAdmin,
+        fetchImpl: fetchMap({
+          "marimo/lake-tape-backtest.html": { status: 500, body: "nope" },
+        }),
+      },
+    );
+    assert.ok(res);
+    assert.equal(res.status, 502);
+  });
+
+  it("404s when the snapshot is not uploaded", async () => {
+    const res = await handleAdminMarimo(
+      ENV,
+      new Request("https://api.lobster.mp/api/admin/marimo/lake-tape-backtest"),
+      "/api/admin/marimo/lake-tape-backtest",
+      { requireAdmin: allowAdmin, fetchImpl: fetchMap({}) },
     );
     assert.ok(res);
     assert.equal(res.status, 404);

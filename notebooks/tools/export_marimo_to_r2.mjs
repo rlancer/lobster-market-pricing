@@ -7,8 +7,10 @@
  *   node notebooks/tools/export_marimo_to_r2.mjs
  *   node notebooks/tools/export_marimo_to_r2.mjs --slug lake-tape-backtest
  *
- * Auth: CLOUDFLARE_API_TOKEN or R2_DATA_CATALOG_TOKEN (R2 Storage Admin),
- * plus CLOUDFLARE_ACCOUNT_ID (or worker/wrangler.jsonc R2_SQL_ACCOUNT_ID).
+ * Auth: R2_DATA_CATALOG_TOKEN (R2 Storage Admin) for Iceberg attach AND
+ * wrangler `r2 object put`. Do not use CLOUDFLARE_API_TOKEN for the put —
+ * the Workers deploy token cannot write this bucket (CI 403). Plus
+ * CLOUDFLARE_ACCOUNT_ID (or worker/wrangler.jsonc R2_SQL_ACCOUNT_ID).
  * Never prints secret values. Invokes wrangler via process.execPath (Windows-safe).
  */
 
@@ -106,24 +108,22 @@ loadDotenvKeys(join(REPO, ".env"), [
   "R2_SQL_TOKEN",
   "WRANGLER_R2_SQL_AUTH_TOKEN",
   "KALSHI_ACCESS_KEY_ID",
-  "CLOUDFLARE_API_TOKEN",
   "CLOUDFLARE_ACCOUNT_ID",
 ]);
 
-if (!process.env.CLOUDFLARE_API_TOKEN && process.env.R2_DATA_CATALOG_TOKEN) {
-  process.env.CLOUDFLARE_API_TOKEN = process.env.R2_DATA_CATALOG_TOKEN;
-}
 if (!process.env.CLOUDFLARE_ACCOUNT_ID) {
   process.env.CLOUDFLARE_ACCOUNT_ID = accountIdFromWrangler();
-}
-if (!process.env.CLOUDFLARE_API_TOKEN) {
-  die("CLOUDFLARE_API_TOKEN or R2_DATA_CATALOG_TOKEN is required to upload.");
 }
 if (!process.env.CLOUDFLARE_ACCOUNT_ID) {
   die("CLOUDFLARE_ACCOUNT_ID is missing (wrangler.jsonc R2_SQL_ACCOUNT_ID also empty).");
 }
 if (!process.env.R2_DATA_CATALOG_TOKEN) {
-  die("R2_DATA_CATALOG_TOKEN is required so marimo can attach Iceberg.");
+  die("R2_DATA_CATALOG_TOKEN is required so marimo can attach Iceberg and wrangler can put objects.");
+}
+
+/** wrangler reads CLOUDFLARE_API_TOKEN; force the catalog token so CI cannot 403. */
+function wranglerEnv() {
+  return { ...process.env, CLOUDFLARE_API_TOKEN: process.env.R2_DATA_CATALOG_TOKEN };
 }
 
 const selected = slugArg ? CATALOG.filter((item) => item.slug === slugArg) : CATALOG;
@@ -178,7 +178,7 @@ for (const item of selected) {
     "--content-type",
     "text/html; charset=utf-8",
     "-y",
-  ], { cwd: WORKER, env: process.env, timeout: 120_000 });
+  ], { cwd: WORKER, env: wranglerEnv(), timeout: 120_000 });
   run(process.execPath, [
     wrangler,
     "r2",
@@ -191,7 +191,7 @@ for (const item of selected) {
     "--content-type",
     "application/json",
     "-y",
-  ], { cwd: WORKER, env: process.env, timeout: 60_000 });
+  ], { cwd: WORKER, env: wranglerEnv(), timeout: 60_000 });
   console.log(`Uploaded r2://${BUCKET}/${item.htmlKey} and ${item.metaKey}`);
 }
 
