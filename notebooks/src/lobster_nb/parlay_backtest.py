@@ -30,13 +30,17 @@ from lobster_nb.parlay import (
     ParlayKnobs,
     ParlayQuoteDecision,
     ParlayQuoteInput,
+    corr_room,
     evaluate_parlay_executor_quote,
     fill_pnl,
+    frechet_room_n,
     has_tradable_quote,
+    independence_joint_n,
     infer_combo_settlement,
     is_kalshi_parlay_fill_source,
     is_kalshi_settlement_source,
     is_two_sided,
+    kalshi_result_yes,
     kalshi_taker_fee,
     live_fill_pnl,
     parse_fill_side,
@@ -1030,6 +1034,317 @@ def sep15_buy_no_fills(live: LiveFillCohort) -> list[LiveFill]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# n>2-leg calibration (historical Sep 11-16 slice)
+#
+# Kalshi's auto-stacked n>2 sports MVEs have empty 0/0 CLOBs — there is no ask
+# to backtest a fill against, and no maker ever quoted them. What the lake CAN
+# answer: do the legs jointly realize MORE often than independence (∏ p_i)
+# predicts? Realized P(all hit) − ∏ p̂_i is the n-leg Fréchet room actually
+# paid — the go/no-go number for ever RFQ-probing n>2 stacks.
+#
+# Settlements: the lake has no kalshi_settlement rows for n>2 stacks (they
+# were never in the loader's settlement path), so grades come from a one-time
+# public GET /markets?tickers= hydration (finalized `result` yes/no), cached
+# in the local DuckDB session memo.
+# ---------------------------------------------------------------------------
+
+N_LEG_MIN_LEGS = 3
+N_LEG_MAX_LEGS = 12
+N_LEG_HYDRATE_CHUNK = 100
+N_LEG_INDEP_BUCKETS: tuple[tuple[float, float], ...] = (
+    (0.0, 0.02),
+    (0.02, 0.05),
+    (0.05, 0.10),
+    (0.10, 0.20),
+    (0.20, 0.50),
+    (0.50, 1.01),
+)
+N_LEG_MARKUPS: tuple[float, ...] = (0.0, 0.02, 0.05)
+
+
+@dataclass
+class NLegScored:
+    market_ticker: str
+    title: str
+    leg_count: int
+    quoted_at: str | None
+    probs: tuple[float, ...]
+    independence: float
+    frechet_room: float
+    game_group: str
+    same_side: bool
+    settlement: Literal[0, 1] | None
+    settlement_source: str | None
+
+
+def n_leg_stack_groups(
+    markets: list[dict[str, Any]],
+) -> list[tuple[str, ParsedMveCategory, list[dict[str, Any]]]]:
+    """n>2 sports stacks (crypto-mixed allowed, crypto-only dropped), legs capped."""
+    by_ticker = group_by_ticker(markets)
+    out: list[tuple[str, ParsedMveCategory, list[dict[str, Any]]]] = []
+    for ticker, snaps in by_ticker.items():
+        parsed = combo_category(snaps)
+        if not parsed:
+            continue
+        n = len(parsed.legs)
+        if not (N_LEG_MIN_LEGS <= n <= N_LEG_MAX_LEGS):
+            continue
+        if mve_tape_kind([leg.market_ticker for leg in parsed.legs]) == "crypto_mve":
+            continue
+        out.append((ticker, parsed, snaps))
+    return out
+
+
+def score_n_leg_stacks(
+    markets: list[dict[str, Any]],
+    hydrated: dict[str, int] | None = None,
+) -> list[NLegScored]:
+    """One aligned snapshot per stack: the oldest hourly snapshot where every
+    leg has a tradable quote. Empty 0/0 stack CLOBs are fine — the stack's own
+    book is never priced, only its legs. Lake settlement rows win; hydration
+    fills the rest."""
+    grades = hydrated or {}
+    by_ticker = group_by_ticker(markets)
+    out: list[NLegScored] = []
+    for ticker, parsed, snaps in n_leg_stack_groups(markets):
+        stack_snaps = sorted(
+            (s for s in snaps if is_hourly_listed_snapshot(s)),
+            key=fetched_ms,
+        )
+        for snap in stack_snaps:
+            at_ms = fetched_ms(snap)
+            probs: list[float] = []
+            sides: list[str] = []
+            games: list[str] = []
+            aligned = True
+            for spec in parsed.legs:
+                leg_row = nearest_tradable(by_ticker.get(spec.market_ticker, []), at_ms)
+                if not leg_row:
+                    aligned = False
+                    break
+                prob = quote_mid(
+                    leg_row.get("yes_bid"), leg_row.get("yes_ask"), leg_row.get("yes_last")
+                )
+                if prob is None:
+                    aligned = False
+                    break
+                if spec.side == "no":
+                    prob = 1 - prob
+                probs.append(prob)
+                sides.append(spec.side)
+                games.append(
+                    sports_game_key(spec.market_ticker, spec.event_ticker or leg_row.get("event_ticker"))
+                )
+            if not aligned:
+                continue
+            settlement = ticker_settlement(snaps, at_ms)
+            source = "lake" if settlement is not None else None
+            if settlement is None and grades.get(ticker) in (0, 1):
+                settlement = grades[ticker]  # type: ignore[assignment]
+                source = "hydrated"
+            out.append(
+                NLegScored(
+                    market_ticker=ticker,
+                    title=snap.get("title") or ticker,
+                    leg_count=len(parsed.legs),
+                    quoted_at=snap.get("fetched_at"),
+                    probs=tuple(probs),
+                    independence=independence_joint_n(probs),
+                    frechet_room=frechet_room_n(probs),
+                    game_group=parlay_game_group(games),
+                    same_side=len(set(sides)) == 1,
+                    settlement=settlement,
+                    settlement_source=source,
+                )
+            )
+            break
+    return out
+
+
+def hydrate_n_leg_settlements(
+    markets: list[dict[str, Any]],
+    get_json_fn: Any,
+    hydrated: dict[str, int] | None = None,
+    max_tickers: int | None = None,
+) -> tuple[dict[str, int], int]:
+    """GET /markets?tickers= for ungraded stack tickers. Only finalized /
+    settled markets with a yes/no `result` grade; everything else (active,
+    closed, scalar, purged-from-API) stays ungraded. Returns the merged map
+    plus the count fetched this run."""
+    from urllib.parse import quote
+
+    known = dict(hydrated or {})
+    missing = [t for t, _, _ in n_leg_stack_groups(markets) if t not in known]
+    if max_tickers is not None:
+        missing = missing[: max(0, max_tickers)]
+    fetched = 0
+    for i in range(0, len(missing), N_LEG_HYDRATE_CHUNK):
+        batch = missing[i : i + N_LEG_HYDRATE_CHUNK]
+        result = get_json_fn(f"/markets?tickers={quote(','.join(batch))}&limit=1000")
+        nested = (result.get("json") or {}).get("markets") if isinstance(result, dict) else None
+        if not isinstance(nested, list):
+            continue
+        for raw in nested:
+            if not isinstance(raw, dict):
+                continue
+            status = _str(raw.get("status")).lower()
+            if status not in ("settled", "finalized"):
+                continue
+            yes = kalshi_result_yes(raw.get("result"))
+            if yes not in (0, 1):
+                continue
+            ticker = _str(raw.get("ticker")).upper()
+            if not ticker or ticker in known:
+                continue
+            known[ticker] = yes
+            fetched += 1
+    return known, fetched
+
+
+def ensure_n_leg_settlements(conn: Any) -> None:
+    """Local session memo — never lake.*; wiped with .cache, like strategy_runs."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS n_leg_settlements (
+            market_ticker VARCHAR PRIMARY KEY,
+            settlement INTEGER,
+            hydrated_at VARCHAR
+        )
+        """
+    )
+
+
+def load_n_leg_settlements(conn: Any) -> dict[str, int]:
+    ensure_n_leg_settlements(conn)
+    rows = conn.execute("SELECT market_ticker, settlement FROM n_leg_settlements").fetchall()
+    return {str(t): int(s) for t, s in rows if s in (0, 1)}
+
+
+def record_n_leg_settlements(conn: Any, mapping: dict[str, int]) -> int:
+    ensure_n_leg_settlements(conn)
+    stamp = datetime.now(timezone.utc).isoformat()
+    conn.executemany(
+        "INSERT OR REPLACE INTO n_leg_settlements VALUES (?, ?, ?)",
+        [(t, s, stamp) for t, s in mapping.items() if s in (0, 1)],
+    )
+    return len(mapping)
+
+
+def _bucket_label(lo: float, hi: float) -> str:
+    if hi > 1.0:
+        return f"{lo:.2f}+"
+    return f"[{lo:.2f}, {hi:.2f})"
+
+
+def n_leg_leg_count_table(scores: list[NLegScored]) -> list[dict[str, Any]]:
+    """Realized joint vs independence by leg count — the core n-leg signal."""
+    rows: list[dict[str, Any]] = []
+    for n in sorted({s.leg_count for s in scores}):
+        bucket = [s for s in scores if s.leg_count == n]
+        graded = [s for s in bucket if s.settlement in (0, 1)]
+        rows.append(
+            {
+                "leg_count": n,
+                "n": len(bucket),
+                "settled": len(graded),
+                "wins": sum(1 for s in graded if s.settlement == 1),
+                "hit_rate": _hit_rate(sum(1 for s in graded if s.settlement == 1), len(graded)),
+                "avg_independence": _mean([s.independence for s in graded]),
+                "avg_frechet_room": _mean([s.frechet_room for s in graded]),
+                "realized_room": (
+                    round4(_hit_rate(sum(1 for s in graded if s.settlement == 1), len(graded)) - _mean([s.independence for s in graded]))
+                    if graded
+                    else None
+                ),
+            }
+        )
+    return rows
+
+
+def n_leg_calibration_table(scores: list[NLegScored]) -> list[dict[str, Any]]:
+    """P(all hit) by independence bucket: realized win rate minus ∏ p̂_i.
+    Positive realized_room ⇒ independence underprices the n-leg joint."""
+    graded = [s for s in scores if s.settlement in (0, 1)]
+    rows: list[dict[str, Any]] = []
+    for lo, hi in N_LEG_INDEP_BUCKETS:
+        bucket = [s for s in graded if lo <= s.independence < hi]
+        if not bucket:
+            continue
+        wins = sum(1 for s in bucket if s.settlement == 1)
+        avg_indep = _mean([s.independence for s in bucket]) or 0.0
+        hit = wins / len(bucket)
+        rows.append(
+            {
+                "independence_bucket": _bucket_label(lo, hi),
+                "n": len(bucket),
+                "wins": wins,
+                "hit_rate": round4(hit),
+                "avg_independence": round4(avg_indep),
+                "realized_room": round4(hit - avg_indep),
+            }
+        )
+    return rows
+
+
+def n_leg_book_table(
+    scores: list[NLegScored],
+    knobs: ParlayKnobs = PRODUCTION_KNOBS,
+    markups: tuple[float, ...] = N_LEG_MARKUPS,
+) -> list[dict[str, Any]]:
+    """Hypothetical BUY YES at ∏ p̂_i + markup under the production book gates
+    (spread and φ dropped — n>2 CLOBs are empty, so there is no real spread
+    and no n-leg φ). EV uses the same taker fee as the two-leg books. The
+    longshot gate (ask ≤ independence) can only pass at markup 0."""
+    graded = [s for s in scores if s.settlement in (0, 1)]
+    contracts = min(PARLAY_MAX_CONTRACTS, max(1, int(knobs.contracts)))
+    rows: list[dict[str, Any]] = []
+    for markup in markups:
+        for book in BOOKS:
+            accepted: list[NLegScored] = []
+            for s in graded:
+                ask = s.independence + markup
+                if book == BOOK_CORR_ROOM:
+                    ok = (
+                        s.game_group == "same_game"
+                        and s.frechet_room >= knobs.corr_room_floor - 1e-12
+                        and ask <= s.independence + knobs.max_ask_over_indep + 1e-12
+                    )
+                elif book == BOOK_UNDERDOG:
+                    ok = (
+                        s.game_group == "same_game"
+                        and s.same_side
+                        and ask <= knobs.underdog_max_cost + 1e-12
+                    )
+                else:
+                    ok = (
+                        s.game_group == "cross_game"
+                        and ask <= knobs.longshot_max_cost + 1e-12
+                        and ask <= s.independence + 1e-12
+                    )
+                if ok:
+                    accepted.append(s)
+            wins = sum(1 for s in accepted if s.settlement == 1)
+            ev = sum(
+                contracts * (s.settlement - (s.independence + markup) - kalshi_taker_fee(s.independence + markup))
+                for s in accepted
+            )
+            rows.append(
+                {
+                    "book": book,
+                    "markup": markup,
+                    "would_accept": len(accepted),
+                    "settled": len(accepted),
+                    "wins": wins,
+                    "hit_rate": _hit_rate(wins, len(accepted)),
+                    "avg_ask": _mean([s.independence + markup for s in accepted]),
+                    "ev": round4(ev),
+                }
+            )
+    return rows
+
+
 def _leg_tickers(markets: list[dict[str, Any]]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -1528,4 +1843,142 @@ def tape_self_check() -> list[str]:
     check(len(cohort) == 1, "Sep 15 BUY NO cohort")
     longshot = summarize_book(bt.scored, BOOK_LONGSHOT, "cross_game", PRODUCTION_KNOBS)
     check(longshot.would_accept == 1, "production cross_game_longshot takes cheap cross-game ask")
+
+    # ---- n>2-leg calibration fixtures ----
+    check(
+        frechet_room_n([0.4, 0.6]) == corr_room(0.4, 0.6),
+        "frechet_room_n([p, q]) equals two-leg corr_room",
+    )
+    check(
+        abs(independence_joint_n([0.5, 0.5, 0.5]) - 0.125) < 1e-9,
+        "three-leg independence joint is the product",
+    )
+
+    n3_legs = [
+        MveSelectedLeg("KXNFLGAME-A", "KXNFLRSHYDS-A", "yes"),
+        MveSelectedLeg("KXNFLGAME-A", "KXNFLRSHYDS-B", "yes"),
+        MveSelectedLeg("KXNFLGAME-A", "KXNFLRSHYDS-C", "yes"),
+    ]
+    n3_market_rows = [
+        row(
+            market_ticker="KXMVECROSSCATEGORY-N3-SCORED",
+            category=encode_mve_category("KXMVECROSSCATEGORY-SHARD1-R", n3_legs),
+            fetched_at="2026-09-14T18:00:00.000Z",
+        ),
+        # Candle 0/1 print on the stack must not grade (no leakage).
+        row(
+            market_ticker="KXMVECROSSCATEGORY-N3-SCORED",
+            category=encode_mve_category("KXMVECROSSCATEGORY-SHARD1-R", n3_legs),
+            fetched_at="2026-09-15T04:00:00.000Z",
+            yes_last=1.0,
+        ),
+        row(
+            market_ticker="KXNFLRSHYDS-A",
+            series_ticker="KXNFLRSHYDS",
+            event_ticker="KXNFLGAME-A",
+            category=None,
+            market_type="binary",
+            yes_bid=0.39,
+            yes_ask=0.41,
+            yes_last=0.40,
+            fetched_at="2026-09-14T18:00:00.000Z",
+        ),
+        row(
+            market_ticker="KXNFLRSHYDS-B",
+            series_ticker="KXNFLRSHYDS",
+            event_ticker="KXNFLGAME-A",
+            category=None,
+            market_type="binary",
+            yes_bid=0.49,
+            yes_ask=0.51,
+            yes_last=0.50,
+            fetched_at="2026-09-14T18:00:00.000Z",
+        ),
+        row(
+            market_ticker="KXNFLRSHYDS-C",
+            series_ticker="KXNFLRSHYDS",
+            event_ticker="KXNFLGAME-A",
+            category=None,
+            market_type="binary",
+            yes_bid=0.59,
+            yes_ask=0.61,
+            yes_last=0.60,
+            fetched_at="2026-09-14T18:00:00.000Z",
+        ),
+    ]
+    n3_scores = score_n_leg_stacks(n3_market_rows)
+    check(len(n3_scores) == 1, "one aligned 3-leg stack")
+    if n3_scores:
+        s3 = n3_scores[0]
+        check(s3.leg_count == 3, "3-leg count")
+        check(abs(s3.independence - 0.4 * 0.5 * 0.6) < 1e-9, "3-leg independence")
+        check(abs(s3.frechet_room - (0.4 - 0.4 * 0.5 * 0.6)) < 1e-9, "3-leg frechet room")
+        check(s3.game_group == "same_game", "3 legs one event is same_game")
+        check(s3.same_side, "all-yes legs are same side")
+        check(s3.settlement is None and s3.settlement_source is None, "candle 0/1 does not grade n>2")
+
+        graded_n3 = score_n_leg_stacks(n3_market_rows, hydrated={"KXMVECROSSCATEGORY-N3-SCORED": 0})
+        check(
+            graded_n3[0].settlement == 0 and graded_n3[0].settlement_source == "hydrated",
+            "hydrated finalized result grades n>2",
+        )
+
+        lake_graded_rows = [
+            *n3_market_rows,
+            row(
+                market_ticker="KXMVECROSSCATEGORY-N3-SCORED",
+                category=encode_mve_category("KXMVECROSSCATEGORY-SHARD1-R", n3_legs),
+                status="settled",
+                yes_bid=0,
+                yes_ask=0,
+                yes_last=0,
+                source="kalshi_settlement",
+                fetched_at="2026-09-15T04:13:18.000Z",
+            ),
+        ]
+        lake_graded = score_n_leg_stacks(
+            lake_graded_rows, hydrated={"KXMVECROSSCATEGORY-N3-SCORED": 1}
+        )
+        check(
+            lake_graded[0].settlement == 0 and lake_graded[0].settlement_source == "lake",
+            "lake settlement row beats hydration",
+        )
+
+        cal = n_leg_calibration_table(graded_n3)
+        check(
+            len(cal) == 1 and cal[0]["n"] == 1 and cal[0]["hit_rate"] == 0.0,
+            "calibration bucket holds the graded stack",
+        )
+        books_n3 = n_leg_book_table(graded_n3)
+        corr_row = next(r for r in books_n3 if r["book"] == BOOK_CORR_ROOM and r["markup"] == 0.02)
+        check(
+            corr_row["would_accept"] == 1,
+            "corr_room_n accepts room 0.28 at independence+2¢",
+        )
+        _ask = graded_n3[0].independence + 0.02
+        _expected_ev = round4(10 * (0 - _ask - kalshi_taker_fee(_ask)))
+        check(abs(corr_row["ev"] - _expected_ev) < 1e-9, "n-leg book EV after taker fee")
+        longshot_n3 = [r for r in books_n3 if r["book"] == BOOK_LONGSHOT]
+        check(
+            all(r["would_accept"] == 0 for r in longshot_n3 if r["markup"] > 0),
+            "longshot gate (ask ≤ independence) rejects any markup",
+        )
+
+    def fake_get_json(url: str) -> dict[str, Any]:
+        ticker_arg = url.split("tickers=")[-1].split("&")[0]
+        from urllib.parse import unquote
+
+        requested = unquote(ticker_arg).split(",")
+        payload = [
+            {"ticker": "KXMVECROSSCATEGORY-N3-SCORED", "status": "finalized", "result": "no"},
+            {"ticker": requested[-1], "status": "active", "result": None},
+            {"ticker": requested[-1], "status": "finalized", "result": "scalar"},
+        ]
+        return {"json": {"markets": payload}}
+
+    hydrated_map, fetched_n = hydrate_n_leg_settlements(n3_market_rows, fake_get_json)
+    check(
+        hydrated_map.get("KXMVECROSSCATEGORY-N3-SCORED") == 0 and fetched_n == 1,
+        "hydration keeps only finalized yes/no results",
+    )
     return errors
