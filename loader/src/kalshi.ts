@@ -114,9 +114,21 @@ export const REQUEST_TIMEOUT_SECONDS_DEFAULT = 20;
 export const PAGE_LIMIT_DEFAULT = 200;
 /** Cap pages — with limit=200 most series fit in 1–2 pages; fewer calls → fewer 429s. */
 export const MAX_PAGES_DEFAULT = 3;
-/** MVE Get Markets pages (open + lookback). Higher than series default so
- *  volume-0 two-leg sports are not stranded behind n>2 CROSSCATEGORY noise. */
+/** MVE Get Markets pages per scan (default 12). Windowed scans — the executor
+ *  candidate scan and the settled/closed lookbacks — stop here, at the head
+ *  of Kalshi's default ordering. */
 export const MVE_MAX_PAGES_DEFAULT = 12;
+/** Open-MVE sweep pages per hourly pass (default 30, cap 60). Kalshi's open
+ *  MVE catalog is 150k+ markets (n>2 CROSSCATEGORY auto-stacks), so a page-0
+ *  window samples only ~2% of the two-leg sports universe. The hourly KXMVE
+ *  fetch instead walks the whole catalog across passes, resuming from a
+ *  D1-persisted cursor — full coverage every ceil(catalog / pages·limit)
+ *  passes at a constant request budget. */
+export const MVE_SWEEP_MAX_PAGES_DEFAULT = 30;
+/** Sweep page size. 1000 is Kalshi's per-page maximum. */
+export const MVE_SWEEP_PAGE_LIMIT_DEFAULT = 1000;
+/** loader_meta key holding the open-MVE sweep continuation cursor. */
+export const MVE_SWEEP_META_KEY = "kalshi_mve_sweep_cursor:open";
 /** Floor gap between any two Kalshi GETs in this isolate (ms). */
 export const MIN_REQUEST_GAP_MS_DEFAULT = 400;
 /** Cap a single 429 sleep so one hot series cannot burn the whole pass budget. */
@@ -201,8 +213,6 @@ export interface KalshiEnv {
     };
   };
   PIPELINE_KALSHI_MARKETS_URL?: string;
-  PIPELINE_AUTH_TOKEN?: string;
-  /** Max JSON body bytes per pipeline POST (default 4.5 MiB, under the 5 MB cap). */
   KALSHI_PIPELINE_MAX_BODY_BYTES?: number | string;
   HTTP_RETRIES?: number;
   RETRY_BACKOFF_SECONDS?: number;
@@ -212,6 +222,12 @@ export interface KalshiEnv {
   KALSHI_MAX_PAGES?: number;
   /** Page cap for MVE Get Markets (default 12). Investing series keep KALSHI_MAX_PAGES. */
   KALSHI_MVE_MAX_PAGES?: number;
+  /** Open-MVE sweep pages per hourly pass (default 30, cap 60). The hourly
+   *  KXMVE fetch walks the whole open catalog across passes; windowed scans
+   *  (executor, settled/closed lookback) still stop at KALSHI_MVE_MAX_PAGES. */
+  KALSHI_MVE_SWEEP_MAX_PAGES?: number | string;
+  /** Open-MVE sweep page size (default 1000 = Kalshi per-page max). */
+  KALSHI_MVE_SWEEP_PAGE_LIMIT?: number | string;
   /** Min ms between Kalshi GETs (default 400). */
   KALSHI_MIN_REQUEST_GAP_MS?: number;
   /**
@@ -818,6 +834,13 @@ function kalshiMveMaxPages(env: KalshiEnv): number {
   return envInt(env.KALSHI_MVE_MAX_PAGES, MVE_MAX_PAGES_DEFAULT, 1, 30);
 }
 
+function kalshiMveSweepMaxPages(env: KalshiEnv): number {
+  return envInt(env.KALSHI_MVE_SWEEP_MAX_PAGES, MVE_SWEEP_MAX_PAGES_DEFAULT, 1, 60);
+}
+
+function kalshiMveSweepPageLimit(env: KalshiEnv): number {
+  return envInt(env.KALSHI_MVE_SWEEP_PAGE_LIMIT, MVE_SWEEP_PAGE_LIMIT_DEFAULT, 1, 1000);
+}
 
 function candleCloseDollars(raw: unknown): number | null {
   const rec = asRecord(raw);
@@ -825,23 +848,105 @@ function candleCloseDollars(raw: unknown): number | null {
   return parseKalshiNumber(rec.close_dollars ?? rec.close);
 }
 
+function loaderDb(env: KalshiEnv): NonNullable<KalshiEnv["LOADER_DB"]> | null {
+  return env.LOADER_DB ?? null;
+}
+
+/** Continuation cursor for the open-MVE sweep, persisted in D1 loader_meta. */
+async function loadMveSweepCursor(env: KalshiEnv): Promise<string> {
+  const db = loaderDb(env);
+  if (!db) return "";
+  try {
+    const row = await db.prepare("SELECT value FROM loader_meta WHERE key = ?")
+      .bind(MVE_SWEEP_META_KEY).first();
+    const raw = row && typeof row.value === "string" ? row.value : null;
+    if (!raw) return "";
+    const rec = asRecord(JSON.parse(raw));
+    return strip(rec?.cursor);
+  } catch {
+    return "";
+  }
+}
+
+async function saveMveSweepCursor(env: KalshiEnv, cursor: string): Promise<void> {
+  const db = loaderDb(env);
+  if (!db) return;
+  try {
+    await db.prepare(
+      `INSERT INTO loader_meta (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ).bind(MVE_SWEEP_META_KEY, JSON.stringify({ cursor }), Date.now()).run();
+  } catch (error) {
+    console.warn(`kalshi mve sweep: cursor save failed: ${errMsg(error)}`);
+  }
+}
+
+async function clearMveSweepCursor(env: KalshiEnv): Promise<void> {
+  const db = loaderDb(env);
+  if (!db) return;
+  try {
+    await db.prepare("DELETE FROM loader_meta WHERE key = ?").bind(MVE_SWEEP_META_KEY).run();
+  } catch (error) {
+    console.warn(`kalshi mve sweep: cursor clear failed: ${errMsg(error)}`);
+  }
+}
+
+/**
+ * Get Markets with mve_filter=only, paged by cursor.
+ *
+ * Windowed mode (default): the first `maxPages` pages of Kalshi's default
+ * ordering — the executor candidate scan and the settled/closed lookbacks
+ * (whose min_*_ts query changes every pass, so cursor continuation there
+ * would be meaningless).
+ *
+ * Sweep mode (status=open, hourly KXMVE tape): resume from the D1-persisted
+ * cursor so each pass continues the catalog walk where the last one
+ * stopped. Kalshi's open MVE catalog is 150k+ markets; the windowed head is
+ * ~2% of it, biased by ticker hash. When the walk reaches the end of the
+ * catalog the cursor row is cleared and the next pass restarts from the
+ * top. A stale persisted cursor self-heals: the first page is retried from
+ * the top of the catalog within the same pass.
+ */
 async function fetchMveRawMarkets(
   env: KalshiEnv,
   status: "open" | "settled" | "closed",
   extraQuery = "",
+  opts: { sweep?: boolean } = {},
 ): Promise<unknown[]> {
   const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
-  const pageLimit = kalshiPageLimit(env);
-  const maxPages = kalshiMveMaxPages(env);
+  const sweep = opts.sweep === true;
+  const pageLimit = sweep ? kalshiMveSweepPageLimit(env) : kalshiPageLimit(env);
+  const maxPages = sweep ? kalshiMveSweepMaxPages(env) : kalshiMveMaxPages(env);
   const raw: unknown[] = [];
-  let cursor = "";
-  for (let page = 0; page < maxPages; page++) {
+  let cursor = sweep ? await loadMveSweepCursor(env) : "";
+  let resumed = cursor !== "";
+  let page = 0;
+  while (page < maxPages) {
     let url = `${base}/markets?mve_filter=only&status=${status}&limit=${pageLimit}${extraQuery}`;
     if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
-    const batch = await fetchKalshiPage(url, env, `kalshi mve ${status} p${page}`);
+    let batch: { markets: unknown[]; cursor: string };
+    try {
+      batch = await fetchKalshiPage(url, env, `kalshi mve ${status}${sweep ? " sweep" : ""} p${page}`);
+    } catch (error) {
+      if (!resumed) throw error;
+      console.warn(`kalshi mve sweep: dropping stale cursor, restarting from page 0 (${errMsg(error)})`);
+      resumed = false;
+      cursor = "";
+      continue;
+    }
+    resumed = false;
     raw.push(...batch.markets);
-    if (!batch.cursor || batch.markets.length === 0) break;
+    if (!batch.cursor || batch.markets.length === 0) {
+      cursor = "";
+      break;
+    }
     cursor = batch.cursor;
+    page += 1;
+  }
+  if (sweep) {
+    if (cursor) await saveMveSweepCursor(env, cursor);
+    else await clearMveSweepCursor(env);
   }
   return raw;
 }
@@ -1125,7 +1230,11 @@ export async function fetchKalshiSportsParlayPack(
   env: KalshiEnv = {},
 ): Promise<KalshiSportsParlayPack> {
   const investing = investingKalshiSeries();
-  const openAll = collectSportsCombos(await fetchMveRawMarkets(env, "open"), investing, null);
+  const openAll = collectSportsCombos(
+    await fetchMveRawMarkets(env, "open", "", { sweep: true }),
+    investing,
+    null,
+  );
   const openPack = keepListedSportsUniverse(openAll);
 
   const lookbackDays = kalshiSportsLookbackDays(env);

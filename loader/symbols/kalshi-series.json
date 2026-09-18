@@ -134,7 +134,7 @@
     {
       "series_ticker": "KXMVE",
       "theme": "sports",
-      "title": "Sports parlays (every open two-leg MVE + selected legs; max_markets does not cap that universe)",
+      "title": "Sports parlays (open two-leg MVE universe + selected legs via cross-pass catalog sweep; max_markets does not cap that universe)",
       "related_symbol": null,
       "max_markets": 80,
       "ingest": "mve"
