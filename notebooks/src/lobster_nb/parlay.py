@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 from math import isfinite, sqrt
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Sequence
 
 from lobster_nb.mve import Side
 
@@ -124,6 +124,22 @@ def corr_room(p: float, q: float) -> float:
     pp = clamp01(p)
     qq = clamp01(q)
     return max(0.0, min(pp, qq) - pp * qq)
+
+
+def independence_joint_n(probs: Sequence[float]) -> float:
+    """n-leg independence joint: product of clamped leg probabilities."""
+    out = 1.0
+    for p in probs:
+        out *= clamp01(p)
+    return out
+
+
+def frechet_room_n(probs: Sequence[float]) -> float:
+    """n-leg Fréchet room: P(all) upper bound (min p_i) minus the independence
+    joint. ``frechet_room_n([p, q])`` equals the two-leg ``corr_room``."""
+    if not probs:
+        return 0.0
+    return max(0.0, min(clamp01(p) for p in probs) - independence_joint_n(probs))
 
 
 def bernoulli_phi(p: float, q: float, joint: float) -> float | None:

@@ -18,9 +18,16 @@ def _():
         PROBE_SERIES_SQL,
         backtest_parlay_books,
         coverage_over_time,
+        hydrate_n_leg_settlements,
         hydrate_settlements,
         lake_score_table,
         load_lake_tape,
+        load_n_leg_settlements,
+        n_leg_book_table,
+        n_leg_calibration_table,
+        n_leg_leg_count_table,
+        record_n_leg_settlements,
+        score_n_leg_stacks,
         sep15_buy_no_fills,
         source_mix,
         tape_self_check,
@@ -37,12 +44,19 @@ def _():
         connect,
         coverage_over_time,
         get_json,
+        hydrate_n_leg_settlements,
         hydrate_settlements,
         lake_score_table,
         load_lake_tape,
+        load_n_leg_settlements,
         mo,
+        n_leg_book_table,
+        n_leg_calibration_table,
+        n_leg_leg_count_table,
         ping,
         pl,
+        record_n_leg_settlements,
+        score_n_leg_stacks,
         secret_presence,
         self_check,
         sep15_buy_no_fills,
@@ -357,6 +371,114 @@ def _(lake_bt, mo, pl, sep15_buy_no_fills):
     )
     return
 
+
+@app.cell
+def _(mo):
+    hydrate_n_leg_button = mo.ui.run_button(
+        label="Hydrate n>2 settlements (public GET, ~1-2 min first run)"
+    )
+    mo.vstack(
+        [
+            mo.md(
+                "## n>2-leg calibration (Sep 11–16 historical slice)\n\n"
+                "Kalshi's auto-stacked n>2 sports MVEs have **empty 0/0 "
+                "CLOBs** — there is no ask to backtest a fill against, and "
+                "the loader restricted the listed universe to two legs on "
+                "~Sep 16. But that earlier tape kept the stacks and their "
+                "legs, so this section answers the model question first: "
+                "**does P(all legs hit) beat the independence product "
+                "∏ p̂ᵢ?** Realized win rate − ∏ p̂ᵢ is the n-leg Fréchet "
+                "room actually paid.\n\n"
+                "The lake has no settlement rows for n>2 stacks, so grades "
+                "come from a one-time public `GET /markets?tickers=` "
+                "hydration (`finalized` + yes/no `result`; ~57% of the "
+                "window's stacks survive in Kalshi's API). Cached in the "
+                "session DuckDB — not Iceberg."
+            ),
+            hydrate_n_leg_button,
+        ]
+    )
+    return (hydrate_n_leg_button,)
+
+
+@app.cell
+def _(
+    conn,
+    get_json,
+    graded_markets: list[dict],
+    hydrate_n_leg_button,
+    load_n_leg_settlements,
+    hydrate_n_leg_settlements,
+    mo,
+    record_n_leg_settlements,
+    score_n_leg_stacks,
+):
+    _grades = load_n_leg_settlements(conn)
+    _note = f"Loaded {len(_grades)} cached n>2 grades."
+    if hydrate_n_leg_button.value:
+        _grades, _fetched = hydrate_n_leg_settlements(
+            graded_markets, get_json, hydrated=_grades
+        )
+        record_n_leg_settlements(conn, _grades)
+        _note = (
+            f"Hydrated {_fetched} finalized n>2 results from the public "
+            f"GET (cached in the session DuckDB, not Iceberg)."
+        )
+    n_leg_scores = score_n_leg_stacks(graded_markets, hydrated=_grades)
+    mo.md(f"### n>2 grades\n\n{_note}")
+    return (n_leg_scores,)
+
+
+@app.cell
+def _(mo, n_leg_leg_count_table, n_leg_scores, pl):
+    _leg_counts = n_leg_leg_count_table(n_leg_scores)
+    _graded = [s for s in n_leg_scores if s.settlement in (0, 1)]
+    _aligned = len(n_leg_scores)
+    _by_source: dict[str, int] = {}
+    for s in _graded:
+        _by_source[s.settlement_source or "none"] = _by_source.get(s.settlement_source or "none", 0) + 1
+
+    mo.vstack(
+        [
+            mo.md(
+                f"Aligned n>2 stacks: **{_aligned}** "
+                f"(graded {len(_graded)} — "
+                + ", ".join(f"{k}={v}" for k, v in sorted(_by_source.items()))
+                + "). Positive `realized_room` ⇒ independence underprices "
+                "the n-leg joint."
+            ),
+            mo.ui.table(pl.DataFrame(_leg_counts), selection=None)
+            if _leg_counts
+            else mo.md("_No aligned n>2 stacks in this window._"),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(mo, n_leg_book_table, n_leg_calibration_table, n_leg_scores, pl):
+    _cal = n_leg_calibration_table(n_leg_scores)
+    _books = n_leg_book_table(n_leg_scores)
+    mo.vstack(
+        [
+            mo.md(
+                "#### Calibration: realized P(all hit) vs ∏ leg mids\n\n"
+                "BUY-YES books need a quote; n>2 CLOBs are empty, so the "
+                "book table is **hypothetical**: BUY YES at ∏ p̂ᵢ + markup "
+                "under the production gates (spread and φ dropped — no "
+                "real quotes). The longshot gate (ask ≤ independence) can "
+                "only pass at markup 0."
+            ),
+            mo.ui.table(pl.DataFrame(_cal), selection=None)
+            if _cal
+            else mo.md("_No graded n>2 stacks yet — run the hydrate button._"),
+            mo.md("#### Hypothetical book EV (per accepted stack, 10 contracts, taker fee)"),
+            mo.ui.table(pl.DataFrame(_books), selection=None)
+            if _books
+            else mo.md("_No graded n>2 stacks yet._"),
+        ]
+    )
+    return
 
 @app.cell
 def _(BOOK_LONGSHOT, lake_bt, mo):
