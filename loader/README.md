@@ -257,15 +257,26 @@ Public Trade API (no key): `GET /markets?series_ticker=…&status=open` for
 investing series; sports parlays use `GET /markets?mve_filter=only&status=open`
 (and `status=settled|closed` with `min_settled_ts` / `min_close_ts` for the
 lookback window) then `GET /markets?tickers=…` for the selected legs and
-`GET /markets/candlesticks?period_interval=1440` for daily history. Combo rows encode
-collection + legs in `category` as `mve|{collection}|{yes|no}:{LEG}@{EVENT},…` on the
+`GET /markets/candlesticks?period_interval=1440` for daily history. Kalshi's
+open MVE catalog is 150k+ markets (n>2 CROSSCATEGORY auto-stacks) with **no
+server-side category filter**, so the hourly open scan **sweeps** it across
+passes: `KALSHI_MVE_SWEEP_MAX_PAGES` pages (default 30) of
+`KALSHI_MVE_SWEEP_PAGE_LIMIT` (default 1000) per pass, resuming from a D1
+`loader_meta` cursor (`kalshi_mve_sweep_cursor:open`). Every open two-leg
+combo is snapshotted every ceil(catalog/30k) ≈ 5–10 hourly passes instead of
+only the alphabetical head; when the walk exhausts the catalog the cursor is
+cleared and the next pass restarts from the top, and a stale cursor
+self-heals from page 0. The executor candidate scan and the settled/closed
+lookbacks stay windowed at the `KALSHI_MVE_MAX_PAGES` (12) × 200 page-0 head.
+Combo rows encode collection + legs in `category` as
+`mve|{collection}|{yes|no}:{LEG}@{EVENT},…` on the
 existing stream schema (no extra columns — Pipelines has no stream update).
 `@{EVENT}` is optional so older rows still parse. Candle rows set `fetched_at`
 to the candle end so latest-wins keeps a month of quotes; settlement 0/1 is a
 separate `source=kalshi_settlement` row (not mixed into candles) so the parlay
 backtest can grade fills. Pipeline POSTs chunk at ~4.5 MB
 (`KALSHI_PIPELINE_MAX_BODY_BYTES`) so KXMVE bodies do not 413. Each
-pass caps **investing** series by volume (`max_markets`). The open two-leg
+pass caps **investing** series by volume (`max_markets`); the open two-leg
 sports universe is **not** that cap — empty CLOB books are valid listed
 history. Daily candles for settled/closed sports still use
 `KALSHI_SPORTS_LOOKBACK_MAX` (default 200); two-leg / RFQ / fill tickers
@@ -289,9 +300,10 @@ Series is worth the extra call.
 
 Separate from the hourly tape. Buys a two-leg sports combo YES:
 
-1. Every open sports MVE from Get Markets (including n>2 counts, no candle
-   backfill, no research RFQ overlay). Hourly KXMVE also persists every
-   open two-leg sports MVE (empty CLOB included). Legs are fetched for the
+1. The windowed page-0 head of the open sports MVE catalog from Get Markets
+   (including n>2 counts, no candle backfill, no research RFQ overlay; see
+   the sweep note above — the 5-minute executor does not walk the 150k+
+   catalog). Legs are fetched for the
    active book's two-leg stacks (same-game, or cross-game on
    `KALSHI_PARLAY_BOOK=cross_game_longshot`). Game grouping uses
    `mve_selected_legs.event_ticker`, not `category`. Do not scrape the
@@ -363,8 +375,9 @@ the other books. An empty pass records `idle_reason`
 `cross_game_two_leg`, and `missing_leg_mids`. Targeting uses Get Markets
 `mve_selected_legs` (including `event_ticker`) from the live API, not the
 hourly lake tape and not the lake `category` encoding. Hourly KXMVE
-persists every open two-leg sports book (empty 0/0 CLOB included); n>2
-noise is not that listed universe. Daily candles stay volume-capped.
+persists the whole open two-leg sports book via the cross-pass sweep (empty
+0/0 CLOB included); n>2 noise is not that listed universe. Daily candles
+stay volume-capped.
 The scheduler shrinks
 `samples` / `considered` / `decisions` if `last_pass.detail` would exceed
 48 KB — it does not wipe counts.
