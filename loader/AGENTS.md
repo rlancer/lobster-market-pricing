@@ -53,8 +53,12 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   cursor (`kalshi_mve_sweep_cursor:open`), full coverage every
   ceil(catalog/30k) ≈ 5–10 hourly passes; a stale cursor self-heals from
   page 0. The executor candidate scan and the settled/closed lookbacks stay
-  windowed at the 12×200 page-0 head. Settled books also publish
-  `source=kalshi_settlement` 0/1
+  windowed at the 12×200 page-0 head. Settlement grading is guaranteed by the
+  D1 grade-on-close queue (`kalshi_settlement_queue`, migration 0008): every
+  listed two-leg combo the tape sees plus every RFQ / fill ticker is enqueued
+  and graded by ticker once `close_time` passes (≤
+  `KALSHI_SETTLEMENT_DRAIN_MAX` per hourly pass, default 2000; 45-day prune).
+  Settled books also publish `source=kalshi_settlement` 0/1
   rows (candles stay quotes); two-leg / RFQ / fill tickers still get a
   settlement row when they miss the candle volume cap. Combo `category`
   keeps `event_ticker` as `yes:LEG@EVENT`. →

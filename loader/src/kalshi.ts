@@ -25,6 +25,7 @@ import {
   isSameGameSportsTwoLeg,
   isSportsParlayCandidate,
   mveCollectionTicker,
+  parseMveCategory,
   parseMveSelectedLegs,
   seriesTickerFromMarketTicker,
   type MveSelectedLeg,
@@ -203,16 +204,23 @@ export interface KalshiEnv {
   KALSHI_PARLAY_SPEND_RUN_ID?: string;
   /** Optional ISO watermark; overrides D1 started_at when set. */
   KALSHI_PARLAY_SPEND_SINCE?: string;
-  /** Loader D1 — spend-run watermark lives in loader_meta. */
+  /** Loader D1 — sweep cursor, spend-run watermark, settlement queue. */
   LOADER_DB?: {
     prepare(query: string): {
       bind(...values: unknown[]): {
         first(): Promise<Record<string, unknown> | null>;
+        all(): Promise<Array<Record<string, unknown>>>;
         run(): Promise<unknown>;
       };
     };
   };
+  /** Max due tickers graded per hourly pass (default 2000, cap 10000). */
+  KALSHI_SETTLEMENT_DRAIN_MAX?: number | string;
+  /** Queue retention in days (default 45) — older entries are pruned. */
+  KALSHI_SETTLEMENT_QUEUE_DAYS?: number | string;
   PIPELINE_KALSHI_MARKETS_URL?: string;
+  /** Bearer token for pipeline stream POSTs. */
+  PIPELINE_AUTH_TOKEN?: string;
   KALSHI_PIPELINE_MAX_BODY_BYTES?: number | string;
   HTTP_RETRIES?: number;
   RETRY_BACKOFF_SECONDS?: number;
@@ -798,24 +806,154 @@ async function fetchMarketsByTickers(
   tickers: string[],
   env: KalshiEnv,
 ): Promise<KalshiMarketRow[]> {
+  const raw = await fetchKalshiRawMarketsByTickers(tickers, env);
+  return [...raw.values()]
+    .map((item) => mapKalshiMarketRaw(item, { theme: "sports", related_symbol: null }))
+    .filter((row): row is KalshiMarketRow => row != null);
+}
+
+/** Raw Get Markets records by ticker (map of ticker → raw payload). */
+export async function fetchKalshiRawMarketsByTickers(
+  tickers: string[],
+  env: KalshiEnv,
+): Promise<Map<string, unknown>> {
   const base = (env.KALSHI_API_BASE || DEFAULT_KALSHI_API_BASE).replace(/\/$/, "");
   const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
-  const out: KalshiMarketRow[] = [];
-  const seen = new Set<string>();
+  const out = new Map<string, unknown>();
   const chunkSize = 20;
   for (let i = 0; i < unique.length; i += chunkSize) {
     const chunk = unique.slice(i, i + chunkSize);
     const url = `${base}/markets?tickers=${encodeURIComponent(chunk.join(","))}&limit=200`;
     const page = await fetchKalshiPage(url, env, `kalshi markets tickers ${i}`);
     for (const raw of page.markets) {
-      const mapped = mapKalshiMarketRaw(raw, {
-        theme: "sports",
-        related_symbol: null,
-      });
-      if (!mapped || seen.has(mapped.market_ticker)) continue;
-      seen.add(mapped.market_ticker);
-      out.push(mapped);
+      const ticker = strip(asRecord(raw)?.ticker).toUpperCase();
+      if (ticker) out.set(ticker, raw);
     }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Grade-on-close settlement queue
+//
+// The settled/closed Get Markets lookback scans are windowed at the 12x200
+// alphabetical head, and sportsTapePinTickers only keeps pinned tickers that
+// the window already fetched — so most tape tickers never got a
+// source=kalshi_settlement row (measured 2026-09-18: 34 of 8,078 RFQ-quoted
+// tickers graded; 73% of closed two-leg combos). The queue closes that hole:
+// every listed two-leg combo on the hourly tape plus every RFQ / fill
+// ticker is enqueued when first seen; once its close_time passes, a pass
+// fetches it by ticker and publishes a settlement 0/1 row. Graded rows are
+// deleted; entries older than KALSHI_SETTLEMENT_QUEUE_DAYS (default 45)
+// are pruned so purged-from-API tickers cannot grow the queue forever.
+// ---------------------------------------------------------------------------
+
+export const SETTLEMENT_QUEUE_TABLE = "kalshi_settlement_queue";
+export const SETTLEMENT_DRAIN_MAX_DEFAULT = 2000;
+export const SETTLEMENT_QUEUE_DAYS_DEFAULT = 45;
+
+/** Tape tickers that must eventually resolve: listed two-leg combos plus
+ *  RFQ / fill pins (any leg count, matching sportsTapePinTickers). */
+export function isSettlementQueueCandidate(row: KalshiMarketRow): boolean {
+  const source = String(row.source ?? "").trim().toLowerCase();
+  if (source === "kalshi_settlement") return false;
+  if (source === "kalshi_rfq" || source === "kalshi_parlay_fill") return true;
+  const parsed = parseMveCategory(row.category ?? null);
+  return !!parsed && isListedSportsTwoLeg(parsed.legs);
+}
+
+export async function enqueueSettlementRows(
+  env: KalshiEnv,
+  rows: KalshiMarketRow[],
+  nowMs = Date.now(),
+): Promise<number> {
+  const db = env.LOADER_DB ?? null;
+  if (!db || rows.length === 0) return 0;
+  const seen = new Set<string>();
+  const pending: Array<[string, string]> = [];
+  for (const row of rows) {
+    const ticker = strip(row.market_ticker).toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    if (!isSettlementQueueCandidate(row)) continue;
+    const closeTime = strip(row.close_time);
+    if (!closeTime) continue;
+    seen.add(ticker);
+    pending.push([ticker, closeTime]);
+  }
+  if (pending.length === 0) return 0;
+  try {
+    for (let i = 0; i < pending.length; i += 100) {
+      const values = pending.slice(i, i + 100);
+      const tuples = values.map(() => "(?, ?, ?)").join(", ");
+      await db.prepare(
+        `INSERT OR IGNORE INTO ${SETTLEMENT_QUEUE_TABLE} (market_ticker, close_time, enqueued_at) VALUES ${tuples}`,
+      ).bind(...values.flatMap(([ticker, closeTime]) => [ticker, closeTime, nowMs])).run();
+    }
+  } catch (error) {
+    console.warn(`kalshi settlement queue: enqueue failed: ${errMsg(error)}`);
+  }
+  return pending.length;
+}
+
+/** Grade due tickers (close_time passed) by ticker lookup. Settled markets
+ *  publish a 0/1 settlement row and leave the queue; still-trading or
+ *  purged tickers stay queued for the next pass. Returns settlement rows to
+ *  append to the pass's published batch. */
+export async function drainSettlementQueue(
+  env: KalshiEnv,
+  nowMs = Date.now(),
+): Promise<KalshiMarketRow[]> {
+  const db = env.LOADER_DB ?? null;
+  if (!db) return [];
+  const dueIso = new Date(nowMs).toISOString();
+  let due: Array<Record<string, unknown>> = [];
+  try {
+    due = await db.prepare(
+      `SELECT market_ticker FROM ${SETTLEMENT_QUEUE_TABLE} WHERE close_time < ? ORDER BY close_time LIMIT ?`,
+    ).bind(dueIso, envInt(env.KALSHI_SETTLEMENT_DRAIN_MAX, SETTLEMENT_DRAIN_MAX_DEFAULT, 1, 10000)).all();
+    const pruneIso = new Date(nowMs - envInt(env.KALSHI_SETTLEMENT_QUEUE_DAYS, SETTLEMENT_QUEUE_DAYS_DEFAULT, 1, 365) * 86400000).toISOString();
+    await db.prepare(`DELETE FROM ${SETTLEMENT_QUEUE_TABLE} WHERE close_time < ?`).bind(pruneIso).run();
+  } catch (error) {
+    console.warn(`kalshi settlement queue: drain select failed: ${errMsg(error)}`);
+    return [];
+  }
+  const tickers = due.map((row) => strip(row.market_ticker).toUpperCase()).filter(Boolean);
+  if (tickers.length === 0) return [];
+  const out: KalshiMarketRow[] = [];
+  const graded: string[] = [];
+  for (let i = 0; i < tickers.length; i += 20) {
+    const chunk = tickers.slice(i, i + 20);
+    let rawByTicker: Map<string, unknown>;
+    try {
+      rawByTicker = await fetchKalshiRawMarketsByTickers(chunk, env);
+    } catch (error) {
+      console.warn(`kalshi settlement queue: grade chunk ${i} failed: ${errMsg(error)}`);
+      continue;
+    }
+    for (const ticker of chunk) {
+      const market = rawByTicker.get(ticker);
+      if (!market) continue; // gone from the API for now — retry until pruned
+      const mapped = mapKalshiMarketRaw(market, { theme: "sports", related_symbol: null });
+      if (!mapped) {
+        graded.push(ticker);
+        continue;
+      }
+      if (!isKalshiSettledStatus(mapped.status)) continue; // still trading
+      const snap = asSettlementSnapshot(mapped);
+      if (snap) out.push(snap);
+      graded.push(ticker);
+    }
+  }
+  try {
+    for (let i = 0; i < graded.length; i += 100) {
+      const chunk = graded.slice(i, i + 100);
+      const marks = chunk.map(() => "?").join(", ");
+      await db.prepare(
+        `DELETE FROM ${SETTLEMENT_QUEUE_TABLE} WHERE market_ticker IN (${marks})`,
+      ).bind(...chunk).run();
+    }
+  } catch (error) {
+    console.warn(`kalshi settlement queue: delete graded failed: ${errMsg(error)}`);
   }
   return out;
 }
@@ -1437,7 +1575,7 @@ export async function publishKalshiMarketRows(
     };
   }
   const records = normalizeKalshiRecords(rows, runId, fetchedAt);
-  const maxBody = Math.floor(num(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
+  const maxBody = Math.floor(envNumber(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
   const chunks = chunkKalshiPipelineRecords(records, maxBody);
   const auth = env.PIPELINE_AUTH_TOKEN || "";
   for (let i = 0; i < chunks.length; i++) {
@@ -1465,9 +1603,20 @@ export async function publishKalshiSeries(
   const url = env.PIPELINE_KALSHI_MARKETS_URL || "";
   if (!url) throw new Error("kalshi publish requires PIPELINE_KALSHI_MARKETS_URL");
   const runId = env.runId?.() ?? crypto.randomUUID();
-  const fetchedAt = new Date(env.now ? env.now() : Date.now()).toISOString();
+  const nowMs = env.now ? env.now() : Date.now();
+  const fetchedAt = new Date(nowMs).toISOString();
   const rows = await fetchKalshiSeriesMarkets(seriesId, env);
-  if (rows.length === 0) {
+  let publishedRows = rows;
+  if (KALSHI_SERIES[seriesId]?.ingest === "mve") {
+    // Grade-on-close: queue this pass's tape tickers, then resolve any whose
+    // close_time has passed and append their settlement rows to the batch.
+    // Drain runs even when the scan returned nothing — the backlog is
+    // independent of this pass's fetch.
+    if (rows.length) await enqueueSettlementRows(env, rows, nowMs);
+    const settled = await drainSettlementQueue(env, nowMs);
+    if (settled.length) publishedRows = [...rows, ...settled];
+  }
+  if (publishedRows.length === 0) {
     return {
       item: seriesId,
       row_count: 0,
@@ -1476,8 +1625,8 @@ export async function publishKalshiSeries(
       fetched_at: fetchedAt,
     };
   }
-  const records = normalizeKalshiRecords(rows, runId, fetchedAt);
-  const maxBody = Math.floor(num(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
+  const records = normalizeKalshiRecords(publishedRows, runId, fetchedAt);
+  const maxBody = Math.floor(envNumber(env.KALSHI_PIPELINE_MAX_BODY_BYTES, PIPELINE_MAX_BODY_BYTES_DEFAULT));
   const chunks = chunkKalshiPipelineRecords(records, maxBody);
   const auth = env.PIPELINE_AUTH_TOKEN || "";
   for (let i = 0; i < chunks.length; i++) {
@@ -1491,7 +1640,7 @@ export async function publishKalshiSeries(
   }
   return {
     item: seriesId,
-    row_count: rows.length,
+    row_count: publishedRows.length,
     published: true,
     run_id: runId,
     fetched_at: fetchedAt,

@@ -54,6 +54,7 @@ function pageFor(cursor: string) {
 interface MetaStmt {
   bind(...values: unknown[]): MetaStmt;
   first(): Promise<Record<string, unknown> | null>;
+  all(): Promise<Array<Record<string, unknown>>>;
   run(): Promise<unknown>;
 }
 
@@ -78,6 +79,9 @@ function metaDb(initial: Record<string, string> = {}): MetaDb {
             return value != null ? { value } : null;
           }
           return null;
+        },
+        async all() {
+          return [];
         },
         async run() {
           if (query.includes("INSERT INTO loader_meta")) {

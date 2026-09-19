@@ -279,8 +279,15 @@ backtest can grade fills. Pipeline POSTs chunk at ~4.5 MB
 pass caps **investing** series by volume (`max_markets`); the open two-leg
 sports universe is **not** that cap — empty CLOB books are valid listed
 history. Daily candles for settled/closed sports still use
-`KALSHI_SPORTS_LOOKBACK_MAX` (default 200); two-leg / RFQ / fill tickers
-still emit a settlement row when they miss that candle slice. The job is
+`KALSHI_SPORTS_LOOKBACK_MAX` (default 200). **Settlement grading is guaranteed
+by the D1 grade-on-close queue** (`kalshi_settlement_queue`, migration 0008):
+every listed two-leg combo the tape sees and every RFQ / fill ticker is
+enqueued, and once its `close_time` passes the hourly pass fetches it by
+ticker and publishes the 0/1 row (up to `KALSHI_SETTLEMENT_DRAIN_MAX`, default
+2000, per pass; entries older than `KALSHI_SETTLEMENT_QUEUE_DAYS`, default 45,
+are pruned). The windowed settled/closed lookback scans alone miss most
+resolutions — measured 2026-09-18, only 34 of 8,078 RFQ-quoted tickers had
+settlement rows; pins only kept tickers the window already fetched. The job is
 batch-scoped / ungated, and
 runs on an **hourly** cadence (`KALSHI_CADENCE_SECONDS`, default 3600) because
 event odds move outside the US equity session. Series are paced

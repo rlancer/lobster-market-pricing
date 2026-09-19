@@ -3,7 +3,7 @@ import type { KalshiEnv } from "../kalshi.js";
 import { kalshiSeriesList, publishKalshiSeries } from "../kalshi.js";
 import { parlayExecuteEnabled, parlayLiveEnabled } from "../kalshi-parlay-filter.js";
 
-function rfqProbeDetail(e: SchedulerEnv): Record<string, unknown> {
+function rfqProbeDetail(e: KalshiEnv): Record<string, unknown> {
   return {
     rfq_probe: parlayExecuteEnabled(e) ? "skipped_executor" : "research_tape_never_accepts",
     live: parlayLiveEnabled(e),
