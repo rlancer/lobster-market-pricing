@@ -386,7 +386,7 @@ describe("publishKalshiSeries", () => {
       expect(result.published).toBe(true);
       expect(result.row_count).toBe(6);
       expect(posts.length).toBeGreaterThan(1);
-      expect(posts.reduce((n, body) => n + (body as unknown[]).length, 0)).toBe(6);
+      expect((posts as unknown[][]).reduce((n, body) => n + body.length, 0)).toBe(6);
     } finally {
       vi.unstubAllGlobals();
     }

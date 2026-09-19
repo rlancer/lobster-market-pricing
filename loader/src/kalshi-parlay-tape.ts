@@ -5,6 +5,7 @@
 
 import {
   DEFAULT_KALSHI_API_BASE,
+  fetchKalshiRawMarketsByTickers,
   kalshiRequest,
   mapKalshiMarketRaw,
   type KalshiEnv,
@@ -50,29 +51,10 @@ function categoryFromMarketRaw(raw: unknown): string | null {
   return encodeMveCategory(mveCollectionTicker(raw) || "KXMVE", legs);
 }
 
-async function fetchMarketRawByTickers(
-  tickers: string[],
-  env: KalshiEnv,
-): Promise<Map<string, unknown>> {
-  const base = kalshiBase(env);
-  const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
-  const out = new Map<string, unknown>();
-  for (let i = 0; i < unique.length; i += 20) {
-    const chunk = unique.slice(i, i + 20);
-    const url = `${base}/markets?tickers=${encodeURIComponent(chunk.join(","))}&limit=200`;
-    const result = await kalshiRequest("GET", url, env, `kalshi parlay tape markets ${i}`);
-    const markets = asRecord(result.json)?.markets;
-    if (!Array.isArray(markets)) continue;
-    for (const raw of markets) {
-      const ticker = strip(asRecord(raw)?.ticker).toUpperCase();
-      if (ticker) out.set(ticker, raw);
-    }
-  }
-  return out;
-}
-
-function mappedFromRaw(raw: unknown): KalshiMarketRow | null {
-  return mapKalshiMarketRaw(raw, { theme: "sports", related_symbol: null });
+function mappedFromRaw(raw: unknown): ParlayFillMarketRow | null {
+  // Mapped with theme: "sports", so it satisfies ParlayFillMarketRow's
+  // narrower theme; the shared mapper's return type is the wider KalshiMarketRow.
+  return mapKalshiMarketRaw(raw, { theme: "sports", related_symbol: null }) as ParlayFillMarketRow | null;
 }
 
 function asKalshiRow(row: ParlayFillMarketRow): KalshiMarketRow {
@@ -257,7 +239,7 @@ export async function collectKalshiParlayTape(
   let marketRaw = new Map<string, unknown>();
   if (tickers.length) {
     try {
-      marketRaw = await fetchMarketRawByTickers(tickers, env);
+      marketRaw = await fetchKalshiRawMarketsByTickers(tickers, env);
     } catch (error) {
       console.warn(`kalshi parlay tape: markets ${error instanceof Error ? error.message : String(error)}`);
     }

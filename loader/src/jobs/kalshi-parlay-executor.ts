@@ -7,6 +7,7 @@ import {
 import {
   collectKalshiParlayTape,
 } from "../kalshi-parlay-tape.js";
+import { enqueueSettlementRows } from "../kalshi.js";
 import { KALSHI_PARLAY_FILL_SOURCE } from "../kalshi-parlay-fills.js";
 import { parlayBook, parlayExecuteEnabled, parlayLiveEnabled, parlayMaxAcceptsPerPass } from "../kalshi-parlay-filter.js";
 import { parlayMaxSpend, parlaySpendRunId } from "../kalshi-parlay-spend.js";
@@ -55,6 +56,7 @@ async function withParlayTape(
   if (!env.PIPELINE_KALSHI_MARKETS_URL || !kalshiAuthConfigured(env)) return detail;
   try {
     const rows = await collectKalshiParlayTape(env, decisions);
+    await enqueueSettlementRows(env, rows);
     const published = await publishKalshiMarketRows(rows, env, "parlay-tape");
     return {
       ...detail,
