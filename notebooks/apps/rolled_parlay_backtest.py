@@ -19,6 +19,7 @@ def _():
     )
     from lobster_nb.rolled_parlay import (
         build_correlated_3leg_parlays,
+        build_correlated_4leg_parlays,
         build_cross_game_parlays,
         build_same_game_parlays,
         grade_parlays,
@@ -32,6 +33,7 @@ def _():
     return (
         attach_lake,
         build_correlated_3leg_parlays,
+        build_correlated_4leg_parlays,
         build_cross_game_parlays,
         build_same_game_parlays,
         connect,
@@ -118,9 +120,13 @@ def _(date, mo, timedelta):
         value=True,
         label="Correlated 3-leg template: team ML + same-team player prop + total over",
     )
+    semantic_4leg = mo.ui.checkbox(
+        value=True,
+        label="Correlated 4-leg template: adds that team's total over (KXNFLTEAMTOTAL)",
+    )
     semantic_max_leg_ask = mo.ui.slider(
         0.05, 0.90, value=0.60, step=0.01,
-        label="Max leg YES ask for the semantic template (totals/MLs quote ~0.5; the band filter still enforces the payout profile)",
+        label="Max leg YES ask for the semantic templates (totals/MLs quote ~0.5; the band filter still enforces the payout profile)",
     )
     max_leg_ask = mo.ui.slider(
         0.05, 0.60, value=0.35, step=0.01, label="Max leg YES ask"
@@ -149,6 +155,7 @@ def _(date, mo, timedelta):
             band_tol,
             leg_ks,
             semantic_3leg,
+            semantic_4leg,
             semantic_max_leg_ask,
             max_leg_ask,
             game_slice,
@@ -166,6 +173,7 @@ def _(date, mo, timedelta):
         max_legs_per_game,
         per_slice_cap,
         semantic_3leg,
+        semantic_4leg,
         semantic_max_leg_ask,
         target_multiple,
     )
@@ -267,6 +275,7 @@ def _(
     at_ms,
     band_tol,
     build_correlated_3leg_parlays,
+    build_correlated_4leg_parlays,
     build_cross_game_parlays,
     build_same_game_parlays,
     game_slice,
@@ -276,6 +285,7 @@ def _(
     mo,
     per_slice_cap,
     semantic_3leg,
+    semantic_4leg,
     semantic_max_leg_ask,
     target_multiple,
 ):
@@ -303,23 +313,31 @@ def _(
             )
             parlays.extend(_cross)
             construct_notes.append(f"cross_game k={_k}: {len(_cross)} parlays")
+    # Semantic selection, not enumeration: the template slots are drawn straight
+    # from the tape (the volume-capped leg pool drops low-volume prop/total
+    # tickers the templates need). The templates have their own leg-ask cap —
+    # moneylines and totals quote around 0.5 and the payout band filter does the
+    # real selection.
+    _sem_kwargs = dict(
+        target_multiple=target_multiple.value,
+        band_tol=band_tol.value,
+        per_game_cap=per_slice_cap.value,
+        max_leg_ask=semantic_max_leg_ask.value,
+    )
     if semantic_3leg.value:
-        # Semantic selection, not enumeration: the three template slots are
-        # drawn straight from the tape (the volume-capped leg pool drops
-        # low-volume prop/total tickers the template needs). The template has
-        # its own leg-ask cap — moneylines and totals quote around 0.5 and the
-        # payout band filter does the real selection.
-        _semantic, _semantic_notes = build_correlated_3leg_parlays(
-            lake_markets,
-            at_ms,
-            target_multiple=target_multiple.value,
-            band_tol=band_tol.value,
-            per_game_cap=per_slice_cap.value,
-            max_leg_ask=semantic_max_leg_ask.value,
+        _s3, _s3_notes = build_correlated_3leg_parlays(
+            lake_markets, at_ms, **_sem_kwargs
         )
-        parlays.extend(_semantic)
-        construct_notes.append(f"same_game_semantic k=3: {len(_semantic)} parlays")
-        construct_notes.extend(_semantic_notes)
+        parlays.extend(_s3)
+        construct_notes.append(f"same_game_semantic k=3: {len(_s3)} parlays")
+        construct_notes.extend(_s3_notes)
+    if semantic_4leg.value:
+        _s4, _s4_notes = build_correlated_4leg_parlays(
+            lake_markets, at_ms, **_sem_kwargs
+        )
+        parlays.extend(_s4)
+        construct_notes.append(f"same_game_semantic k=4: {len(_s4)} parlays")
+        construct_notes.extend(_s4_notes)
     mo.md(
         "### Constructed parlays\n\n"
         + "\n".join(f"- {n}" for n in construct_notes)

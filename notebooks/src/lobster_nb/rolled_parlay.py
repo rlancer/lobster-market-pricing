@@ -20,7 +20,7 @@ from __future__ import annotations
 import random
 import re
 from dataclasses import dataclass, field
-from itertools import combinations
+from itertools import combinations, product
 from math import isfinite
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -326,38 +326,39 @@ def build_cross_game_parlays(
 
 
 # ---------------------------------------------------------------------------
-# Correlated 3-leg template — semantic selection, not k-subset enumeration.
+# Correlated leg templates — semantic selection, not k-subset enumeration.
 #
 # Naive in-band k-subset enumeration mixes in mutually-exclusive legs
 # (opposing scorers, both sides of a spread) and graded 0/211. Instead pick
 # legs by meaning, per game: (1) team wins (KXNFLGAME moneyline),
 # (2) a player prop on that same team (KXNFLPASSTDS QB passing TDs or
-# KXNFLTD player TDs; D/ST excluded), (3) game total over (KXNFLTOTAL).
-# Team wins => its star scored and the points went up, so all three legs are
-# positively correlated by construction.
+# KXNFLTD player TDs; D/ST excluded), (3) game total over (KXNFLTOTAL), and
+# for the 4-leg template (4) that same team's total over (KXNFLTEAMTOTAL).
+# Team wins => its star scored, its points cleared the team total, and the
+# game total went up — every leg is positively correlated by construction.
 # ---------------------------------------------------------------------------
 
 
 NFL_TEMPLATE_SLUG_RE = re.compile(r"^\d{2}[A-Z]{3}\d{2}[A-Z]+$")
-NFL_TEMPLATE_SERIES = ("GAME", "PASSTDS", "TD", "TOTAL")
+NFL_TEMPLATE_SERIES = ("GAME", "PASSTDS", "TD", "TOTAL", "TEAMTOTAL")
 
 
 @dataclass(frozen=True)
 class NflTemplateLeg:
-    """Parsed KXNFL template ticker: moneyline / player prop / game total."""
+    """Parsed KXNFL template ticker: ML / player prop / game or team total."""
 
-    kind: Literal["moneyline", "player_prop", "game_total"]
+    kind: Literal["moneyline", "player_prop", "game_total", "team_total"]
     slug: str  # game slug, e.g. 26SEP13ARILAC
-    team: str | None  # moneyline team abbr
+    team: str | None  # moneyline team abbr / team-total team abbr
     player: str | None  # prop player id (team abbr + name + jersey)
     threshold: int | None  # prop "N+" threshold / total line code
 
 
 def parse_nfl_template_leg(ticker: str) -> NflTemplateLeg | None:
-    """Classify a KXNFL ticker into the correlated 3-leg template.
+    """Classify a KXNFL ticker into a correlated-template slot.
 
     Returns None for anything outside the template: other KXNFL series
-    (spreads, first TD, team totals, halves), D/ST props, non-KXNFL tickers.
+    (spreads, first TD, halves), D/ST props, non-KXNFL tickers.
     """
     parts = str(ticker).strip().upper().split("-")
     if len(parts) < 3 or not parts[0].startswith("KXNFL"):
@@ -381,6 +382,15 @@ def parse_nfl_template_leg(ticker: str) -> NflTemplateLeg | None:
             kind="game_total", slug=slug, team=None, player=None,
             threshold=int(parts[2]),
         )
+    if series == "TEAMTOTAL":
+        # <GAMEKEY>-<TEAMABBR><LINE>, e.g. ...-LAC22 -> "over 21.5".
+        m = re.fullmatch(r"([A-Z]+?)(\d+)", parts[2]) if len(parts) == 3 else None
+        if m is None:
+            return None
+        return NflTemplateLeg(
+            kind="team_total", slug=slug, team=m.group(1), player=None,
+            threshold=int(m.group(2)),
+        )
     # PASSTDS / TD player props: <GAMEKEY>-<PLAYERID>-<N+>.
     if len(parts) != 4 or not parts[3].isdigit():
         return None
@@ -393,34 +403,54 @@ def parse_nfl_template_leg(ticker: str) -> NflTemplateLeg | None:
     )
 
 
-def build_correlated_3leg_parlays(
+# Slot order defines the template; slot 0 anchors the team via the moneyline.
+CORRELATED_TEMPLATES: dict[int, tuple[str, ...]] = {
+    3: ("moneyline", "player_prop", "game_total"),
+    4: ("moneyline", "player_prop", "game_total", "team_total"),
+}
+
+
+def _slot_matches(kind: str, leg: LegQuote, ml_team: str) -> bool:
+    """Team-binding for a template slot given the anchored moneyline team."""
+    parsed = parse_nfl_template_leg(leg.market_ticker)
+    if parsed is None:
+        return False
+    if kind == "player_prop":
+        return bool(parsed.player and parsed.player.startswith(ml_team))
+    if kind == "team_total":
+        # The id is exactly TEAMABBR + line digits, so require equality.
+        return parsed.team == ml_team
+    return True  # moneyline / game_total: no cross-slot team binding
+
+
+def build_correlated_template_parlays(
     markets: list[dict[str, Any]],
     at_ms: float,
     *,
+    template: tuple[str, ...],
     target_multiple: float,
     band_tol: float,
     per_game_cap: int,
     max_leg_ask: float,
 ) -> tuple[list[RolledParlay], list[str]]:
-    """One correlated template per game: ML(team) + same-team player prop +
-    game total over, bought YES at ask, kept only inside the payout band.
+    """One correlated template per game, bought YES at ask, kept only inside
+    the payout band. Slots after the moneyline anchor are team-bound to it.
 
     Unlike ``build_same_game_parlays`` this draws straight from the tape
     (grouped once) rather than the volume-capped combo-leg pool, because the
     cap drops low-volume prop/total tickers the template needs. Quotes obey
     the same no-leakage ``last_quote_before`` gates.
     """
+    kinds = tuple(template)
+    if not kinds or kinds[0] != "moneyline":
+        return [], ["template must anchor on a moneyline leg"]
     by_ticker = group_by_ticker(markets)
     lo_cost, hi_cost = _cost_band(target_multiple, band_tol)
-    slots: dict[str, dict[str, list[LegQuote]]] = {
-        "moneyline": {},
-        "player_prop": {},
-        "game_total": {},
-    }
-    seen_kind: dict[str, int] = {k: 0 for k in slots}
+    slots: dict[str, dict[str, list[LegQuote]]] = {k: {} for k in kinds}
+    seen_kind: dict[str, int] = {k: 0 for k in kinds}
     for ticker in sorted(by_ticker):
         parsed = parse_nfl_template_leg(ticker)
-        if parsed is None:
+        if parsed is None or parsed.kind not in slots:
             continue
         row = last_quote_before(by_ticker[ticker], at_ms)
         if row is None:
@@ -430,24 +460,27 @@ def build_correlated_3leg_parlays(
             continue
         slots[parsed.kind].setdefault(parsed.slug, []).append(leg)
         seen_kind[parsed.kind] += 1
-    ml, props, totals = slots["moneyline"], slots["player_prop"], slots["game_total"]
     out: list[RolledParlay] = []
     games_full = 0
-    for slug in sorted(set(ml) & set(props) & set(totals)):
+    for slug in sorted(set.intersection(*(set(s) for s in slots.values()))):
         candidates: list[RolledParlay] = []
-        for ml_leg in ml[slug]:
+        for ml_leg in slots["moneyline"][slug]:
             team = parse_nfl_template_leg(ml_leg.market_ticker).team or ""
-            for prop_leg in props[slug]:
-                player = parse_nfl_template_leg(prop_leg.market_ticker).player or ""
-                if not player.startswith(team):
+            pools = [
+                [l for l in slots[kind][slug] if _slot_matches(kind, l, team)]
+                for kind in kinds[1:]
+            ]
+            for combo in product(*pools):
+                if len({l.market_ticker for l in combo}) != len(combo):
                     continue
-                for total_leg in totals[slug]:
-                    cost = ml_leg.cost * prop_leg.cost * total_leg.cost
-                    if not (lo_cost <= cost <= hi_cost):
-                        continue
-                    candidates.append(
-                        _parlay_from((ml_leg, prop_leg, total_leg), "same_game_semantic")
-                    )
+                cost = ml_leg.cost
+                for leg in combo:
+                    cost *= leg.cost
+                if not (lo_cost <= cost <= hi_cost):
+                    continue
+                candidates.append(
+                    _parlay_from((ml_leg, *combo), "same_game_semantic")
+                )
         if not candidates:
             continue
         games_full += 1
@@ -458,17 +491,62 @@ def build_correlated_3leg_parlays(
             )
         )
         out.extend(candidates[: max(0, per_game_cap)])
+    slot_note = ", ".join(
+        f"{seen_kind.get(k, 0)} {k.replace('_', ' ')} legs" for k in kinds
+    )
     notes = [
-        f"Template slots with an open tradable as-of quote: "
-        f"{len(ml)} moneyline games, {len(props)} player-prop games, "
-        f"{len(totals)} game-total games ({seen_kind['moneyline']} / "
-        f"{seen_kind['player_prop']} / {seen_kind['game_total']} legs); "
-        f"{games_full} games had all three slots.",
-        f"{len(out)} in-band correlated 3-leg parlays "
+        f"Template slots with an open tradable as-of quote: {slot_note}; "
+        f"{games_full} games had every slot.",
+        f"{len(out)} in-band correlated {len(kinds)}-leg parlays "
         f"({target_multiple:.0f}x ±{band_tol:.2f}, ask ≤ {max_leg_ask:.2f}, "
         f"capped at {per_game_cap}/game by volume).",
     ]
     return out, notes
+
+
+def build_correlated_3leg_parlays(
+    markets: list[dict[str, Any]],
+    at_ms: float,
+    *,
+    target_multiple: float,
+    band_tol: float,
+    per_game_cap: int,
+    max_leg_ask: float,
+) -> tuple[list[RolledParlay], list[str]]:
+    """Correlated 3-leg template: ML(team) + same-team player prop +
+    game total over."""
+    return build_correlated_template_parlays(
+        markets,
+        at_ms,
+        template=CORRELATED_TEMPLATES[3],
+        target_multiple=target_multiple,
+        band_tol=band_tol,
+        per_game_cap=per_game_cap,
+        max_leg_ask=max_leg_ask,
+    )
+
+
+def build_correlated_4leg_parlays(
+    markets: list[dict[str, Any]],
+    at_ms: float,
+    *,
+    target_multiple: float,
+    band_tol: float,
+    per_game_cap: int,
+    max_leg_ask: float,
+) -> tuple[list[RolledParlay], list[str]]:
+    """Correlated 4-leg template: ML(team) + same-team player prop +
+    game total over + that team's total over. Team wins => its star scored,
+    its points cleared the team total, and the game total went up."""
+    return build_correlated_template_parlays(
+        markets,
+        at_ms,
+        template=CORRELATED_TEMPLATES[4],
+        target_multiple=target_multiple,
+        band_tol=band_tol,
+        per_game_cap=per_game_cap,
+        max_leg_ask=max_leg_ask,
+    )
 
 def hydrate_ticker_settlements(
     tickers: list[str],
@@ -828,10 +906,12 @@ def self_check() -> list[str]:
     if (p := parse_nfl_template_leg("KXNFLTOTAL-26SEP13ARILAC-44")) is None or (
         p.kind, p.threshold) != ("game_total", 44):
         errors.append(f"game-total ticker misparsed: {p}")
+    if (p := parse_nfl_template_leg("KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22")) is None or (
+        p.kind, p.team, p.threshold) != ("team_total", "LAC", 22):
+        errors.append(f"team-total ticker misparsed: {p}")
     for rejected in (
         "KXNFLSPREAD-26SEP13ARILAC-ARI-3",  # spread series
         "KXNFL1HTOTAL-26SEP13ARILAC-24",    # half total
-        "KXNFLTEAMTOTAL-26SEP13ARILAC-22",  # team total
         "KXNFLFIRSTTD-26SEP13ARILAC-ARITMCBRIDE85",  # first TD
         "KXNFLTD-26SEP13ARILAC-ARIARIDST-1",  # D/ST prop
         "KXMVE-26SEP13ARILAC-ARI",          # non-KXNFL-template series
@@ -895,5 +975,42 @@ def self_check() -> list[str]:
     if len(capped) > 1:
         errors.append(f"per-game cap not honored: {len(capped)}")
 
-    return errors
+    # 4-leg template: adds the same team's total over. Four 42c legs net of
+    # fees land inside a 30x ±25% band (0.4371^4 ~= 0.0364 -> 27.5x).
+    _tape4 = [
+        tmpl_rows("KXNFLGAME-26SEP13ARILAC-ARI", 0.42),
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-ARITMCBRIDE85-1", 0.42),
+        tmpl_rows("KXNFLTOTAL-26SEP13ARILAC-44", 0.42),
+        tmpl_rows("KXNFLTEAMTOTAL-26SEP13ARILAC-ARI24", 0.42),
+        # Opposing team's total must never pair with the ARI moneyline.
+        tmpl_rows("KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22", 0.42),
+        # In-band for the LAC side too: its own scorer + team total.
+        tmpl_rows("KXNFLGAME-26SEP13ARILAC-LAC", 0.42),
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-LACKVIDAL28-1", 0.42),
+    ]
+    semantic4, _ = build_correlated_4leg_parlays(
+        _tape4, t0, target_multiple=30.0, band_tol=1.25, per_game_cap=10,
+        max_leg_ask=0.60,
+    )
+    for p in semantic4:
+        if len(p.legs) != 4:
+            errors.append(f"4-leg parlay has {len(p.legs)} legs")
+        kinds = [parse_nfl_template_leg(l.market_ticker).kind for l in p.legs]
+        if kinds != ["moneyline", "player_prop", "game_total", "team_total"]:
+            errors.append(f"4-leg parlay slot kinds wrong: {kinds}")
+        ml_team = parse_nfl_template_leg(p.legs[0].market_ticker).team
+        tt_team = parse_nfl_template_leg(p.legs[3].market_ticker).team
+        if tt_team != ml_team:
+            errors.append(f"4-leg parlay team total crosses teams: {ml_team} vs {tt_team}")
+        if not (30.0 / 1.25 <= p.multiple <= 30.0 * 1.25):
+            errors.append("4-leg parlay multiple outside band")
+    _ml_tt = {
+        (p.legs[0].market_ticker, p.legs[3].market_ticker) for p in semantic4
+    }
+    if _ml_tt != {
+        ("KXNFLGAME-26SEP13ARILAC-ARI", "KXNFLTEAMTOTAL-26SEP13ARILAC-ARI24"),
+        ("KXNFLGAME-26SEP13ARILAC-LAC", "KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22"),
+    }:
+        errors.append(f"4-leg moneyline/team-total pairing wrong: {sorted(_ml_tt)}")
+ 
 

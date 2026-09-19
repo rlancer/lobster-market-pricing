@@ -132,3 +132,11 @@ commit the HTML; `.cache/export/` is gitignored with the rest of `.cache`.
   Pooled Sep 13: **3/41 (+4.7pp)** — all 3 hits were one upset (Vikings
   ML @0.16 in GB@MIN), so promising but not a verdict; regrade after
   Sep 20/21. Week-1 TNF (Sep 10) has no template legs in the tape at all.
+- **Correlated 4-leg template** (3-leg + that team's total over
+  `KXNFLTEAMTOTAL`, `build_correlated_4leg_parlays`): Sep 13 23:00Z book 5
+  parlays, **0/5 hits (−1.35pp, EV −1.00)** — all BUF@HOU: the Bills won but
+  the game stayed low-scoring, so game-total + team-total legs both missed.
+  Doubling down on "team wins ⇒ score high" makes the parlay hostage to a
+  shootout, not just a win; the win⇒total link is the weak joint. Sep 17
+  18:00Z: 1 parlay (NO@BAL) pending the Sep 20 slate; Sep 16 midweek the
+  team-total slot is unquoted. 3-leg > 4-leg so far.
