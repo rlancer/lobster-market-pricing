@@ -37,7 +37,7 @@ interface QueueRow {
 interface QueueStmt {
   bind(...values: unknown[]): QueueStmt;
   first(): Promise<Record<string, unknown> | null>;
-  all(): Promise<Array<Record<string, unknown>>>;
+  all(): Promise<{ results: Array<Record<string, unknown>>; success: boolean }>;
   run(): Promise<unknown>;
 }
 
@@ -45,6 +45,11 @@ interface QueueDb {
   prepare(query: string): QueueStmt;
   rows: Map<string, QueueRow>;
 }
+
+/** D1's per-statement bound-parameter cap — the mock enforces it so
+  regressions like the 2026-09-19 "too many SQL variables" enqueue incident
+  fail tests instead of production. */
+const D1_MAX_BINDS = 100;
 
 /** Minimal D1 stand-in for the settlement queue table. */
 function memoryQueueDb(): QueueDb {
@@ -59,18 +64,26 @@ function memoryQueueDb(): QueueDb {
       async first() {
         return null;
       },
-      async all(): Promise<Array<Record<string, unknown>>> {
+      async all(): Promise<{ results: Array<Record<string, unknown>>; success: boolean }> {
         if (query.includes(`SELECT market_ticker FROM ${SETTLEMENT_QUEUE_TABLE}`)) {
           const [dueIso, limit] = binds as [string, number];
-          return [...rows.entries()]
-            .filter(([, row]) => row.close_time < dueIso)
-            .sort((a, b) => a[1].close_time.localeCompare(b[1].close_time))
-            .slice(0, limit)
-            .map(([market_ticker]) => ({ market_ticker }));
+          return {
+            success: true,
+            results: [...rows.entries()]
+              .filter(([, row]) => row.close_time < dueIso)
+              .sort((a, b) => a[1].close_time.localeCompare(b[1].close_time))
+              .slice(0, limit)
+              .map(([market_ticker]) => ({ market_ticker })),
+          };
         }
-        return [];
+        return { success: true, results: [] };
       },
       async run() {
+        if (binds.length > D1_MAX_BINDS) {
+          throw new Error(
+            `D1_ERROR: too many SQL variables (${binds.length} > ${D1_MAX_BINDS}): SQLITE_ERROR`,
+          );
+        }
         if (query.includes(`INSERT OR IGNORE INTO ${SETTLEMENT_QUEUE_TABLE}`)) {
           for (let i = 0; i + 2 < binds.length; i += 3) {
             const ticker = String(binds[i]);
@@ -158,6 +171,21 @@ describe("enqueueSettlementRows", () => {
     expect(db.rows.get("COMBO-A")?.close_time).toBe("2026-09-20T01:00:00Z");
   });
 
+  it("enqueues 100+ candidates in D1-legal chunks (33 tuples = 99 binds)", async () => {
+    const db = memoryQueueDb();
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      tapeRow({ market_ticker: `COMBO-${i}` }),
+    );
+    const staged = await enqueueSettlementRows(
+      { LOADER_DB: db as never },
+      rows,
+      Date.parse("2026-09-18T12:00:00.000Z"),
+    );
+    // The mock throws on >100 binds — 100 tuples must split into 33+33+34
+    // chunks and every row must land (the 2026-09-19 incident lost them all).
+    expect(staged).toBe(100);
+    expect(db.rows.size).toBe(100);
+  });
   it("is a no-op without a D1 handle", async () => {
     expect(await enqueueSettlementRows({}, [tapeRow({})])).toBe(0);
   });
