@@ -50,10 +50,13 @@ This package (the `loader/` directory of the `lobster-market-pricing` monorepo) 
   never accepts). Kalshi's open MVE catalog is 150k+ markets with no
   server-side category filter, so the hourly open scan **sweeps** it across
   passes: 30 pages of 1000 per pass, resuming from a D1 `loader_meta`
-  cursor (`kalshi_mve_sweep_cursor:open`), full coverage every
-  ceil(catalog/30k) ≈ 5–10 hourly passes; a stale cursor self-heals from
-  page 0. The executor candidate scan and the settled/closed lookbacks stay
-  windowed at the 12×200 page-0 head. Settlement grading is guaranteed by the
+  cursor (`kalshi_mve_sweep_cursor:open`, saved per page), full coverage
+  every ceil(catalog/30k) ≈ 5–10 hourly passes; a stale cursor self-heals
+  from page 0. Sweep pages stream through the two-leg tape filter as
+  fetched — never hold a full 30-page sweep of raw records; the DO isolate
+  caps at 128MB and unfiltered accumulation OOMs the alarm handler
+  (2026-09-19 incident). The executor candidate scan and the settled/closed
+  lookbacks stay windowed at the 12×200 page-0 head. Settlement grading is guaranteed by the
   D1 grade-on-close queue (`kalshi_settlement_queue`, migration 0008): every
   listed two-leg combo the tape sees plus every RFQ / fill ticker is enqueued
   and graded by ticker once `close_time` passes (≤

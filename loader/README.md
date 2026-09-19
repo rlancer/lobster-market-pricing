@@ -262,12 +262,18 @@ open MVE catalog is 150k+ markets (n>2 CROSSCATEGORY auto-stacks) with **no
 server-side category filter**, so the hourly open scan **sweeps** it across
 passes: `KALSHI_MVE_SWEEP_MAX_PAGES` pages (default 30) of
 `KALSHI_MVE_SWEEP_PAGE_LIMIT` (default 1000) per pass, resuming from a D1
-`loader_meta` cursor (`kalshi_mve_sweep_cursor:open`). Every open two-leg
-combo is snapshotted every ceil(catalog/30k) ≈ 5–10 hourly passes instead of
-only the alphabetical head; when the walk exhausts the catalog the cursor is
-cleared and the next pass restarts from the top, and a stale cursor
-self-heals from page 0. The executor candidate scan and the settled/closed
-lookbacks stay windowed at the `KALSHI_MVE_MAX_PAGES` (12) × 200 page-0 head.
+`loader_meta` cursor (`kalshi_mve_sweep_cursor:open`, saved **per page** so a
+mid-sweep eviction resumes where it stopped). Sweep pages stream through the
+two-leg tape filter as fetched — the open catalog is 150k+ markets and a
+Durable Object isolate caps at 128MB, so holding a full 30-page sweep of raw
+records (n>2 stack titles run to kilobytes) OOMs the alarm handler
+(2026-09-19 incident; measured after the fix: ~46MB RSS for a full 30-page
+sweep). Every open two-leg combo is snapshotted every ceil(catalog/30k) ≈
+5–10 hourly passes instead of only the alphabetical head; when the walk
+exhausts the catalog the cursor is cleared and the next pass restarts from
+the top, and a stale cursor self-heals from page 0. The executor candidate
+scan and the settled/closed lookbacks stay windowed at the
+`KALSHI_MVE_MAX_PAGES` (12) × 200 page-0 head.
 Combo rows encode collection + legs in `category` as
 `mve|{collection}|{yes|no}:{LEG}@{EVENT},…` on the
 existing stream schema (no extra columns — Pipelines has no stream update).
