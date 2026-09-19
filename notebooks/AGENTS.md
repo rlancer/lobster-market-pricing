@@ -119,6 +119,16 @@ commit the HTML; `.cache/export/` is gitignored with the rest of `.cache`.
   independence loses the spread, as predicted. Correlation is the edge.
 - Same-game **3-leg** by naive in-band k-subset enumeration: **0/211 hits,
   EV −1.00** — enumeration mixes in mutually-exclusive legs (opposing
-  scorers, both sides of a spread). The open question: select 3
-  **semantically correlated** legs (team wins + QB 3+ TDs + total over 50)
-  instead of enumerating.
+  scorers, both sides of a spread).
+- **Correlated 3-leg semantic template** (per game: team ML `KXNFLGAME` +
+  same-team player prop `KXNFLPASSTDS`/`KXNFLTD` + game total over
+  `KXNFLTOTAL`; `build_correlated_3leg_parlays`, needs its own leg-ask cap
+  ~0.60 because moneylines/totals quote ~0.5 and the shared 0.35 cap
+  empties the book — the payout band filter does the real selection):
+  Sep 13 23:00Z book 30 parlays, **3 hits = 10.0% vs ∏p̂ 2.61% (+7.39pp,
+  EV +2.07/$1)**; Sep 13 20:00Z 11 parlays **0 hits (−2.60pp)**; Sep 16
+  18:00Z template empty midweek (Sunday props/totals not quoted until late
+  in the week); Sep 17 18:00Z 5 parlays pending the Sep 20/21 slates.
+  Pooled Sep 13: **3/41 (+4.7pp)** — all 3 hits were one upset (Vikings
+  ML @0.16 in GB@MIN), so promising but not a verdict; regrade after
+  Sep 20/21. Week-1 TNF (Sep 10) has no template legs in the tape at all.
