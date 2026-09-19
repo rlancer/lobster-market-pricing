@@ -1044,8 +1044,21 @@ async function clearMveSweepCursor(env: KalshiEnv): Promise<void> {
  * ~2% of it, biased by ticker hash. When the walk reaches the end of the
  * catalog the cursor row is cleared and the next pass restarts from the
  * top. A stale persisted cursor self-heals: the first page is retried from
- * the top of the catalog within the same pass.
+ * the top of the catalog within the same pass. Sweep pages are filtered to
+ * tape candidates as fetched (see isSweepTapeCandidate) — memory stays
+ * page-bounded, and the cursor is saved per page so a mid-sweep eviction
+ * resumes where it stopped.
  */
+
+/** Sweep-streamed tapes keep only listed two-leg sports candidates. The
+ *  tape drops everything else downstream (keepListedSportsUniverse); doing
+ *  it per page keeps a 30×1000-market sweep inside the DO isolate's 128MB.
+ *  Windowed scans (executor universe counts) still see n>2 stacks. */
+function isSweepTapeCandidate(raw: unknown, investing: ReadonlySet<string>): boolean {
+  if (!isSportsParlayCandidate(raw, investing)) return false;
+  return isListedSportsTwoLeg(parseMveSelectedLegs(raw));
+}
+
 async function fetchMveRawMarkets(
   env: KalshiEnv,
   status: "open" | "settled" | "closed",
@@ -1074,12 +1087,21 @@ async function fetchMveRawMarkets(
       continue;
     }
     resumed = false;
-    raw.push(...batch.markets);
+    // Sweep pages stream through the tape-candidate filter as fetched: the
+    // open catalog is 150k+ markets and a Durable Object isolate caps at
+    // 128MB — holding a full 30-page sweep of raw records (n>2 stack titles
+    // run to kilobytes each) OOMs the alarm handler (2026-09-19 incident).
+    // The windowed scans keep their full page (the executor counts n>2).
+    raw.push(...(sweep
+      ? batch.markets.filter((m) => isSweepTapeCandidate(m, investingKalshiSeries()))
+      : batch.markets));
     if (!batch.cursor || batch.markets.length === 0) {
       cursor = "";
       break;
     }
     cursor = batch.cursor;
+    // Persist per page so an OOM/cancel mid-sweep resumes where it stopped.
+    if (sweep) await saveMveSweepCursor(env, cursor);
     page += 1;
   }
   if (sweep) {

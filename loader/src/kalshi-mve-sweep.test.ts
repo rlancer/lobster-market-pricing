@@ -258,6 +258,61 @@ describe("open-MVE sweep", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("streams pages through the two-leg filter — n>2 and crypto never accumulate (128MB DO cap)", async () => {
+    const db = metaDb();
+    const n3Stack = {
+      ...combo("KXMVECROSSCATEGORY-SHARD1-N3"),
+      mve_selected_legs: [
+        ...LEGS,
+        { event_ticker: "KXNFLGAME-26SEP20DET", market_ticker: "KXNFLGAME-26SEP20DET-DET", side: "yes" },
+      ],
+    };
+    const cryptoStack = {
+      ...combo("KXMVECROSSCATEGORY-SHARD1-CRYPTO"),
+      mve_selected_legs: [
+        { event_ticker: null, market_ticker: "KXBTC15M-26SEP20T10-77000", side: "yes" },
+        { event_ticker: null, market_ticker: "KXETH15M-26SEP20T10-3000", side: "yes" },
+      ],
+    };
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("mve_filter") === "only") {
+        return new Response(JSON.stringify({
+          markets: [combo("KXMVECROSSCATEGORY-SHARD1-TWO"), n3Stack, cryptoStack],
+          cursor: "",
+        }), { status: 200 });
+      }
+      if (url.searchParams.has("tickers")) {
+        return new Response(JSON.stringify({
+          markets: LEGS.map((leg) => ({
+            ticker: leg.market_ticker,
+            event_ticker: leg.event_ticker,
+            series_ticker: "KXNFLGAME",
+            title: leg.market_ticker,
+            status: "active",
+            yes_bid_dollars: "0.40",
+            yes_ask_dollars: "0.42",
+            last_price_dollars: "0.41",
+            volume_fp: "0",
+            close_time: "2026-09-21T00:00:00Z",
+          })),
+          cursor: "",
+        }), { status: 200 });
+      }
+      return new Response("unexpected " + url.toString(), { status: 500 });
+    });
+    try {
+      const pack = await fetchKalshiSportsParlayPack(sweepEnv(db));
+      const tickers = pack.rows
+        .filter((row) => row.market_type === "multivariate")
+        .map((row) => row.market_ticker);
+      expect(tickers).toEqual(["KXMVECROSSCATEGORY-SHARD1-TWO"]);
+      expect(storedCursor(db)).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("executor candidate scan stays windowed", () => {
