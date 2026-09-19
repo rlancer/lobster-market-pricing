@@ -27,6 +27,7 @@ from typing import Any, Literal
 
 from lobster_nb.mve import (
     ParsedMveCategory,
+    mve_leg_kind,
     parlay_game_group,
     sports_game_key,
 )
@@ -40,6 +41,7 @@ from lobster_nb.parlay_backtest import (
     combo_category,
     fetched_ms,
     group_by_ticker,
+    is_empty_clob,
     ticker_settlement,
 )
 
@@ -548,6 +550,170 @@ def build_correlated_4leg_parlays(
         max_leg_ask=max_leg_ask,
     )
 
+
+def combo_pricing_residuals(
+    markets: list[dict[str, Any]],
+    *,
+    max_gap_minutes: float = 10.0,
+    max_book_width: float = 0.06,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Reverse-engineer Kalshi's combo pricer from the tape.
+
+    For every sports combo row with a tight two-way book — a listed CLOB
+    snapshot or an RFQ maker quote — align each leg's nearest hourly quote
+    within ``max_gap_minutes`` and compare the combo's mid to the
+    side-adjusted product of the legs' mids. Residual ≈ 0 means the combo
+    is priced at the independence product of leg mids: no correlation
+    haircut. ``no`` legs use 1 − mid; worst-case cost crosses each leg's
+    spread. Wide books are skipped — their mid is meaningless.
+    """
+    import bisect
+    import statistics
+
+    by_ticker = group_by_ticker(markets)
+    leg_index: dict[str, list[tuple[float, Any, Any]]] = {}
+    for ticker, rows in by_ticker.items():
+        for row in rows:
+            if str(row.get("source") or "").lower() != "kalshi":
+                continue
+            if not _is_open_status(row.get("status")):
+                continue
+            bid, ask = row.get("yes_bid"), row.get("yes_ask")
+            if bid is None and ask is None:
+                continue
+            if is_empty_clob(row):
+                # 0/0 or 0/1 empty books carry no price — a fake 0.5 mid.
+                continue
+            leg_index.setdefault(ticker, []).append((fetched_ms(row), bid, ask))
+    for ticker in leg_index:
+        leg_index[ticker].sort(key=lambda r: r[0])
+
+    def nearest_leg(ticker: str, at_ms: float) -> tuple[float, Any, Any] | None:
+        rows = leg_index.get(ticker)
+        if not rows:
+            return None
+        ms_list = [r[0] for r in rows]
+        i = bisect.bisect_left(ms_list, at_ms)
+        best: tuple[float, Any, Any] | None = None
+        best_gap = -1.0
+        for j in (i - 1, i):
+            if 0 <= j < len(rows):
+                gap = abs(rows[j][0] - at_ms)
+                if best is None or gap < best_gap:
+                    best, best_gap = rows[j], gap
+        if best is None or best_gap > max_gap_minutes * 60_000:
+            return None
+        return best
+
+    rows_out: list[dict[str, Any]] = []
+    skipped_wide = skipped_align = 0
+    for ticker, rows in sorted(by_ticker.items()):
+        parsed = combo_category(rows)
+        if parsed is None or len(parsed.legs) < 2:
+            continue
+        if any(mve_leg_kind(spec.market_ticker) == "crypto" for spec in parsed.legs):
+            continue
+        games = [
+            sports_game_key(spec.market_ticker, spec.event_ticker)
+            for spec in parsed.legs
+        ]
+        same_game = len(set(games)) == 1
+        for row in rows:
+            raw_source = str(row.get("source") or "").lower()
+            if raw_source not in ("kalshi", "kalshi_rfq"):
+                continue
+            bid, ask = row.get("yes_bid"), row.get("yes_ask")
+            if (
+                bid is None
+                or ask is None
+                or not (0 < bid <= ask < 1)
+                or ask - bid > max_book_width
+            ):
+                if bid is not None and ask is not None and 0 < bid <= ask < 1:
+                    skipped_wide += 1
+                continue
+            at_ms = fetched_ms(row)
+            leg_mids: list[float] = []
+            leg_worst: list[float] = []
+            aligned = True
+            for spec in parsed.legs:
+                leg_row = nearest_leg(spec.market_ticker, at_ms)
+                if leg_row is None:
+                    aligned = False
+                    break
+                _, leg_bid, leg_ask = leg_row
+                leg_mid = quote_mid(leg_bid, leg_ask, None)
+                if leg_mid is None or not (0 < leg_mid < 1):
+                    aligned = False
+                    break
+                if spec.side == "yes":
+                    leg_mids.append(leg_mid)
+                    worst = leg_ask if (leg_ask is not None and 0 < leg_ask < 1) else 1.0
+                else:
+                    leg_mids.append(1.0 - leg_mid)
+                    worst = (
+                        1.0 - leg_bid
+                        if (leg_bid is not None and 0 < leg_bid < 1)
+                        else 1.0
+                    )
+                leg_worst.append(worst)
+            if not aligned:
+                skipped_align += 1
+                continue
+            combo_mid = (bid + ask) / 2
+            prod_mid = 1.0
+            prod_worst = 1.0
+            for m in leg_mids:
+                prod_mid *= m
+            for w in leg_worst:
+                prod_worst *= w
+            rows_out.append(
+                {
+                    "source": "rfq" if raw_source == "kalshi_rfq" else "listed",
+                    "k": len(parsed.legs),
+                    "combo_ticker": ticker,
+                    "same_game": same_game,
+                    "combo_mid": round6(combo_mid),
+                    "combo_ask": round6(ask),
+                    "prod_leg_mid": round6(prod_mid),
+                    "prod_leg_worst_cost": round6(prod_worst),
+                    "residual_mid": round6(combo_mid - prod_mid),
+                    "ask_minus_worst": round6(ask - prod_worst),
+                    "fetched_at": row.get("fetched_at"),
+                }
+            )
+    notes = [
+        f"{len(rows_out)} tight combo books (width ≤ {max_book_width:.2f}) with "
+        f"every leg quoted within {max_gap_minutes:.0f} minutes; skipped "
+        f"{skipped_wide} wide books and {skipped_align} unalignable rows.",
+    ]
+    return rows_out, notes
+
+
+def pricing_residual_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Combo-mid minus independence product, by quote source and game slice."""
+    import statistics
+
+    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault((str(r.get("source")), bool(r.get("same_game"))), []).append(r)
+    out: list[dict[str, Any]] = []
+    for (source, same_game), bucket in sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+        residuals = [float(r["residual_mid"]) for r in bucket]
+        asks = [float(r["ask_minus_worst"]) for r in bucket]
+        out.append(
+            {
+                "source": source,
+                "same_game": same_game,
+                "n": len(bucket),
+                "mean_residual": round4(statistics.mean(residuals)),
+                "median_residual": round4(statistics.median(residuals)),
+                "mean_ask_minus_worst": round4(statistics.mean(asks)),
+                "mean_combo_mid": round4(statistics.mean(float(r["combo_mid"]) for r in bucket)),
+                "mean_prod_leg_mid": round4(statistics.mean(float(r["prod_leg_mid"]) for r in bucket)),
+            }
+        )
+    return out
 def hydrate_ticker_settlements(
     tickers: list[str],
     get_json_fn: Any,
@@ -1012,5 +1178,61 @@ def self_check() -> list[str]:
         ("KXNFLGAME-26SEP13ARILAC-LAC", "KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22"),
     }:
         errors.append(f"4-leg moneyline/team-total pairing wrong: {sorted(_ml_tt)}")
- 
+    # Combo pricer residuals: an independence-priced combo lands at ~0
+    # residual; wide books and misaligned legs are excluded.
+    from lobster_nb.mve import MveSelectedLeg, encode_mve_category
 
+    _cat = encode_mve_category(
+        "TEST",
+        [
+            MveSelectedLeg("KXTEST-26SEP13AB", "L1", "yes"),
+            MveSelectedLeg("KXTEST-26SEP13AB", "L2", "no"),
+        ],
+    )
+    _leg1 = snap("L1", "2026-09-13T11:00:00Z", bid=0.40, ask=0.44)
+    _leg2 = snap("L2", "2026-09-13T11:00:00Z", bid=0.30, ask=0.34)
+    _combo = {
+        **snap(
+            "KXMVE-TEST-1", "2026-09-13T11:00:00Z",
+            bid=0.28, ask=0.29, source="kalshi_rfq",
+        ),
+        "category": _cat,
+    }
+    _combo_wide = {
+        **snap(
+            "KXMVE-TEST-2", "2026-09-13T11:00:00Z",
+            bid=0.05, ask=0.50, source="kalshi_rfq",
+        ),
+        "category": _cat,
+    }
+    # L3 only quoted 30 minutes before the combo -> beyond the 10-minute gap.
+    _leg3 = snap("L3", "2026-09-13T10:30:00Z", bid=0.20, ask=0.24)
+    _cat_far = encode_mve_category(
+        "TEST",
+        [
+            MveSelectedLeg("KXTEST-26SEP13AB", "L1", "yes"),
+            MveSelectedLeg("KXTEST-26SEP13AB", "L3", "yes"),
+        ],
+    )
+    _combo_far = {
+        **snap(
+            "KXMVE-TEST-3", "2026-09-13T11:00:00Z",
+            bid=0.09, ask=0.10, source="kalshi_rfq",
+        ),
+        "category": _cat_far,
+    }
+    _pricing_rows, _ = combo_pricing_residuals(
+        [_leg1, _leg2, _leg3, _combo, _combo_wide, _combo_far]
+    )
+    if len(_pricing_rows) != 1:
+        errors.append(
+            f"pricing residuals kept {len(_pricing_rows)} rows "
+            "(want 1: wide book and misaligned leg excluded)"
+        )
+    elif abs(_pricing_rows[0]["residual_mid"] + 0.0006) > 0.002:
+        errors.append(
+            "independence-priced combo residual off: "
+            f"{_pricing_rows[0]['residual_mid']}"
+        )
+
+    return errors

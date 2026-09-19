@@ -22,9 +22,11 @@ def _():
         build_correlated_4leg_parlays,
         build_cross_game_parlays,
         build_same_game_parlays,
+        combo_pricing_residuals,
         grade_parlays,
         hydrate_ticker_settlements,
         leg_universe,
+        pricing_residual_summary,
         rolled_vs_listed,
         self_check,
         summarize_parlays,
@@ -36,6 +38,7 @@ def _():
         build_correlated_4leg_parlays,
         build_cross_game_parlays,
         build_same_game_parlays,
+        combo_pricing_residuals,
         connect,
         date,
         datetime,
@@ -47,6 +50,7 @@ def _():
         load_n_leg_settlements,
         mo,
         pl,
+        pricing_residual_summary,
         record_n_leg_settlements,
         rolled_vs_listed,
         self_check,
@@ -490,6 +494,42 @@ def _(at_ms, lake_markets, mo, pl, rolled_vs_listed):
                 f"{' '.join(combo_notes)} Rolling cheaper for **{_cheaper}** "
                 f"of {len(combo_rows)}."
             ),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(combo_pricing_residuals, lake_markets, mo, pl, pricing_residual_summary):
+    pricing_rows, pricing_notes = combo_pricing_residuals(lake_markets)
+    pricing_summary = pl.DataFrame(pricing_residual_summary(pricing_rows))
+    mo.vstack(
+        [
+            mo.md(
+                """
+                ### Kalshi's combo pricer vs the independence product
+
+                Reverse-engineering their pricing: for every tight combo book
+                (listed CLOB snapshot or RFQ maker quote) with every leg quoted
+                within 10 minutes, `residual_mid = combo mid − ∏ leg mids`
+                (side-adjusted). **Residual ≈ 0 means the combo is priced at the
+                independence product of its legs — no same-game correlation
+                haircut.** `mean_ask_minus_worst` is the convenience premium over
+                building the combo yourself by crossing each leg's spread.
+
+                The other marginal cost is fees: the taker fee is
+                `0.07 · p · (1 − p)` **per fill**, so rolling k legs at the 30x
+                band pays ≈ 2.0¢ (k=2) / 4.4¢ (k=3) / 6.7¢ (k=4) per $1 risked,
+                vs ≈ 0.2¢ for one hypothetical combo fill at the same total
+                price. Listed n>2 books are empty or one-sided stubs and the RFQ
+                engine only ever quoted 2-legs — n>2 parlays are only executable
+                by rolling legs.
+                """
+            ),
+            mo.ui.table(pricing_summary, selection=None)
+            if pricing_summary.height
+            else mo.md("_No tight, leg-aligned combo books in the tape._"),
+            mo.md(" ".join(pricing_notes)),
         ]
     )
     return

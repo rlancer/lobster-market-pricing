@@ -138,5 +138,29 @@ commit the HTML; `.cache/export/` is gitignored with the rest of `.cache`.
   the game stayed low-scoring, so game-total + team-total legs both missed.
   Doubling down on "team wins ⇒ score high" makes the parlay hostage to a
   shootout, not just a win; the win⇒total link is the weak joint. Sep 17
-  18:00Z: 1 parlay (NO@BAL) pending the Sep 20 slate; Sep 16 midweek the
   team-total slot is unquoted. 3-leg > 4-leg so far.
+
+### Kalshi combo pricing (reverse-engineered from the tape)
+
+- **Their combo pricer is independence**: combo mid ≈ ∏ leg mids
+  (side-adjusted). 72 tight books (width ≤ 6¢) with every leg quoted
+  within 10 minutes: RFQ cross-game n=66 **median residual 0.0pp** (mean
+  −0.6pp), listed n=2 +0.7pp, RFQ same-game n=4 noisy (mean +3.3pp,
+  median −1.4pp) — **no detectable same-game correlation haircut**. The
+  +1.46pp realized joint over ∏p̂ is left unpaid by their quotes; that is
+  the edge. `combo_pricing_residuals` / `pricing_residual_summary` in
+  `rolled_parlay.py`; notebook cell "Kalshi's combo pricer vs the
+  independence product".
+- **n>2 pricing is unobservable because it is unexecutable**: listed n>2
+  books are empty 0/0 or one-sided stubs (a bid-0 resting ask), and the
+  RFQ engine only ever returned 2-leg books (8,259 tickers, median width
+  2¢). There is no Kalshi price per additional leg — n>2 parlays only
+  exist by rolling legs yourself.
+- **Fees are the real marginal cost per leg**: taker fee is
+  `0.07·p·(1−p)` *per fill*, peaking at 1.75¢ at p=50. At the 30x band,
+  rolling pays ≈ **2.0¢ (k=2) / 4.4¢ (k=3) / 6.7¢ (k=4) per $1 risked**
+  vs ≈ 0.2¢ for one hypothetical combo fill at the same total price —
+  a 9–30x fee multiple that grows with k, since deeper legs sit nearer
+  the fee curve's max. `combo_ask − ∏ leg worst-case costs ≈ +0.2–1.9pp`
+  on tight books: a listed combo costs about what building it costs, when
+  a tight book exists at all (rare — median listed width is 31¢).
