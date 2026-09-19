@@ -204,12 +204,15 @@ export interface KalshiEnv {
   KALSHI_PARLAY_SPEND_RUN_ID?: string;
   /** Optional ISO watermark; overrides D1 started_at when set. */
   KALSHI_PARLAY_SPEND_SINCE?: string;
-  /** Loader D1 — sweep cursor, spend-run watermark, settlement queue. */
+  /** Loader D1 — sweep cursor, spend-run watermark, settlement queue. Mirrors
+   *  the real D1 bindings: all() returns { results } (production incident
+   *  2026-09-19: treating it as the array crashed the KXMVE series), and
+   *  statements cap at 100 bound parameters. */
   LOADER_DB?: {
     prepare(query: string): {
       bind(...values: unknown[]): {
         first(): Promise<Record<string, unknown> | null>;
-        all(): Promise<Array<Record<string, unknown>>>;
+        all(): Promise<{ results: Array<Record<string, unknown>>; success: boolean }>;
         run(): Promise<unknown>;
       };
     };
@@ -882,8 +885,11 @@ export async function enqueueSettlementRows(
   }
   if (pending.length === 0) return 0;
   try {
-    for (let i = 0; i < pending.length; i += 100) {
-      const values = pending.slice(i, i + 100);
+    // D1 caps statements at 100 bound parameters: 33 tuples x 3 = 99
+    // (production incident 2026-09-19: 100-tuple chunks hit "too many SQL
+    // variables" and the queue never filled).
+    for (let i = 0; i < pending.length; i += 33) {
+      const values = pending.slice(i, i + 33);
       const tuples = values.map(() => "(?, ?, ?)").join(", ");
       await db.prepare(
         `INSERT OR IGNORE INTO ${SETTLEMENT_QUEUE_TABLE} (market_ticker, close_time, enqueued_at) VALUES ${tuples}`,
@@ -906,18 +912,22 @@ export async function drainSettlementQueue(
   const db = env.LOADER_DB ?? null;
   if (!db) return [];
   const dueIso = new Date(nowMs).toISOString();
-  let due: Array<Record<string, unknown>> = [];
+  let tickers: string[] = [];
   try {
-    due = await db.prepare(
+    // D1's all() returns { results } — not the array (2026-09-19 incident:
+    // due.map crashed the KXMVE series with "due.map is not a function").
+    const { results } = await db.prepare(
       `SELECT market_ticker FROM ${SETTLEMENT_QUEUE_TABLE} WHERE close_time < ? ORDER BY close_time LIMIT ?`,
     ).bind(dueIso, envInt(env.KALSHI_SETTLEMENT_DRAIN_MAX, SETTLEMENT_DRAIN_MAX_DEFAULT, 1, 10000)).all();
+    tickers = (results ?? [])
+      .map((row) => strip(row.market_ticker).toUpperCase())
+      .filter(Boolean);
     const pruneIso = new Date(nowMs - envInt(env.KALSHI_SETTLEMENT_QUEUE_DAYS, SETTLEMENT_QUEUE_DAYS_DEFAULT, 1, 365) * 86400000).toISOString();
     await db.prepare(`DELETE FROM ${SETTLEMENT_QUEUE_TABLE} WHERE close_time < ?`).bind(pruneIso).run();
   } catch (error) {
     console.warn(`kalshi settlement queue: drain select failed: ${errMsg(error)}`);
     return [];
   }
-  const tickers = due.map((row) => strip(row.market_ticker).toUpperCase()).filter(Boolean);
   if (tickers.length === 0) return [];
   const out: KalshiMarketRow[] = [];
   const graded: string[] = [];
@@ -945,8 +955,8 @@ export async function drainSettlementQueue(
     }
   }
   try {
-    for (let i = 0; i < graded.length; i += 100) {
-      const chunk = graded.slice(i, i + 100);
+    for (let i = 0; i < graded.length; i += 50) {
+      const chunk = graded.slice(i, i + 50);
       const marks = chunk.map(() => "?").join(", ");
       await db.prepare(
         `DELETE FROM ${SETTLEMENT_QUEUE_TABLE} WHERE market_ticker IN (${marks})`,

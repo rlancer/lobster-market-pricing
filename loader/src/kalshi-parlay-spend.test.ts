@@ -43,7 +43,7 @@ function memoryMetaDb(initial: Record<string, string> = {}) {
           return null;
         },
         async all() {
-          return [];
+          return { success: true, results: [] };
         },
         async run() {
           if (query.includes("INSERT INTO loader_meta")) {
