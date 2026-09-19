@@ -18,11 +18,15 @@ def _():
         record_n_leg_settlements,
     )
     from lobster_nb.rolled_parlay import (
+        build_correlated_3leg_parlays,
+        build_correlated_4leg_parlays,
         build_cross_game_parlays,
         build_same_game_parlays,
+        combo_pricing_residuals,
         grade_parlays,
         hydrate_ticker_settlements,
         leg_universe,
+        pricing_residual_summary,
         rolled_vs_listed,
         self_check,
         summarize_parlays,
@@ -30,8 +34,11 @@ def _():
 
     return (
         attach_lake,
+        build_correlated_3leg_parlays,
+        build_correlated_4leg_parlays,
         build_cross_game_parlays,
         build_same_game_parlays,
+        combo_pricing_residuals,
         connect,
         date,
         datetime,
@@ -43,6 +50,7 @@ def _():
         load_n_leg_settlements,
         mo,
         pl,
+        pricing_residual_summary,
         record_n_leg_settlements,
         rolled_vs_listed,
         self_check,
@@ -74,6 +82,15 @@ def _(mo):
     (legs from different games, constructed into the same payout band)
     is the independence baseline.
 
+    **Semantic 3-leg template:** naive in-band k-subset enumeration
+    mixed in mutually-exclusive legs (opposing scorers, both sides of a
+    spread) and graded 0/211. The semantic book instead picks, per game:
+    (1) team wins (`KXNFLGAME` moneyline), (2) a player prop on that
+    same team (`KXNFLPASSTDS` QB passing TDs / `KXNFLTD` player TDs,
+    no D/ST), (3) game total over (`KXNFLTOTAL`) — team wins ⇒ its
+    star scored ⇒ the points went up, so all three legs are positively
+    correlated by construction.
+
     **As-of honesty:** quotes are the last hourly lake snapshot at or
     before the as-of time, of markets still open then — no post-close
     quotes, no early settlements (no leakage). Legs are graded with
@@ -103,6 +120,18 @@ def _(date, mo, timedelta):
     leg_ks = mo.ui.multiselect(
         options=["2", "3", "4"], value=["2", "3"], label="Leg counts"
     )
+    semantic_3leg = mo.ui.checkbox(
+        value=True,
+        label="Correlated 3-leg template: team ML + same-team player prop + total over",
+    )
+    semantic_4leg = mo.ui.checkbox(
+        value=True,
+        label="Correlated 4-leg template: adds that team's total over (KXNFLTEAMTOTAL)",
+    )
+    semantic_max_leg_ask = mo.ui.slider(
+        0.05, 0.90, value=0.60, step=0.01,
+        label="Max leg YES ask for the semantic templates (totals/MLs quote ~0.5; the band filter still enforces the payout profile)",
+    )
     max_leg_ask = mo.ui.slider(
         0.05, 0.60, value=0.35, step=0.01, label="Max leg YES ask"
     )
@@ -129,6 +158,9 @@ def _(date, mo, timedelta):
             target_multiple,
             band_tol,
             leg_ks,
+            semantic_3leg,
+            semantic_4leg,
+            semantic_max_leg_ask,
             max_leg_ask,
             game_slice,
             max_legs_per_game,
@@ -144,6 +176,9 @@ def _(date, mo, timedelta):
         max_leg_ask,
         max_legs_per_game,
         per_slice_cap,
+        semantic_3leg,
+        semantic_4leg,
+        semantic_max_leg_ask,
         target_multiple,
     )
 
@@ -241,14 +276,21 @@ def _(
 
 @app.cell
 def _(
+    at_ms,
     band_tol,
+    build_correlated_3leg_parlays,
+    build_correlated_4leg_parlays,
     build_cross_game_parlays,
     build_same_game_parlays,
     game_slice,
+    lake_markets,
     leg_ks,
     leg_pool,
     mo,
     per_slice_cap,
+    semantic_3leg,
+    semantic_4leg,
+    semantic_max_leg_ask,
     target_multiple,
 ):
     _ks = sorted(int(k) for k in (leg_ks.value or []))
@@ -275,6 +317,31 @@ def _(
             )
             parlays.extend(_cross)
             construct_notes.append(f"cross_game k={_k}: {len(_cross)} parlays")
+    # Semantic selection, not enumeration: the template slots are drawn straight
+    # from the tape (the volume-capped leg pool drops low-volume prop/total
+    # tickers the templates need). The templates have their own leg-ask cap —
+    # moneylines and totals quote around 0.5 and the payout band filter does the
+    # real selection.
+    _sem_kwargs = dict(
+        target_multiple=target_multiple.value,
+        band_tol=band_tol.value,
+        per_game_cap=per_slice_cap.value,
+        max_leg_ask=semantic_max_leg_ask.value,
+    )
+    if semantic_3leg.value:
+        _s3, _s3_notes = build_correlated_3leg_parlays(
+            lake_markets, at_ms, **_sem_kwargs
+        )
+        parlays.extend(_s3)
+        construct_notes.append(f"same_game_semantic k=3: {len(_s3)} parlays")
+        construct_notes.extend(_s3_notes)
+    if semantic_4leg.value:
+        _s4, _s4_notes = build_correlated_4leg_parlays(
+            lake_markets, at_ms, **_sem_kwargs
+        )
+        parlays.extend(_s4)
+        construct_notes.append(f"same_game_semantic k=4: {len(_s4)} parlays")
+        construct_notes.extend(_s4_notes)
     mo.md(
         "### Constructed parlays\n\n"
         + "\n".join(f"- {n}" for n in construct_notes)
@@ -335,20 +402,28 @@ def _(grade_parlays, grades, lake_markets, mo, parlays, pl, summarize_parlays):
 
     _same_rows = _pick(summary_rows, "same_game")
     _cross_rows = _pick(summary_rows, "cross_game")
+    _semantic_rows = _pick(summary_rows, "same_game_semantic")
     def _mean_edge(rows):
         _vals = [r["realized_minus_indep_pp"] for r in rows if r["graded"]]
         return round(sum(_vals) / len(_vals), 2) if _vals else None
 
     _same_edge = _mean_edge(_same_rows)
     _cross_edge = _mean_edge(_cross_rows)
+    _semantic_edge = _mean_edge(_semantic_rows)
     _verdict = (
         "No graded parlays yet — click the hydrate button if grades are missing."
     )
-    if _same_edge is not None or _cross_edge is not None:
+    if (
+        _same_edge is not None
+        or _cross_edge is not None
+        or _semantic_edge is not None
+    ):
         _verdict = (
             "Correlation verdict (mean realized − indep): same-game = "
             f"**{_same_edge if _same_edge is not None else 'n/a'} pp**, "
-            f"cross-game = **{_cross_edge if _cross_edge is not None else 'n/a'} pp**. "
+            f"cross-game = **{_cross_edge if _cross_edge is not None else 'n/a'} pp**, "
+            "semantic 3-leg = "
+            f"**{_semantic_edge if _semantic_edge is not None else 'n/a'} pp**. "
             "Positive same-game edge above the cross-game control is the signal "
             "that correlation beats the ask spread."
         )
@@ -419,6 +494,42 @@ def _(at_ms, lake_markets, mo, pl, rolled_vs_listed):
                 f"{' '.join(combo_notes)} Rolling cheaper for **{_cheaper}** "
                 f"of {len(combo_rows)}."
             ),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(combo_pricing_residuals, lake_markets, mo, pl, pricing_residual_summary):
+    pricing_rows, pricing_notes = combo_pricing_residuals(lake_markets)
+    pricing_summary = pl.DataFrame(pricing_residual_summary(pricing_rows))
+    mo.vstack(
+        [
+            mo.md(
+                """
+                ### Kalshi's combo pricer vs the independence product
+
+                Reverse-engineering their pricing: for every tight combo book
+                (listed CLOB snapshot or RFQ maker quote) with every leg quoted
+                within 10 minutes, `residual_mid = combo mid − ∏ leg mids`
+                (side-adjusted). **Residual ≈ 0 means the combo is priced at the
+                independence product of its legs — no same-game correlation
+                haircut.** `mean_ask_minus_worst` is the convenience premium over
+                building the combo yourself by crossing each leg's spread.
+
+                The other marginal cost is fees: the taker fee is
+                `0.07 · p · (1 − p)` **per fill**, so rolling k legs at the 30x
+                band pays ≈ 2.0¢ (k=2) / 4.4¢ (k=3) / 6.7¢ (k=4) per $1 risked,
+                vs ≈ 0.2¢ for one hypothetical combo fill at the same total
+                price. Listed n>2 books are empty or one-sided stubs and the RFQ
+                engine only ever quoted 2-legs — n>2 parlays are only executable
+                by rolling legs.
+                """
+            ),
+            mo.ui.table(pricing_summary, selection=None)
+            if pricing_summary.height
+            else mo.md("_No tight, leg-aligned combo books in the tape._"),
+            mo.md(" ".join(pricing_notes)),
         ]
     )
     return

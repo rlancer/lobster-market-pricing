@@ -119,6 +119,48 @@ commit the HTML; `.cache/export/` is gitignored with the rest of `.cache`.
   independence loses the spread, as predicted. Correlation is the edge.
 - Same-game **3-leg** by naive in-band k-subset enumeration: **0/211 hits,
   EV −1.00** — enumeration mixes in mutually-exclusive legs (opposing
-  scorers, both sides of a spread). The open question: select 3
-  **semantically correlated** legs (team wins + QB 3+ TDs + total over 50)
-  instead of enumerating.
+  scorers, both sides of a spread).
+- **Correlated 3-leg semantic template** (per game: team ML `KXNFLGAME` +
+  same-team player prop `KXNFLPASSTDS`/`KXNFLTD` + game total over
+  `KXNFLTOTAL`; `build_correlated_3leg_parlays`, needs its own leg-ask cap
+  ~0.60 because moneylines/totals quote ~0.5 and the shared 0.35 cap
+  empties the book — the payout band filter does the real selection):
+  Sep 13 23:00Z book 30 parlays, **3 hits = 10.0% vs ∏p̂ 2.61% (+7.39pp,
+  EV +2.07/$1)**; Sep 13 20:00Z 11 parlays **0 hits (−2.60pp)**; Sep 16
+  18:00Z template empty midweek (Sunday props/totals not quoted until late
+  in the week); Sep 17 18:00Z 5 parlays pending the Sep 20/21 slates.
+  Pooled Sep 13: **3/41 (+4.7pp)** — all 3 hits were one upset (Vikings
+  ML @0.16 in GB@MIN), so promising but not a verdict; regrade after
+  Sep 20/21. Week-1 TNF (Sep 10) has no template legs in the tape at all.
+- **Correlated 4-leg template** (3-leg + that team's total over
+  `KXNFLTEAMTOTAL`, `build_correlated_4leg_parlays`): Sep 13 23:00Z book 5
+  parlays, **0/5 hits (−1.35pp, EV −1.00)** — all BUF@HOU: the Bills won but
+  the game stayed low-scoring, so game-total + team-total legs both missed.
+  Doubling down on "team wins ⇒ score high" makes the parlay hostage to a
+  shootout, not just a win; the win⇒total link is the weak joint. Sep 17
+  team-total slot is unquoted. 3-leg > 4-leg so far.
+
+### Kalshi combo pricing (reverse-engineered from the tape)
+
+- **Their combo pricer is independence**: combo mid ≈ ∏ leg mids
+  (side-adjusted). 72 tight books (width ≤ 6¢) with every leg quoted
+  within 10 minutes: RFQ cross-game n=66 **median residual 0.0pp** (mean
+  −0.6pp), listed n=2 +0.7pp, RFQ same-game n=4 noisy (mean +3.3pp,
+  median −1.4pp) — **no detectable same-game correlation haircut**. The
+  +1.46pp realized joint over ∏p̂ is left unpaid by their quotes; that is
+  the edge. `combo_pricing_residuals` / `pricing_residual_summary` in
+  `rolled_parlay.py`; notebook cell "Kalshi's combo pricer vs the
+  independence product".
+- **n>2 pricing is unobservable because it is unexecutable**: listed n>2
+  books are empty 0/0 or one-sided stubs (a bid-0 resting ask), and the
+  RFQ engine only ever returned 2-leg books (8,259 tickers, median width
+  2¢). There is no Kalshi price per additional leg — n>2 parlays only
+  exist by rolling legs yourself.
+- **Fees are the real marginal cost per leg**: taker fee is
+  `0.07·p·(1−p)` *per fill*, peaking at 1.75¢ at p=50. At the 30x band,
+  rolling pays ≈ **2.0¢ (k=2) / 4.4¢ (k=3) / 6.7¢ (k=4) per $1 risked**
+  vs ≈ 0.2¢ for one hypothetical combo fill at the same total price —
+  a 9–30x fee multiple that grows with k, since deeper legs sit nearer
+  the fee curve's max. `combo_ask − ∏ leg worst-case costs ≈ +0.2–1.9pp`
+  on tight books: a listed combo costs about what building it costs, when
+  a tight book exists at all (rare — median listed width is 31¢).

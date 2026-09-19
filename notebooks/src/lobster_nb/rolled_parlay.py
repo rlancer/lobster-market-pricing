@@ -20,13 +20,14 @@ from __future__ import annotations
 import random
 import re
 from dataclasses import dataclass, field
-from itertools import combinations
+from itertools import combinations, product
 from math import isfinite
 from datetime import datetime, timezone
 from typing import Any, Literal
 
 from lobster_nb.mve import (
     ParsedMveCategory,
+    mve_leg_kind,
     parlay_game_group,
     sports_game_key,
 )
@@ -40,10 +41,11 @@ from lobster_nb.parlay_backtest import (
     combo_category,
     fetched_ms,
     group_by_ticker,
+    is_empty_clob,
     ticker_settlement,
 )
 
-GameSlice = Literal["same_game", "cross_game"]
+GameSlice = Literal["same_game", "cross_game", "same_game_semantic"]
 
 # Loader parity: isOpenCombo treats settled|finalized|closed as not open.
 CLOSED_STATUS_RE = re.compile(r"^(settled|finalized|closed)$", re.IGNORECASE)
@@ -325,6 +327,393 @@ def build_cross_game_parlays(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Correlated leg templates — semantic selection, not k-subset enumeration.
+#
+# Naive in-band k-subset enumeration mixes in mutually-exclusive legs
+# (opposing scorers, both sides of a spread) and graded 0/211. Instead pick
+# legs by meaning, per game: (1) team wins (KXNFLGAME moneyline),
+# (2) a player prop on that same team (KXNFLPASSTDS QB passing TDs or
+# KXNFLTD player TDs; D/ST excluded), (3) game total over (KXNFLTOTAL), and
+# for the 4-leg template (4) that same team's total over (KXNFLTEAMTOTAL).
+# Team wins => its star scored, its points cleared the team total, and the
+# game total went up — every leg is positively correlated by construction.
+# ---------------------------------------------------------------------------
+
+
+NFL_TEMPLATE_SLUG_RE = re.compile(r"^\d{2}[A-Z]{3}\d{2}[A-Z]+$")
+NFL_TEMPLATE_SERIES = ("GAME", "PASSTDS", "TD", "TOTAL", "TEAMTOTAL")
+
+
+@dataclass(frozen=True)
+class NflTemplateLeg:
+    """Parsed KXNFL template ticker: ML / player prop / game or team total."""
+
+    kind: Literal["moneyline", "player_prop", "game_total", "team_total"]
+    slug: str  # game slug, e.g. 26SEP13ARILAC
+    team: str | None  # moneyline team abbr / team-total team abbr
+    player: str | None  # prop player id (team abbr + name + jersey)
+    threshold: int | None  # prop "N+" threshold / total line code
+
+
+def parse_nfl_template_leg(ticker: str) -> NflTemplateLeg | None:
+    """Classify a KXNFL ticker into a correlated-template slot.
+
+    Returns None for anything outside the template: other KXNFL series
+    (spreads, first TD, halves), D/ST props, non-KXNFL tickers.
+    """
+    parts = str(ticker).strip().upper().split("-")
+    if len(parts) < 3 or not parts[0].startswith("KXNFL"):
+        return None
+    series = parts[0][len("KXNFL"):]
+    if series not in NFL_TEMPLATE_SERIES:
+        return None
+    slug = parts[1]
+    if not NFL_TEMPLATE_SLUG_RE.match(slug):
+        return None
+    if series == "GAME":
+        if len(parts) != 3 or not re.fullmatch(r"[A-Z]+", parts[2]):
+            return None
+        return NflTemplateLeg(
+            kind="moneyline", slug=slug, team=parts[2], player=None, threshold=None
+        )
+    if series == "TOTAL":
+        if len(parts) != 3 or not parts[2].isdigit():
+            return None
+        return NflTemplateLeg(
+            kind="game_total", slug=slug, team=None, player=None,
+            threshold=int(parts[2]),
+        )
+    if series == "TEAMTOTAL":
+        # <GAMEKEY>-<TEAMABBR><LINE>, e.g. ...-LAC22 -> "over 21.5".
+        m = re.fullmatch(r"([A-Z]+?)(\d+)", parts[2]) if len(parts) == 3 else None
+        if m is None:
+            return None
+        return NflTemplateLeg(
+            kind="team_total", slug=slug, team=m.group(1), player=None,
+            threshold=int(m.group(2)),
+        )
+    # PASSTDS / TD player props: <GAMEKEY>-<PLAYERID>-<N+>.
+    if len(parts) != 4 or not parts[3].isdigit():
+        return None
+    player = parts[2]
+    if player.endswith("DST"):  # team defense props are not star-player legs
+        return None
+    return NflTemplateLeg(
+        kind="player_prop", slug=slug, team=None, player=player,
+        threshold=int(parts[3]),
+    )
+
+
+# Slot order defines the template; slot 0 anchors the team via the moneyline.
+CORRELATED_TEMPLATES: dict[int, tuple[str, ...]] = {
+    3: ("moneyline", "player_prop", "game_total"),
+    4: ("moneyline", "player_prop", "game_total", "team_total"),
+}
+
+
+def _slot_matches(kind: str, leg: LegQuote, ml_team: str) -> bool:
+    """Team-binding for a template slot given the anchored moneyline team."""
+    parsed = parse_nfl_template_leg(leg.market_ticker)
+    if parsed is None:
+        return False
+    if kind == "player_prop":
+        return bool(parsed.player and parsed.player.startswith(ml_team))
+    if kind == "team_total":
+        # The id is exactly TEAMABBR + line digits, so require equality.
+        return parsed.team == ml_team
+    return True  # moneyline / game_total: no cross-slot team binding
+
+
+def build_correlated_template_parlays(
+    markets: list[dict[str, Any]],
+    at_ms: float,
+    *,
+    template: tuple[str, ...],
+    target_multiple: float,
+    band_tol: float,
+    per_game_cap: int,
+    max_leg_ask: float,
+) -> tuple[list[RolledParlay], list[str]]:
+    """One correlated template per game, bought YES at ask, kept only inside
+    the payout band. Slots after the moneyline anchor are team-bound to it.
+
+    Unlike ``build_same_game_parlays`` this draws straight from the tape
+    (grouped once) rather than the volume-capped combo-leg pool, because the
+    cap drops low-volume prop/total tickers the template needs. Quotes obey
+    the same no-leakage ``last_quote_before`` gates.
+    """
+    kinds = tuple(template)
+    if not kinds or kinds[0] != "moneyline":
+        return [], ["template must anchor on a moneyline leg"]
+    by_ticker = group_by_ticker(markets)
+    lo_cost, hi_cost = _cost_band(target_multiple, band_tol)
+    slots: dict[str, dict[str, list[LegQuote]]] = {k: {} for k in kinds}
+    seen_kind: dict[str, int] = {k: 0 for k in kinds}
+    for ticker in sorted(by_ticker):
+        parsed = parse_nfl_template_leg(ticker)
+        if parsed is None or parsed.kind not in slots:
+            continue
+        row = last_quote_before(by_ticker[ticker], at_ms)
+        if row is None:
+            continue
+        leg = _leg_from_row(ticker, row)
+        if leg is None or leg.ask < LEG_MIN_ASK or leg.ask > max_leg_ask:
+            continue
+        slots[parsed.kind].setdefault(parsed.slug, []).append(leg)
+        seen_kind[parsed.kind] += 1
+    out: list[RolledParlay] = []
+    games_full = 0
+    for slug in sorted(set.intersection(*(set(s) for s in slots.values()))):
+        candidates: list[RolledParlay] = []
+        for ml_leg in slots["moneyline"][slug]:
+            team = parse_nfl_template_leg(ml_leg.market_ticker).team or ""
+            pools = [
+                [l for l in slots[kind][slug] if _slot_matches(kind, l, team)]
+                for kind in kinds[1:]
+            ]
+            for combo in product(*pools):
+                if len({l.market_ticker for l in combo}) != len(combo):
+                    continue
+                cost = ml_leg.cost
+                for leg in combo:
+                    cost *= leg.cost
+                if not (lo_cost <= cost <= hi_cost):
+                    continue
+                candidates.append(
+                    _parlay_from((ml_leg, *combo), "same_game_semantic")
+                )
+        if not candidates:
+            continue
+        games_full += 1
+        candidates.sort(
+            key=lambda p: (
+                -sum(l.volume for l in p.legs),
+                p.legs[0].market_ticker,
+            )
+        )
+        out.extend(candidates[: max(0, per_game_cap)])
+    slot_note = ", ".join(
+        f"{seen_kind.get(k, 0)} {k.replace('_', ' ')} legs" for k in kinds
+    )
+    notes = [
+        f"Template slots with an open tradable as-of quote: {slot_note}; "
+        f"{games_full} games had every slot.",
+        f"{len(out)} in-band correlated {len(kinds)}-leg parlays "
+        f"({target_multiple:.0f}x ±{band_tol:.2f}, ask ≤ {max_leg_ask:.2f}, "
+        f"capped at {per_game_cap}/game by volume).",
+    ]
+    return out, notes
+
+
+def build_correlated_3leg_parlays(
+    markets: list[dict[str, Any]],
+    at_ms: float,
+    *,
+    target_multiple: float,
+    band_tol: float,
+    per_game_cap: int,
+    max_leg_ask: float,
+) -> tuple[list[RolledParlay], list[str]]:
+    """Correlated 3-leg template: ML(team) + same-team player prop +
+    game total over."""
+    return build_correlated_template_parlays(
+        markets,
+        at_ms,
+        template=CORRELATED_TEMPLATES[3],
+        target_multiple=target_multiple,
+        band_tol=band_tol,
+        per_game_cap=per_game_cap,
+        max_leg_ask=max_leg_ask,
+    )
+
+
+def build_correlated_4leg_parlays(
+    markets: list[dict[str, Any]],
+    at_ms: float,
+    *,
+    target_multiple: float,
+    band_tol: float,
+    per_game_cap: int,
+    max_leg_ask: float,
+) -> tuple[list[RolledParlay], list[str]]:
+    """Correlated 4-leg template: ML(team) + same-team player prop +
+    game total over + that team's total over. Team wins => its star scored,
+    its points cleared the team total, and the game total went up."""
+    return build_correlated_template_parlays(
+        markets,
+        at_ms,
+        template=CORRELATED_TEMPLATES[4],
+        target_multiple=target_multiple,
+        band_tol=band_tol,
+        per_game_cap=per_game_cap,
+        max_leg_ask=max_leg_ask,
+    )
+
+
+def combo_pricing_residuals(
+    markets: list[dict[str, Any]],
+    *,
+    max_gap_minutes: float = 10.0,
+    max_book_width: float = 0.06,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Reverse-engineer Kalshi's combo pricer from the tape.
+
+    For every sports combo row with a tight two-way book — a listed CLOB
+    snapshot or an RFQ maker quote — align each leg's nearest hourly quote
+    within ``max_gap_minutes`` and compare the combo's mid to the
+    side-adjusted product of the legs' mids. Residual ≈ 0 means the combo
+    is priced at the independence product of leg mids: no correlation
+    haircut. ``no`` legs use 1 − mid; worst-case cost crosses each leg's
+    spread. Wide books are skipped — their mid is meaningless.
+    """
+    import bisect
+    import statistics
+
+    by_ticker = group_by_ticker(markets)
+    leg_index: dict[str, list[tuple[float, Any, Any]]] = {}
+    for ticker, rows in by_ticker.items():
+        for row in rows:
+            if str(row.get("source") or "").lower() != "kalshi":
+                continue
+            if not _is_open_status(row.get("status")):
+                continue
+            bid, ask = row.get("yes_bid"), row.get("yes_ask")
+            if bid is None and ask is None:
+                continue
+            if is_empty_clob(row):
+                # 0/0 or 0/1 empty books carry no price — a fake 0.5 mid.
+                continue
+            leg_index.setdefault(ticker, []).append((fetched_ms(row), bid, ask))
+    for ticker in leg_index:
+        leg_index[ticker].sort(key=lambda r: r[0])
+
+    def nearest_leg(ticker: str, at_ms: float) -> tuple[float, Any, Any] | None:
+        rows = leg_index.get(ticker)
+        if not rows:
+            return None
+        ms_list = [r[0] for r in rows]
+        i = bisect.bisect_left(ms_list, at_ms)
+        best: tuple[float, Any, Any] | None = None
+        best_gap = -1.0
+        for j in (i - 1, i):
+            if 0 <= j < len(rows):
+                gap = abs(rows[j][0] - at_ms)
+                if best is None or gap < best_gap:
+                    best, best_gap = rows[j], gap
+        if best is None or best_gap > max_gap_minutes * 60_000:
+            return None
+        return best
+
+    rows_out: list[dict[str, Any]] = []
+    skipped_wide = skipped_align = 0
+    for ticker, rows in sorted(by_ticker.items()):
+        parsed = combo_category(rows)
+        if parsed is None or len(parsed.legs) < 2:
+            continue
+        if any(mve_leg_kind(spec.market_ticker) == "crypto" for spec in parsed.legs):
+            continue
+        games = [
+            sports_game_key(spec.market_ticker, spec.event_ticker)
+            for spec in parsed.legs
+        ]
+        same_game = len(set(games)) == 1
+        for row in rows:
+            raw_source = str(row.get("source") or "").lower()
+            if raw_source not in ("kalshi", "kalshi_rfq"):
+                continue
+            bid, ask = row.get("yes_bid"), row.get("yes_ask")
+            if (
+                bid is None
+                or ask is None
+                or not (0 < bid <= ask < 1)
+                or ask - bid > max_book_width
+            ):
+                if bid is not None and ask is not None and 0 < bid <= ask < 1:
+                    skipped_wide += 1
+                continue
+            at_ms = fetched_ms(row)
+            leg_mids: list[float] = []
+            leg_worst: list[float] = []
+            aligned = True
+            for spec in parsed.legs:
+                leg_row = nearest_leg(spec.market_ticker, at_ms)
+                if leg_row is None:
+                    aligned = False
+                    break
+                _, leg_bid, leg_ask = leg_row
+                leg_mid = quote_mid(leg_bid, leg_ask, None)
+                if leg_mid is None or not (0 < leg_mid < 1):
+                    aligned = False
+                    break
+                if spec.side == "yes":
+                    leg_mids.append(leg_mid)
+                    worst = leg_ask if (leg_ask is not None and 0 < leg_ask < 1) else 1.0
+                else:
+                    leg_mids.append(1.0 - leg_mid)
+                    worst = (
+                        1.0 - leg_bid
+                        if (leg_bid is not None and 0 < leg_bid < 1)
+                        else 1.0
+                    )
+                leg_worst.append(worst)
+            if not aligned:
+                skipped_align += 1
+                continue
+            combo_mid = (bid + ask) / 2
+            prod_mid = 1.0
+            prod_worst = 1.0
+            for m in leg_mids:
+                prod_mid *= m
+            for w in leg_worst:
+                prod_worst *= w
+            rows_out.append(
+                {
+                    "source": "rfq" if raw_source == "kalshi_rfq" else "listed",
+                    "k": len(parsed.legs),
+                    "combo_ticker": ticker,
+                    "same_game": same_game,
+                    "combo_mid": round6(combo_mid),
+                    "combo_ask": round6(ask),
+                    "prod_leg_mid": round6(prod_mid),
+                    "prod_leg_worst_cost": round6(prod_worst),
+                    "residual_mid": round6(combo_mid - prod_mid),
+                    "ask_minus_worst": round6(ask - prod_worst),
+                    "fetched_at": row.get("fetched_at"),
+                }
+            )
+    notes = [
+        f"{len(rows_out)} tight combo books (width ≤ {max_book_width:.2f}) with "
+        f"every leg quoted within {max_gap_minutes:.0f} minutes; skipped "
+        f"{skipped_wide} wide books and {skipped_align} unalignable rows.",
+    ]
+    return rows_out, notes
+
+
+def pricing_residual_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Combo-mid minus independence product, by quote source and game slice."""
+    import statistics
+
+    groups: dict[tuple[str, bool], list[dict[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault((str(r.get("source")), bool(r.get("same_game"))), []).append(r)
+    out: list[dict[str, Any]] = []
+    for (source, same_game), bucket in sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+        residuals = [float(r["residual_mid"]) for r in bucket]
+        asks = [float(r["ask_minus_worst"]) for r in bucket]
+        out.append(
+            {
+                "source": source,
+                "same_game": same_game,
+                "n": len(bucket),
+                "mean_residual": round4(statistics.mean(residuals)),
+                "median_residual": round4(statistics.median(residuals)),
+                "mean_ask_minus_worst": round4(statistics.mean(asks)),
+                "mean_combo_mid": round4(statistics.mean(float(r["combo_mid"]) for r in bucket)),
+                "mean_prod_leg_mid": round4(statistics.mean(float(r["prod_leg_mid"]) for r in bucket)),
+            }
+        )
+    return out
 def hydrate_ticker_settlements(
     tickers: list[str],
     get_json_fn: Any,
@@ -670,5 +1059,180 @@ def self_check() -> list[str]:
     ungraded = graded_parlay({"A1": 1})
     if ungraded.graded:
         errors.append("parlay with a missing leg grade marked graded")
+
+    if (p := parse_nfl_template_leg("KXNFLGAME-26SEP13ARILAC-ARI")) is None or (
+        p.kind, p.team, p.slug) != ("moneyline", "ARI", "26SEP13ARILAC"):
+        errors.append(f"moneyline ticker misparsed: {p}")
+    if (p := parse_nfl_template_leg("KXNFLPASSTDS-26SEP13BUFHOU-BUFJALLEN17-2")) is None or (
+        p.kind, p.player, p.threshold) != ("player_prop", "BUFJALLEN17", 2):
+        errors.append(f"QB passing-TD ticker misparsed: {p}")
+    if (p := parse_nfl_template_leg("KXNFLTD-26SEP13ARILAC-LACKVIDAL28-1")) is None or (
+        p.kind, p.player) != ("player_prop", "LACKVIDAL28"):
+        errors.append(f"player-TD ticker misparsed: {p}")
+    if (p := parse_nfl_template_leg("KXNFLTOTAL-26SEP13ARILAC-44")) is None or (
+        p.kind, p.threshold) != ("game_total", 44):
+        errors.append(f"game-total ticker misparsed: {p}")
+    if (p := parse_nfl_template_leg("KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22")) is None or (
+        p.kind, p.team, p.threshold) != ("team_total", "LAC", 22):
+        errors.append(f"team-total ticker misparsed: {p}")
+    for rejected in (
+        "KXNFLSPREAD-26SEP13ARILAC-ARI-3",  # spread series
+        "KXNFL1HTOTAL-26SEP13ARILAC-24",    # half total
+        "KXNFLFIRSTTD-26SEP13ARILAC-ARITMCBRIDE85",  # first TD
+        "KXNFLTD-26SEP13ARILAC-ARIARIDST-1",  # D/ST prop
+        "KXMVE-26SEP13ARILAC-ARI",          # non-KXNFL-template series
+        "KXNFLGAME-26SEP13ARILAC",          # moneyline without a team side
+    ):
+        if parse_nfl_template_leg(rejected) is not None:
+            errors.append(f"non-template ticker accepted: {rejected}")
+
+    def tmpl_rows(ticker: str, ask: float) -> dict[str, Any]:
+        return snap(ticker, "2026-09-13T11:00:00Z", ask=ask)
+
+    _tape = [
+        tmpl_rows("KXNFLGAME-26SEP13ARILAC-ARI", 0.30),
+        tmpl_rows("KXNFLGAME-26SEP13ARILAC-LAC", 0.30),
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-ARITMCBRIDE85-1", 0.30),
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-LACKVIDAL28-1", 0.30),
+        tmpl_rows("KXNFLTOTAL-26SEP13ARILAC-44", 0.30),
+        # Opposing-team prop and D/ST must never enter an ARI template parlay.
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-ARIARIDST-1", 0.30),
+        # Second game with an out-of-band prop (too expensive) but valid slots.
+        tmpl_rows("KXNFLGAME-26SEP13BUFHOU-BUF", 0.30),
+        tmpl_rows("KXNFLTD-26SEP13BUFHOU-BUFJALLEN17-2", 0.55),
+        tmpl_rows("KXNFLTOTAL-26SEP13BUFHOU-51", 0.30),
+    ]
+    semantic, _ = build_correlated_3leg_parlays(
+        _tape, t0, target_multiple=30.0, band_tol=1.25, per_game_cap=10,
+        max_leg_ask=0.60,
+    )
+    for p in semantic:
+        if p.game_group != "same_game_semantic" or len(p.legs) != 3:
+            errors.append(f"semantic parlay wrong shape: {p.game_group}/{len(p.legs)}")
+        kinds = [parse_nfl_template_leg(l.market_ticker).kind for l in p.legs]
+        if kinds != ["moneyline", "player_prop", "game_total"]:
+            errors.append(f"semantic parlay leg order/kinds wrong: {kinds}")
+        ml_team = parse_nfl_template_leg(p.legs[0].market_ticker).team
+        prop_player = parse_nfl_template_leg(p.legs[1].market_ticker).player
+        if not prop_player.startswith(ml_team):
+            errors.append(
+                f"semantic parlay crosses teams: {ml_team} vs {prop_player}"
+            )
+        if not (30.0 / 1.25 <= p.multiple <= 30.0 * 1.25):
+            errors.append("semantic parlay multiple outside band")
+    tickers_used = {l.market_ticker for p in semantic for l in p.legs}
+    if "KXNFLTD-26SEP13ARILAC-ARIARIDST-1" in tickers_used:
+        errors.append("D/ST prop entered a semantic parlay")
+    if "KXNFLTD-26SEP13BUFHOU-BUFJALLEN17-2" in tickers_used:
+        errors.append("out-of-band semantic parlay was kept")
+    # ARI and LAC moneylines each pair with their own team's scorer only.
+    _ml_prop = {
+        (p.legs[0].market_ticker, p.legs[1].market_ticker) for p in semantic
+    }
+    if _ml_prop != {
+        ("KXNFLGAME-26SEP13ARILAC-ARI", "KXNFLTD-26SEP13ARILAC-ARITMCBRIDE85-1"),
+        ("KXNFLGAME-26SEP13ARILAC-LAC", "KXNFLTD-26SEP13ARILAC-LACKVIDAL28-1"),
+    }:
+        errors.append(f"semantic moneyline/prop pairing wrong: {sorted(_ml_prop)}")
+    capped, _ = build_correlated_3leg_parlays(
+        _tape, t0, target_multiple=30.0, band_tol=1.25, per_game_cap=1,
+        max_leg_ask=0.60,
+    )
+    if len(capped) > 1:
+        errors.append(f"per-game cap not honored: {len(capped)}")
+
+    # 4-leg template: adds the same team's total over. Four 42c legs net of
+    # fees land inside a 30x ±25% band (0.4371^4 ~= 0.0364 -> 27.5x).
+    _tape4 = [
+        tmpl_rows("KXNFLGAME-26SEP13ARILAC-ARI", 0.42),
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-ARITMCBRIDE85-1", 0.42),
+        tmpl_rows("KXNFLTOTAL-26SEP13ARILAC-44", 0.42),
+        tmpl_rows("KXNFLTEAMTOTAL-26SEP13ARILAC-ARI24", 0.42),
+        # Opposing team's total must never pair with the ARI moneyline.
+        tmpl_rows("KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22", 0.42),
+        # In-band for the LAC side too: its own scorer + team total.
+        tmpl_rows("KXNFLGAME-26SEP13ARILAC-LAC", 0.42),
+        tmpl_rows("KXNFLTD-26SEP13ARILAC-LACKVIDAL28-1", 0.42),
+    ]
+    semantic4, _ = build_correlated_4leg_parlays(
+        _tape4, t0, target_multiple=30.0, band_tol=1.25, per_game_cap=10,
+        max_leg_ask=0.60,
+    )
+    for p in semantic4:
+        if len(p.legs) != 4:
+            errors.append(f"4-leg parlay has {len(p.legs)} legs")
+        kinds = [parse_nfl_template_leg(l.market_ticker).kind for l in p.legs]
+        if kinds != ["moneyline", "player_prop", "game_total", "team_total"]:
+            errors.append(f"4-leg parlay slot kinds wrong: {kinds}")
+        ml_team = parse_nfl_template_leg(p.legs[0].market_ticker).team
+        tt_team = parse_nfl_template_leg(p.legs[3].market_ticker).team
+        if tt_team != ml_team:
+            errors.append(f"4-leg parlay team total crosses teams: {ml_team} vs {tt_team}")
+        if not (30.0 / 1.25 <= p.multiple <= 30.0 * 1.25):
+            errors.append("4-leg parlay multiple outside band")
+    _ml_tt = {
+        (p.legs[0].market_ticker, p.legs[3].market_ticker) for p in semantic4
+    }
+    if _ml_tt != {
+        ("KXNFLGAME-26SEP13ARILAC-ARI", "KXNFLTEAMTOTAL-26SEP13ARILAC-ARI24"),
+        ("KXNFLGAME-26SEP13ARILAC-LAC", "KXNFLTEAMTOTAL-26SEP13ARILAC-LAC22"),
+    }:
+        errors.append(f"4-leg moneyline/team-total pairing wrong: {sorted(_ml_tt)}")
+    # Combo pricer residuals: an independence-priced combo lands at ~0
+    # residual; wide books and misaligned legs are excluded.
+    from lobster_nb.mve import MveSelectedLeg, encode_mve_category
+
+    _cat = encode_mve_category(
+        "TEST",
+        [
+            MveSelectedLeg("KXTEST-26SEP13AB", "L1", "yes"),
+            MveSelectedLeg("KXTEST-26SEP13AB", "L2", "no"),
+        ],
+    )
+    _leg1 = snap("L1", "2026-09-13T11:00:00Z", bid=0.40, ask=0.44)
+    _leg2 = snap("L2", "2026-09-13T11:00:00Z", bid=0.30, ask=0.34)
+    _combo = {
+        **snap(
+            "KXMVE-TEST-1", "2026-09-13T11:00:00Z",
+            bid=0.28, ask=0.29, source="kalshi_rfq",
+        ),
+        "category": _cat,
+    }
+    _combo_wide = {
+        **snap(
+            "KXMVE-TEST-2", "2026-09-13T11:00:00Z",
+            bid=0.05, ask=0.50, source="kalshi_rfq",
+        ),
+        "category": _cat,
+    }
+    # L3 only quoted 30 minutes before the combo -> beyond the 10-minute gap.
+    _leg3 = snap("L3", "2026-09-13T10:30:00Z", bid=0.20, ask=0.24)
+    _cat_far = encode_mve_category(
+        "TEST",
+        [
+            MveSelectedLeg("KXTEST-26SEP13AB", "L1", "yes"),
+            MveSelectedLeg("KXTEST-26SEP13AB", "L3", "yes"),
+        ],
+    )
+    _combo_far = {
+        **snap(
+            "KXMVE-TEST-3", "2026-09-13T11:00:00Z",
+            bid=0.09, ask=0.10, source="kalshi_rfq",
+        ),
+        "category": _cat_far,
+    }
+    _pricing_rows, _ = combo_pricing_residuals(
+        [_leg1, _leg2, _leg3, _combo, _combo_wide, _combo_far]
+    )
+    if len(_pricing_rows) != 1:
+        errors.append(
+            f"pricing residuals kept {len(_pricing_rows)} rows "
+            "(want 1: wide book and misaligned leg excluded)"
+        )
+    elif abs(_pricing_rows[0]["residual_mid"] + 0.0006) > 0.002:
+        errors.append(
+            "independence-priced combo residual off: "
+            f"{_pricing_rows[0]['residual_mid']}"
+        )
 
     return errors
